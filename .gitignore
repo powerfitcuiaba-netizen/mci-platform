@@ -1,0 +1,54 @@
+# Dependências
+node_modules/
+.pnpm-store/
+
+# Builds
+.next/
+dist/
+build/
+out/
+.expo/
+web-build/
+
+# Ambiente e segredos
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Cache
+.cache/
+.turbo/
+.nx/
+coverage/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# Prisma
+prisma/*.db
+prisma/*.db-journal
+
+# Temporários
+tmp/
+temp/
+
+# Uploads locais
+uploads/
+
+# Certificados e chaves
+*.pem
+*.key
+*.crt
