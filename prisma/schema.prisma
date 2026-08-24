@@ -7,6 +7,26 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id          String      @id @default(cuid())
+  name        String
+  email       String      @unique
+  passwordHash String     @map("passwordHash")
+  status      String      @default("ACTIVE")
+  role        String      @default("ATHLETE")
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  participant Participant? @relation("UserParticipant")
+  createdTournaments Tournament[] @relation("TournamentCreatedBy")
+  createdParticipants Participant[] @relation("ParticipantCreatedBy")
+  judgeAssignments JudgeAssignment[] @relation("JudgeAssignmentUser")
+  notifications Notification[]
+  documents Document[] @relation("DocumentCreatedBy")
+  checkIns CheckIn[] @relation("CheckInOperator")
+
+  @@index([role])
+}
+
 model Tournament {
   id          String       @id @default(cuid())
   name        String
@@ -14,11 +34,15 @@ model Tournament {
   status      String       @default("PLANNED")
   startDate   DateTime?
   endDate     DateTime?
+  createdById String?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
+  createdBy   User?        @relation("TournamentCreatedBy", fields: [createdById], references: [id])
   enrollments Enrollment[]
   matches     Match[]
   standings   Standing[]
+  judgeAssignments JudgeAssignment[]
+  documents Document[]
 
   @@index([status])
 }
@@ -28,8 +52,12 @@ model Participant {
   name           String
   identification String       @unique
   type           String       @default("TEAM")
+  userId         String?      @unique
+  createdById    String?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
+  user           User?        @relation("UserParticipant", fields: [userId], references: [id])
+  createdBy      User?        @relation("ParticipantCreatedBy", fields: [createdById], references: [id])
   enrollments    Enrollment[]
   matchesAsA     Match[]      @relation("ParticipantA")
   matchesAsB     Match[]      @relation("ParticipantB")
@@ -46,6 +74,7 @@ model Enrollment {
   createdAt     DateTime    @default(now())
   tournament    Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  checkIns      CheckIn[]
 
   @@unique([tournamentId, participantId])
   @@index([participantId])
@@ -99,4 +128,58 @@ model Standing {
 
   @@unique([tournamentId, participantId])
   @@index([tournamentId, points, wins, scored])
+}
+
+model JudgeAssignment {
+  id          String     @id @default(cuid())
+  tournamentId String
+  judgeId     String
+  createdAt   DateTime   @default(now())
+  tournament  Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  judge       User       @relation("JudgeAssignmentUser", fields: [judgeId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, judgeId])
+  @@index([judgeId])
+}
+
+model CheckIn {
+  id            String     @id @default(cuid())
+  enrollmentId  String     @unique
+  status        String     @default("CHECKED_IN")
+  checkedInAt   DateTime   @default(now())
+  operatorName  String?
+  checkedInById String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  enrollment    Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  checkedInBy   User?      @relation("CheckInOperator", fields: [checkedInById], references: [id], onDelete: SetNull)
+
+  @@index([status])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  type      String   @default("INFO")
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+}
+
+model Document {
+  id           String     @id @default(cuid())
+  tournamentId String
+  title        String
+  fileName     String
+  mimeType     String     @default("application/octet-stream")
+  uploadedById String?
+  createdAt    DateTime   @default(now())
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  uploadedBy   User?      @relation("DocumentCreatedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([tournamentId])
 }

@@ -1,4 +1,5 @@
 const express = require('express');
+const cors = require('cors');
 const helmet = require('helmet');
 const apiRoutes = require('./routes');
 const errorHandler = require('./middlewares/errorHandler');
@@ -6,6 +7,7 @@ const errorHandler = require('./middlewares/errorHandler');
 const app = express();
 
 app.use(express.json());
+app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173' }));
 app.use(helmet());
 
 app.get('/', (req, res) => {

@@ -6,8 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "cross-env DATABASE_URL=file:./test.db prisma migrate deploy && cross-env DATABASE_URL=file:./test.db vitest run",
+    "test": "cross-env DATABASE_URL=file:./test.db prisma migrate deploy && cross-env DATABASE_URL=file:./test.db vitest run tests --maxWorkers=1 --no-file-parallelism",
     "prisma:generate": "prisma generate",
+    "prisma:validate": "prisma validate",
     "prisma:migrate": "prisma migrate dev --name init"
   },
   "keywords": [],
@@ -16,8 +17,11 @@
   "type": "commonjs",
   "dependencies": {
     "@prisma/client": "^6.16.0",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
     "express": "^5.2.1",
     "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
