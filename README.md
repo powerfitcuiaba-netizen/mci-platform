@@ -2,6 +2,12 @@
 
 API backend para gerenciamento de campeonatos, participantes, partidas, resultados e classificação.
 
+O workspace também inclui um frontend React/Vite em `frontend/`, com dashboard operacional responsivo e integração com esta API.
+
+## Referências visuais
+
+As referências oficiais ficam permanentemente em `design/referencias/`. O frontend segue a linguagem MCI observada nelas: superfícies near-black, vermelho MCI para ações e seleção, azul para informação, estados semânticos, navegação lateral operacional, cards densos e composição mobile própria. Os módulos Judge Center, MCI TV, Notificações e Documentos possuem estados de preparação até que seus endpoints sejam disponibilizados.
+
 ## Tecnologias
 
 - Node.js 18+
@@ -25,7 +31,21 @@ O arquivo `.env` usa SQLite por padrão:
 DATABASE_URL="file:./dev.db"
 PORT=3000
 NODE_ENV=development
+FRONTEND_URL=http://localhost:5173
+JWT_SECRET="change-this-secret-in-production"
 ```
+
+## Autenticação e autorização
+
+A API agora inclui autenticação JWT com hash de senha via `bcryptjs` e perfis de acesso.
+
+- `POST /api/v1/auth/register`: cria um usuário com nome, email, senha e perfil.
+- `POST /api/v1/auth/login`: autentica usuário e retorna um token JWT.
+- `GET /api/v1/auth/me`: retorna o usuário autenticado a partir do token.
+- Perfis suportados: `ADMIN`, `ORGANIZER`, `JUDGE`, `COACH`, `ATHLETE`, `PUBLIC`.
+- O `passwordHash` nunca é retornado e a senha não é salva em texto puro.
+
+Para rotas de escrita, o backend valida o token e então aplica regras de perfil. A arquitetura foi desenhada para permitir expansão futura sem quebrar o núcleo de campeonatos.
 
 O banco fica em `prisma/dev.db` e não é versionado. A configuração usa `DATABASE_URL`; para PostgreSQL, altere o provider do datasource em `prisma/schema.prisma` para `postgresql`, use uma URL PostgreSQL e execute uma migration própria para esse banco.
 
@@ -36,6 +56,17 @@ npm start
 npm run dev
 npm test
 ```
+
+Para executar o frontend, em outro terminal:
+
+```bash
+cd frontend
+copy .env.example .env
+npm install
+npm run dev
+```
+
+O frontend fica em `http://localhost:5173` e usa `VITE_API_URL` para configurar a API.
 
 `npm run dev` usa o watch nativo do Node. Os testes executam migrations e limpam somente `prisma/test.db`, mantendo o banco de desenvolvimento (`prisma/dev.db`) intacto.
 
@@ -55,7 +86,12 @@ prisma/
   schema.prisma
   migrations/
 tests/
+frontend/
+  src/
+  package.json
 ```
+
+O backend e o frontend têm scripts de teste separados: execute `npm test` na raiz para a API e `cd frontend && npm test` para a interface.
 
 As rotas não acessam Prisma diretamente: controllers chamam services, e services usam repositories.
 
