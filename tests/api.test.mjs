@@ -45,6 +45,10 @@ describe('API MCI Campeonatos', () => {
     expect(match.status).toBe(201);
     const result = await request(app).post(`/api/v1/partidas/${match.body.id}/resultado`).send({ winnerParticipantId: teamA.body.id, scoreA: 2, scoreB: 1 });
     expect(result.status).toBe(201);
+    const resultLookup = await request(app).get(`/api/v1/partidas/${match.body.id}/resultado`);
+    expect(resultLookup.status).toBe(200);
+    const resultUpdate = await request(app).patch(`/api/v1/partidas/${match.body.id}/resultado`).send({ winnerParticipantId: teamA.body.id, scoreA: 3, scoreB: 1 });
+    expect(resultUpdate.status).toBe(200);
     const duplicateResult = await request(app).post(`/api/v1/partidas/${match.body.id}/resultado`).send({ winnerParticipantId: teamA.body.id, scoreA: 2, scoreB: 1 });
     expect(duplicateResult.status).toBe(409);
 
@@ -57,6 +61,10 @@ describe('API MCI Campeonatos', () => {
   it('valida dados e permite atualizar e excluir campeonatos', async () => {
     const invalid = await request(app).post('/api/v1/campeonatos').send({ name: '' });
     expect(invalid.status).toBe(400);
+    expect(invalid.body.error.details).toBeInstanceOf(Array);
+    expect((await request(app).get('/api/v1/campeonatos/%20')).status).toBe(400);
+    const invalidDates = await request(app).post('/api/v1/campeonatos').send({ name: 'Datas inválidas', startDate: '2026-05-02', endDate: '2026-05-01' });
+    expect(invalidDates.status).toBe(400);
     const created = await request(app).post('/api/v1/campeonatos').send({ name: 'Temporada 1' });
     const updated = await request(app).patch(`/api/v1/campeonatos/${created.body.id}`).send({ status: 'FINISHED' });
     expect(updated.status).toBe(200);
@@ -64,5 +72,19 @@ describe('API MCI Campeonatos', () => {
     expect((await request(app).get(`/api/v1/campeonatos/${created.body.id}`)).status).toBe(200);
     expect((await request(app).delete(`/api/v1/campeonatos/${created.body.id}`)).status).toBe(204);
     expect((await request(app).get(`/api/v1/campeonatos/${created.body.id}`)).status).toBe(404);
+  });
+
+  it('cobre CRUD de participantes e rejeita relações inválidas', async () => {
+    const participant = await request(app).post('/api/v1/participantes').send({ name: 'Pessoa MCI', identification: 'P1', type: 'PLAYER' });
+    expect(participant.status).toBe(201);
+    const team = await request(app).post('/api/v1/equipes').send({ name: 'Equipe MCI', identification: 'T1' });
+    expect(team.status).toBe(201);
+    expect((await request(app).get('/api/v1/equipes')).body).toHaveLength(1);
+    expect((await request(app).patch(`/api/v1/equipes/${team.body.id}`).send({ name: 'Equipe Atualizada' })).status).toBe(200);
+    expect((await request(app).get('/api/v1/participantes/sem-id-valido')).status).toBe(404);
+    const tournament = await request(app).post('/api/v1/campeonatos').send({ name: 'Relações' });
+    const invalidMatch = await request(app).post('/api/v1/partidas').send({ tournamentId: tournament.body.id, participantAId: participant.body.id, participantBId: team.body.id });
+    expect(invalidMatch.status).toBe(422);
+    expect((await request(app).delete(`/api/v1/participantes/${participant.body.id}`)).status).toBe(204);
   });
 });

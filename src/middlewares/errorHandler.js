@@ -9,7 +9,9 @@ function errorHandler(err, req, res, next) {
 
   if (status >= 500) console.error(err);
 
-  res.status(status).json({ error: { code, message } });
+  const response = { error: { code, message } };
+  if (err.details) response.error.details = err.details;
+  res.status(status).json(response);
 }
 
 module.exports = errorHandler;

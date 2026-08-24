@@ -1,10 +1,12 @@
 const express = require('express');
+const helmet = require('helmet');
 const apiRoutes = require('./routes');
 const errorHandler = require('./middlewares/errorHandler');
 
 const app = express();
 
 app.use(express.json());
+app.use(helmet());
 
 app.get('/', (req, res) => {
   res.send('MCI Campeonatos API funcionando!');

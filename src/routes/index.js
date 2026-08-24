@@ -13,16 +13,17 @@ const router = express.Router();
 const wrap = handler => asyncHandler(handler);
 
 router.route('/campeonatos').get(wrap(tournaments.list)).post(validate(schemas.tournament), wrap(tournaments.create));
-router.route('/campeonatos/:id').get(wrap(tournaments.findById)).patch(validate(schemas.tournament.partial()), wrap(tournaments.update)).put(validate(schemas.tournament.partial()), wrap(tournaments.update)).delete(wrap(tournaments.delete));
-router.route('/campeonatos/:id/participantes').get(wrap(enrollments.list)).post(validate(schemas.enrollment), wrap(enrollments.create));
-router.get('/campeonatos/:id/classificacao', wrap(standings.list));
+router.route('/campeonatos/:id').get(validate(schemas.paramsWithId, 'params'), wrap(tournaments.findById)).patch(validate(schemas.paramsWithId, 'params'), validate(schemas.tournamentUpdate), wrap(tournaments.update)).put(validate(schemas.paramsWithId, 'params'), validate(schemas.tournamentUpdate), wrap(tournaments.update)).delete(validate(schemas.paramsWithId, 'params'), wrap(tournaments.delete));
+router.route('/campeonatos/:id/participantes').get(validate(schemas.paramsWithId, 'params'), wrap(enrollments.list)).post(validate(schemas.paramsWithId, 'params'), validate(schemas.enrollment), wrap(enrollments.create));
+router.get('/campeonatos/:id/classificacao', validate(schemas.paramsWithId, 'params'), wrap(standings.list));
 
-router.route('/participantes').get(wrap(participants.list)).post(validate(schemas.participant), wrap(participants.create));
-router.route('/participantes/:id').get(wrap(participants.findById)).patch(validate(schemas.participant.partial()), wrap(participants.update)).put(validate(schemas.participant.partial()), wrap(participants.update)).delete(wrap(participants.delete));
-router.route('/equipes').get((req, res, next) => { req.query.type = 'TEAM'; next(); }, wrap(participants.list)).post(validate(schemas.team), wrap(participants.create));
+router.route('/participantes').get(validate(schemas.query, 'query'), wrap(participants.list)).post(validate(schemas.participant), wrap(participants.create));
+router.route('/participantes/:id').get(validate(schemas.paramsWithId, 'params'), wrap(participants.findById)).patch(validate(schemas.paramsWithId, 'params'), validate(schemas.participantUpdate), wrap(participants.update)).put(validate(schemas.paramsWithId, 'params'), validate(schemas.participantUpdate), wrap(participants.update)).delete(validate(schemas.paramsWithId, 'params'), wrap(participants.delete));
+router.route('/equipes').get(validate(schemas.query, 'query'), wrap(participants.listTeams)).post(validate(schemas.team), wrap(participants.create));
+router.route('/equipes/:id').get(validate(schemas.paramsWithId, 'params'), wrap(participants.findTeamById)).patch(validate(schemas.paramsWithId, 'params'), validate(schemas.teamUpdate), wrap(participants.update)).put(validate(schemas.paramsWithId, 'params'), validate(schemas.teamUpdate), wrap(participants.update)).delete(validate(schemas.paramsWithId, 'params'), wrap(participants.delete));
 
-router.route('/partidas').get(wrap(matches.list)).post(validate(schemas.match), wrap(matches.create));
-router.route('/partidas/:id').get(wrap(matches.findById)).patch(validate(schemas.match.partial()), wrap(matches.update)).put(validate(schemas.match.partial()), wrap(matches.update));
-router.post('/partidas/:id/resultado', validate(schemas.result), wrap(results.create));
+router.route('/partidas').get(validate(schemas.query, 'query'), wrap(matches.list)).post(validate(schemas.match), wrap(matches.create));
+router.route('/partidas/:id').get(validate(schemas.paramsWithId, 'params'), wrap(matches.findById)).patch(validate(schemas.paramsWithId, 'params'), validate(schemas.matchUpdate), wrap(matches.update)).put(validate(schemas.paramsWithId, 'params'), validate(schemas.matchUpdate), wrap(matches.update));
+router.route('/partidas/:id/resultado').get(validate(schemas.paramsWithId, 'params'), wrap(results.findByMatchId)).post(validate(schemas.paramsWithId, 'params'), validate(schemas.result), wrap(results.create)).patch(validate(schemas.paramsWithId, 'params'), validate(schemas.result), wrap(results.update));
 
 module.exports = router;

@@ -37,7 +37,7 @@ npm run dev
 npm test
 ```
 
-`npm run dev` usa o watch nativo do Node. Os testes limpam somente o banco SQLite local antes de cada cenário.
+`npm run dev` usa o watch nativo do Node. Os testes executam migrations e limpam somente `prisma/test.db`, mantendo o banco de desenvolvimento (`prisma/dev.db`) intacto.
 
 ## Estrutura
 
@@ -71,10 +71,11 @@ Todos os endpoints de negócio usam o prefixo `/api/v1`.
 | GET/POST | `/api/v1/participantes` | Listar ou criar participantes |
 | GET/PUT/PATCH/DELETE | `/api/v1/participantes/:id` | Operações sobre participante |
 | GET/POST | `/api/v1/equipes` | Listar ou criar equipes |
+| GET/PUT/PATCH/DELETE | `/api/v1/equipes/:id` | Operações sobre equipe |
 | GET/POST | `/api/v1/campeonatos/:id/participantes` | Consultar ou realizar inscrição |
 | GET/POST | `/api/v1/partidas` | Listar ou criar partidas |
 | GET/PUT/PATCH | `/api/v1/partidas/:id` | Consultar ou atualizar partida |
-| POST | `/api/v1/partidas/:id/resultado` | Registrar resultado |
+| GET/POST/PATCH | `/api/v1/partidas/:id/resultado` | Consultar, registrar ou atualizar resultado |
 | GET | `/api/v1/campeonatos/:id/classificacao` | Consultar classificação |
 
 Exemplo de criação:
@@ -97,3 +98,9 @@ Respostas de erro seguem o formato:
 - `Match`: partida entre dois participantes inscritos.
 - `Result`: placar e vencedor, com um resultado por partida.
 - `Standing`: classificação materializada e recalculada após cada resultado.
+
+## Regra atual de classificação
+
+A classificação é recalculada a partir de todos os resultados do campeonato. Vitória vale 3 pontos, empate vale 1 ponto para cada participante e derrota vale 0. A ordenação usa, nesta ordem: pontos, vitórias, pontos marcados e menor pontuação sofrida. A regra está isolada em `standingService` para permitir ajustes futuros.
+
+Erros de entrada retornam `400` com `error.code = VALIDATION_ERROR` e uma lista `error.details`. Recursos ausentes retornam `404`, duplicidades retornam `409` e violações semânticas retornam `422`.
