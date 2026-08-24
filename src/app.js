@@ -1,4 +1,6 @@
 const express = require('express');
+const apiRoutes = require('./routes');
+const errorHandler = require('./middlewares/errorHandler');
 
 const app = express();
 
@@ -8,18 +10,14 @@ app.get('/', (req, res) => {
   res.send('MCI Campeonatos API funcionando!');
 });
 
+app.use('/api/v1', apiRoutes);
+
 app.use((req, res) => {
   res.status(404).json({
-    error: 'Rota não encontrada'
+    error: { code: 'ROUTE_NOT_FOUND', message: 'Rota não encontrada' }
   });
 });
 
-app.use((err, req, res, next) => {
-  console.error(err);
-
-  res.status(500).json({
-    error: 'Erro interno do servidor'
-  });
-});
+app.use(errorHandler);
 
 module.exports = app;

@@ -1,0 +1,102 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Tournament {
+  id          String       @id @default(cuid())
+  name        String
+  description String?
+  status      String       @default("PLANNED")
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  enrollments Enrollment[]
+  matches     Match[]
+  standings   Standing[]
+
+  @@index([status])
+}
+
+model Participant {
+  id             String       @id @default(cuid())
+  name           String
+  identification String       @unique
+  type           String       @default("TEAM")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  enrollments    Enrollment[]
+  matchesAsA     Match[]      @relation("ParticipantA")
+  matchesAsB     Match[]      @relation("ParticipantB")
+  wins           Result[]     @relation("Winner")
+  standings      Standing[]
+
+  @@index([type])
+}
+
+model Enrollment {
+  id            String      @id @default(cuid())
+  tournamentId  String
+  participantId String
+  createdAt     DateTime    @default(now())
+  tournament    Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, participantId])
+  @@index([participantId])
+}
+
+model Match {
+  id             String      @id @default(cuid())
+  tournamentId   String
+  participantAId String
+  participantBId String
+  scheduledAt    DateTime?
+  status         String      @default("SCHEDULED")
+  phase          String?
+  round          Int?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  tournament     Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  participantA   Participant @relation("ParticipantA", fields: [participantAId], references: [id])
+  participantB   Participant @relation("ParticipantB", fields: [participantBId], references: [id])
+  result         Result?
+
+  @@index([tournamentId, status])
+}
+
+model Result {
+  id                  String       @id @default(cuid())
+  matchId             String       @unique
+  winnerParticipantId String?
+  scoreA              Int
+  scoreB              Int
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  match               Match        @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  winner              Participant? @relation("Winner", fields: [winnerParticipantId], references: [id])
+}
+
+model Standing {
+  id            String      @id @default(cuid())
+  tournamentId  String
+  participantId String
+  points        Int         @default(0)
+  wins          Int         @default(0)
+  losses        Int         @default(0)
+  draws         Int         @default(0)
+  played        Int         @default(0)
+  scored        Int         @default(0)
+  conceded      Int         @default(0)
+  updatedAt     DateTime    @updatedAt
+  tournament    Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, participantId])
+  @@index([tournamentId, points, wins, scored])
+}
