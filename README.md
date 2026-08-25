@@ -53,6 +53,16 @@ Raiz (`.env`):
 | `NODE_ENV` | Ambiente de execução | `development` |
 | `FRONTEND_URL` | Origem liberada no CORS | `http://localhost:5173` |
 | `JWT_SECRET` | Segredo de assinatura do token | — (obrigatório em produção) |
+| `CORS_ORIGINS` | Origens liberadas, separadas por vírgula | `http://localhost:5173` |
+| `STORAGE_DRIVER` | Provedor de armazenamento | `local` |
+| `STORAGE_DIR` | Raiz do armazenamento de arquivos | `uploads/` (fora do versionamento) |
+| `UPLOAD_MAX_BYTES` | Teto de tamanho por arquivo | `10485760` (10 MB) |
+| `PAYMENT_PROVIDER` | Provedor de pagamento | `sandbox` (desenvolvimento) |
+| `PAYMENT_WEBHOOK_SECRET` | Segredo do HMAC do webhook | — (obrigatório em produção) |
+| `ALLOW_SANDBOX_PAYMENTS` | Permite o provedor de desenvolvimento em produção | `false` |
+| `ORDER_EXPIRATION_MINUTES` | Prazo para pagar antes de o pedido expirar | `60` |
+| `RATE_LIMIT_ENABLED` | Liga o limitador de requisições | ligado só em produção |
+| `LOG_LEVEL` | `silent`/`error`/`warn`/`info`/`debug` | por ambiente |
 
 `frontend/.env`:
 
@@ -111,7 +121,8 @@ A autorização nunca usa identificador vindo do corpo da requisição. O ator �
 - `COACH` administra apenas participantes cujo `coachId` é o seu. No cadastro o vínculo é imposto pelo servidor: um `coachId` enviado no corpo é ignorado.
 - `ATHLETE` consulta a própria situação de inscrição e não opera a de terceiros.
 - Leituras abertas (`/campeonatos`, `/participantes`, `/equipes`, `/partidas`) omitem identificadores de posse — `createdById`, `userId`, `coachId` — quando o chamador não está autenticado.
-- A superfície pública `/public/*` é somente leitura e não expõe email, perfil, operador nem identificadores internos.
+- A superfície pública `/public/*` é somente leitura e não expõe email, perfil, operador nem identificadores internos. Só aparece na vitrine quem tem inscrição confirmada: participante sem competição não é exposto, para que a área aberta não vire um índice do cadastro interno.
+- `/dashboard/summary` devolve uma composição diferente por perfil. Quem decide o conteúdo é o servidor, a partir de `req.user.role`; a interface apenas escolhe a apresentação correspondente.
 
 ## Estado dos módulos
 
@@ -119,7 +130,7 @@ A autorização nunca usa identificador vindo do corpo da requisição. O ator �
 | --- | --- | --- |
 | Eventos / campeonatos | REAL | CRUD, filtros, detalhe, inscrições |
 | Participantes e equipes | REAL | CRUD com posse por criador e por técnico |
-| Inscrições | REAL | Sem cancelamento: ver limitações |
+| Inscrições | REAL | Cancelamento por transição de estado, com reinscrição |
 | Partidas | REAL | Sem exclusão: cancelamento por status |
 | Resultados | REAL | Validação, recálculo da classificação |
 | Classificação | REAL | Materializada, recalculada a cada resultado |
@@ -130,8 +141,14 @@ A autorização nunca usa identificador vindo do corpo da requisição. O ator �
 | MCI TV | REAL | Superfície pública somente leitura |
 | Notificações | REAL | Emissão em inscrição, check-in, partida e resultado |
 | Relatórios | REAL | JSON consolidado e visualização |
-| Dashboard | REAL | Indicadores do escopo do usuário |
-| Documentos | **PARCIAL** | Metadados, permissão e validação. **Armazenamento binário ainda não implementado**: não há upload nem download de arquivo. |
+| Dashboard | REAL | Composição própria por perfil: global, operação, arbitragem, elenco ou carreira |
+| Organizer Center | REAL | Consolida os módulos de operação do organizador num ponto único |
+| Vitrine pública | REAL | Competições, atletas e equipes acessíveis sem login |
+| Documentos | REAL | Upload e download reais, com tipo, tamanho e nome validados |
+| Athlete Center | REAL | Carreira do atleta, isolada por conta |
+| Admin Center | REAL | Contas, retrato global e trilha de auditoria |
+| Perfil | REAL | Edição dos próprios dados e troca segura de senha |
+| Auditoria | REAL | Registro de ações administrativas, sem dado sensível |
 
 ## Endpoints
 
@@ -142,7 +159,13 @@ Prefixo `/api/v1`.
 | GET | `/` | Health check textual |
 | POST | `/auth/register` · `/auth/login` | Criar conta · autenticar |
 | GET | `/auth/me` | Usuário da sessão |
-| GET | `/dashboard/summary` | Indicadores operacionais do usuário |
+| GET | `/dashboard/summary` | Painel do perfil autenticado (composição distinta por papel) |
+| GET/PATCH | `/profile` | Consultar ou editar os próprios dados |
+| POST | `/profile/password` | Trocar a própria senha |
+| GET | `/athlete/overview` | Carreira do atleta autenticado |
+| GET | `/admin/overview` · `/admin/users` · `/admin/users/:id` | Administração global |
+| PATCH | `/admin/users/:id` | Alterar perfil ou situação de uma conta |
+| GET | `/audit` | Trilha de auditoria (somente ADMIN) |
 | GET/POST | `/campeonatos` | Listar ou criar campeonatos |
 | GET/PUT/PATCH/DELETE | `/campeonatos/:id` | Operações sobre campeonato |
 | GET/POST | `/campeonatos/:id/participantes` | Consultar ou realizar inscrição |
@@ -157,16 +180,21 @@ Prefixo `/api/v1`.
 | GET | `/checkin/tournaments/:id` | Inscritos com situação de check-in |
 | GET/POST | `/checkin/enrollments/:id` | Situação · registrar check-in |
 | PATCH | `/checkin/enrollments/:id/cancel` | Cancelar check-in |
+| PATCH | `/inscricoes/:id/cancel` | Cancelar inscrição (transição de estado) |
 | GET | `/notifications` | Caixa do usuário com contador de não lidas |
 | PATCH | `/notifications/:id/read` | Marcar como lida |
 | POST | `/notifications/read-all` | Marcar todas como lidas |
-| GET/POST | `/documents` | Listar ou registrar documento |
+| GET/POST | `/documents` | Listar ou registrar documento por metadados |
+| POST | `/documents/upload` | Enviar documento com arquivo (multipart) |
+| GET | `/documents/:id/download` | Baixar o arquivo do documento |
 | GET/DELETE | `/documents/:id` | Consultar ou excluir documento |
 | GET | `/coach/overview` · `/coach/teams` · `/coach/athletes` | Visão do técnico |
 | PATCH | `/coach/participants/:id/team` | Mover atleta entre equipes do próprio elenco |
 | GET | `/backstage/overview` | Operação consolidada com alertas |
 | GET | `/reports/tournaments` · `/reports/tournaments/:id` | Índice e relatório do campeonato |
 | GET | `/public/summary` · `/public/tournaments` · `/public/tournaments/:id` · `/public/live` | MCI TV, sem autenticação |
+| GET | `/public/athletes` · `/public/athletes/:id` | Vitrine pública de atletas |
+| GET | `/public/teams` · `/public/teams/:id` | Vitrine pública de equipes |
 
 Exemplo:
 
@@ -187,18 +215,106 @@ Entradas inválidas retornam `400` com `error.code = VALIDATION_ERROR` e uma lis
 - `User`: conta de acesso e perfil.
 - `Tournament`: campeonato e seu ciclo de vida; `createdById` define a posse.
 - `Participant`: participante ou equipe (`type`). `coachId` vincula ao técnico, `teamId` compõe o elenco de uma equipe, `userId` liga a uma conta.
-- `Enrollment`: relação única entre campeonato e participante.
+- `Enrollment`: relação única entre campeonato e participante. `status` (`CONFIRMED`/`CANCELLED`) permite baixa sem perder o histórico.
 - `Match`: partida entre dois participantes inscritos.
 - `Result`: placar e vencedor, um por partida.
 - `Standing`: classificação materializada, recalculada após cada resultado.
 - `JudgeAssignment`: designação que autoriza o juiz a operar o campeonato.
 - `CheckIn`: presença por inscrição, com operador e horário. Sem registro, a inscrição é `PENDING`.
 - `Notification`: caixa por usuário.
-- `Document`: documento vinculado a um campeonato (somente metadados).
+- `Document`: documento vinculado a um campeonato. `storageKey` aponta para o arquivo no armazenamento; quando ausente, o registro é apenas uma referência.
+- `AuditLog`: trilha de ações administrativas, com ator, entidade e metadados sanitizados.
 
 ## Regra de classificação
 
 Vitória vale 3 pontos, empate 1 para cada participante e derrota 0. A ordenação usa, nesta ordem: pontos, vitórias, pontos marcados e menor pontuação sofrida. A regra está isolada em `standingService` para permitir ajustes.
+
+## Armazenamento de arquivos
+
+Documentos com arquivo são gravados em `uploads/` (ou no caminho de `STORAGE_DIR`), fora do versionamento. Nada vindo do cliente compõe o caminho em disco: a chave é gerada pelo servidor a partir do campeonato e de um UUID, e o caminho resolvido é conferido contra a raiz antes de qualquer operação. O nome original é guardado apenas como metadado, para exibição e para o cabeçalho de download.
+
+O envio é `multipart/form-data`, lido por `busboy` com teto de tamanho aplicado pelo próprio parser. A autorização é resolvida antes da gravação, de modo que uma requisição negada não deixa resíduo em disco. Tipos aceitos: PDF, PNG, JPEG, WebP, texto e CSV.
+
+O download exige o mesmo direito de leitura do registro e passa pelo servidor — não há URL pública para o arquivo.
+
+## Produção
+
+### Configuração validada na partida
+
+`src/config/environment.js` centraliza a configuração e é verificada antes de a porta abrir. Em produção o processo **se recusa a subir** se encontrar:
+
+- `JWT_SECRET` ausente, com menos de 32 caracteres ou ainda no valor de desenvolvimento;
+- `DATABASE_URL` ausente ou apontando para SQLite;
+- CORS sem origem explícita, ou com curinga;
+- provedor de pagamento de desenvolvimento sem `ALLOW_SANDBOX_PAYMENTS=true` assumido de propósito;
+- `PAYMENT_WEBHOOK_SECRET` ainda no valor de exemplo.
+
+Falhar no deploy é preferível a servir tráfego real com segredo que qualquer um adivinha.
+
+### Caminho para PostgreSQL
+
+O desenvolvimento continua em SQLite; nada aqui destrói o banco local.
+
+```bash
+# 1. Trocar o provider no datasource
+#    prisma/schema.prisma:  provider = "postgresql"
+# 2. Apontar a URL
+export DATABASE_URL="postgresql://usuario:senha@host:5432/mci?schema=public"
+# 3. Gerar a migration própria do PostgreSQL num banco limpo
+npx prisma migrate dev --name init_postgres
+# 4. Conferir e aplicar
+npx prisma migrate status
+npx prisma migrate deploy
+```
+
+As migrations existentes foram escritas para SQLite. O PostgreSQL exige uma linha de migração própria, gerada a partir do mesmo schema — por isso o passo 3 roda contra um banco vazio, e nenhuma migration atual é apagada.
+
+### Health e prontidão
+
+| Rota | Responde |
+| --- | --- |
+| `GET /health` | O processo está vivo. Não toca em dependência — um orquestrador não deve reiniciar o contêiner por lentidão do banco. |
+| `GET /ready` | Banco, armazenamento e configuração respondem. É esta sonda que decide se a instância recebe tráfego. |
+
+Nenhuma das duas devolve segredo, URL de banco ou caminho de disco: informam o **tipo** da dependência e o estado, nunca o endereço.
+
+### Segurança
+
+- **Helmet** e `x-powered-by` desligado.
+- **CORS** por lista explícita de origens; sem curinga em produção.
+- **Rate limiting** em memória, ligado por padrão em produção: 10 tentativas por 15 min em login, registro e troca de senha; 30/min em upload; 120/min no webhook; 180/min na superfície pública; teto global de 600/min.
+- **Erros** nunca devolvem stack trace ao cliente; o rastro vai para o log estruturado.
+- **Logs** em JSON com redação obrigatória de senha, token, segredo, CVV e número de cartão, em qualquer profundidade.
+- **Encerramento ordenado**: `SIGTERM`/`SIGINT` param de aceitar conexões, deixam as em curso terminarem e fecham o banco.
+
+**Limitação assumida:** o limitador guarda estado no processo. Com mais de uma instância, cada uma conta as próprias tentativas — a proteção real nesse cenário exige contador compartilhado (Redis) ou o limitador da borda (CDN/proxy).
+
+### Armazenamento
+
+`storageService` é uma fachada sobre um contrato `StorageProvider`. Hoje só o provedor `local` está registrado; um provedor de nuvem implementa a mesma superfície (`saveBuffer`, `saveStream`, `createReadStream`, `exists`, `remove`, `stat`, `healthCheck`), registra-se com `storageService.registerProvider` e passa a ser selecionável por `STORAGE_DRIVER` — sem que nenhum service de negócio mude.
+
+### Backup
+
+**Não existe backup automático configurado neste repositório.** O que está documentado é a estratégia a executar na infraestrutura escolhida:
+
+- **Banco** — `pg_dump` diário com retenção de 30 dias e um teste de restauração mensal. Backup que nunca foi restaurado não é backup, é esperança.
+- **Storage** — replicação do bucket ou sincronização diária do diretório, com versionamento de objeto ligado.
+- **Segredos** — guardados no cofre do provedor, nunca em backup de banco ou de código.
+
+### CI
+
+`.github/workflows/ci.yml` roda em todo push e PR: instala, valida o schema, gera o client, confere a sintaxe de todo `src/`, aplica migrations, executa a suíte do backend, testa e builda o frontend, e confere higiene do repositório (nenhum segredo real, nenhum `.env`, nenhum `console.log`/`TODO` esquecido).
+
+**A pipeline não faz deploy.** Publicação é decisão manual.
+
+### Deploy
+
+Nada aqui publica automaticamente, altera DNS ou usa credencial real. Antes de um deploy:
+
+1. Definir as variáveis do `.env.example` no cofre do provedor.
+2. `npx prisma migrate deploy` contra o banco de produção.
+3. Subir com `NODE_ENV=production` — a validação de partida barra configuração incompleta.
+4. Apontar as sondas do orquestrador para `/health` (liveness) e `/ready` (readiness).
 
 ## Testes
 
@@ -263,8 +379,8 @@ O fluxo é `routes → controllers → services → repositories → Prisma`. Ro
 
 ## Limitações conhecidas
 
-- **Documentos não armazenam arquivo.** O módulo registra metadados (título, nome do arquivo, tipo, campeonato) com permissão e validação, incluindo bloqueio de travessia de diretório. Upload e download binário ficam para uma fase de armazenamento/infraestrutura.
-- **Inscrições não podem ser canceladas pela API.** Existe criação e consulta; a remoção de inscrição não está implementada.
+- **Armazenamento é local.** Os arquivos ficam no disco da aplicação. A migração para storage externo (com abstração `StorageProvider`) está prevista para a fase de infraestrutura.
+- **Não há antivírus nem inspeção de conteúdo no upload.** A validação é de tipo declarado, tamanho e nome; o conteúdo em si não é analisado.
 - **Partidas não podem ser excluídas.** O encerramento acontece por status (`CANCELLED`), não por exclusão.
 - **Não há transferência de posse de campeonato.** Um evento criado por um `ADMIN` permanece com ele; não existe endpoint para passar a posse a um `ORGANIZER`.
 - **SQLite em desenvolvimento.** Adequado para uso local; produção exige migração para um banco servidor.

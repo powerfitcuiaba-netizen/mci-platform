@@ -224,3 +224,80 @@ body { background: radial-gradient(circle at 70% -20%, #17212b 0, #080a0d 38%); 
   .inscription-box { display:block; }
   .inscription-box .button { width:100%; margin-top:8px; }
 }
+
+/* Tabela de contas do Admin Center: cinco colunas, com as ações na própria
+   coluna. Sem isto o botão cai para uma linha inteira abaixo do registro,
+   porque .row-actions ocupa a largura toda — regra pensada para o mobile. */
+.admin-users .table-head, .admin-users .table-row { grid-template-columns: 2.2fr 1fr .9fr 1fr auto; }
+.admin-users .table-row .row-actions { grid-column: auto; justify-content: flex-end; }
+.admin-users .table-row .select-control { min-height: 34px; font-size: 11px; padding: 0 8px; width: 100%; }
+
+@media (max-width: 900px) {
+  .admin-users .table-head { display: none; }
+  .admin-users .table-row { grid-template-columns: 1fr auto; gap: 8px; }
+  .admin-users .table-row .row-actions { grid-column: 1 / -1; }
+  .admin-users .table-row .select-control { width: auto; }
+}
+
+/* Vitrine pública: mesma identidade, sem a sidebar operacional. Quem chega sem
+   sessão vê o produto, não uma tela de login. */
+.public-shell { min-height:100vh; background:radial-gradient(circle at 70% -20%, #17212b 0, #080a0d 38%); }
+.public-topbar {
+  display:flex; align-items:center; gap:20px; flex-wrap:wrap;
+  background:#0b1015; border-bottom:1px solid var(--line); padding:14px 4.2vw;
+  position:sticky; top:0; z-index:3;
+}
+.public-topbar .brand { border:0; background:transparent; padding:0; flex-shrink:0; }
+.public-topbar .button { margin-left:auto; flex-shrink:0; }
+.public-nav { display:flex; gap:4px; flex-wrap:wrap; min-width:0; }
+.public-nav button {
+  border:0; background:transparent; color:#9ba5ad; font-weight:700; font-size:12px;
+  padding:9px 13px; border-radius:3px;
+}
+.public-nav button:hover { background:#1b2027; color:var(--ink); }
+.public-nav button.active { background:linear-gradient(90deg, #a9161b, var(--red)); color:#fff; }
+.public-nav button:focus-visible { outline:2px solid var(--red); outline-offset:2px; }
+
+/* Grade de módulos do Organizer Center. */
+.module-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; }
+.module-card {
+  display:flex; align-items:center; gap:12px; text-align:left; min-width:0;
+  border:1px solid var(--line); background:#0d1116; border-radius:3px; padding:14px;
+  color:var(--ink); transition:.18s ease;
+}
+.module-card:hover { border-color:#3a444e; background:#131a21; transform:translateY(-2px); }
+.module-card:focus-visible { outline:2px solid var(--red); outline-offset:2px; }
+.module-card strong { font-size:13px; }
+.module-card small { color:var(--muted); font-size:11px; }
+
+@media (max-width: 900px) {
+  .module-grid { grid-template-columns:repeat(2, 1fr); }
+  .public-topbar { padding:12px 20px; gap:12px; }
+}
+
+@media (max-width: 560px) {
+  .module-grid { grid-template-columns:1fr; }
+  .public-topbar { gap:10px; }
+  .public-topbar .button { width:auto; margin-left:auto; min-height:36px; padding:0 12px; }
+  .public-nav { order:3; width:100%; }
+  .public-nav button { flex:1; text-align:center; padding:9px 6px; }
+}
+
+/* Resumo financeiro. O total ganha peso tipográfico próprio: é o número que a
+   pessoa confere antes de pagar. */
+.order-summary { border-top:1px solid var(--line); }
+.order-line {
+  display:flex; align-items:center; justify-content:space-between; gap:14px;
+  padding:12px 0; border-bottom:1px solid var(--line); font-size:12px; min-width:0;
+}
+.order-line span { color:#b4bec5; overflow:hidden; text-overflow:ellipsis; }
+.order-line b { flex-shrink:0; font-family:'Bebas Neue', 'Inter', sans-serif; font-size:15px; letter-spacing:.5px; }
+.order-line.is-discount b { color:#55d888; }
+.order-line.is-total { border-bottom:0; padding-top:15px; }
+.order-line.is-total span { color:var(--ink); font-weight:700; }
+.order-line.is-total b { color:var(--red); font-size:24px; }
+
+@media (max-width: 560px) {
+  .order-line { flex-direction:column; align-items:flex-start; gap:4px; }
+  .order-line.is-total b { font-size:22px; }
+}

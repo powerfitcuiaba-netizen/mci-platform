@@ -55,6 +55,32 @@ export async function apiRequest(path, options = {}) {
 }
 
 const post = (path, data) => apiRequest(path, { method: 'POST', body: JSON.stringify(data) });
+
+// Envio de arquivo: o navegador monta o boundary do multipart sozinho, então o
+// Content-Type não pode ser fixado aqui.
+export async function apiUpload(path, formData) {
+  const token = getAuthToken();
+  const response = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    body: formData,
+    headers: token ? { Authorization: `Bearer ${token}` } : {}
+  });
+  const body = response.status === 204 ? null : await response.json().catch(() => null);
+  if (!response.ok) throw new Error(body?.error?.message || 'Não foi possível enviar o arquivo.');
+  return body;
+}
+
+// Download autenticado: o header Authorization não viaja num link comum, então
+// o arquivo é buscado por fetch e entregue como blob.
+export async function apiDownload(path) {
+  const token = getAuthToken();
+  const response = await fetch(`${API_URL}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.error?.message || 'Não foi possível baixar o arquivo.');
+  }
+  return response.blob();
+}
 const patch = (path, data) => apiRequest(path, { method: 'PATCH', body: JSON.stringify(data) });
 const remove = path => apiRequest(path, { method: 'DELETE' });
 
@@ -63,6 +89,23 @@ export const api = {
     login: data => post('/auth/login', data),
     register: data => post('/auth/register', data),
     me: () => apiRequest('/auth/me')
+  },
+  profile: {
+    me: () => apiRequest('/profile'),
+    update: data => patch('/profile', data),
+    changePassword: data => post('/profile/password', data)
+  },
+  athlete: {
+    overview: () => apiRequest('/athlete/overview')
+  },
+  admin: {
+    overview: () => apiRequest('/admin/overview'),
+    users: params => apiRequest(withQuery('/admin/users', params || {})),
+    user: id => apiRequest(`/admin/users/${id}`),
+    updateUser: (id, data) => patch(`/admin/users/${id}`, data)
+  },
+  audit: {
+    list: params => apiRequest(withQuery('/audit', params || {}))
   },
   dashboard: {
     summary: () => apiRequest('/dashboard/summary')
@@ -75,6 +118,7 @@ export const api = {
     remove: id => remove(`/campeonatos/${id}`),
     participants: id => apiRequest(`/campeonatos/${id}/participantes`),
     enroll: (id, participantId) => post(`/campeonatos/${id}/participantes`, { participantId }),
+    cancelEnrollment: enrollmentId => patch(`/inscricoes/${enrollmentId}/cancel`, {}),
     standings: id => apiRequest(`/campeonatos/${id}/classificacao`)
   },
   participants: {
@@ -109,7 +153,7 @@ export const api = {
     cancel: enrollmentId => patch(`/checkin/enrollments/${enrollmentId}/cancel`, {})
   },
   notifications: {
-    list: () => apiRequest('/notifications'),
+    list: params => apiRequest(withQuery('/notifications', params || {})),
     markRead: id => patch(`/notifications/${id}/read`, {}),
     markAllRead: () => post('/notifications/read-all', {})
   },
@@ -117,6 +161,8 @@ export const api = {
     list: tournamentId => apiRequest(withQuery('/documents', { tournamentId })),
     get: id => apiRequest(`/documents/${id}`),
     create: data => post('/documents', data),
+    upload: formData => apiUpload('/documents/upload', formData),
+    download: id => apiDownload(`/documents/${id}/download`),
     remove: id => remove(`/documents/${id}`)
   },
   coach: {
@@ -132,10 +178,40 @@ export const api = {
     list: () => apiRequest('/reports/tournaments'),
     tournament: id => apiRequest(`/reports/tournaments/${id}`)
   },
+  orders: {
+    list: params => apiRequest(withQuery('/orders', params || {})),
+    get: id => apiRequest(`/orders/${id}`),
+    // A chave de idempotência viaja no header: um clique repetido no checkout
+    // não pode virar um segundo pedido.
+    create: (data, idempotencyKey) => apiRequest('/orders', { method: 'POST', body: JSON.stringify(data), headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {} }),
+    cancel: id => patch(`/orders/${id}/cancel`, {}),
+    payments: id => apiRequest(`/orders/${id}/payments`),
+    startPayment: (id, idempotencyKey) => apiRequest(`/orders/${id}/payments`, { method: 'POST', body: JSON.stringify({}), headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {} }),
+    refund: (id, data) => post(`/orders/${id}/refunds`, data)
+  },
+  coupons: {
+    list: () => apiRequest('/coupons'),
+    create: data => post('/coupons', data),
+    setActive: (id, active) => patch(`/coupons/${id}/active`, { active }),
+    preview: data => post('/coupons/preview', data)
+  },
+  refunds: {
+    list: params => apiRequest(withQuery('/refunds', params || {}))
+  },
+  sponsors: {
+    list: () => apiRequest('/sponsors'),
+    create: data => post('/sponsors', data),
+    sponsorships: params => apiRequest(withQuery('/sponsorships', params || {})),
+    createSponsorship: data => post('/sponsorships', data)
+  },
   publicFeed: {
     summary: () => apiRequest('/public/summary'),
     tournaments: () => apiRequest('/public/tournaments'),
     tournament: id => apiRequest(`/public/tournaments/${id}`),
-    live: () => apiRequest('/public/live')
+    live: () => apiRequest('/public/live'),
+    athletes: () => apiRequest('/public/athletes'),
+    athlete: id => apiRequest(`/public/athletes/${id}`),
+    teams: () => apiRequest('/public/teams'),
+    team: id => apiRequest(`/public/teams/${id}`)
   }
 };

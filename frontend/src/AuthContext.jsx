@@ -48,7 +48,19 @@ export function AuthProvider({ children }) {
     window.location.hash = '#login';
   };
 
-  const value = useMemo(() => ({ user, loading, login, register, logout, authenticated: !!user }), [user, loading]);
+  // Depois de o usuário editar o próprio perfil, a sessão em memória precisa
+  // refletir o novo nome/email sem exigir novo login.
+  const refreshSession = async () => {
+    try {
+      const response = await api.auth.me();
+      setUser(response.user);
+      return response.user;
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const value = useMemo(() => ({ user, loading, login, register, logout, refreshSession, authenticated: !!user }), [user, loading]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

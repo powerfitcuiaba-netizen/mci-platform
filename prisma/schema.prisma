@@ -24,6 +24,12 @@ model User {
   documents Document[] @relation("DocumentCreatedBy")
   checkIns CheckIn[] @relation("CheckInOperator")
   coachedParticipants Participant[] @relation("ParticipantCoach")
+  cancelledEnrollments Enrollment[] @relation("EnrollmentCancelledBy")
+  orders     Order[]
+  couponRedemptions CouponRedemption[]
+  requestedRefunds Refund[] @relation("RefundRequestedBy")
+  createdCoupons Coupon[] @relation("CouponCreatedBy")
+  auditLogs  AuditLog[] @relation("AuditLogActor")
 
   @@index([role])
 }
@@ -33,6 +39,8 @@ model Tournament {
   name        String
   description String?
   status      String       @default("PLANNED")
+  entryFeeCents Int        @default(0)
+  currency    String       @default("BRL")
   startDate   DateTime?
   endDate     DateTime?
   createdById String?
@@ -44,6 +52,9 @@ model Tournament {
   standings   Standing[]
   judgeAssignments JudgeAssignment[]
   documents Document[]
+  orders    Order[]
+  coupons   Coupon[]
+  sponsorships Sponsorship[]
 
   @@index([status])
 }
@@ -79,13 +90,23 @@ model Enrollment {
   id            String      @id @default(cuid())
   tournamentId  String
   participantId String
+  status        String      @default("CONFIRMED")
+  paymentStatus String      @default("NOT_REQUIRED")
+  paidAt        DateTime?
+  cancelledAt   DateTime?
+  cancelledById String?
   createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @default(now()) @updatedAt
   tournament    Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
   checkIns      CheckIn[]
+  orderItems    OrderItem[]
+
+  cancelledBy   User?       @relation("EnrollmentCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
 
   @@unique([tournamentId, participantId])
   @@index([participantId])
+  @@index([tournamentId, status])
 }
 
 model Match {
@@ -171,11 +192,33 @@ model Notification {
   title     String
   message   String
   type      String   @default("INFO")
+  priority  String   @default("NORMAL")
+  entityType String?
+  entityId  String?
+  link      String?
   isRead    Boolean  @default(false)
+  readAt    DateTime?
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, isRead])
+  @@index([userId, createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  userEmail  String?
+  action     String
+  entity     String
+  entityId   String?
+  metadata   String?
+  createdAt  DateTime @default(now())
+  user       User?    @relation("AuditLogActor", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entity, entityId])
+  @@index([userId, createdAt])
+  @@index([createdAt])
 }
 
 model Document {
@@ -184,10 +227,208 @@ model Document {
   title        String
   fileName     String
   mimeType     String     @default("application/octet-stream")
+  storageKey   String?    @unique
+  sizeBytes    Int        @default(0)
   uploadedById String?
   createdAt    DateTime   @default(now())
   tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   uploadedBy   User?      @relation("DocumentCreatedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
 
   @@index([tournamentId])
+}
+
+// ============================================================
+// Camada financeira. Todo valor monetário é inteiro, em centavos:
+// ponto flutuante não representa dinheiro sem erro de arredondamento.
+// ============================================================
+
+model Order {
+  id             String      @id @default(cuid())
+  userId         String
+  tournamentId   String
+  status         String      @default("PENDING")
+  currency       String      @default("BRL")
+  subtotalCents  Int         @default(0)
+  discountCents  Int         @default(0)
+  totalCents     Int         @default(0)
+  couponId       String?
+  // Chave enviada pelo cliente para que um reenvio da mesma intenção de compra
+  // não gere um segundo pedido.
+  idempotencyKey String?     @unique
+  expiresAt      DateTime?
+  paidAt         DateTime?
+  cancelledAt    DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @default(now()) @updatedAt
+
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tournament     Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  coupon         Coupon?     @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  items          OrderItem[]
+  payments       Payment[]
+  refunds        Refund[]
+  redemption     CouponRedemption?
+
+  @@index([userId, status])
+  @@index([tournamentId, status])
+  @@index([status, createdAt])
+}
+
+model OrderItem {
+  id             String      @id @default(cuid())
+  orderId        String
+  enrollmentId   String?
+  description    String
+  quantity       Int         @default(1)
+  unitPriceCents Int
+  totalCents     Int
+  createdAt      DateTime    @default(now())
+
+  order          Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  enrollment     Enrollment? @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([enrollmentId])
+}
+
+model Payment {
+  id             String      @id @default(cuid())
+  orderId        String
+  status         String      @default("PENDING")
+  provider       String
+  providerRef    String?     @unique
+  amountCents    Int
+  idempotencyKey String?     @unique
+  failureReason  String?
+  authorizedAt   DateTime?
+  paidAt         DateTime?
+  refundedAt     DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @default(now()) @updatedAt
+
+  order          Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  events         PaymentEvent[]
+  refunds        Refund[]
+
+  @@index([orderId, status])
+  @@index([status])
+}
+
+// Histórico imutável: cada notificação recebida do provedor vira uma linha e
+// nunca é sobrescrita. externalId único é o que torna o webhook idempotente —
+// a segunda entrega da mesma notificação colide na constraint e é descartada.
+model PaymentEvent {
+  id             String      @id @default(cuid())
+  paymentId      String?
+  provider       String
+  externalId     String
+  type           String
+  signatureValid Boolean     @default(false)
+  payload        String?
+  processedAt    DateTime?
+  createdAt      DateTime    @default(now())
+
+  payment        Payment?    @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, externalId])
+  @@index([paymentId])
+  @@index([createdAt])
+}
+
+model Coupon {
+  id             String      @id @default(cuid())
+  code           String      @unique
+  description    String?
+  percentOff     Int?
+  amountOffCents Int?
+  tournamentId   String?
+  active         Boolean     @default(true)
+  startsAt       DateTime?
+  endsAt         DateTime?
+  maxRedemptions Int?
+  maxPerUser     Int         @default(1)
+  redeemedCount  Int         @default(0)
+  createdById    String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @default(now()) @updatedAt
+
+  tournament     Tournament? @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  createdBy      User?       @relation("CouponCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  redemptions    CouponRedemption[]
+  orders         Order[]
+
+  @@index([active, endsAt])
+  @@index([tournamentId])
+}
+
+model CouponRedemption {
+  id             String      @id @default(cuid())
+  couponId       String
+  userId         String
+  orderId        String      @unique
+  discountCents  Int
+  createdAt      DateTime    @default(now())
+
+  coupon         Coupon      @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order          Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([couponId, userId])
+}
+
+model Refund {
+  id             String      @id @default(cuid())
+  orderId        String
+  paymentId      String
+  status         String      @default("PENDING")
+  amountCents    Int
+  reason         String?
+  requestedById  String?
+  failureReason  String?
+  processedAt    DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @default(now()) @updatedAt
+
+  order          Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  payment        Payment     @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  requestedBy    User?       @relation("RefundRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([status])
+}
+
+// Patrocínio é receita de contrato, não de inscrição: fica em modelo próprio e
+// nunca se mistura ao fluxo de pedido do atleta.
+model Sponsor {
+  id             String      @id @default(cuid())
+  name           String
+  document       String?     @unique
+  contactEmail   String?
+  active         Boolean     @default(true)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @default(now()) @updatedAt
+
+  sponsorships   Sponsorship[]
+
+  @@index([active])
+}
+
+model Sponsorship {
+  id             String      @id @default(cuid())
+  sponsorId      String
+  tournamentId   String
+  status         String      @default("ACTIVE")
+  amountCents    Int         @default(0)
+  currency       String      @default("BRL")
+  startsAt       DateTime?
+  endsAt         DateTime?
+  notes          String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @default(now()) @updatedAt
+
+  sponsor        Sponsor     @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
+  tournament     Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  @@unique([sponsorId, tournamentId])
+  @@index([tournamentId, status])
 }

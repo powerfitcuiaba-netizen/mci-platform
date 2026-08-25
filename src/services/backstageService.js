@@ -31,10 +31,10 @@ async function overview(actor) {
   // Tudo carregado em consultas por lote sobre o conjunto de campeonatos, em vez
   // de uma consulta por campeonato.
   const [enrollments, checkIns, matches] = await Promise.all([
-    prisma.enrollment.count({ where: { tournamentId: { in: tournamentIds } } }),
+    prisma.enrollment.count({ where: { tournamentId: { in: tournamentIds }, status: 'CONFIRMED' } }),
     prisma.checkIn.groupBy({
       by: ['status'],
-      where: { enrollment: { tournamentId: { in: tournamentIds } } },
+      where: { enrollment: { tournamentId: { in: tournamentIds }, status: 'CONFIRMED' } },
       _count: { _all: true }
     }),
     prisma.match.findMany({

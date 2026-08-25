@@ -61,7 +61,7 @@ async function overview(actor) {
 
   const [enrollments, matches, standings] = await Promise.all([
     prisma.enrollment.findMany({
-      where: { participantId: { in: participantIds } },
+      where: { participantId: { in: participantIds }, status: 'CONFIRMED' },
       select: {
         id: true,
         participantId: true,

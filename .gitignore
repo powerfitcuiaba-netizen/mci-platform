@@ -47,6 +47,7 @@ temp/
 
 # Uploads locais
 uploads/
+uploads-test/
 
 # Certificados e chaves
 *.pem

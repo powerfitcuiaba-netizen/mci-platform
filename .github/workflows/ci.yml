@@ -1,0 +1,125 @@
+name: CI
+
+# Valida cada push e cada PR. Não publica nada: deploy é decisão manual.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend — validação e testes
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: file:./test.db
+      STORAGE_DIR: ./uploads-test
+      JWT_SECRET: ci-secret-apenas-para-a-pipeline-com-tamanho-suficiente
+      PAYMENT_WEBHOOK_SECRET: ci-webhook-secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Validar schema do Prisma
+        run: npx prisma validate
+
+      - name: Gerar Prisma Client
+        run: npx prisma generate
+
+      - name: Verificar sintaxe do servidor
+        run: |
+          node --check server.js
+          find src -name "*.js" -print0 | xargs -0 -n1 node --check
+
+      - name: Aplicar migrations no banco de teste
+        run: npx prisma migrate deploy
+
+      - name: Conferir que nenhuma migration ficou pendente
+        run: npx prisma migrate status
+
+      - name: Testes do backend
+        run: npx vitest run
+
+  frontend:
+    name: Frontend — testes e build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Testes da interface
+        run: npm test -- --run
+
+      - name: Build de produção
+        run: npm run build
+
+  higiene:
+    name: Higiene do repositório
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Nenhum segredo real versionado
+        run: |
+          set +e
+          PADRAO='sk_live|pk_live|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY'
+          ENCONTRADO=$(git ls-files | grep -vE 'package-lock|design/|\.github/' | xargs grep -lnE "$PADRAO" 2>/dev/null)
+          if [ -n "$ENCONTRADO" ]; then
+            echo "Segredo encontrado nos arquivos versionados:"
+            echo "$ENCONTRADO"
+            exit 1
+          fi
+          echo "Nenhum segredo real versionado."
+
+      - name: Nenhum .env versionado
+        run: |
+          if git ls-files | grep -qE '(^|/)\.env$'; then
+            echo ".env não pode ser versionado."
+            exit 1
+          fi
+          echo ".env fora do versionamento."
+
+      - name: Sem marcador de trabalho inacabado no código
+        run: |
+          set +e
+          ENCONTRADO=$(grep -rnE 'console\.log\(|debugger;|TODO:|FIXME:' src frontend/src tests 2>/dev/null)
+          if [ -n "$ENCONTRADO" ]; then
+            echo "Marcadores encontrados:"
+            echo "$ENCONTRADO"
+            exit 1
+          fi
+          echo "Nenhum marcador de trabalho inacabado."
+
+      - name: Whitespace limpo
+        run: git diff --check HEAD~1 HEAD || true

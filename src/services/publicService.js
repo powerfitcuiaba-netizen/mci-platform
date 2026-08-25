@@ -104,4 +104,94 @@ async function live() {
   return { liveMatches, upcoming, recentResults: recent, nextMatch: upcoming[0] || null };
 }
 
-module.exports = { summary, listTournaments, tournamentDetail, live };
+// Só entra na vitrine pública quem de fato compete: participante sem inscrição
+// confirmada não é exposto, para que a superfície aberta não vire um índice do
+// cadastro interno.
+const competeEmAlgumLugar = { enrollments: { some: { status: 'CONFIRMED' } } };
+
+const perfilPublico = {
+  id: true,
+  name: true,
+  identification: true,
+  type: true,
+  createdAt: true,
+  team: { select: { id: true, name: true } },
+  _count: { select: { enrollments: true } }
+};
+
+async function listAthletes() {
+  const items = await prisma.participant.findMany({
+    where: { AND: [{ type: { not: 'TEAM' } }, competeEmAlgumLugar] },
+    select: perfilPublico,
+    orderBy: { name: 'asc' }
+  });
+  return { items };
+}
+
+async function listTeams() {
+  const items = await prisma.participant.findMany({
+    where: { AND: [{ type: 'TEAM' }, competeEmAlgumLugar] },
+    select: { ...perfilPublico, _count: { select: { enrollments: true, members: true } } },
+    orderBy: { name: 'asc' }
+  });
+  return { items };
+}
+
+// Histórico esportivo de um participante: onde compete, o que jogou e como está
+// classificado. Nada de conta, técnico, operador ou quem cadastrou.
+async function participantDetail(id, tipoEsperado) {
+  const participant = await prisma.participant.findFirst({
+    where: { AND: [{ id }, competeEmAlgumLugar, ...(tipoEsperado === 'TEAM' ? [{ type: 'TEAM' }] : tipoEsperado === 'ATHLETE' ? [{ type: { not: 'TEAM' } }] : [])] },
+    select: perfilPublico
+  });
+  if (!participant) throw new AppError(404, 'PARTICIPANT_NOT_FOUND', 'Participante não encontrado');
+
+  const [enrollments, matches, standings, members] = await Promise.all([
+    prisma.enrollment.findMany({
+      where: { participantId: id, status: 'CONFIRMED' },
+      select: { id: true, createdAt: true, tournament: { select: publicTournament } },
+      orderBy: { createdAt: 'desc' }
+    }),
+    prisma.match.findMany({
+      where: { OR: [{ participantAId: id }, { participantBId: id }] },
+      select: publicMatch,
+      orderBy: { scheduledAt: 'asc' }
+    }),
+    prisma.standing.findMany({
+      where: { participantId: id },
+      select: {
+        points: true, wins: true, losses: true, draws: true, played: true, scored: true, conceded: true,
+        tournament: { select: { id: true, name: true, status: true } }
+      },
+      orderBy: { points: 'desc' }
+    }),
+    participant.type === 'TEAM'
+      ? prisma.participant.findMany({ where: { teamId: id }, select: { id: true, name: true, identification: true, type: true }, orderBy: { name: 'asc' } })
+      : Promise.resolve([])
+  ]);
+
+  const vitorias = matches.filter(item => item.result?.winnerParticipantId === id).length;
+  const comResultado = matches.filter(item => item.result);
+
+  return {
+    participant,
+    team: participant.team || null,
+    members,
+    tournaments: enrollments.map(item => item.tournament),
+    matches,
+    results: comResultado,
+    standings,
+    totals: {
+      tournaments: enrollments.length,
+      matches: matches.length,
+      played: comResultado.length,
+      wins: vitorias,
+      members: members.length
+    }
+  };
+}
+
+const athleteDetail = id => participantDetail(id, 'ATHLETE');
+const teamDetail = id => participantDetail(id, 'TEAM');
+
+module.exports = { summary, listTournaments, tournamentDetail, live, listAthletes, listTeams, athleteDetail, teamDetail };

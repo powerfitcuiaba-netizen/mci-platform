@@ -1,7 +1,9 @@
 import request from 'supertest';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import app from '../src/app.js';
 import prisma from '../src/config/prisma.js';
+import storage from '../src/services/storageService.js';
+import { rm } from 'node:fs/promises';
 
 // Fluxo ponta a ponta contra o banco de teste real: nenhuma etapa é simulada.
 // Cada passo depende do estado deixado pelo anterior, então a ordem importa e o
@@ -12,6 +14,7 @@ const auth = token => ({ Authorization: `Bearer ${token}` });
 const state = {};
 
 async function clearDatabase() {
+  await prisma.auditLog.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.checkIn.deleteMany();
   await prisma.document.deleteMany();
@@ -39,7 +42,10 @@ describe('E2E — ciclo operacional completo', () => {
     state.organizer = await register('Organizador E2E', 'org@e2e.test', 'ORGANIZER');
     state.judge = await register('Juiz E2E', 'juiz@e2e.test', 'JUDGE');
     state.coach = await register('Tecnico E2E', 'coach@e2e.test', 'COACH');
+    state.athlete = await register('Atleta E2E', 'atleta@e2e.test', 'ATHLETE');
   });
+
+  afterAll(async () => { await rm(storage.ROOT, { recursive: true, force: true }); });
 
   it('1. ADMIN cria o evento', async () => {
     const response = await request(app).post(`${api}/campeonatos`).set(auth(state.admin.token))
@@ -68,6 +74,7 @@ describe('E2E — ciclo operacional completo', () => {
     state.teamB = (await request(app).post(`${api}/equipes`).set(auth(state.organizer.token))
       .send({ name: 'Equipe E2E B', identification: 'E2E-B' })).body;
     expect(state.teamA.coachId).toBe(state.coach.user.id);
+    await prisma.participant.update({ where: { id: state.teamA.id }, data: { userId: state.athlete.user.id } });
 
     state.enrollmentA = (await request(app).post(`${api}/campeonatos/${state.tournament.id}/participantes`)
       .set(auth(state.organizer.token)).send({ participantId: state.teamA.id })).body;
@@ -159,5 +166,108 @@ describe('E2E — ciclo operacional completo', () => {
     expect(report.body.summary.matchesWithResult).toBe(1);
     expect(report.body.summary.matchesPending).toBe(0);
     expect(report.body.standings[0].participant.name).toBe('Equipe E2E A');
+  });
+  it('13. DOCUMENTO é enviado, baixado e chega ao atleta autorizado', async () => {
+    const conteudo = Buffer.from('%PDF-1.4 regulamento oficial do ciclo E2E %%EOF');
+
+    const envio = await request(app).post(`${api}/documents/upload`).set(auth(state.organizer.token))
+      .field('tournamentId', state.tournament.id)
+      .field('title', 'Regulamento E2E')
+      .attach('file', conteudo, { filename: 'regulamento-e2e.pdf', contentType: 'application/pdf' });
+    expect(envio.status).toBe(201);
+    expect(envio.body.sizeBytes).toBe(conteudo.length);
+    state.document = envio.body;
+
+    const baixado = await request(app).get(`${api}/documents/${state.document.id}/download`).set(auth(state.athlete.token));
+    expect(baixado.status).toBe(200);
+    expect(Buffer.from(baixado.body).equals(conteudo)).toBe(true);
+  });
+
+  it('14. ATHLETE CENTER reflete o ciclo inteiro para o atleta', async () => {
+    const visao = await request(app).get(`${api}/athlete/overview`).set(auth(state.athlete.token));
+    expect(visao.status).toBe(200);
+    expect(visao.body.participant.id).toBe(state.teamA.id);
+    expect(visao.body.coach.id).toBe(state.coach.user.id);
+    expect(visao.body.totals.wins).toBe(1);
+    expect(visao.body.enrollments[0].checkInStatus).toBe('CHECKED_IN');
+    expect(visao.body.documents.map(item => item.id)).toContain(state.document.id);
+  });
+
+  it('15. AUDITORIA registrou as ações administrativas do ciclo', async () => {
+    const trilha = await request(app).get(`${api}/audit`).set(auth(state.admin.token));
+    expect(trilha.status).toBe(200);
+    const acoes = trilha.body.items.map(item => item.action);
+    expect(acoes).toContain('ENROLLMENT_CREATE');
+    expect(acoes).toContain('DOCUMENT_UPLOAD');
+    expect(acoes).toContain('DOCUMENT_DOWNLOAD');
+    expect(JSON.stringify(trilha.body)).not.toContain('Senha@123');
+  });
+
+  it('16. PERFIL permite ao atleta trocar a própria senha e reautenticar', async () => {
+    const troca = await request(app).post(`${api}/profile/password`).set(auth(state.athlete.token))
+      .send({ currentPassword: 'Senha@123', newPassword: 'CicloE2E@2026' });
+    expect(troca.status).toBe(200);
+
+    expect((await request(app).post(`${api}/auth/login`).send({ email: 'atleta@e2e.test', password: 'Senha@123' })).status).toBe(401);
+    expect((await request(app).post(`${api}/auth/login`).send({ email: 'atleta@e2e.test', password: 'CicloE2E@2026' })).status).toBe(200);
+  });
+  it('17. DASHBOARD entrega a cada perfil o painel do seu trabalho', async () => {
+    const perfis = {
+      ADMIN: state.admin, ORGANIZER: state.organizer,
+      JUDGE: state.judge, COACH: state.coach, ATHLETE: state.athlete
+    };
+    const formas = [];
+    for (const [nome, ator] of Object.entries(perfis)) {
+      const painel = await request(app).get(`${api}/dashboard/summary`).set(auth(ator.token));
+      expect(painel.status, nome).toBe(200);
+      expect(painel.body.role, nome).toBe(nome);
+      formas.push(Object.keys(painel.body).sort().join(','));
+    }
+    // Os cinco painéis têm composições distintas, não a mesma tela repetida.
+    expect(new Set(formas).size).toBe(5);
+  });
+
+  it('18. ORGANIZER CENTER consolida a operação sem vazar evento alheio', async () => {
+    const rival = await register('Organizador Rival', 'rival@e2e.test', 'ORGANIZER');
+    const eventoRival = (await request(app).post(`${api}/campeonatos`).set(auth(rival.token))
+      .send({ name: 'Evento Rival E2E', status: 'ACTIVE' })).body;
+
+    const painel = await request(app).get(`${api}/dashboard/summary`).set(auth(state.organizer.token));
+    expect(painel.status).toBe(200);
+    expect(painel.body.totals.judges).toBe(1);
+    expect(painel.body.activeTournaments.map(item => item.id)).toContain(state.tournament.id);
+    expect(JSON.stringify(painel.body)).not.toContain(eventoRival.id);
+    expect(JSON.stringify(painel.body)).not.toContain('Evento Rival E2E');
+  });
+
+  it('19. PÁGINA PÚBLICA da equipe mostra o desempenho real sem login', async () => {
+    const detalhe = await request(app).get(`${api}/public/teams/${state.teamA.id}`);
+    expect(detalhe.status).toBe(200);
+    expect(detalhe.body.participant.name).toBe('Equipe E2E A');
+    expect(detalhe.body.standings[0].points).toBe(3);
+    expect(detalhe.body.totals.wins).toBe(1);
+    expect(detalhe.body.tournaments.map(item => item.id)).toContain(state.tournament.id);
+
+    const payload = JSON.stringify(detalhe.body);
+    for (const proibido of ['passwordHash', 'userId', 'createdById', 'coachId', '@e2e.test', 'Mesa E2E']) {
+      expect(payload, `vazou ${proibido}`).not.toContain(proibido);
+    }
+  });
+
+  it('20. PÁGINA PÚBLICA do atleta reflete a mesma competição', async () => {
+    const atleta = await prisma.participant.create({
+      data: { name: 'Atleta Publico E2E', identification: 'E2E-PUB', type: 'PLAYER', teamId: state.teamA.id, createdById: state.organizer.user.id }
+    });
+    await prisma.enrollment.create({ data: { tournamentId: state.tournament.id, participantId: atleta.id, status: 'CONFIRMED' } });
+
+    const lista = await request(app).get(`${api}/public/athletes`);
+    expect(lista.status).toBe(200);
+    expect(lista.body.items.map(item => item.id)).toContain(atleta.id);
+
+    const detalhe = await request(app).get(`${api}/public/athletes/${atleta.id}`);
+    expect(detalhe.status).toBe(200);
+    expect(detalhe.body.team.name).toBe('Equipe E2E A');
+    expect(detalhe.body.tournaments.map(item => item.id)).toContain(state.tournament.id);
+    expect(JSON.stringify(detalhe.body)).not.toContain('createdById');
   });
 });

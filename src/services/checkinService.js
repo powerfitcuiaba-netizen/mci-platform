@@ -39,7 +39,7 @@ async function listByTournament(tournamentId, actor, search = '') {
   assertCanOperate(tournament, actor, 'Você não pode consultar o check-in deste campeonato');
 
   const enrollments = await prisma.enrollment.findMany({
-    where: { tournamentId },
+    where: { tournamentId, status: 'CONFIRMED' },
     ...enrollmentSelection,
     orderBy: { createdAt: 'asc' }
   });

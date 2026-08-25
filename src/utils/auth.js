@@ -1,9 +1,12 @@
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'development-secret-change-me';
+const { config } = require('../config/environment');
+
+// O segredo vem da configuração central, que já recusou placeholder em produção.
+const JWT_SECRET = config.jwtSecret;
 
 function createToken(user) {
-  return jwt.sign({ sub: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '12h' });
+  return jwt.sign({ sub: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: config.jwtExpiresIn });
 }
 
 function verifyToken(token) {

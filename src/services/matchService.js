@@ -2,7 +2,6 @@ const repository = require('../repositories/matchRepository');
 const tournamentRepository = require('../repositories/tournamentRepository');
 const participantRepository = require('../repositories/participantRepository');
 const enrollmentRepository = require('../repositories/enrollmentRepository');
-const prisma = require('../config/prisma');
 const notificationService = require('./notificationService');
 const { AppError } = require('../utils/errors');
 const { assertCanOperateTournament } = require('../utils/ownership');
