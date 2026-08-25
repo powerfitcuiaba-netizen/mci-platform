@@ -127,6 +127,43 @@ describe('Fase 6 — produção e infraestrutura', () => {
       }
     });
 
+    // O limitador funcionar e o limitador estar LIGADO na rota são duas coisas
+    // diferentes, e só a primeira aparece num teste de comportamento. Este aqui
+    // percorre o roteador e confere a tabela de limites que o README promete.
+    it('está ligado em todas as rotas que a documentação promete proteger', async () => {
+      const router = (await import('../src/routes/index.js')).default;
+
+      const limitesDe = caminho => router.stack
+        .filter(camada => camada.route && camada.route.path === caminho)
+        .flatMap(camada => camada.route.stack)
+        .map(camada => camada.handle.limite)
+        .filter(Boolean);
+
+      const caminhos = router.stack.filter(c => c.route).map(c => c.route.path);
+
+      // Toda a vitrine pública, sem exceção: é a superfície alcançável sem
+      // credencial alguma. Uma rota nova em /public sem limitador reprova aqui.
+      const publicas = [...new Set(caminhos.filter(caminho => caminho.startsWith('/public')))];
+      expect(publicas.length).toBeGreaterThanOrEqual(8);
+      for (const caminho of publicas) {
+        const limites = limitesDe(caminho);
+        expect(limites.map(l => l.nome), `${caminho} sem limitador público`).toContain('public');
+        expect(limites.find(l => l.nome === 'public').max).toBe(180);
+      }
+
+      // As demais faixas declaradas no README.
+      for (const [caminho, nome, max] of [
+        ['/auth/login', 'auth', 10],
+        ['/auth/register', 'auth', 10],
+        ['/documents/upload', 'upload', 30],
+        ['/webhooks/payments/:provider', 'webhook', 120]
+      ]) {
+        const limites = limitesDe(caminho);
+        expect(limites.map(l => l.nome), `${caminho} sem limitador ${nome}`).toContain(nome);
+        expect(limites.find(l => l.nome === nome).max).toBe(max);
+      }
+    });
+
     it('separa a contagem por origem', async () => {
       const express = (await import('express')).default;
       const errorHandler = (await import('../src/middlewares/errorHandler.js')).default;
@@ -145,6 +182,35 @@ describe('Fase 6 — produção e infraestrutura', () => {
   describe('Logging', () => {
     const espioes = [];
     afterEach(() => { espioes.forEach(e => e.mockRestore()); espioes.length = 0; });
+
+    // A redação obrigatória só protege o que passa pelo logger. Uma chamada
+    // solta a console escapa dela inteira — e não é "debug esquecido", é log
+    // de produção feito por fora, que nenhuma varredura de TODO/debugger pega.
+    it('nenhum código de produção escreve direto no console', async () => {
+      const { readdirSync, readFileSync, statSync } = await import('node:fs');
+      const { join } = await import('node:path');
+
+      const arquivos = [];
+      const varrer = dir => {
+        for (const nome of readdirSync(dir)) {
+          const caminho = join(dir, nome);
+          if (statSync(caminho).isDirectory()) varrer(caminho);
+          else if (nome.endsWith('.js') || nome.endsWith('.jsx')) arquivos.push(caminho);
+        }
+      };
+      varrer('src');
+      varrer(join('frontend', 'src'));
+
+      const infratores = arquivos
+        .filter(caminho => !caminho.includes('.test.'))
+        .flatMap(caminho => readFileSync(caminho, 'utf8').split(/\r?\n/)
+          .map((linha, i) => ({ caminho, numero: i + 1, linha }))
+          .filter(({ linha }) => /(^|[^.\w])console\s*\./.test(linha)))
+        .map(({ caminho, numero, linha }) => `${caminho}:${numero} ${linha.trim().slice(0, 70)}`);
+
+      expect(arquivos.length).toBeGreaterThan(50);
+      expect(infratores, 'use o logger estruturado em vez de console').toEqual([]);
+    });
 
     it('redige senha, token e segredo em qualquer profundidade', () => {
       const redigido = logger.redigir({

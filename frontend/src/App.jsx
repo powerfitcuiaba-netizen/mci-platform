@@ -451,7 +451,8 @@ function Checkout({ navigate, notify }) {
     setErro(''); setPrevia(null);
     if (!form.couponCode || !evento) return;
     try {
-      const resultado = await api.coupons.preview({ code: form.couponCode, tournamentId: evento.id, subtotalCents: subtotal });
+      // O valor não é enviado: quem sabe quanto custa é o servidor.
+      const resultado = await api.coupons.preview({ code: form.couponCode, tournamentId: evento.id });
       setPrevia(resultado);
       notify(`Cupom ${resultado.code} aplicado.`);
     } catch (error) { setErro(error.message); }

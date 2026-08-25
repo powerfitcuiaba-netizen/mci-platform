@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const { AppError } = require('../utils/errors');
+const logger = require('../utils/logger');
 
 const PRIORIDADES = Object.freeze(['LOW', 'NORMAL', 'HIGH']);
 
@@ -88,7 +89,7 @@ const safely = async (label, run) => {
   try {
     return await run();
   } catch (error) {
-    console.error(`[notificações] falha ao emitir "${label}":`, error.message);
+    logger.error('falha ao emitir notificação', { label, erro: error.message });
     return { created: 0 };
   }
 };

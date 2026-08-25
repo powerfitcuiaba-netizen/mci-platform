@@ -77,16 +77,18 @@ router.post('/documents/upload', requireAuth, requireRole(['ADMIN', 'ORGANIZER']
 router.get('/documents/:id/download', requireAuth, validate(schemas.paramsWithId, 'params'), wrap(documents.download));
 router.route('/documents/:id').get(requireAuth, wrap(documents.findById)).delete(requireAuth, requireRole(['ADMIN', 'ORGANIZER']), wrap(documents.delete));
 
+// Vale para toda a vitrine, não só para o resumo: é a única superfície
+// alcançável sem credencial alguma, então é a que mais precisa de teto.
 const limitePublico = rateLimit({ windowMs: 60_000, max: 180, nome: 'public' });
 
 router.get('/public/summary', limitePublico, wrap(publicApi.summary));
-router.get('/public/tournaments', wrap(publicApi.listTournaments));
-router.get('/public/tournaments/:id', validate(schemas.paramsWithId, 'params'), wrap(publicApi.tournamentDetail));
-router.get('/public/live', wrap(publicApi.live));
-router.get('/public/athletes', wrap(publicApi.listAthletes));
-router.get('/public/athletes/:id', validate(schemas.paramsWithId, 'params'), wrap(publicApi.athleteDetail));
-router.get('/public/teams', wrap(publicApi.listTeams));
-router.get('/public/teams/:id', validate(schemas.paramsWithId, 'params'), wrap(publicApi.teamDetail));
+router.get('/public/tournaments', limitePublico, wrap(publicApi.listTournaments));
+router.get('/public/tournaments/:id', limitePublico, validate(schemas.paramsWithId, 'params'), wrap(publicApi.tournamentDetail));
+router.get('/public/live', limitePublico, wrap(publicApi.live));
+router.get('/public/athletes', limitePublico, wrap(publicApi.listAthletes));
+router.get('/public/athletes/:id', limitePublico, validate(schemas.paramsWithId, 'params'), wrap(publicApi.athleteDetail));
+router.get('/public/teams', limitePublico, wrap(publicApi.listTeams));
+router.get('/public/teams/:id', limitePublico, validate(schemas.paramsWithId, 'params'), wrap(publicApi.teamDetail));
 
 router.get('/dashboard/summary', requireAuth, wrap(dashboard.summary));
 

@@ -37,7 +37,7 @@ const identificar = req => {
 function rateLimit({ windowMs = 60_000, max = 60, nome = 'geral', quandoAtivo = config.rateLimitEnabled } = {}) {
   agendarLimpeza();
 
-  return (req, res, next) => {
+  const limitador = (req, res, next) => {
     if (!quandoAtivo) return next();
 
     const chave = `${nome}:${identificar(req)}`;
@@ -58,6 +58,13 @@ function rateLimit({ windowMs = 60_000, max = 60, nome = 'geral', quandoAtivo = 
 
     return next();
   };
+
+  // O nome e o teto ficam legíveis na própria função para que um teste possa
+  // conferir QUAIS rotas estão de fato atrás do limitador. O defeito que isso
+  // previne não é o limitador errar a conta — é ele nunca ter sido ligado na
+  // rota, que é silencioso e não aparece em nenhum teste de comportamento.
+  limitador.limite = { nome, max, windowMs };
+  return limitador;
 }
 
 // Usado pelos testes para partir de um estado conhecido.

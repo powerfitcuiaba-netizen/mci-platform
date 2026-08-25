@@ -1,6 +1,7 @@
 const prisma = require('../config/prisma');
 const { AppError } = require('../utils/errors');
 const money = require('../utils/money');
+const { calcular } = require('../utils/pricing');
 const auditService = require('./auditService');
 
 const normalizeCode = code => String(code || '').trim().toUpperCase();
@@ -170,4 +171,26 @@ async function setActive(id, active, actor) {
   return atualizado;
 }
 
-module.exports = { evaluate, redeem, release, create, list, setActive, normalizeCode, publicShape };
+// Prévia do desconto antes de fechar o pedido. O subtotal NÃO vem do cliente:
+// é lido do campeonato, exatamente como no pedido de verdade. Aceitá-lo do
+// corpo deixaria a tela mostrar um desconto que a cobrança não honraria.
+async function preview({ code, tournamentId, userId }) {
+  const tournament = await prisma.tournament.findUnique({
+    where: { id: tournamentId },
+    select: { id: true, entryFeeCents: true }
+  });
+  if (!tournament) throw new AppError(404, 'TOURNAMENT_NOT_FOUND', 'Campeonato não encontrado');
+
+  const { subtotalCents } = calcular({ tournament, quantidade: 1, discountCents: 0 });
+  const { coupon, discountCents } = await evaluate({ code, userId, tournamentId, subtotalCents });
+
+  return {
+    code: coupon.code,
+    description: coupon.description,
+    subtotalCents,
+    discountCents,
+    totalCents: subtotalCents - discountCents
+  };
+}
+
+module.exports = { evaluate, preview, redeem, release, create, list, setActive, normalizeCode, publicShape };

@@ -263,6 +263,12 @@ O corpo de `POST /orders` aceita **apenas** `tournamentId`, `participantId`,
 enviá-los devolve `400` e nenhum pedido é criado. O valor sai de
 `Tournament.entryFeeCents`, lido no servidor no momento do pedido.
 
+A regra vale também para `POST /coupons/preview`, que só recebe `code` e
+`tournamentId`: o subtotal sobre o qual o desconto incide é lido do campeonato,
+pelo mesmo cálculo que o pedido usa (`src/utils/pricing.js`). Assim a prévia
+mostra exatamente o que a cobrança vai fazer — e uma tela não consegue exibir
+desconto que o servidor não honraria.
+
 ### Estados
 
 Transições permitidas são declaradas em `src/utils/financialStates.js`. O que não
@@ -414,14 +420,21 @@ npm test
 
 O escopo é declarado em `vitest.config.mjs` (`tests/**/*.test.mjs`), com execução serial e banco próprio (`prisma/test.db`). O banco de desenvolvimento não é tocado. Diretórios de ferramentas do ambiente (`.agents/`, `.claude/`) são explicitamente excluídos da coleta.
 
-Suítes:
+São 11 suítes, 206 casos:
 
-- `tests/api.test.mjs` — núcleo do domínio
-- `tests/auth.test.mjs` — autenticação e controle de acesso
-- `tests/fase3.test.mjs` — fumaça dos módulos operacionais
-- `tests/fase3-operacional.test.mjs` — módulos operacionais em profundidade
-- `tests/seguranca.test.mjs` — matriz de acesso cruzado entre perfis
-- `tests/e2e-fluxo-operacional.test.mjs` — ciclo completo contra banco real, sem mocks
+| Suíte | Casos | Cobre |
+| --- | --- | --- |
+| `api.test.mjs` | 5 | núcleo do domínio |
+| `auth.test.mjs` | 3 | autenticação e controle de acesso |
+| `fase3.test.mjs` | 1 | fumaça dos módulos operacionais |
+| `fase3-operacional.test.mjs` | 32 | módulos operacionais em profundidade |
+| `fase4-operacional.test.mjs` | 29 | Athlete Center, Admin Center, perfil, documentos |
+| `fase4-fechamento.test.mjs` | 16 | vitrine pública, Organizer Center, painéis por perfil |
+| `fase5-financeiro.test.mjs` | 36 | pedido, cupom, pagamento, webhook, reembolso, patrocínio |
+| `fase6-producao.test.mjs` | 25 | configuração, health, rate limiting, log, storage |
+| `seguranca.test.mjs` | 20 | matriz de acesso cruzado entre perfis |
+| `e2e-fluxo-operacional.test.mjs` | 20 | ciclo esportivo completo, banco real, sem mocks |
+| `e2e-financeiro.test.mjs` | 19 | ciclo financeiro completo, banco real, sem mocks |
 
 Frontend:
 
@@ -449,7 +462,8 @@ src/
   services/           Regra de negócio, autorização e posse
   repositories/       Único ponto de acesso ao Prisma
   middlewares/        auth, validate, errorHandler
-  utils/              schemas, auth, roles, errors, visibility, asyncHandler
+  utils/              schemas, auth, roles, errors, visibility, ownership,
+                      money, pricing, financialStates, logger, asyncHandler
 prisma/
   schema.prisma
   migrations/

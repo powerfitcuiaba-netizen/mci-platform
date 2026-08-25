@@ -2,6 +2,7 @@ const prisma = require('../config/prisma');
 const { AppError } = require('../utils/errors');
 const money = require('../utils/money');
 const { assertTransicao } = require('../utils/financialStates');
+const { calcular } = require('../utils/pricing');
 const couponService = require('./couponService');
 const notificationService = require('./notificationService');
 const auditService = require('./auditService');
@@ -36,16 +37,6 @@ async function assertPodeComprarPor(participantId, tournament, actor) {
   if (actor.role === 'COACH' && participant.coachId === actor.id) return participant;
 
   throw new AppError(403, 'FORBIDDEN', 'Você não pode gerar pedido para este participante');
-}
-
-// O preço é sempre lido do campeonato. Nada de valor, desconto ou total vindo
-// do cliente entra nesta conta — o corpo da requisição só diz o que se quer
-// comprar, nunca quanto custa.
-function calcular({ tournament, quantidade, discountCents }) {
-  const unitPriceCents = money.assertCents(tournament.entryFeeCents, 'preço do campeonato');
-  const subtotalCents = money.assertCents(unitPriceCents * quantidade, 'subtotal');
-  const desconto = money.clampDiscount(subtotalCents, discountCents || 0);
-  return { unitPriceCents, subtotalCents, discountCents: desconto, totalCents: subtotalCents - desconto };
 }
 
 async function create(data, actor) {

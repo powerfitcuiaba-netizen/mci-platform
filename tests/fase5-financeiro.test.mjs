@@ -110,6 +110,33 @@ describe('Fase 5 — camada financeira', () => {
       expect(await prisma.order.count()).toBe(0);
     });
 
+    it('a prévia de cupom calcula sobre o preço do campeonato, não sobre o valor enviado', async () => {
+      const s = await scenario();
+      await request(app).post(`${api}/coupons`).set(auth(s.organizer.token))
+        .send({ tournamentId: s.tournament.id, code: 'MCI10', percentOff: 10 });
+
+      const previa = await request(app).post(`${api}/coupons/preview`).set(auth(s.athlete.token))
+        .send({ code: 'MCI10', tournamentId: s.tournament.id });
+      expect(previa.status).toBe(200);
+      expect(previa.body.subtotalCents).toBe(PRECO);
+      expect(previa.body.discountCents).toBe(1500);
+      expect(previa.body.totalCents).toBe(13500);
+
+      // Um subtotal inflado no corpo é recusado, e não aceito e usado: mostrar
+      // desconto que a cobrança não honraria seria mentir para o cliente.
+      for (const adulterado of [{ subtotalCents: 999999 }, { discountCents: PRECO }, { totalCents: 0 }]) {
+        const ataque = await request(app).post(`${api}/coupons/preview`).set(auth(s.athlete.token))
+          .send({ code: 'MCI10', tournamentId: s.tournament.id, ...adulterado });
+        expect(ataque.status, JSON.stringify(adulterado)).toBe(400);
+      }
+
+      // O que a prévia mostrou é exatamente o que o pedido cobra.
+      const pedido = await criarPedido(s, { couponCode: 'MCI10' });
+      expect(pedido.status).toBe(201);
+      expect(pedido.body.discountCents).toBe(previa.body.discountCents);
+      expect(pedido.body.totalCents).toBe(previa.body.totalCents);
+    });
+
     it('não aceita pedido para campeonato gratuito', async () => {
       const s = await scenario();
       const resposta = await request(app).post(`${api}/orders`).set(auth(s.athlete.token))

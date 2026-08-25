@@ -1,4 +1,5 @@
 const prisma = require('../config/prisma');
+const logger = require('../utils/logger');
 const { AppError } = require('../utils/errors');
 
 // Chaves que nunca podem entrar na trilha, mesmo que apareçam no payload de
@@ -41,7 +42,7 @@ async function record({ actor, action, entity, entityId = null, metadata = null 
       }
     });
   } catch (error) {
-    console.error(`[auditoria] falha ao registrar ${action} em ${entity}:`, error.message);
+    logger.error('falha ao registrar auditoria', { action: String(action), entity: String(entity), erro: error.message });
     return null;
   }
 }

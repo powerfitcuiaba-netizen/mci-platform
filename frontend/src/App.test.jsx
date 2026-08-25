@@ -539,9 +539,13 @@ describe('MCI Campeonatos', () => {
       await userEvent.type(screen.getByPlaceholderText(/MCI10/i), 'MCI10');
       await userEvent.click(screen.getByRole('button', { name: /aplicar/i }));
 
-      await waitFor(() => expect(mockApi.coupons.preview).toHaveBeenCalledWith(
-        expect.objectContaining({ code: 'MCI10', subtotalCents: 15000 })
-      ));
+      await waitFor(() => expect(mockApi.coupons.preview).toHaveBeenCalled());
+      // Quanto custa é decisão do servidor: a tela não manda valor nenhum.
+      const enviado = mockApi.coupons.preview.mock.calls.at(-1)[0];
+      expect(enviado).toEqual({ code: 'MCI10', tournamentId: EVENTO_PAGO.id });
+      for (const campo of ['subtotalCents', 'totalCents', 'discountCents', 'unitPriceCents']) {
+        expect(enviado).not.toHaveProperty(campo);
+      }
       expect(await screen.findByText(/135,00/)).toBeInTheDocument();
     });
 
