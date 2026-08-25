@@ -19,7 +19,7 @@ function sanitizeUser(user) {
     role: user.role,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
-    participantId: user.participantId || null
+    participantId: user.participant?.id || user.participantId || null
   };
 }
 

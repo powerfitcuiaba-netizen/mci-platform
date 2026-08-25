@@ -9,17 +9,20 @@ const validateDates = (value, context) => {
 };
 const tournament = z.object(tournamentFields).strict().superRefine(validateDates);
 const tournamentUpdate = z.object(tournamentFields).strict().partial().superRefine(validateDates).refine(value => Object.keys(value).length > 0, 'Informe ao menos um campo para atualizar');
-const participant = z.object({ name: z.string().trim().min(2), identification: z.string().trim().min(1), type: z.enum(['PLAYER', 'TEAM']).optional() }).strict();
+const participant = z.object({ name: z.string().trim().min(2), identification: z.string().trim().min(1), type: z.enum(['PLAYER', 'TEAM']).optional(), coachId: id.nullable().optional(), teamId: id.nullable().optional() }).strict();
 const team = participant.extend({ type: z.literal('TEAM').default('TEAM') });
 const participantUpdate = participant.partial().refine(value => Object.keys(value).length > 0, 'Informe ao menos um campo para atualizar');
-const teamUpdate = z.object({ name: z.string().trim().min(2).optional(), identification: z.string().trim().min(1).optional() }).strict().refine(value => Object.keys(value).length > 0, 'Informe ao menos um campo para atualizar');
+const teamUpdate = z.object({ name: z.string().trim().min(2).optional(), identification: z.string().trim().min(1).optional(), coachId: id.nullable().optional() }).strict().refine(value => Object.keys(value).length > 0, 'Informe ao menos um campo para atualizar');
 const enrollment = z.object({ participantId: id }).strict();
 const match = z.object({ tournamentId: id, participantAId: id, participantBId: id, scheduledAt: date, status: z.enum(['SCHEDULED', 'IN_PROGRESS', 'FINISHED', 'CANCELLED']).optional(), phase: z.string().trim().min(1).optional(), round: z.number().int().positive().optional() }).strict();
 const matchUpdate = z.object({ scheduledAt: date, status: z.enum(['SCHEDULED', 'IN_PROGRESS', 'FINISHED', 'CANCELLED']).optional(), phase: z.string().trim().min(1).optional(), round: z.number().int().positive().optional() }).strict().refine(value => Object.keys(value).length > 0, 'Informe ao menos um campo para atualizar');
 const result = z.object({ winnerParticipantId: id.nullable().optional(), scoreA: z.number().int().nonnegative(), scoreB: z.number().int().nonnegative() }).strict();
 const judgeAssignment = z.object({ tournamentId: id, judgeId: id }).strict();
 const checkIn = z.object({ operatorName: z.string().trim().min(1).optional(), checkedInById: id.optional() }).strict();
-const document = z.object({ tournamentId: id, title: z.string().trim().min(2), fileName: z.string().trim().min(1), mimeType: z.string().trim().min(1).default('application/octet-stream') }).strict();
+const document = z.object({ tournamentId: id, title: z.string().trim().min(2).max(180), fileName: z.string().trim().min(1).max(255), mimeType: z.string().trim().min(1).max(120).default('application/octet-stream') }).strict();
 const query = z.object({ tournamentId: id.optional(), type: z.enum(['PLAYER', 'TEAM']).optional() }).strict();
+const searchQuery = z.object({ search: z.string().trim().max(120).optional() }).strict();
+const documentQuery = z.object({ tournamentId: id.optional() }).strict();
+const coachSetTeam = z.object({ teamId: id.nullable() }).strict();
 
-module.exports = { id, paramsWithId, tournament, tournamentUpdate, participant, participantUpdate, team, teamUpdate, enrollment, match, matchUpdate, result, judgeAssignment, checkIn, document, query };
+module.exports = { id, paramsWithId, tournament, tournamentUpdate, participant, participantUpdate, team, teamUpdate, enrollment, match, matchUpdate, result, judgeAssignment, checkIn, document, query, searchQuery, documentQuery, coachSetTeam };

@@ -8,7 +8,14 @@ function validate(schema, source = 'body') {
       error.details = result.error.issues.map(issue => ({ path: issue.path, message: issue.message }));
       return next(error);
     }
-    req[source] = result.data;
+    // No Express 5 req.query é somente-leitura: a atribuição direta falharia em
+    // silêncio e o valor convertido pelo schema seria perdido.
+    try {
+      req[source] = result.data;
+      if (req[source] !== result.data) throw new Error('read-only');
+    } catch (error) {
+      Object.defineProperty(req, source, { value: result.data, writable: true, configurable: true, enumerable: true });
+    }
     next();
   };
 }

@@ -23,6 +23,7 @@ model User {
   notifications Notification[]
   documents Document[] @relation("DocumentCreatedBy")
   checkIns CheckIn[] @relation("CheckInOperator")
+  coachedParticipants Participant[] @relation("ParticipantCoach")
 
   @@index([role])
 }
@@ -53,10 +54,15 @@ model Participant {
   identification String       @unique
   type           String       @default("TEAM")
   userId         String?      @unique
+  coachId        String?
+  teamId         String?
   createdById    String?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   user           User?        @relation("UserParticipant", fields: [userId], references: [id])
+  coach          User?        @relation("ParticipantCoach", fields: [coachId], references: [id], onDelete: SetNull)
+  team           Participant? @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
+  members        Participant[] @relation("TeamMembers")
   createdBy      User?        @relation("ParticipantCreatedBy", fields: [createdById], references: [id])
   enrollments    Enrollment[]
   matchesAsA     Match[]      @relation("ParticipantA")
@@ -65,6 +71,8 @@ model Participant {
   standings      Standing[]
 
   @@index([type])
+  @@index([coachId])
+  @@index([teamId])
 }
 
 model Enrollment {

@@ -21,6 +21,13 @@ export const setAuthToken = token => {
 
 export const clearAuthToken = () => setAuthToken(null);
 
+const withQuery = (path, params = {}) => {
+  const entries = Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== '');
+  if (!entries.length) return path;
+  const search = entries.map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join('&');
+  return `${path}?${search}`;
+};
+
 export async function apiRequest(path, options = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
@@ -47,40 +54,88 @@ export async function apiRequest(path, options = {}) {
   }
 }
 
+const post = (path, data) => apiRequest(path, { method: 'POST', body: JSON.stringify(data) });
+const patch = (path, data) => apiRequest(path, { method: 'PATCH', body: JSON.stringify(data) });
+const remove = path => apiRequest(path, { method: 'DELETE' });
+
 export const api = {
   auth: {
-    login: data => apiRequest('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
-    register: data => apiRequest('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
+    login: data => post('/auth/login', data),
+    register: data => post('/auth/register', data),
     me: () => apiRequest('/auth/me')
+  },
+  dashboard: {
+    summary: () => apiRequest('/dashboard/summary')
   },
   tournaments: {
     list: () => apiRequest('/campeonatos'),
     get: id => apiRequest(`/campeonatos/${id}`),
-    create: data => apiRequest('/campeonatos', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id, data) => apiRequest(`/campeonatos/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-    remove: id => apiRequest(`/campeonatos/${id}`, { method: 'DELETE' }),
+    create: data => post('/campeonatos', data),
+    update: (id, data) => patch(`/campeonatos/${id}`, data),
+    remove: id => remove(`/campeonatos/${id}`),
     participants: id => apiRequest(`/campeonatos/${id}/participantes`),
-    enroll: (id, participantId) => apiRequest(`/campeonatos/${id}/participantes`, { method: 'POST', body: JSON.stringify({ participantId }) }),
+    enroll: (id, participantId) => post(`/campeonatos/${id}/participantes`, { participantId }),
     standings: id => apiRequest(`/campeonatos/${id}/classificacao`)
   },
   participants: {
     list: () => apiRequest('/participantes'),
-    create: data => apiRequest('/participantes', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id, data) => apiRequest(`/participantes/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-    remove: id => apiRequest(`/participantes/${id}`, { method: 'DELETE' })
+    create: data => post('/participantes', data),
+    update: (id, data) => patch(`/participantes/${id}`, data),
+    remove: id => remove(`/participantes/${id}`)
   },
   teams: {
     list: () => apiRequest('/equipes'),
-    create: data => apiRequest('/equipes', { method: 'POST', body: JSON.stringify({ ...data, type: 'TEAM' }) }),
-    update: (id, data) => apiRequest(`/equipes/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-    remove: id => apiRequest(`/equipes/${id}`, { method: 'DELETE' })
+    create: data => post('/equipes', { ...data, type: 'TEAM' }),
+    update: (id, data) => patch(`/equipes/${id}`, data),
+    remove: id => remove(`/equipes/${id}`)
   },
   matches: {
-    list: tournamentId => apiRequest(`/partidas${tournamentId ? `?tournamentId=${encodeURIComponent(tournamentId)}` : ''}`),
-    create: data => apiRequest('/partidas', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id, data) => apiRequest(`/partidas/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    list: tournamentId => apiRequest(withQuery('/partidas', { tournamentId })),
+    create: data => post('/partidas', data),
+    update: (id, data) => patch(`/partidas/${id}`, data),
     result: id => apiRequest(`/partidas/${id}/resultado`),
-    saveResult: (id, data) => apiRequest(`/partidas/${id}/resultado`, { method: 'POST', body: JSON.stringify(data) }),
-    updateResult: (id, data) => apiRequest(`/partidas/${id}/resultado`, { method: 'PATCH', body: JSON.stringify(data) })
+    saveResult: (id, data) => post(`/partidas/${id}/resultado`, data),
+    updateResult: (id, data) => patch(`/partidas/${id}/resultado`, data)
+  },
+  judge: {
+    matches: () => apiRequest('/judge/matches'),
+    assignments: () => apiRequest('/judge/assignments'),
+    assign: data => post('/judge/assignments', data)
+  },
+  checkin: {
+    byTournament: (tournamentId, search) => apiRequest(withQuery(`/checkin/tournaments/${tournamentId}`, { search })),
+    byEnrollment: enrollmentId => apiRequest(`/checkin/enrollments/${enrollmentId}`),
+    register: (enrollmentId, data = {}) => post(`/checkin/enrollments/${enrollmentId}`, data),
+    cancel: enrollmentId => patch(`/checkin/enrollments/${enrollmentId}/cancel`, {})
+  },
+  notifications: {
+    list: () => apiRequest('/notifications'),
+    markRead: id => patch(`/notifications/${id}/read`, {}),
+    markAllRead: () => post('/notifications/read-all', {})
+  },
+  documents: {
+    list: tournamentId => apiRequest(withQuery('/documents', { tournamentId })),
+    get: id => apiRequest(`/documents/${id}`),
+    create: data => post('/documents', data),
+    remove: id => remove(`/documents/${id}`)
+  },
+  coach: {
+    overview: () => apiRequest('/coach/overview'),
+    teams: () => apiRequest('/coach/teams'),
+    athletes: () => apiRequest('/coach/athletes'),
+    setTeam: (participantId, teamId) => patch(`/coach/participants/${participantId}/team`, { teamId })
+  },
+  backstage: {
+    overview: () => apiRequest('/backstage/overview')
+  },
+  reports: {
+    list: () => apiRequest('/reports/tournaments'),
+    tournament: id => apiRequest(`/reports/tournaments/${id}`)
+  },
+  publicFeed: {
+    summary: () => apiRequest('/public/summary'),
+    tournaments: () => apiRequest('/public/tournaments'),
+    tournament: id => apiRequest(`/public/tournaments/${id}`),
+    live: () => apiRequest('/public/live')
   }
 };

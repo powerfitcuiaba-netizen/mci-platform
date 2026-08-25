@@ -3,24 +3,15 @@ const matchService = require('./matchService');
 const matchRepository = require('../repositories/matchRepository');
 const tournamentRepository = require('../repositories/tournamentRepository');
 const standingService = require('./standingService');
-const prisma = require('../config/prisma');
+const notificationService = require('./notificationService');
 const { AppError } = require('../utils/errors');
+const { assertCanOperateTournament } = require('../utils/ownership');
 
-const assertOwnedOrAdmin = async (resource, actor) => {
-  if (!resource || !actor) return;
-  if (actor.role === 'ADMIN') return;
-  if (actor.role === 'ORGANIZER' && resource.createdById === actor.id) return;
-  if (actor.role === 'JUDGE') {
-    const assignment = await prisma.judgeAssignment.findUnique({ where: { tournamentId_judgeId: { tournamentId: resource.id, judgeId: actor.id } } });
-    if (assignment) return;
-  }
-  throw new AppError(403, 'FORBIDDEN', 'Você não pode alterar este recurso');
-};
 
 async function create(matchId, data, actor) {
   const match = await matchService.findById(matchId);
   const tournament = await tournamentRepository.findById(match.tournamentId);
-  await assertOwnedOrAdmin(tournament, actor);
+  await assertCanOperateTournament(tournament, actor);
   if (await resultRepository.exists(matchId)) throw new AppError(409, 'RESULT_ALREADY_EXISTS', 'Esta partida já possui resultado');
   if (['CANCELLED', 'FINISHED'].includes(match.status)) throw new AppError(422, 'INVALID_MATCH_STATUS', 'A partida não aceita novos resultados neste status');
   if (data.scoreA === data.scoreB && data.winnerParticipantId) throw new AppError(422, 'INVALID_RESULT', 'Empates não podem ter vencedor');
@@ -29,6 +20,7 @@ async function create(matchId, data, actor) {
   const result = await resultRepository.create({ matchId, ...data });
   await matchRepository.update(matchId, { status: 'FINISHED' });
   await standingService.recalculate(match.tournamentId);
+  await notificationService.notifyMatch(matchId, actor?.id, 'RESULT');
   return result;
 }
 
@@ -43,10 +35,11 @@ async function validateResult(matchId, data) {
 async function update(matchId, data, actor) {
   const match = await validateResult(matchId, data);
   const tournament = await tournamentRepository.findById(match.tournamentId);
-  await assertOwnedOrAdmin(tournament, actor);
+  await assertCanOperateTournament(tournament, actor);
   if (!await resultRepository.exists(matchId)) throw new AppError(404, 'RESULT_NOT_FOUND', 'Resultado não encontrado');
   const result = await resultRepository.update(matchId, data);
   await standingService.recalculate(match.tournamentId);
+  await notificationService.notifyMatch(matchId, actor?.id, 'RESULT');
   return result;
 }
 

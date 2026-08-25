@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "cross-env DATABASE_URL=file:./test.db prisma migrate deploy && cross-env DATABASE_URL=file:./test.db vitest run tests --maxWorkers=1 --no-file-parallelism",
+    "test": "cross-env DATABASE_URL=file:./test.db prisma migrate deploy && cross-env DATABASE_URL=file:./test.db vitest run",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
     "prisma:migrate": "prisma migrate dev --name init"

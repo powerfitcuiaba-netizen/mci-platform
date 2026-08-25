@@ -36,3 +36,191 @@ body { background: radial-gradient(circle at 70% -20%, #17212b 0, #080a0d 38%); 
 .page-wrap { padding-top:35px; }.page-heading h1, .detail-hero h1 { font-family:'Bebas Neue', 'Inter', sans-serif; font-weight:400; letter-spacing:1px; }.panel, .metric, .tournament-card, .search-box, .topbar { background:#11161c; border-color:#242b33; border-radius:3px; }.button-primary { background:var(--red); border-radius:3px; box-shadow:0 4px 14px #e31e2426; }.button-primary:hover { background:#ff3439; }.button-secondary { color:#e7ebed; background:#1b2027; border-radius:3px; }.text-button { color:#39a6ff; }.detail-hero { background:#0d1116; border:1px solid #242b33; border-radius:3px; }.badge-active, .badge-in-progress { background:#143b28; color:#55d888; }.badge-planned, .badge-scheduled { background:#3d3012; color:#f1c44f; }.badge-finished { background:#222a31; color:#b4bec5; }.badge-cancelled { background:#471c1e; color:#ff7777; }.badge-equipe { background:#102e4a; color:#61baff; }.sport-icon { background:#152d3f; color:#35a7ff; }.metric-icon.mint { background:#143b28; color:#55d888; }.metric-icon.yellow { background:#3d3012; color:#f1c44f; }.metric-icon.blue { background:#102e4a; color:#61baff; }.metric-icon.coral { background:#471c1e; color:#ff7777; }.points { color:#ff5960; }.rank-1 { color:#f1c44f; }.toast { background:#151d24; border-left:3px solid var(--red); }
 .reference-page h1 { font:400 42px 'Bebas Neue'; letter-spacing:1px; margin:10px 0 8px; }.reference-page > p { color:var(--muted); font-size:14px; }.reference-grid { display:grid; grid-template-columns:1.2fr .8fr; gap:18px; margin-top:30px; }.reference-spec { background:#11161c; border:1px solid var(--line); border-radius:3px; padding:23px; align-self:start; }.reference-line { padding:15px 0; border-bottom:1px solid var(--line); color:#cbd2d7; font-size:12px; }.reference-line:last-child { border-bottom:0; }.pending-dot { width:7px; height:7px; display:inline-block; border-radius:50%; background:var(--yellow); margin-right:9px; }
 @media (max-width: 900px) { .reference-grid { grid-template-columns:1fr; } }
+/* Fase 3 — módulos operacionais. Mesma linguagem MCI: superfície near-black,
+   vermelho para ação, azul para informação, cantos retos e densidade alta. */
+.result-feed { border-top:1px solid var(--line); }
+.result-line { display:grid; grid-template-columns:1fr auto; gap:4px 12px; padding:13px 0; border-bottom:1px solid var(--line); font-size:12px; }
+.result-line:last-child { border-bottom:0; }
+.result-line strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.result-line small { grid-column:1 / -1; color:var(--muted); font-size:11px; }
+
+.notification-row { display:flex; align-items:flex-start; gap:12px; padding:15px 0; border-bottom:1px solid var(--line); }
+.notification-row:last-child { border-bottom:0; }
+.notification-row.is-unread { background:linear-gradient(90deg, #e31e240f, transparent 60%); margin:0 -23px; padding-left:23px; padding-right:23px; }
+.notification-dot { width:8px; height:8px; border-radius:50%; margin-top:6px; flex-shrink:0; background:#61baff; }
+.notification-dot.type-result { background:var(--red); }
+.notification-dot.type-checkin { background:#55d888; }
+.notification-dot.type-enrollment { background:#f1c44f; }
+.notification-body { flex:1; min-width:0; }
+.notification-body strong { display:block; font-size:13px; }
+.notification-body p { margin:4px 0 0; color:#b4bec5; font-size:12px; }
+.notification-body small { display:block; margin-top:6px; color:var(--muted); font-size:10px; letter-spacing:.4px; }
+
+.doc-icon { display:grid; place-items:center; width:33px; height:33px; border-radius:3px; background:#152d3f; color:#61baff; flex-shrink:0; }
+
+.alert-stack { display:grid; gap:8px; margin-bottom:22px; }
+.alert-row { display:flex; align-items:center; gap:11px; border:1px solid var(--line); border-left:3px solid var(--blue); border-radius:3px; background:#11161c; padding:13px 15px; font-size:12px; color:#cbd2d7; }
+.alert-row.level-warning { border-left-color:var(--red); color:#ffb4b4; }
+.alert-row.level-warning svg { color:var(--red); }
+.alert-row.level-info svg { color:#61baff; }
+
+.tv-live { border-left:3px solid var(--red); }
+.tv-live .live-dot { background:var(--red); box-shadow:0 0 0 3px #e31e2433; }
+
+.badge-pending { background:#3d3012; color:#f1c44f; }
+.badge-checked-in { background:#143b28; color:#55d888; }
+
+/* Nas telas densas o corpo nunca rola na horizontal: quem rola é a própria
+   tabela, dentro do seu container. */
+.table-panel { overflow-x:auto; }
+.table-panel .table-head, .table-panel .table-row { min-width:0; }
+
+@media (max-width: 900px) {
+  .alert-row { align-items:flex-start; }
+  .notification-row.is-unread { margin:0 -17px; padding-left:17px; padding-right:17px; }
+}
+
+@media (max-width: 560px) {
+  .result-line { grid-template-columns:1fr; }
+  .result-line .score { justify-self:start; }
+  .notification-row { gap:9px; }
+  .notification-row .row-action { align-self:flex-start; }
+  .toolbar .select-control { width:100%; min-height:40px; margin-bottom:8px; }
+  .table-panel .table-row { grid-template-columns:1fr auto; }
+}
+
+/* Correção de contraste. A camada MCI escureceu as superfícies mas manteve
+   títulos, campos e modais com as cores do tema claro original: títulos ficavam
+   #080a0d sobre painel #11161c, e os campos tinham texto branco sobre fundo
+   branco. A identidade não muda — near-black, vermelho MCI, azul informativo —
+   apenas o texto volta a ser legível sobre ela. */
+.page-heading h1 { color:var(--ink); }
+.panel h2, .modal-header h2, .tournament-card h3 { color:var(--ink); }
+.metric strong { color:var(--ink); }
+.metric small { color:var(--muted); }
+
+/* Modal e formulários */
+.modal { background:#11161c; border:1px solid var(--line); border-radius:3px; box-shadow:0 24px 70px #000000a8; }
+.modal-scrim, .mobile-scrim { background:#04060999; }
+.icon-button { background:#1b2027; color:#e7ebed; border-radius:3px; }
+.field > span { color:#a4adb4; }
+.field input, .field textarea, .field select,
+.select-control, .filter-button, .enroll-form select, .inscription-box select {
+  background:#0d1116; border:1px solid var(--line); color:var(--ink); border-radius:3px;
+}
+.field input::placeholder, .field textarea::placeholder, .search-box input::placeholder { color:#6b757d; }
+.field input:focus, .field textarea:focus, .field select:focus,
+.select-control:focus, .search-box input:focus {
+  border-color:var(--red); box-shadow:0 0 0 3px #e31e2426; outline:none;
+}
+.field em { color:var(--red); }
+.select-control { min-height:42px; }
+
+/* Cabeçalho de tabela e estados auxiliares */
+.table-head { background:#0d1116; color:#8d969e; border-bottom:1px solid var(--line); }
+.empty-icon { background:#152d3f; color:#61baff; }
+.error-state { background:#1a1012; border:1px solid #4a1f22; color:#ff9b9b; }
+.error-state strong { color:#ffc0c0; }
+.skeleton-row i, .skeleton-row span, .skeleton-row b { background:#1b2027; }
+.card-actions button, .row-actions button, .row-action { background:#1b2027; color:#cbd2d7; border-radius:3px; }
+.card-actions button:last-child, .row-actions button:last-child { background:#2a1416; color:#ff8f8f; }
+.row-actions button:last-child:hover, .card-actions button:last-child:hover { background:#3a181b; }
+.card-actions button:hover, .row-action:hover { background:#242b33; }
+.avatar, .top-avatar { background:#1b2027; color:#cbd2d7; }
+.avatar-teal { background:#152d3f; color:#61baff; }
+.avatar-gold { background:#3d3012; color:#f1c44f; }
+.tournament-card:hover { border-color:#3a444e; box-shadow:0 10px 24px #00000055; transform:translateY(-3px); }
+.tournament-row:hover .row-main strong { color:#ff5960; }
+.row-chevron, .muted-icon { color:#6b757d; }
+.detail-meta { background:#11161c; border-color:var(--line); color:#8d969e; }
+.profile-card h2 { color:var(--ink); }
+
+/* Foco visível para navegação por teclado, ausente no tema original. */
+.sidebar nav button:focus-visible, .button:focus-visible, .text-button:focus-visible,
+.icon-button:focus-visible, .top-icon:focus-visible, .tournament-row:focus-visible,
+.tournament-card:focus-visible, .row-action:focus-visible, .row-actions button:focus-visible,
+.card-actions button:focus-visible, .profile:focus-visible, .back-link:focus-visible {
+  outline:2px solid var(--red); outline-offset:2px;
+}
+
+/* .profile é um <button> sem background declarado: no tema claro isso passava
+   despercebido, no escuro herda o cinza padrão do navegador e vira uma caixa
+   clara no rodapé da sidebar. */
+.profile { background:transparent; border:0; border-top:1px solid var(--line); border-radius:3px; }
+.profile:hover { background:#1b2027; }
+.season { border-top:1px solid var(--line); }
+.season .live-dot { flex-shrink:0; }
+
+/* Em painel estreito a coluna de data colidia com o nome do participante:
+   a legenda da fase agora trunca em vez de transbordar. */
+.game-date { width:52px; overflow:hidden; }
+.game-date small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.teams span { overflow:hidden; text-overflow:ellipsis; }
+
+/* Indicador de disponibilidade da API. Vermelho quando a última leitura falhou. */
+.api-status.is-offline, .season.is-offline { color:#ff8f8f; }
+.api-status.is-offline .live-dot, .season.is-offline .live-dot { background:var(--red); box-shadow:0 0 0 3px #e31e2433; }
+
+/* Controles nativos (date picker, dropdown do select, barra de rolagem) seguem
+   o esquema do sistema. Sem isto o ícone do calendário fica escuro sobre escuro. */
+:root { color-scheme: dark; }
+
+/* Telas de sessão. As classes existiam no JSX desde o início mas nunca tiveram
+   regra correspondente: login e registro renderizavam sem estilo algum, com os
+   campos em linha no canto superior esquerdo. Mesma linguagem do restante —
+   fundo near-black, cartão de superfície, vermelho MCI na ação principal. */
+.auth-shell {
+  min-height:100vh; display:grid; place-items:center; padding:24px;
+  background:radial-gradient(circle at 70% -20%, #17212b 0, #080a0d 45%);
+}
+.auth-card {
+  width:min(100%, 420px); background:#11161c; border:1px solid var(--line);
+  border-radius:3px; padding:36px 32px; box-shadow:0 24px 70px #00000080;
+}
+.auth-card h1 {
+  font:400 38px 'Bebas Neue', 'Inter', sans-serif; letter-spacing:1px;
+  color:var(--ink); margin:10px 0 6px;
+}
+.auth-card > p { margin:0 0 26px; color:var(--muted); font-size:13px; }
+.auth-form { display:grid; gap:16px; }
+.auth-form label { display:grid; gap:7px; }
+.auth-form label > span { color:#a4adb4; font-size:12px; font-weight:700; }
+.auth-form input, .auth-form select {
+  width:100%; background:#0d1116; border:1px solid var(--line); border-radius:3px;
+  padding:12px 13px; color:var(--ink); font-size:13px; outline:0;
+}
+.auth-form input:focus, .auth-form select:focus {
+  border-color:var(--red); box-shadow:0 0 0 3px #e31e2426;
+}
+.auth-form input::placeholder { color:#6b757d; }
+.auth-form .button { width:100%; margin-top:4px; }
+.error-box {
+  background:#1a1012; border:1px solid #4a1f22; border-left:3px solid var(--red);
+  border-radius:3px; padding:11px 13px; color:#ff9b9b; font-size:12px;
+}
+.auth-footer {
+  display:flex; align-items:center; justify-content:center; gap:7px;
+  border-top:1px solid var(--line); margin-top:26px; padding-top:20px;
+  color:var(--muted); font-size:12px;
+}
+
+/* Linhas de inscrição usadas no detalhe do campeonato, no Coach Center e no
+   relatório. Também estavam sem regra: nome e selo ficavam colados. */
+.inscription-list { border-top:1px solid var(--line); margin-top:4px; }
+.inscription-row {
+  display:flex; align-items:center; gap:10px; padding:12px 0;
+  border-bottom:1px solid var(--line); font-size:12px; min-width:0;
+}
+.inscription-row:last-child { border-bottom:0; }
+.inscription-row > strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.inscription-row .badge, .inscription-row > small { margin-left:auto; flex-shrink:0; }
+.inscription-box { display:flex; gap:8px; margin-bottom:14px; }
+.inscription-box select { flex:1; min-width:0; }
+.inscription-box .button { flex-shrink:0; }
+
+@media (max-width: 560px) {
+  .auth-card { padding:28px 20px; }
+  .auth-card h1 { font-size:32px; }
+  .inscription-box { display:block; }
+  .inscription-box .button { width:100%; margin-top:8px; }
+}
