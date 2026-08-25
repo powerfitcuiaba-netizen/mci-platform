@@ -10,7 +10,7 @@ As referências oficiais ficam permanentemente em `design/referencias/` (48 imag
 
 ## Tecnologias
 
-- Node.js 18+ (validado em Node 24)
+- Node.js 22+ (o `jsdom` da suíte de interface exige `^22.22.2 || ^24.15.0`; validado em Node 24)
 - Express 5
 - Prisma 6 com SQLite
 - Zod para validação
@@ -20,7 +20,7 @@ As referências oficiais ficam permanentemente em `design/referencias/` (48 imag
 
 ## Requisitos
 
-- Node.js 18 ou superior
+- Node.js 22 ou superior — o backend roda em 20, mas a suíte de interface exige 22+
 - npm
 
 ## Instalação
@@ -144,6 +144,11 @@ A autorização nunca usa identificador vindo do corpo da requisição. O ator �
 | Dashboard | REAL | Composição própria por perfil: global, operação, arbitragem, elenco ou carreira |
 | Organizer Center | REAL | Consolida os módulos de operação do organizador num ponto único |
 | Vitrine pública | REAL | Competições, atletas e equipes acessíveis sem login |
+| Pedidos e checkout | REAL | Valor calculado no servidor, cupom, idempotência, expiração |
+| Pagamentos | REAL | Provedor abstraído, webhook assinado e idempotente. **Sem gateway real integrado** |
+| Cupons | REAL | Percentual ou valor fixo, validade, limite total e por usuário |
+| Reembolsos | REAL | Só sobre pedido pago, reverte inscrição e devolve o cupom |
+| Patrocínios | REAL | Contrato por evento, separado do fluxo de inscrição |
 | Documentos | REAL | Upload e download reais, com tipo, tamanho e nome validados |
 | Athlete Center | REAL | Carreira do atleta, isolada por conta |
 | Admin Center | REAL | Contas, retrato global e trilha de auditoria |
@@ -192,6 +197,17 @@ Prefixo `/api/v1`.
 | PATCH | `/coach/participants/:id/team` | Mover atleta entre equipes do próprio elenco |
 | GET | `/backstage/overview` | Operação consolidada com alertas |
 | GET | `/reports/tournaments` · `/reports/tournaments/:id` | Índice e relatório do campeonato |
+| GET/POST | `/orders` | Listar pedidos do escopo · criar pedido |
+| GET | `/orders/:id` | Consultar pedido com itens, pagamentos e reembolsos |
+| PATCH | `/orders/:id/cancel` | Cancelar pedido pendente |
+| GET/POST | `/orders/:id/payments` | Histórico de tentativas · abrir cobrança |
+| POST | `/orders/:id/refunds` | Reembolsar pedido pago (ADMIN ou dono do evento) |
+| GET | `/refunds` | Reembolsos do escopo do usuário |
+| GET/POST | `/coupons` | Listar ou criar cupom |
+| PATCH | `/coupons/:id/active` | Ativar ou desativar cupom |
+| POST | `/coupons/preview` | Calcular o desconto antes de fechar o pedido |
+| GET/POST | `/sponsors` · `/sponsorships` | Patrocinadores e contratos por evento |
+| POST | `/webhooks/payments/:provider` | Notificação do provedor — pública, protegida por assinatura |
 | GET | `/public/summary` · `/public/tournaments` · `/public/tournaments/:id` · `/public/live` | MCI TV, sem autenticação |
 | GET | `/public/athletes` · `/public/athletes/:id` | Vitrine pública de atletas |
 | GET | `/public/teams` · `/public/teams/:id` | Vitrine pública de equipes |
@@ -228,6 +244,78 @@ Entradas inválidas retornam `400` com `error.code = VALIDATION_ERROR` e uma lis
 ## Regra de classificação
 
 Vitória vale 3 pontos, empate 1 para cada participante e derrota 0. A ordenação usa, nesta ordem: pontos, vitórias, pontos marcados e menor pontuação sofrida. A regra está isolada em `standingService` para permitir ajustes.
+
+## Financeiro
+
+### Dinheiro é inteiro
+
+Todo valor monetário é um `Int` em centavos. Ponto flutuante não representa
+0,10 + 0,20 exatamente, e erro de arredondamento em cobrança não é detalhe
+estético: é diferença de caixa. `src/utils/money.js` recusa float, negativo e
+valor acima do teto; percentual arredonda **para baixo**, de modo que o desconto
+nunca supere o anunciado, e nunca ultrapassa o subtotal.
+
+### O preço nunca vem do cliente
+
+O corpo de `POST /orders` aceita **apenas** `tournamentId`, `participantId`,
+`couponCode` e `idempotencyKey`. O schema é estrito e **não possui campo** para
+`totalCents`, `subtotalCents`, `discountCents` ou `unitPriceCents` — tentar
+enviá-los devolve `400` e nenhum pedido é criado. O valor sai de
+`Tournament.entryFeeCents`, lido no servidor no momento do pedido.
+
+### Estados
+
+Transições permitidas são declaradas em `src/utils/financialStates.js`. O que não
+está no mapa é recusado com `422`.
+
+| Entidade | Estados |
+| --- | --- |
+| Pedido | `PENDING` · `PAID` · `CANCELLED` · `EXPIRED` · `REFUNDED` |
+| Pagamento | `PENDING` · `PROCESSING` · `AUTHORIZED` · `PAID` · `FAILED` · `CANCELLED` · `REFUNDED` |
+| Reembolso | `PENDING` · `PROCESSING` · `COMPLETED` · `FAILED` |
+
+Um pedido pendente não vira reembolsado sem passar por pago.
+
+### Idempotência
+
+Pedido e pagamento aceitam `Idempotency-Key` no cabeçalho (ou no corpo). A chave
+é única no banco: reenviar a mesma intenção devolve o registro já criado em vez
+de gerar um segundo. Chave usada por outro usuário devolve `409`.
+
+### Webhook
+
+`POST /api/v1/webhooks/payments/:provider` é público — quem chama é o provedor —
+e se protege por três camadas:
+
+1. **Assinatura** HMAC-SHA256 sobre o corpo cru, comparada em tempo constante.
+   Assinatura ausente ou inválida devolve `401` e não altera nada.
+2. **Idempotência** pela unicidade de `(provedor, id externo)` em `PaymentEvent`.
+   A segunda entrega da mesma notificação é descartada sem reprocessar.
+3. **Ordem**: estado terminal não é revisitado por notificação atrasada, e valor
+   divergente do cobrado devolve `422` e registra `PAYMENT_AMOUNT_MISMATCH`.
+
+### Cupons e concorrência
+
+O consumo usa comparação-e-troca sobre o contador recém-lido: duas requisições
+simultâneas disputam a mesma linha e apenas uma escreve, de modo que o limite não
+é ultrapassado. Cancelar ou reembolsar um pedido devolve a unidade ao estoque.
+
+### Provedor de pagamento
+
+O domínio não importa gateway nenhum: fala com o contrato `PaymentProvider`
+(`createCharge`, `refundCharge`, `verifySignature`, `parseWebhook`). Um gateway
+real implementa esse contrato, registra-se e passa a ser selecionado por
+`PAYMENT_PROVIDER`.
+
+**O provedor incluído é de desenvolvimento.** Não move dinheiro, não fala com
+banco algum e **se recusa a operar em produção** sem `ALLOW_SANDBOX_PAYMENTS=true`
+assumido de propósito. Nenhum gateway real está integrado.
+
+### Patrocínio
+
+Receita de contrato entre evento e marca. Não passa por pedido, cupom ou
+pagamento de inscrição — misturar os dois tornaria o relatório de vendas
+indefensável. Aparece separado em `financeiro.receitaPatrocinioCents`.
 
 ## Armazenamento de arquivos
 
@@ -379,6 +467,9 @@ O fluxo é `routes → controllers → services → repositories → Prisma`. Ro
 
 ## Limitações conhecidas
 
+- **Nenhum gateway de pagamento real está integrado.** O provedor incluído é de
+  desenvolvimento e não opera em produção. Ligar um gateway exige implementar o
+  contrato `PaymentProvider` e configurar credenciais.
 - **Armazenamento é local.** Os arquivos ficam no disco da aplicação. A migração para storage externo (com abstração `StorageProvider`) está prevista para a fase de infraestrutura.
 - **Não há antivírus nem inspeção de conteúdo no upload.** A validação é de tipo declarado, tamanho e nome; o conteúdo em si não é analisado.
 - **Partidas não podem ser excluídas.** O encerramento acontece por status (`CANCELLED`), não por exclusão.
