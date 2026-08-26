@@ -20,8 +20,59 @@ As referências oficiais ficam permanentemente em `design/referencias/` (48 imag
 
 ## Requisitos
 
-- Node.js 22 ou superior — o backend roda em 20, mas a suíte de interface exige 22+
+- **Node.js 24.15 ou superior** — é o piso real, não uma preferência: o `jsdom`
+  usado pela suíte de interface declara `engines: ^24.15.0`. O backend sozinho
+  roda em 20, mas o repositório é construído e validado como um só, e a CI usa
+  Node 24. O requisito está declarado em `frontend/package.json`, então o npm
+  avisa antes de a suíte falhar com um erro obscuro de engine.
 - npm
+
+## Dependências
+
+### Versões declaradas, nunca `latest`
+
+Toda dependência é declarada com faixa `^` sobre uma versão explícita. `latest`
+não aparece em lugar nenhum: ele resolve para o que existir no dia da
+instalação, e um major novo entraria sem ninguém pedir. Com `^`, uma correção de
+segurança em patch continua chegando, mas a troca de major exige decisão humana.
+
+O que garante build reproduzível é o par manifesto + lockfile, e a CI usa
+`npm ci` — que instala exatamente o que o lockfile fixa e ignora as faixas.
+`npm install` fica para quando se quer mudar dependência de propósito.
+
+### O que vai para produção
+
+`vite` e `@vitejs/plugin-react` são ferramenta de build: rodam para produzir o
+bundle, não são enviados ao navegador. Ficam em `devDependencies`. Uma instalação
+de produção (`npm ci --omit=dev`) do frontend baixa **4 pacotes** — `react`,
+`react-dom`, `lucide-react` e a dependência interna do React — em vez dos 45 que
+o empacotador arrastava junto quando estava classificado como dependência de
+runtime.
+
+### Vulnerabilidades conhecidas e por que não foram "corrigidas"
+
+`npm audit` no backend reporta **4 severidade alta**, todas no mesmo ramo:
+
+    prisma (CLI) → @prisma/config → deepmerge-ts
+                                  → effect
+
+O que o `npm audit fix --force` propõe é **rebaixar** o Prisma de 6.16.0 para
+6.12.0. Isso não foi aplicado, por duas razões verificadas:
+
+1. **Não alcançam o runtime.** `@prisma/client` — a biblioteca que a API usa —
+   tem zero dependências e declara `prisma` apenas como peer *opcional*. Ao
+   subir a aplicação, 372 módulos são carregados e nenhum deles é
+   `@prisma/config`, `deepmerge-ts`, `effect` ou o próprio CLI. O ramo
+   vulnerável só executa em `prisma generate` e `prisma migrate`, na máquina de
+   quem constrói ou faz deploy — nunca ao atender uma requisição.
+2. **O remédio é pior.** Rebaixar só o CLI deixaria cliente 6.16 e CLI 6.12
+   divergentes; rebaixar os dois é mexer na camada de dados de uma plataforma
+   recém-validada, para fechar um caminho que não está aberto.
+
+A decisão certa é acompanhar o Prisma e subir quando 6.17+ trouxer o
+`@prisma/config` corrigido. Registrado como pendência, não como correção.
+
+**No frontend, `npm audit` reporta zero vulnerabilidades.**
 
 ## Instalação
 
