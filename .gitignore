@@ -40,6 +40,12 @@ desktop.ini
 # Prisma
 prisma/*.db
 prisma/*.db-journal
+# Banco fora de prisma/ (shadow database, cópia de depuração) também fica de
+# fora: um .db versionado por engano carrega dados reais de usuário.
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
 
 # Temporários
 tmp/
@@ -47,8 +53,17 @@ temp/
 
 # Uploads locais
 uploads/
+uploads-test/
 
 # Certificados e chaves
 *.pem
 *.key
 *.crt
+
+# Ferramentas do ambiente de desenvolvimento
+# Instaladas por npx skills add (caveman). São do ambiente de quem desenvolve,
+# não do produto MCI: não contêm código, dados nem design da plataforma.
+# Mantidas em disco, fora do versionamento.
+.agents/
+.claude/
+skills-lock.json

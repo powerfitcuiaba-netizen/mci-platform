@@ -2,11 +2,16 @@ const repository = require('../repositories/matchRepository');
 const tournamentRepository = require('../repositories/tournamentRepository');
 const participantRepository = require('../repositories/participantRepository');
 const enrollmentRepository = require('../repositories/enrollmentRepository');
+const notificationService = require('./notificationService');
 const { AppError } = require('../utils/errors');
+const { assertCanOperateTournament } = require('../utils/ownership');
 
-async function create(data) {
+
+async function create(data, actor) {
+  const tournament = await tournamentRepository.findById(data.tournamentId);
+  if (!tournament) throw new AppError(404, 'TOURNAMENT_NOT_FOUND', 'Campeonato não encontrado');
+  await assertCanOperateTournament(tournament, actor);
   if (data.participantAId === data.participantBId) throw new AppError(422, 'INVALID_MATCH', 'Os participantes da partida devem ser diferentes');
-  if (!await tournamentRepository.findById(data.tournamentId)) throw new AppError(404, 'TOURNAMENT_NOT_FOUND', 'Campeonato não encontrado');
   const [a, b] = await Promise.all([participantRepository.findById(data.participantAId), participantRepository.findById(data.participantBId)]);
   if (!a || !b) throw new AppError(404, 'PARTICIPANT_NOT_FOUND', 'Participante não encontrado');
   const enrolled = await enrollmentRepository.listByTournament(data.tournamentId);
@@ -15,4 +20,4 @@ async function create(data) {
   return repository.create(data);
 }
 
-module.exports = { create, list: tournamentId => repository.list(tournamentId), findById: async id => { const item = await repository.findById(id); if (!item) throw new AppError(404, 'MATCH_NOT_FOUND', 'Partida não encontrada'); return item; }, update: async (id, data) => { await module.exports.findById(id); return repository.update(id, data); } };
+module.exports = { create, list: tournamentId => repository.list(tournamentId), findById: async id => { const item = await repository.findById(id); if (!item) throw new AppError(404, 'MATCH_NOT_FOUND', 'Partida não encontrada'); return item; }, update: async (id, data, actor) => { const current = await module.exports.findById(id); const tournament = await tournamentRepository.findById(current.tournamentId); await assertCanOperateTournament(tournament, actor); const updated = await repository.update(id, data); await notificationService.notifyMatch(id, actor?.id, 'MATCH'); return updated; } };

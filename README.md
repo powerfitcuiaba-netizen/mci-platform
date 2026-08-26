@@ -1,16 +1,31 @@
 # MCI Campeonatos
 
-API backend para gerenciamento de campeonatos, participantes, partidas, resultados e classificação.
+Plataforma de gestão de campeonatos: eventos, participantes, equipes, inscrições, partidas, resultados e classificação, com os módulos operacionais de arbitragem, credenciamento, comunicação e relatórios.
+
+O repositório contém a API em `src/` e a interface React/Vite em `frontend/`.
+
+## Referências visuais
+
+As referências oficiais ficam permanentemente em `design/referencias/` (48 imagens). Elas definem a linguagem MCI aplicada na interface: superfícies near-black, vermelho MCI para ação e seleção, azul para informação, estados semânticos, navegação lateral operacional, cards densos e composição mobile própria. Essas imagens não devem ser alteradas, movidas ou renomeadas.
 
 ## Tecnologias
 
-- Node.js 18+
+- Node.js 22+ (o `jsdom` da suíte de interface exige `^22.22.2 || ^24.15.0`; validado em Node 24)
 - Express 5
-- Prisma 6
-- SQLite para desenvolvimento local
-- Zod, Vitest e Supertest
+- Prisma 6 com SQLite
+- Zod para validação
+- JWT (`jsonwebtoken`) e `bcryptjs`
+- Vitest e Supertest
+- React 19 + Vite no frontend
+
+## Requisitos
+
+- Node.js 22 ou superior — o backend roda em 20, mas a suíte de interface exige 22+
+- npm
 
 ## Instalação
+
+Backend, a partir da raiz:
 
 ```bash
 npm install
@@ -19,88 +34,458 @@ npm run prisma:generate
 npm run prisma:migrate
 ```
 
-O arquivo `.env` usa SQLite por padrão:
-
-```env
-DATABASE_URL="file:./dev.db"
-PORT=3000
-NODE_ENV=development
-```
-
-O banco fica em `prisma/dev.db` e não é versionado. A configuração usa `DATABASE_URL`; para PostgreSQL, altere o provider do datasource em `prisma/schema.prisma` para `postgresql`, use uma URL PostgreSQL e execute uma migration própria para esse banco.
-
-## Execução e testes
+Frontend:
 
 ```bash
-npm start
-npm run dev
-npm test
+cd frontend
+copy .env.example .env
+npm install
 ```
 
-`npm run dev` usa o watch nativo do Node. Os testes executam migrations e limpam somente `prisma/test.db`, mantendo o banco de desenvolvimento (`prisma/dev.db`) intacto.
+## Variáveis de ambiente
 
-## Estrutura
+Raiz (`.env`):
 
-```text
-src/
-  app.js
-  config/
-  controllers/
-  middlewares/
-  repositories/
-  routes/
-  services/
-  utils/
-prisma/
-  schema.prisma
-  migrations/
-tests/
+| Variável | Finalidade | Padrão |
+| --- | --- | --- |
+| `DATABASE_URL` | Banco do Prisma | `file:./dev.db` |
+| `PORT` | Porta da API | `3000` |
+| `NODE_ENV` | Ambiente de execução | `development` |
+| `FRONTEND_URL` | Origem liberada no CORS | `http://localhost:5173` |
+| `JWT_SECRET` | Segredo de assinatura do token | — (obrigatório em produção) |
+| `CORS_ORIGINS` | Origens liberadas, separadas por vírgula | `http://localhost:5173` |
+| `STORAGE_DRIVER` | Provedor de armazenamento | `local` |
+| `STORAGE_DIR` | Raiz do armazenamento de arquivos | `uploads/` (fora do versionamento) |
+| `UPLOAD_MAX_BYTES` | Teto de tamanho por arquivo | `10485760` (10 MB) |
+| `PAYMENT_PROVIDER` | Provedor de pagamento | `sandbox` (desenvolvimento) |
+| `PAYMENT_WEBHOOK_SECRET` | Segredo do HMAC do webhook | — (obrigatório em produção) |
+| `ALLOW_SANDBOX_PAYMENTS` | Permite o provedor de desenvolvimento em produção | `false` |
+| `ORDER_EXPIRATION_MINUTES` | Prazo para pagar antes de o pedido expirar | `60` |
+| `RATE_LIMIT_ENABLED` | Liga o limitador de requisições | ligado só em produção |
+| `LOG_LEVEL` | `silent`/`error`/`warn`/`info`/`debug` | por ambiente |
+
+`frontend/.env`:
+
+| Variável | Finalidade | Padrão |
+| --- | --- | --- |
+| `VITE_API_URL` | Endereço da API | `http://localhost:3000/api/v1` |
+
+O `JWT_SECRET` tem um valor de desenvolvimento embutido como último recurso. Defina um segredo próprio antes de qualquer uso real.
+
+## Execução local
+
+Em um terminal, a API:
+
+```bash
+npm start        # produção
+npm run dev      # watch nativo do Node
 ```
 
-As rotas não acessam Prisma diretamente: controllers chamam services, e services usam repositories.
+Em outro, a interface:
 
-## Endpoints principais
+```bash
+cd frontend
+npm run dev      # http://localhost:5173
+```
 
-Todos os endpoints de negócio usam o prefixo `/api/v1`.
+## Banco e Prisma
+
+O banco de desenvolvimento fica em `prisma/dev.db` e não é versionado.
+
+```bash
+npx prisma validate        # valida o schema
+npx prisma migrate status  # estado das migrations
+npx prisma generate        # regenera o client
+npx prisma migrate deploy  # aplica migrations pendentes
+```
+
+Migrations existentes não devem ser apagadas. Para PostgreSQL, altere o `provider` do datasource em `prisma/schema.prisma`, use uma `DATABASE_URL` PostgreSQL e gere uma migration própria para esse banco.
+
+## Autenticação e perfis
+
+Autenticação por JWT, com senha protegida por `bcryptjs`. O `passwordHash` nunca é retornado em nenhuma superfície.
+
+- `POST /api/v1/auth/register` — cria usuário e devolve token.
+- `POST /api/v1/auth/login` — autentica e devolve token.
+- `GET /api/v1/auth/me` — usuário da sessão atual.
+
+Perfis: `ADMIN`, `ORGANIZER`, `JUDGE`, `COACH`, `ATHLETE`, `PUBLIC`.
+
+### Regras de posse
+
+A autorização nunca usa identificador vindo do corpo da requisição. O ator é sempre `req.user`, carregado a partir do token.
+
+- `ADMIN` tem override administrativo.
+- `ORGANIZER` opera apenas os campeonatos que criou.
+- `JUDGE` só lança ou edita resultado em campeonato onde possui `JudgeAssignment`.
+- `COACH` administra apenas participantes cujo `coachId` é o seu. No cadastro o vínculo é imposto pelo servidor: um `coachId` enviado no corpo é ignorado.
+- `ATHLETE` consulta a própria situação de inscrição e não opera a de terceiros.
+- Leituras abertas (`/campeonatos`, `/participantes`, `/equipes`, `/partidas`) omitem identificadores de posse — `createdById`, `userId`, `coachId` — quando o chamador não está autenticado.
+- A superfície pública `/public/*` é somente leitura e não expõe email, perfil, operador nem identificadores internos. Só aparece na vitrine quem tem inscrição confirmada: participante sem competição não é exposto, para que a área aberta não vire um índice do cadastro interno.
+- `/dashboard/summary` devolve uma composição diferente por perfil. Quem decide o conteúdo é o servidor, a partir de `req.user.role`; a interface apenas escolhe a apresentação correspondente.
+
+## Estado dos módulos
+
+| Módulo | Estado | Observação |
+| --- | --- | --- |
+| Eventos / campeonatos | REAL | CRUD, filtros, detalhe, inscrições |
+| Participantes e equipes | REAL | CRUD com posse por criador e por técnico |
+| Inscrições | REAL | Cancelamento por transição de estado, com reinscrição |
+| Partidas | REAL | Sem exclusão: cancelamento por status |
+| Resultados | REAL | Validação, recálculo da classificação |
+| Classificação | REAL | Materializada, recalculada a cada resultado |
+| Judge Center | REAL | Agenda por designação, lançamento de resultado |
+| Check-in | REAL | Estado derivado da inscrição, operador e horário |
+| Coach Center | REAL | Elenco, competições, agenda, isolamento entre técnicos |
+| Backstage | REAL | Consolidação com alertas operacionais |
+| MCI TV | REAL | Superfície pública somente leitura |
+| Notificações | REAL | Emissão em inscrição, check-in, partida e resultado |
+| Relatórios | REAL | JSON consolidado e visualização |
+| Dashboard | REAL | Composição própria por perfil: global, operação, arbitragem, elenco ou carreira |
+| Organizer Center | REAL | Consolida os módulos de operação do organizador num ponto único |
+| Vitrine pública | REAL | Competições, atletas e equipes acessíveis sem login |
+| Pedidos e checkout | REAL | Valor calculado no servidor, cupom, idempotência, expiração |
+| Pagamentos | REAL | Provedor abstraído, webhook assinado e idempotente. **Sem gateway real integrado** |
+| Cupons | REAL | Percentual ou valor fixo, validade, limite total e por usuário |
+| Reembolsos | REAL | Só sobre pedido pago, reverte inscrição e devolve o cupom |
+| Patrocínios | REAL | Contrato por evento, separado do fluxo de inscrição |
+| Documentos | REAL | Upload e download reais, com tipo, tamanho e nome validados |
+| Athlete Center | REAL | Carreira do atleta, isolada por conta |
+| Admin Center | REAL | Contas, retrato global e trilha de auditoria |
+| Perfil | REAL | Edição dos próprios dados e troca segura de senha |
+| Auditoria | REAL | Registro de ações administrativas, sem dado sensível |
+
+## Endpoints
+
+Prefixo `/api/v1`.
 
 | Método | Endpoint | Finalidade |
 | --- | --- | --- |
-| GET | `/` | Health check textual existente |
-| GET/POST | `/api/v1/campeonatos` | Listar ou criar campeonatos |
-| GET/PUT/PATCH/DELETE | `/api/v1/campeonatos/:id` | Consultar, atualizar ou excluir campeonato |
-| GET/POST | `/api/v1/participantes` | Listar ou criar participantes |
-| GET/PUT/PATCH/DELETE | `/api/v1/participantes/:id` | Operações sobre participante |
-| GET/POST | `/api/v1/equipes` | Listar ou criar equipes |
-| GET/PUT/PATCH/DELETE | `/api/v1/equipes/:id` | Operações sobre equipe |
-| GET/POST | `/api/v1/campeonatos/:id/participantes` | Consultar ou realizar inscrição |
-| GET/POST | `/api/v1/partidas` | Listar ou criar partidas |
-| GET/PUT/PATCH | `/api/v1/partidas/:id` | Consultar ou atualizar partida |
-| GET/POST/PATCH | `/api/v1/partidas/:id/resultado` | Consultar, registrar ou atualizar resultado |
-| GET | `/api/v1/campeonatos/:id/classificacao` | Consultar classificação |
+| GET | `/` | Health check textual |
+| POST | `/auth/register` · `/auth/login` | Criar conta · autenticar |
+| GET | `/auth/me` | Usuário da sessão |
+| GET | `/dashboard/summary` | Painel do perfil autenticado (composição distinta por papel) |
+| GET/PATCH | `/profile` | Consultar ou editar os próprios dados |
+| POST | `/profile/password` | Trocar a própria senha |
+| GET | `/athlete/overview` | Carreira do atleta autenticado |
+| GET | `/admin/overview` · `/admin/users` · `/admin/users/:id` | Administração global |
+| PATCH | `/admin/users/:id` | Alterar perfil ou situação de uma conta |
+| GET | `/audit` | Trilha de auditoria (somente ADMIN) |
+| GET/POST | `/campeonatos` | Listar ou criar campeonatos |
+| GET/PUT/PATCH/DELETE | `/campeonatos/:id` | Operações sobre campeonato |
+| GET/POST | `/campeonatos/:id/participantes` | Consultar ou realizar inscrição |
+| GET | `/campeonatos/:id/classificacao` | Consultar classificação |
+| GET/POST | `/participantes` · `/equipes` | Listar ou criar |
+| GET/PUT/PATCH/DELETE | `/participantes/:id` · `/equipes/:id` | Operações sobre o registro |
+| GET/POST | `/partidas` | Listar ou criar partidas |
+| GET/PUT/PATCH | `/partidas/:id` | Consultar ou atualizar partida |
+| GET/POST/PATCH | `/partidas/:id/resultado` | Consultar, registrar ou atualizar resultado |
+| GET | `/judge/matches` | Partidas dos campeonatos designados ao juiz |
+| GET/POST | `/judge/assignments` | Consultar ou criar designação |
+| GET | `/checkin/tournaments/:id` | Inscritos com situação de check-in |
+| GET/POST | `/checkin/enrollments/:id` | Situação · registrar check-in |
+| PATCH | `/checkin/enrollments/:id/cancel` | Cancelar check-in |
+| PATCH | `/inscricoes/:id/cancel` | Cancelar inscrição (transição de estado) |
+| GET | `/notifications` | Caixa do usuário com contador de não lidas |
+| PATCH | `/notifications/:id/read` | Marcar como lida |
+| POST | `/notifications/read-all` | Marcar todas como lidas |
+| GET/POST | `/documents` | Listar ou registrar documento por metadados |
+| POST | `/documents/upload` | Enviar documento com arquivo (multipart) |
+| GET | `/documents/:id/download` | Baixar o arquivo do documento |
+| GET/DELETE | `/documents/:id` | Consultar ou excluir documento |
+| GET | `/coach/overview` · `/coach/teams` · `/coach/athletes` | Visão do técnico |
+| PATCH | `/coach/participants/:id/team` | Mover atleta entre equipes do próprio elenco |
+| GET | `/backstage/overview` | Operação consolidada com alertas |
+| GET | `/reports/tournaments` · `/reports/tournaments/:id` | Índice e relatório do campeonato |
+| GET/POST | `/orders` | Listar pedidos do escopo · criar pedido |
+| GET | `/orders/:id` | Consultar pedido com itens, pagamentos e reembolsos |
+| PATCH | `/orders/:id/cancel` | Cancelar pedido pendente |
+| GET/POST | `/orders/:id/payments` | Histórico de tentativas · abrir cobrança |
+| POST | `/orders/:id/refunds` | Reembolsar pedido pago (ADMIN ou dono do evento) |
+| GET | `/refunds` | Reembolsos do escopo do usuário |
+| GET/POST | `/coupons` | Listar ou criar cupom |
+| PATCH | `/coupons/:id/active` | Ativar ou desativar cupom |
+| POST | `/coupons/preview` | Calcular o desconto antes de fechar o pedido |
+| GET/POST | `/sponsors` · `/sponsorships` | Patrocinadores e contratos por evento |
+| POST | `/webhooks/payments/:provider` | Notificação do provedor — pública, protegida por assinatura |
+| GET | `/public/summary` · `/public/tournaments` · `/public/tournaments/:id` · `/public/live` | MCI TV, sem autenticação |
+| GET | `/public/athletes` · `/public/athletes/:id` | Vitrine pública de atletas |
+| GET | `/public/teams` · `/public/teams/:id` | Vitrine pública de equipes |
 
-Exemplo de criação:
+Exemplo:
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/campeonatos -H "Content-Type: application/json" -d "{\"name\":\"Copa MCI\",\"status\":\"ACTIVE\"}"
+curl -X POST http://localhost:3000/api/v1/campeonatos -H "Content-Type: application/json" -H "Authorization: Bearer SEU_TOKEN" -d "{\"name\":\"Copa MCI\",\"status\":\"ACTIVE\"}"
 ```
 
-Respostas de erro seguem o formato:
+Erros seguem o formato:
 
 ```json
 {"error":{"code":"RESOURCE_NOT_FOUND","message":"Campeonato não encontrado"}}
 ```
 
+Entradas inválidas retornam `400` com `error.code = VALIDATION_ERROR` e uma lista `error.details`. Falta de credencial retorna `401`, falta de permissão `403`, recurso ausente `404`, duplicidade `409` e violação semântica `422`.
+
 ## Modelo de dados
 
-- `Tournament`: campeonato e seu ciclo de vida.
-- `Participant`: participante ou equipe, diferenciados por `type`.
-- `Enrollment`: relação única entre campeonato e participante.
+- `User`: conta de acesso e perfil.
+- `Tournament`: campeonato e seu ciclo de vida; `createdById` define a posse.
+- `Participant`: participante ou equipe (`type`). `coachId` vincula ao técnico, `teamId` compõe o elenco de uma equipe, `userId` liga a uma conta.
+- `Enrollment`: relação única entre campeonato e participante. `status` (`CONFIRMED`/`CANCELLED`) permite baixa sem perder o histórico.
 - `Match`: partida entre dois participantes inscritos.
-- `Result`: placar e vencedor, com um resultado por partida.
-- `Standing`: classificação materializada e recalculada após cada resultado.
+- `Result`: placar e vencedor, um por partida.
+- `Standing`: classificação materializada, recalculada após cada resultado.
+- `JudgeAssignment`: designação que autoriza o juiz a operar o campeonato.
+- `CheckIn`: presença por inscrição, com operador e horário. Sem registro, a inscrição é `PENDING`.
+- `Notification`: caixa por usuário.
+- `Document`: documento vinculado a um campeonato. `storageKey` aponta para o arquivo no armazenamento; quando ausente, o registro é apenas uma referência.
+- `AuditLog`: trilha de ações administrativas, com ator, entidade e metadados sanitizados.
 
-## Regra atual de classificação
+## Regra de classificação
 
-A classificação é recalculada a partir de todos os resultados do campeonato. Vitória vale 3 pontos, empate vale 1 ponto para cada participante e derrota vale 0. A ordenação usa, nesta ordem: pontos, vitórias, pontos marcados e menor pontuação sofrida. A regra está isolada em `standingService` para permitir ajustes futuros.
+Vitória vale 3 pontos, empate 1 para cada participante e derrota 0. A ordenação usa, nesta ordem: pontos, vitórias, pontos marcados e menor pontuação sofrida. A regra está isolada em `standingService` para permitir ajustes.
 
-Erros de entrada retornam `400` com `error.code = VALIDATION_ERROR` e uma lista `error.details`. Recursos ausentes retornam `404`, duplicidades retornam `409` e violações semânticas retornam `422`.
+## Financeiro
+
+### Dinheiro é inteiro
+
+Todo valor monetário é um `Int` em centavos. Ponto flutuante não representa
+0,10 + 0,20 exatamente, e erro de arredondamento em cobrança não é detalhe
+estético: é diferença de caixa. `src/utils/money.js` recusa float, negativo e
+valor acima do teto; percentual arredonda **para baixo**, de modo que o desconto
+nunca supere o anunciado, e nunca ultrapassa o subtotal.
+
+### O preço nunca vem do cliente
+
+O corpo de `POST /orders` aceita **apenas** `tournamentId`, `participantId`,
+`couponCode` e `idempotencyKey`. O schema é estrito e **não possui campo** para
+`totalCents`, `subtotalCents`, `discountCents` ou `unitPriceCents` — tentar
+enviá-los devolve `400` e nenhum pedido é criado. O valor sai de
+`Tournament.entryFeeCents`, lido no servidor no momento do pedido.
+
+A regra vale também para `POST /coupons/preview`, que só recebe `code` e
+`tournamentId`: o subtotal sobre o qual o desconto incide é lido do campeonato,
+pelo mesmo cálculo que o pedido usa (`src/utils/pricing.js`). Assim a prévia
+mostra exatamente o que a cobrança vai fazer — e uma tela não consegue exibir
+desconto que o servidor não honraria.
+
+### Estados
+
+Transições permitidas são declaradas em `src/utils/financialStates.js`. O que não
+está no mapa é recusado com `422`.
+
+| Entidade | Estados |
+| --- | --- |
+| Pedido | `PENDING` · `PAID` · `CANCELLED` · `EXPIRED` · `REFUNDED` |
+| Pagamento | `PENDING` · `PROCESSING` · `AUTHORIZED` · `PAID` · `FAILED` · `CANCELLED` · `REFUNDED` |
+| Reembolso | `PENDING` · `PROCESSING` · `COMPLETED` · `FAILED` |
+
+Um pedido pendente não vira reembolsado sem passar por pago.
+
+### Idempotência
+
+Pedido e pagamento aceitam `Idempotency-Key` no cabeçalho (ou no corpo). A chave
+é única no banco: reenviar a mesma intenção devolve o registro já criado em vez
+de gerar um segundo. Chave usada por outro usuário devolve `409`.
+
+### Webhook
+
+`POST /api/v1/webhooks/payments/:provider` é público — quem chama é o provedor —
+e se protege por três camadas:
+
+1. **Assinatura** HMAC-SHA256 sobre o corpo cru, comparada em tempo constante.
+   Assinatura ausente ou inválida devolve `401` e não altera nada.
+2. **Idempotência** pela unicidade de `(provedor, id externo)` em `PaymentEvent`.
+   A segunda entrega da mesma notificação é descartada sem reprocessar.
+3. **Ordem**: estado terminal não é revisitado por notificação atrasada, e valor
+   divergente do cobrado devolve `422` e registra `PAYMENT_AMOUNT_MISMATCH`.
+
+### Cupons e concorrência
+
+O consumo usa comparação-e-troca sobre o contador recém-lido: duas requisições
+simultâneas disputam a mesma linha e apenas uma escreve, de modo que o limite não
+é ultrapassado. Cancelar ou reembolsar um pedido devolve a unidade ao estoque.
+
+### Provedor de pagamento
+
+O domínio não importa gateway nenhum: fala com o contrato `PaymentProvider`
+(`createCharge`, `refundCharge`, `verifySignature`, `parseWebhook`). Um gateway
+real implementa esse contrato, registra-se e passa a ser selecionado por
+`PAYMENT_PROVIDER`.
+
+**O provedor incluído é de desenvolvimento.** Não move dinheiro, não fala com
+banco algum e **se recusa a operar em produção** sem `ALLOW_SANDBOX_PAYMENTS=true`
+assumido de propósito. Nenhum gateway real está integrado.
+
+### Patrocínio
+
+Receita de contrato entre evento e marca. Não passa por pedido, cupom ou
+pagamento de inscrição — misturar os dois tornaria o relatório de vendas
+indefensável. Aparece separado em `financeiro.receitaPatrocinioCents`.
+
+## Armazenamento de arquivos
+
+Documentos com arquivo são gravados em `uploads/` (ou no caminho de `STORAGE_DIR`), fora do versionamento. Nada vindo do cliente compõe o caminho em disco: a chave é gerada pelo servidor a partir do campeonato e de um UUID, e o caminho resolvido é conferido contra a raiz antes de qualquer operação. O nome original é guardado apenas como metadado, para exibição e para o cabeçalho de download.
+
+O envio é `multipart/form-data`, lido por `busboy` com teto de tamanho aplicado pelo próprio parser. A autorização é resolvida antes da gravação, de modo que uma requisição negada não deixa resíduo em disco. Tipos aceitos: PDF, PNG, JPEG, WebP, texto e CSV.
+
+O download exige o mesmo direito de leitura do registro e passa pelo servidor — não há URL pública para o arquivo.
+
+## Produção
+
+### Configuração validada na partida
+
+`src/config/environment.js` centraliza a configuração e é verificada antes de a porta abrir. Em produção o processo **se recusa a subir** se encontrar:
+
+- `JWT_SECRET` ausente, com menos de 32 caracteres ou ainda no valor de desenvolvimento;
+- `DATABASE_URL` ausente ou apontando para SQLite;
+- CORS sem origem explícita, ou com curinga;
+- provedor de pagamento de desenvolvimento sem `ALLOW_SANDBOX_PAYMENTS=true` assumido de propósito;
+- `PAYMENT_WEBHOOK_SECRET` ainda no valor de exemplo.
+
+Falhar no deploy é preferível a servir tráfego real com segredo que qualquer um adivinha.
+
+### Caminho para PostgreSQL
+
+O desenvolvimento continua em SQLite; nada aqui destrói o banco local.
+
+```bash
+# 1. Trocar o provider no datasource
+#    prisma/schema.prisma:  provider = "postgresql"
+# 2. Apontar a URL
+export DATABASE_URL="postgresql://usuario:senha@host:5432/mci?schema=public"
+# 3. Gerar a migration própria do PostgreSQL num banco limpo
+npx prisma migrate dev --name init_postgres
+# 4. Conferir e aplicar
+npx prisma migrate status
+npx prisma migrate deploy
+```
+
+As migrations existentes foram escritas para SQLite. O PostgreSQL exige uma linha de migração própria, gerada a partir do mesmo schema — por isso o passo 3 roda contra um banco vazio, e nenhuma migration atual é apagada.
+
+### Health e prontidão
+
+| Rota | Responde |
+| --- | --- |
+| `GET /health` | O processo está vivo. Não toca em dependência — um orquestrador não deve reiniciar o contêiner por lentidão do banco. |
+| `GET /ready` | Banco, armazenamento e configuração respondem. É esta sonda que decide se a instância recebe tráfego. |
+
+Nenhuma das duas devolve segredo, URL de banco ou caminho de disco: informam o **tipo** da dependência e o estado, nunca o endereço.
+
+### Segurança
+
+- **Helmet** e `x-powered-by` desligado.
+- **CORS** por lista explícita de origens; sem curinga em produção.
+- **Rate limiting** em memória, ligado por padrão em produção: 10 tentativas por 15 min em login, registro e troca de senha; 30/min em upload; 120/min no webhook; 180/min na superfície pública; teto global de 600/min.
+- **Erros** nunca devolvem stack trace ao cliente; o rastro vai para o log estruturado.
+- **Logs** em JSON com redação obrigatória de senha, token, segredo, CVV e número de cartão, em qualquer profundidade.
+- **Encerramento ordenado**: `SIGTERM`/`SIGINT` param de aceitar conexões, deixam as em curso terminarem e fecham o banco.
+
+**Limitação assumida:** o limitador guarda estado no processo. Com mais de uma instância, cada uma conta as próprias tentativas — a proteção real nesse cenário exige contador compartilhado (Redis) ou o limitador da borda (CDN/proxy).
+
+### Armazenamento
+
+`storageService` é uma fachada sobre um contrato `StorageProvider`. Hoje só o provedor `local` está registrado; um provedor de nuvem implementa a mesma superfície (`saveBuffer`, `saveStream`, `createReadStream`, `exists`, `remove`, `stat`, `healthCheck`), registra-se com `storageService.registerProvider` e passa a ser selecionável por `STORAGE_DRIVER` — sem que nenhum service de negócio mude.
+
+### Backup
+
+**Não existe backup automático configurado neste repositório.** O que está documentado é a estratégia a executar na infraestrutura escolhida:
+
+- **Banco** — `pg_dump` diário com retenção de 30 dias e um teste de restauração mensal. Backup que nunca foi restaurado não é backup, é esperança.
+- **Storage** — replicação do bucket ou sincronização diária do diretório, com versionamento de objeto ligado.
+- **Segredos** — guardados no cofre do provedor, nunca em backup de banco ou de código.
+
+### CI
+
+`.github/workflows/ci.yml` roda em todo push e PR: instala, valida o schema, gera o client, confere a sintaxe de todo `src/`, aplica migrations, executa a suíte do backend, testa e builda o frontend, e confere higiene do repositório (nenhum segredo real, nenhum `.env`, nenhum `console.log`/`TODO` esquecido).
+
+**A pipeline não faz deploy.** Publicação é decisão manual.
+
+### Deploy
+
+Nada aqui publica automaticamente, altera DNS ou usa credencial real. Antes de um deploy:
+
+1. Definir as variáveis do `.env.example` no cofre do provedor.
+2. `npx prisma migrate deploy` contra o banco de produção.
+3. Subir com `NODE_ENV=production` — a validação de partida barra configuração incompleta.
+4. Apontar as sondas do orquestrador para `/health` (liveness) e `/ready` (readiness).
+
+## Testes
+
+Backend, a partir da raiz:
+
+```bash
+npm test
+```
+
+O escopo é declarado em `vitest.config.mjs` (`tests/**/*.test.mjs`), com execução serial e banco próprio (`prisma/test.db`). O banco de desenvolvimento não é tocado. Diretórios de ferramentas do ambiente (`.agents/`, `.claude/`) são explicitamente excluídos da coleta.
+
+São 11 suítes, 207 casos:
+
+| Suíte | Casos | Cobre |
+| --- | --- | --- |
+| `api.test.mjs` | 5 | núcleo do domínio |
+| `auth.test.mjs` | 3 | autenticação e controle de acesso |
+| `fase3.test.mjs` | 1 | fumaça dos módulos operacionais |
+| `fase3-operacional.test.mjs` | 32 | módulos operacionais em profundidade |
+| `fase4-operacional.test.mjs` | 29 | Athlete Center, Admin Center, perfil, documentos |
+| `fase4-fechamento.test.mjs` | 16 | vitrine pública, Organizer Center, painéis por perfil |
+| `fase5-financeiro.test.mjs` | 37 | pedido, cupom, pagamento, webhook, reembolso, patrocínio |
+| `fase6-producao.test.mjs` | 25 | configuração, health, rate limiting, log, storage |
+| `seguranca.test.mjs` | 20 | matriz de acesso cruzado entre perfis |
+| `e2e-fluxo-operacional.test.mjs` | 20 | ciclo esportivo completo, banco real, sem mocks |
+| `e2e-financeiro.test.mjs` | 19 | ciclo financeiro completo, banco real, sem mocks |
+
+Frontend:
+
+```bash
+cd frontend
+npm test -- --run
+```
+
+## Build
+
+```bash
+cd frontend
+npm run build     # gera dist/
+npm run preview   # serve o build
+```
+
+## Estrutura
+
+```text
+src/
+  app.js              Express, CORS, Helmet, rotas, 404, error handler
+  config/prisma.js    Instância única do Prisma Client
+  routes/             Definição de rotas, middlewares de auth e validação
+  controllers/        Adaptam requisição/resposta, sem regra de negócio
+  services/           Regra de negócio, autorização e posse
+  repositories/       Único ponto de acesso ao Prisma
+  middlewares/        auth, validate, errorHandler
+  utils/              schemas, auth, roles, errors, visibility, ownership,
+                      money, pricing, financialStates, logger, asyncHandler
+prisma/
+  schema.prisma
+  migrations/
+tests/
+frontend/
+  src/
+    App.jsx           Shell, rotas por hash e telas
+    AuthContext.jsx   Sessão, login, registro, logout
+    services/api.js   Cliente único da API, token e header Authorization
+    styles.css        Design System MCI
+design/referencias/   Referências visuais oficiais
+```
+
+O fluxo é `routes → controllers → services → repositories → Prisma`. Rotas não contêm regra de negócio e controllers não acessam o Prisma quando existe service.
+
+## Limitações conhecidas
+
+- **Nenhum gateway de pagamento real está integrado.** O provedor incluído é de
+  desenvolvimento e não opera em produção. Ligar um gateway exige implementar o
+  contrato `PaymentProvider` e configurar credenciais.
+- **Armazenamento é local.** Os arquivos ficam no disco da aplicação. A migração para storage externo (com abstração `StorageProvider`) está prevista para a fase de infraestrutura.
+- **Não há antivírus nem inspeção de conteúdo no upload.** A validação é de tipo declarado, tamanho e nome; o conteúdo em si não é analisado.
+- **Partidas não podem ser excluídas.** O encerramento acontece por status (`CANCELLED`), não por exclusão.
+- **Não há transferência de posse de campeonato.** Um evento criado por um `ADMIN` permanece com ele; não existe endpoint para passar a posse a um `ORGANIZER`.
+- **SQLite em desenvolvimento.** Adequado para uso local; produção exige migração para um banco servidor.
