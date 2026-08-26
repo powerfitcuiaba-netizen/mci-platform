@@ -286,6 +286,26 @@ describe('Fase 5 — camada financeira', () => {
   });
 
   describe('Webhook', () => {
+    // O nome do provedor vem da URL de um endpoint público e sem autenticação:
+    // é entrada de quem chama. Responder 500 a isso trata erro do cliente como
+    // falha do servidor — e enche o log de nível error com ruído que qualquer
+    // estranho pode gerar, escondendo incidente de verdade.
+    it('recusa provedor desconhecido com 404, nunca com erro de servidor', async () => {
+      for (const nome of ['inexistente', 'stripe', '../sandbox', 'SANDBOX']) {
+        const resposta = await request(app)
+          .post(`${api}/webhooks/payments/${encodeURIComponent(nome)}`)
+          .send({ id: 'evt_1', type: 'payment.paid' });
+        expect(resposta.status, nome).toBe(404);
+        expect(resposta.body.error.code, nome).toBe('PAYMENT_PROVIDER_UNKNOWN');
+      }
+
+      // O provedor que existe continua respondendo pela assinatura, não por 404.
+      const conhecido = await request(app)
+        .post(`${api}/webhooks/payments/sandbox`)
+        .send({ id: 'evt_1', type: 'payment.paid' });
+      expect(conhecido.status).toBe(401);
+    });
+
     it('confirma o pagamento e a inscrição com assinatura válida', async () => {
       const s = await scenario();
       const { pedido } = await pedidoPago(s);

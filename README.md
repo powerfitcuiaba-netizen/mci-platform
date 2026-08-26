@@ -420,7 +420,7 @@ npm test
 
 O escopo é declarado em `vitest.config.mjs` (`tests/**/*.test.mjs`), com execução serial e banco próprio (`prisma/test.db`). O banco de desenvolvimento não é tocado. Diretórios de ferramentas do ambiente (`.agents/`, `.claude/`) são explicitamente excluídos da coleta.
 
-São 11 suítes, 206 casos:
+São 11 suítes, 207 casos:
 
 | Suíte | Casos | Cobre |
 | --- | --- | --- |
@@ -430,7 +430,7 @@ São 11 suítes, 206 casos:
 | `fase3-operacional.test.mjs` | 32 | módulos operacionais em profundidade |
 | `fase4-operacional.test.mjs` | 29 | Athlete Center, Admin Center, perfil, documentos |
 | `fase4-fechamento.test.mjs` | 16 | vitrine pública, Organizer Center, painéis por perfil |
-| `fase5-financeiro.test.mjs` | 36 | pedido, cupom, pagamento, webhook, reembolso, patrocínio |
+| `fase5-financeiro.test.mjs` | 37 | pedido, cupom, pagamento, webhook, reembolso, patrocínio |
 | `fase6-producao.test.mjs` | 25 | configuração, health, rate limiting, log, storage |
 | `seguranca.test.mjs` | 20 | matriz de acesso cruzado entre perfis |
 | `e2e-fluxo-operacional.test.mjs` | 20 | ciclo esportivo completo, banco real, sem mocks |

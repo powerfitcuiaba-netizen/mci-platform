@@ -2,7 +2,7 @@ const prisma = require('../config/prisma');
 const { AppError } = require('../utils/errors');
 const money = require('../utils/money');
 const { podeTransitar, ehTerminal } = require('../utils/financialStates');
-const { getProvider } = require('./payment/paymentProvider');
+const { getProvider, hasProvider } = require('./payment/paymentProvider');
 const orderService = require('./orderService');
 const notificationService = require('./notificationService');
 const auditService = require('./auditService');
@@ -102,6 +102,12 @@ const MAPA_EVENTO = Object.freeze({
 //      segunda entrega da mesma notificação não reprocessa nada;
 //   3. ordem — uma notificação atrasada não desfaz um estado terminal.
 async function handleWebhook({ rawBody, headers, providerName }) {
+  // O nome vem da URL, então vem de quem chama. Nome que não corresponde a
+  // provedor algum é requisição errada do cliente, não falha do servidor.
+  if (!hasProvider(providerName)) {
+    throw new AppError(404, 'PAYMENT_PROVIDER_UNKNOWN', 'Provedor de pagamento desconhecido');
+  }
+
   const provider = getProvider(providerName);
 
   const assinaturaOk = provider.verifySignature(rawBody, headers);

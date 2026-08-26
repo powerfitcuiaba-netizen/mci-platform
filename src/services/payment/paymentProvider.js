@@ -101,6 +101,13 @@ const registro = new Map([['sandbox', new SandboxPaymentProvider()]]);
 // Um gateway real se registra aqui e passa a ser escolhido por PAYMENT_PROVIDER.
 const register = provider => registro.set(provider.name, provider);
 
+// Saber se um nome corresponde a provedor registrado, sem lançar. Existe
+// porque as duas origens do nome têm gravidades opostas: vindo da configuração,
+// nome desconhecido é falha do servidor (500); vindo da URL de um webhook, é
+// só um estranho digitando qualquer coisa — e 500 nesse caso vira ruído de
+// nível error num endpoint público, escondendo incidente de verdade.
+const hasProvider = nome => registro.has(nome || config.paymentProvider || 'sandbox');
+
 function getProvider(nome) {
   const escolhido = nome || config.paymentProvider || 'sandbox';
   const provider = registro.get(escolhido);
@@ -110,4 +117,4 @@ function getProvider(nome) {
   return provider;
 }
 
-module.exports = { getProvider, register, SandboxPaymentProvider, SANDBOX_SECRET };
+module.exports = { getProvider, hasProvider, register, SandboxPaymentProvider, SANDBOX_SECRET };
