@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -35,7 +37,26 @@ app.use(cors({
 // atrapalhar quem está usando o sistema.
 app.use(rateLimit({ windowMs: 60_000, max: 600, nome: 'global' }));
 
+// Em produção a própria API serve a interface construída: tela e API na mesma
+// origem dispensam CORS e cabem num único container, que é o que quase todo
+// destino de deploy espera.
+//
+// A condição é `isProduction`, e não "existe um dist/". Amarrar comportamento à
+// presença de um diretório faria a aplicação mudar de resposta conforme quem
+// rodou `npm run build` por último — em desenvolvimento serviria um bundle
+// velho no lugar do Vite com recarga automática, e nos testes o resultado
+// dependeria de o diretório ter sobrado de outra execução.
+const distDir = path.join(__dirname, '..', 'frontend', 'dist');
+const serveInterface = config.isProduction && fs.existsSync(path.join(distDir, 'index.html'));
+
+if (serveInterface) {
+  app.use(express.static(distDir, { index: false, maxAge: '1h' }));
+}
+
+// O frontend roteia por hash (`/#dashboard`), então o navegador só pede `/`:
+// não é preciso rota curinga, e o 404 em JSON da API continua intacto.
 app.get('/', (req, res) => {
+  if (serveInterface) return res.sendFile(path.join(distDir, 'index.html'));
   res.send('MCI Campeonatos API funcionando!');
 });
 

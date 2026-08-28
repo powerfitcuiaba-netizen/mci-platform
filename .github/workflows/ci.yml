@@ -17,9 +17,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
+    # PostgreSQL de verdade, na mesma versão da produção. Um banco em memória
+    # ou um SQLite "parecido" deixaria passar exatamente o que interessa pegar:
+    # diferença de dialeto, de tipo e de sensibilidade a maiúsculas.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mci
+          POSTGRES_PASSWORD: mci
+          POSTGRES_DB: mci_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mci -d mci_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
     env:
       NODE_ENV: test
-      DATABASE_URL: file:./test.db
+      DATABASE_URL: postgresql://mci:mci@localhost:5432/mci_test?schema=public
       STORAGE_DIR: ./uploads-test
       JWT_SECRET: ci-secret-apenas-para-a-pipeline-com-tamanho-suficiente
       PAYMENT_WEBHOOK_SECRET: ci-webhook-secret
@@ -81,6 +99,55 @@ jobs:
 
       - name: Build de produção
         run: npm run build
+
+  imagem:
+    name: Imagem Docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Construir a imagem
+        run: docker build -t mci-platform:ci .
+
+      # Construir não prova que arranca. Aqui a imagem sobe de verdade contra um
+      # PostgreSQL, aplica as migrations e precisa responder /health e /ready —
+      # que é o que o orquestrador vai perguntar antes de mandar tráfego.
+      - name: Subir a pilha e conferir as sondas
+        run: |
+          docker network create mci-ci
+          docker run -d --name pg --network mci-ci             -e POSTGRES_USER=mci -e POSTGRES_PASSWORD=mci -e POSTGRES_DB=mci             postgres:16-alpine
+          for i in $(seq 1 30); do
+            docker exec pg pg_isready -U mci -d mci && break
+            sleep 2
+          done
+          docker run -d --name api --network mci-ci -p 3000:3000             -e NODE_ENV=production             -e DATABASE_URL='postgresql://mci:mci@pg:5432/mci?schema=public'             -e JWT_SECRET=segredo-de-ci-com-mais-de-trinta-e-dois-caracteres             -e CORS_ORIGINS=http://localhost:3000             -e PAYMENT_WEBHOOK_SECRET=segredo-de-webhook-da-ci             -e ALLOW_SANDBOX_PAYMENTS=true             mci-platform:ci sh -c "npx prisma migrate deploy && node server.js"
+
+          pronto=0
+          for i in $(seq 1 40); do
+            if curl -sf http://localhost:3000/health > /dev/null; then pronto=1; break; fi
+            sleep 3
+          done
+          if [ "$pronto" != "1" ]; then
+            echo "A imagem não respondeu /health. Log do container:"
+            docker logs api
+            exit 1
+          fi
+
+          echo "--- /health ---"; curl -s http://localhost:3000/health; echo
+          echo "--- /ready ---";  curl -s http://localhost:3000/ready;  echo
+          curl -sf http://localhost:3000/ready | grep -q '"status":"ready"' || {
+            echo "A instância subiu mas não se declarou pronta."; docker logs api; exit 1; }
+
+          echo "--- a interface é servida pela própria API? ---"
+          curl -sf http://localhost:3000/ | grep -qi "MCI Campeonatos" || {
+            echo "A raiz não devolveu a interface construída."; exit 1; }
+          echo "sim"
+
+      - name: Encerrar
+        if: always()
+        run: docker rm -f api pg 2>/dev/null || true
 
   higiene:
     name: Higiene do repositório

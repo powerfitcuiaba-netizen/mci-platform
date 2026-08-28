@@ -12,7 +12,7 @@ As referências oficiais ficam permanentemente em `design/referencias/` (48 imag
 
 - Node.js 22+ (o `jsdom` da suíte de interface exige `^22.22.2 || ^24.15.0`; validado em Node 24)
 - Express 5
-- Prisma 6 com SQLite
+- Prisma 6 com PostgreSQL 16
 - Zod para validação
 - JWT (`jsonwebtoken`) e `bcryptjs`
 - Vitest e Supertest
@@ -26,6 +26,9 @@ As referências oficiais ficam permanentemente em `design/referencias/` (48 imag
   Node 24. O requisito está declarado em `frontend/package.json`, então o npm
   avisa antes de a suíte falhar com um erro obscuro de engine.
 - npm
+- **Docker** — o banco é PostgreSQL, e o `docker compose` é como você o sobe sem
+  instalar nada no sistema. Um PostgreSQL 16 instalado localmente também serve;
+  o que não serve mais é rodar sem banco algum.
 
 ## Dependências
 
@@ -80,9 +83,10 @@ Backend, a partir da raiz:
 
 ```bash
 npm install
-copy .env.example .env
+copy .env.example .env          # as credenciais já apontam para o compose
+npm run db:up                   # sobe o PostgreSQL e cria mci e mci_test
 npm run prisma:generate
-npm run prisma:migrate
+npm run db:migrate              # aplica as migrations
 ```
 
 Frontend:
@@ -99,7 +103,7 @@ Raiz (`.env`):
 
 | Variável | Finalidade | Padrão |
 | --- | --- | --- |
-| `DATABASE_URL` | Banco do Prisma | `file:./dev.db` |
+| `DATABASE_URL` | Banco do Prisma (PostgreSQL) | `postgresql://mci:mci@localhost:5432/mci?schema=public` |
 | `PORT` | Porta da API | `3000` |
 | `NODE_ENV` | Ambiente de execução | `development` |
 | `FRONTEND_URL` | Origem liberada no CORS | `http://localhost:5173` |
@@ -125,6 +129,9 @@ O `JWT_SECRET` tem um valor de desenvolvimento embutido como último recurso. De
 
 ## Execução local
 
+O banco precisa estar de pé — `npm run db:up` deixa o PostgreSQL rodando em
+segundo plano e só é necessário uma vez.
+
 Em um terminal, a API:
 
 ```bash
@@ -141,7 +148,10 @@ npm run dev      # http://localhost:5173
 
 ## Banco e Prisma
 
-O banco de desenvolvimento fica em `prisma/dev.db` e não é versionado.
+O banco de desenvolvimento é o PostgreSQL que o `docker compose` sobe: dados no
+volume `postgres-data`, nada no repositório. `npm run db:up` liga, e
+`docker compose down` desliga sem apagar — para apagar de verdade é
+`docker compose down -v`.
 
 ```bash
 npx prisma validate        # valida o schema
@@ -150,7 +160,10 @@ npx prisma generate        # regenera o client
 npx prisma migrate deploy  # aplica migrations pendentes
 ```
 
-Migrations existentes não devem ser apagadas. Para PostgreSQL, altere o `provider` do datasource em `prisma/schema.prisma`, use uma `DATABASE_URL` PostgreSQL e gere uma migration própria para esse banco.
+Migrations existentes não devem ser apagadas. `migrate deploy` aplica o que
+falta e nunca cria nada — é o comando de produção e de CI. `migrate dev`, que
+gera migration nova a partir do schema, é de desenvolvimento e pode recriar o
+banco: não aponte para produção.
 
 ## Autenticação e perfis
 
@@ -396,23 +409,22 @@ O download exige o mesmo direito de leitura do registro e passa pelo servidor �
 
 Falhar no deploy é preferível a servir tráfego real com segredo que qualquer um adivinha.
 
-### Caminho para PostgreSQL
+### O banco é PostgreSQL, em todos os ambientes
 
-O desenvolvimento continua em SQLite; nada aqui destrói o banco local.
+Desenvolvimento, teste e produção usam o mesmo motor. Isso não é preciosismo: a
+diferença mais cara de descobrir é a que só aparece em produção, e SQLite e
+PostgreSQL divergem justamente onde dói — sensibilidade a maiúsculas no `LIKE`,
+tipos de data, comportamento sob concorrência.
 
-```bash
-# 1. Trocar o provider no datasource
-#    prisma/schema.prisma:  provider = "postgresql"
-# 2. Apontar a URL
-export DATABASE_URL="postgresql://usuario:senha@host:5432/mci?schema=public"
-# 3. Gerar a migration própria do PostgreSQL num banco limpo
-npx prisma migrate dev --name init_postgres
-# 4. Conferir e aplicar
-npx prisma migrate status
-npx prisma migrate deploy
-```
+O `docker compose up -d postgres` sobe um PostgreSQL 16 local com as credenciais
+que o `.env.example` já traz, e cria também o banco `mci_test` para que a suíte
+não escreva no banco de desenvolvimento.
 
-As migrations existentes foram escritas para SQLite. O PostgreSQL exige uma linha de migração própria, gerada a partir do mesmo schema — por isso o passo 3 roda contra um banco vazio, e nenhuma migration atual é apagada.
+As seis migrations SQLite da fase anterior **não foram apagadas**: estão em
+`prisma/legado-sqlite/migrations/`, como registro. Elas não rodam em PostgreSQL,
+e o dialeto de uma não se converte na outra por edição — a linha de migração do
+PostgreSQL foi gerada do mesmo schema, num arquivo só, e é a que vale daqui em
+diante. Se você não precisa do histórico, pode remover a pasta.
 
 ### Health e prontidão
 
@@ -454,12 +466,39 @@ Nenhuma das duas devolve segredo, URL de banco ou caminho de disco: informam o *
 
 ### Deploy
 
-Nada aqui publica automaticamente, altera DNS ou usa credencial real. Antes de um deploy:
+A plataforma inteira cabe numa imagem: o `Dockerfile` constrói a interface,
+instala a API e serve as duas na mesma origem, o que dispensa CORS em produção
+e reduz o deploy a um container mais um banco.
 
-1. Definir as variáveis do `.env.example` no cofre do provedor.
-2. `npx prisma migrate deploy` contra o banco de produção.
-3. Subir com `NODE_ENV=production` — a validação de partida barra configuração incompleta.
-4. Apontar as sondas do orquestrador para `/health` (liveness) e `/ready` (readiness).
+```bash
+docker compose up --build        # plataforma completa em http://localhost:3000
+docker compose up -d postgres    # só o banco, para desenvolver com o Vite
+```
+
+O que a imagem assume:
+
+- **Migrations no arranque.** O comando é `prisma migrate deploy && node server.js`.
+  `deploy` só aplica o que falta e nunca gera migration nova, então é seguro
+  rodar a cada partida, inclusive com várias réplicas subindo ao mesmo tempo.
+- **Documentos num volume.** `/app/uploads` é ponto de montagem. Sem volume, tudo
+  o que foi anexado desaparece no próximo deploy — a imagem é descartável.
+- **Nunca como root.** O processo roda como o usuário `node`.
+- **`tini` como PID 1**, para que o `SIGTERM` do `docker stop` chegue ao Node e o
+  encerramento ordenado que o `server.js` implementa realmente aconteça.
+- **`HEALTHCHECK` em `/health`**, que responde sem tocar no banco. Prontidão para
+  receber tráfego é outra pergunta, e quem responde é `/ready`.
+
+Nada aqui publica automaticamente, altera DNS ou usa credencial real. Antes de
+um deploy de verdade:
+
+1. Definir as variáveis do `.env.example` no cofre do provedor — o
+   `docker-compose.yml` traz valores de desenvolvimento e é versionado, então
+   **não** serve como fonte de segredo.
+2. Apontar `DATABASE_URL` para o PostgreSQL gerenciado do provedor.
+3. Subir com `NODE_ENV=production` — a validação de partida barra configuração
+   incompleta, e o servidor se recusa a subir em vez de servir inseguro.
+4. Apontar as sondas do orquestrador para `/health` (liveness) e `/ready`
+   (readiness).
 
 ## Testes
 
@@ -539,4 +578,4 @@ O fluxo é `routes → controllers → services → repositories → Prisma`. Ro
 - **Não há antivírus nem inspeção de conteúdo no upload.** A validação é de tipo declarado, tamanho e nome; o conteúdo em si não é analisado.
 - **Partidas não podem ser excluídas.** O encerramento acontece por status (`CANCELLED`), não por exclusão.
 - **Não há transferência de posse de campeonato.** Um evento criado por um `ADMIN` permanece com ele; não existe endpoint para passar a posse a um `ORGANIZER`.
-- **SQLite em desenvolvimento.** Adequado para uso local; produção exige migração para um banco servidor.
+- **A migração para PostgreSQL foi validada na CI, não em produção.** As 207 suítes rodam contra um PostgreSQL 16 real a cada push, e a imagem Docker sobe e responde às sondas no mesmo pipeline. Nenhum deploy em servidor real foi executado a partir deste repositório.

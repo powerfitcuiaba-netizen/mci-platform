@@ -1,0 +1,70 @@
+# MCI Campeonatos — ambiente completo em um comando.
+#
+# Serve a dois propósitos que costumam brigar entre si:
+#   `docker compose up postgres`  sobe só o banco, para desenvolver com o Vite
+#                                 e o `npm run dev` rodando na máquina;
+#   `docker compose up`           sobe a plataforma inteira, como em produção.
+#
+# O banco de teste é criado junto do principal para que `npm test` não precise
+# de preparação manual nem apague o banco de desenvolvimento.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mci
+      POSTGRES_PASSWORD: mci
+      POSTGRES_DB: mci
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/criar-banco-de-teste.sh:/docker-entrypoint-initdb.d/criar-banco-de-teste.sh:ro
+    # A API só arranca depois que o banco aceita conexão. Sem isto o primeiro
+    # `migrate deploy` correria contra um PostgreSQL ainda inicializando.
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U mci -d mci']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://mci:mci@postgres:5432/mci?schema=public
+
+      # Valores de DESENVOLVIMENTO. Em produção de verdade vêm do cofre do
+      # provedor, nunca deste arquivo — que é versionado.
+      JWT_SECRET: troque-este-segredo-em-producao-com-no-minimo-32-caracteres
+      CORS_ORIGINS: http://localhost:3000
+      PAYMENT_PROVIDER: sandbox
+      PAYMENT_WEBHOOK_SECRET: troque-este-segredo-de-webhook-em-producao
+      # A plataforma se recusa a subir em produção com o provedor de
+      # desenvolvimento, a não ser que isto seja assumido de propósito. Aqui é
+      # de propósito: este compose é demonstração, não produção.
+      ALLOW_SANDBOX_PAYMENTS: 'true'
+      RATE_LIMIT_ENABLED: 'true'
+      LOG_LEVEL: info
+    ports:
+      - '3000:3000'
+    volumes:
+      # Os documentos enviados vivem fora da imagem. Sem este volume, tudo o que
+      # foi anexado desaparece no próximo deploy.
+      - uploads:/app/uploads
+    # `migrate deploy` antes de servir: aplica o que faltar e não gera nada
+    # novo, então é seguro rodar a cada arranque, inclusive com várias réplicas.
+    command: sh -c "npx prisma migrate deploy && node server.js"
+
+volumes:
+  postgres-data:
+  uploads:

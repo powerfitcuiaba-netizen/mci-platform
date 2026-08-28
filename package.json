@@ -3,13 +3,18 @@
   "version": "1.0.0",
   "description": "",
   "main": "server.js",
+  "engines": {
+    "node": ">=24.15.0"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "cross-env DATABASE_URL=file:./test.db prisma migrate deploy && cross-env DATABASE_URL=file:./test.db STORAGE_DIR=./uploads-test vitest run",
+    "test": "cross-env STORAGE_DIR=./uploads-test prisma migrate deploy && cross-env STORAGE_DIR=./uploads-test vitest run",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
-    "prisma:migrate": "prisma migrate dev --name init"
+    "db:up": "docker compose up -d postgres",
+    "db:migrate": "prisma migrate deploy",
+    "prisma:migrate": "prisma migrate dev"
   },
   "keywords": [],
   "author": "",

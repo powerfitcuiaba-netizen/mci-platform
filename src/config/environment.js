@@ -42,7 +42,7 @@ const config = Object.freeze({
   isDevelopment: NODE_ENV === 'development',
 
   port: inteiro(process.env.PORT, 3000),
-  databaseUrl: process.env.DATABASE_URL || 'file:./dev.db',
+  databaseUrl: process.env.DATABASE_URL || 'postgresql://mci:mci@localhost:5432/mci?schema=public',
   // O provider do Prisma é declarado no schema; aqui só se registra qual banco
   // a URL aponta, para health check e diagnóstico.
   databaseKind: String(process.env.DATABASE_URL || '').startsWith('postgres') ? 'postgresql' : 'sqlite',

@@ -1,0 +1,43 @@
+# Tudo o que não deve entrar na imagem. Além de deixá-la menor, evita que um
+# .env local ou um banco de desenvolvimento vá parar dentro do container.
+node_modules
+frontend/node_modules
+frontend/dist
+dist
+build
+
+.git
+.github
+.gitignore
+
+.env
+.env.*
+!.env.example
+
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+prisma/legado-sqlite
+
+uploads
+uploads-test
+*.log
+logs
+
+# Referências visuais são material de projeto, não da aplicação em execução.
+design
+
+tests
+**/*.test.js
+**/*.test.jsx
+**/*.test.mjs
+vitest.config.mjs
+frontend/vitest.config.js
+
+.agents
+.claude
+skills-lock.json
+.vscode
+.DS_Store
+Thumbs.db
