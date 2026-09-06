@@ -115,6 +115,11 @@ início, fim, quem autorizou e o motivo (`GET /athletes/:id/team-history`), e
 toda transferência gera auditoria (`ATHLETE_TEAM_LINK`, `ATHLETE_TEAM_TRANSFER`,
 `ATHLETE_TEAM_UNLINK`).
 
+**A inscrição arma a trava junto com o atleta.** A inscrição cria o perfil
+quando o CPF é novo; se gravasse apenas o espelho `Athlete.teamId` sem abrir o
+vínculo, o atleta nasceria com equipe e sem trava — e outra equipe o
+reivindicaria sem receber recusa. O vínculo nasce na mesma operação.
+
 **A importação não é a porta dos fundos.** O arquivo é redigido fora da
 plataforma; se a equipe declarada nele fosse aceita sem conferência, bastaria um
 CSV para uma equipe acumular pontos de atleta que não é dela. A equipe do

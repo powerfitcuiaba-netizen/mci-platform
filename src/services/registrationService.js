@@ -110,6 +110,21 @@ async function create(eventId, data, actor) {
     });
     atletaCriado = true;
 
+    // O vínculo tem de nascer junto com o atleta. Sem isto, o perfil criado
+    // pela inscrição teria a equipe no espelho (`Athlete.teamId`) e NENHUM
+    // vínculo registrado — a trava de vínculo único ficaria desarmada
+    // justamente para quem entra pela porta mais movimentada da plataforma, e
+    // outra equipe poderia reivindicar o atleta sem receber a recusa.
+    if (perfil.teamId) {
+      const equipe = await prisma.team.findUnique({ where: { id: perfil.teamId }, select: { companyId: true } });
+      await prisma.athleteTeamMembership.create({
+        data: {
+          athleteId: athlete.id, teamId: perfil.teamId, companyId: equipe?.companyId ?? null,
+          createdById: actor?.id ?? null, activeAthleteId: athlete.id
+        }
+      });
+    }
+
     await audit.record({ actor, action: audit.ACTIONS.ATHLETE_CREATE, entity: 'Athlete', entityId: athlete.id, organizationId: event.organizationId, metadata: { viaRegistration: true } });
   }
 

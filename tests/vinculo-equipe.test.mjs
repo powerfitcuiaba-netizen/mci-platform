@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
   api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, criarAtleta, gerarCpf, unico, comoAtor
+  vincular, criarAtleta, gerarCpf, unico, comoAtor, criarEventoCompleto, transicionar
 } from './helpers.mjs';
 
 // ============================================================================
@@ -269,6 +269,36 @@ describe('vínculo esportivo e relação comercial são coisas diferentes', () =
       .send({ teamId: daEmpresa.id });
 
     expect(vinculo.body.companyId, 'a empresa da equipe é registrada no vínculo').toBe(empresa.body.id);
+  });
+});
+
+describe('a inscrição também arma a trava', () => {
+  // A inscrição é a porta mais movimentada da plataforma e cria o perfil do
+  // atleta quando o CPF é novo. Se ela gravasse só o espelho `Athlete.teamId`
+  // sem abrir o vínculo, o atleta nasceria com equipe e SEM trava — e outra
+  // equipe o reivindicaria sem receber recusa nenhuma.
+  it('atleta criado pela inscrição já nasce com vínculo registrado', async () => {
+    const { event, competitionClass } = await criarEventoCompleto(diretor, orgId);
+    await transicionar(diretor, event.id, ['PLANNED', 'REGISTRATIONS_OPEN']);
+
+    const cpf = cpfSeq();
+    const inscricao = await api().post(`/api/v1/events/${event.id}/registrations`).set(diretor.auth()).send({
+      cpf,
+      athlete: { fullName: 'Joana Ferreira', sex: 'FEMALE', teamId: alpha.id },
+      classIds: [competitionClass.id]
+    });
+    expect(inscricao.status, JSON.stringify(inscricao.body)).toBe(201);
+
+    const athleteId = inscricao.body.registration.athlete.id;
+    const historico = await api().get(`/api/v1/athletes/${athleteId}/team-history`).set(diretor.auth());
+    expect(historico.body.items, 'o vínculo nasce junto com o atleta').toHaveLength(1);
+    expect(historico.body.items[0].teamId).toBe(alpha.id);
+
+    // E a trava está de fato armada, não só registrada.
+    const tentativa = await api().post(`/api/v1/athletes/${athleteId}/team`).set(operadorInscricao.auth())
+      .send({ teamId: beta.id });
+    expect(tentativa.status).toBe(409);
+    expect(tentativa.body.error.message).toContain(alpha.name);
   });
 });
 
