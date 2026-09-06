@@ -19,6 +19,10 @@ const PERMISSIONS = Object.freeze([
   'events.read', 'events.create', 'events.update', 'events.publish', 'events.delete',
   'categories.read', 'categories.manage',
   'athletes.read', 'athletes.read_sensitive', 'athletes.create', 'athletes.update', 'athletes.manage',
+  // Transferir é tirar o atleta de OUTRA equipe: ato do operador da Muscle
+  // Contest, separado de `athletes.update`, que só permite vincular um atleta
+  // sem equipe. É essa separação que impede o treinador de transferir sozinho.
+  'athletes.transfer',
   'affiliations.read', 'affiliations.manage',
   'registrations.read', 'registrations.create', 'registrations.cancel',
   'documents.read', 'documents.upload', 'documents.delete',
@@ -31,7 +35,7 @@ const PERMISSIONS = Object.freeze([
   'ranking.read', 'ranking.manage',
   'pro.read', 'pro.manage',
   'musclewar.import', 'musclewar.review', 'musclewar.apply',
-  'teams.manage', 'coaches.manage', 'gyms.manage',
+  'teams.manage', 'companies.manage', 'coaches.manage', 'gyms.manage',
   'brands.manage', 'sponsors.manage',
   'social.read', 'social.write', 'social.moderate', 'social.delete',
   'messenger.use', 'messenger.moderate',
@@ -68,6 +72,7 @@ const ROLE_PERMISSIONS = Object.freeze({
     'events.create', 'events.update', 'events.publish', 'events.delete',
     'categories.manage', 'affiliations.manage',
     'athletes.create', 'athletes.update', 'athletes.manage', 'athletes.read_sensitive',
+    'athletes.transfer',
     'registrations.read', 'registrations.create', 'registrations.cancel',
     'documents.read', 'documents.upload', 'documents.delete',
     'checkin.read', 'checkin.operate', 'weighin.read', 'weighin.operate',
@@ -77,7 +82,7 @@ const ROLE_PERMISSIONS = Object.freeze({
     'results.read_unpublished', 'results.calculate', 'results.publish',
     'ranking.manage', 'pro.manage',
     'musclewar.import', 'musclewar.review', 'musclewar.apply',
-    'teams.manage', 'coaches.manage', 'gyms.manage', 'brands.manage', 'sponsors.manage',
+    'teams.manage', 'companies.manage', 'coaches.manage', 'gyms.manage', 'brands.manage', 'sponsors.manage',
     'analytics.read', 'search.sensitive', 'users.read'
   ),
 

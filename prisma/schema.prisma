@@ -45,6 +45,7 @@ model Organization {
   @@index([active])
   athleteIdentities AthleteIdentity[]
   classCatalog ClassCatalog[]
+  companies Company[]
 }
 
 model OrganizationMember {
@@ -138,6 +139,8 @@ model User {
   @@index([status])
   rankingPointsAwarded RankingPoint[]      @relation("RankingPointAwardedBy")
   overallTitlesDeclared EventOverallTitle[] @relation("OverallDeclaredBy")
+  membershipsCreated AthleteTeamMembership[] @relation("MembershipCreatedBy")
+  membershipsEnded   AthleteTeamMembership[] @relation("MembershipEndedBy")
 }
 
 // ============================================================================
@@ -245,6 +248,7 @@ model Athlete {
   @@index([teamId])
   @@index([coachId])
   overallTitles EventOverallTitle[]
+  teamMemberships AthleteTeamMembership[]
 }
 
 enum DocumentKind {
@@ -281,6 +285,49 @@ model AthleteIdentity {
 
   @@unique([organizationId, cpf])
   @@index([cpf])
+}
+
+/// Vínculo do atleta com uma equipe — histórico completo, não só o estado atual.
+///
+/// TRAVA DE INTEGRIDADE: um atleta não pode ter dois vínculos ativos ao mesmo
+/// tempo. A garantia é do BANCO, não da tela: `activeAthleteId` carrega o id do
+/// atleta enquanto o vínculo está aberto e NULL depois de encerrado, e o índice
+/// único sobre ela recusa o segundo vínculo — inclusive quando dois treinadores
+/// tentam ao mesmo tempo, caso em que um dos INSERTs perde a corrida e recebe
+/// violação de unicidade.
+///
+/// No PostgreSQL, NULL não conflita com NULL: vínculos encerrados se acumulam
+/// livremente, e é por isso que o histórico pode ser preservado sem afrouxar a
+/// trava.
+///
+/// Trocar de equipe não é apagar e recriar: o vínculo anterior é ENCERRADO com
+/// data, autor e motivo, e o novo é criado por quem tem permissão de operador.
+/// Assim ninguém apaga o passado do atleta.
+model AthleteTeamMembership {
+  id        String    @id @default(cuid())
+  athleteId String
+  teamId    String
+  /// Empresa da equipe no início do vínculo, registrada como estava.
+  companyId String?
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+  reason    String?
+  /// Igual a `athleteId` enquanto ativo; NULL quando encerrado. É esta coluna,
+  /// e o único sobre ela, que impedem o segundo vínculo simultâneo.
+  activeAthleteId String? @unique
+  createdById String?
+  endedById   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  athlete   Athlete  @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  createdBy User?    @relation("MembershipCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  endedBy   User?    @relation("MembershipEndedBy", fields: [endedById], references: [id], onDelete: SetNull)
+
+  @@index([athleteId, startedAt])
+  @@index([teamId])
 }
 
 model AthleteDocument {
@@ -323,9 +370,42 @@ model AthleteProHistory {
 // EQUIPES, COACHES, ACADEMIAS
 // ============================================================================
 
+/// Empresa que compete entrando com suas equipes.
+///
+/// Fica ACIMA da equipe: a empresa se cadastra, inscreve uma ou mais equipes, e
+/// os pontos sobem por essa cadeia —
+///
+///   atleta → equipe → empresa
+///
+/// REGRA HOMOLOGADA: a mesma tabela de pontos e o mesmo desempate valem para
+/// atleta, equipe e empresa. Não há peso, multiplicador nem bônus próprio de
+/// empresa, e a pontuação continua rastreável até o resultado de cada atleta.
+model Company {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  city           String?
+  state          String?
+  /// Empresa desativada não recebe equipes novas; o histórico dela permanece.
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  teams         Team[]
+  rankingPoints RankingPoint[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, active])
+  memberships AthleteTeamMembership[]
+}
+
 model Team {
   id             String   @id @default(cuid())
   organizationId String
+  /// Empresa que inscreveu a equipe. Opcional: uma equipe pode competir sem
+  /// empresa por trás, e nesse caso ela simplesmente não pontua para nenhuma.
+  companyId      String?
   name           String
   city           String?
   state          String?
@@ -333,12 +413,14 @@ model Team {
   updatedAt      DateTime @updatedAt
 
   organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  company       Company?       @relation(fields: [companyId], references: [id], onDelete: SetNull)
   athletes      Athlete[]
   socialProfile SocialProfile?
   sponsorships  Sponsorship[]
 
   @@unique([organizationId, name])
   rankingPoints RankingPoint[]
+  memberships AthleteTeamMembership[]
 }
 
 model Coach {
@@ -1117,6 +1199,10 @@ model RankingPoint {
   // cadastro na hora da consulta, para que uma troca de equipe depois do
   // evento não reescreva a história do ranking.
   teamId           String?
+  /// Empresa da equipe no momento da atribuição. Gravada, e não deduzida na
+  /// leitura: trocar a equipe de empresa depois do evento não pode reescrever
+  /// a história do ranking.
+  companyId        String?
   classId          String?
   // Versão do resultado que originou o ponto: permite conferir que o ranking
   // reflete a versão válida, e não uma anterior.
@@ -1132,6 +1218,7 @@ model RankingPoint {
   result         Result?         @relation(fields: [resultId], references: [id], onDelete: SetNull)
   externalResult ExternalResult? @relation(fields: [externalResultId], references: [id], onDelete: SetNull)
   team           Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  company        Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
   competitionClass CompetitionClass? @relation(fields: [classId], references: [id], onDelete: SetNull)
   awardedBy      User?             @relation("RankingPointAwardedBy", fields: [awardedById], references: [id], onDelete: SetNull)
 
@@ -1140,6 +1227,7 @@ model RankingPoint {
   @@unique([seasonId, athleteId, resultId])
   @@index([seasonId, athleteId])
   @@index([seasonId, teamId])
+  @@index([seasonId, companyId])
   @@index([source])
 }
 
@@ -1289,6 +1377,7 @@ model MuscleWarImportItem {
   /// Equipe declarada pela origem. `className`, logo acima, é o que resolve a
   /// elegibilidade ao Super Overall contra o catálogo da organização.
   teamName         String?
+  companyName      String?
   points           Int?
   eventName        String?
   eventDate        DateTime?

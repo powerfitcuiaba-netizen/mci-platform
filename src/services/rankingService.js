@@ -133,13 +133,14 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
   });
   const campeoesOverall = new Set(titulos.map(titulo => titulo.athleteId));
 
-  // Equipe registrada no momento da atribuição: uma troca posterior não deve
-  // reescrever a história do ranking.
-  const equipes = new Map(
+  // Equipe e empresa registradas no momento da atribuição: uma troca posterior
+  // não deve reescrever a história do ranking. A cadeia é
+  // atleta → equipe → empresa.
+  const vinculos = new Map(
     (await prisma.athlete.findMany({
       where: { id: { in: classificados.map(entry => entry.athleteId) } },
-      select: { id: true, teamId: true }
-    })).map(atleta => [atleta.id, atleta.teamId])
+      select: { id: true, teamId: true, team: { select: { companyId: true } } }
+    })).map(atleta => [atleta.id, { teamId: atleta.teamId, companyId: atleta.team?.companyId ?? null }])
   );
 
   const atribuidos = await prisma.$transaction(async tx => {
@@ -160,7 +161,8 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
             seasonId, athleteId: entry.athleteId, categoryId,
             source: 'EVENT', eventId: result.eventId, resultId,
             classId: result.classId,
-            teamId: equipes.get(entry.athleteId) ?? null,
+            teamId: vinculos.get(entry.athleteId)?.teamId ?? null,
+            companyId: vinculos.get(entry.athleteId)?.companyId ?? null,
             placing: entry.placing,
             placementPoints, overallBonus, isOverallChampion: ehCampeaoOverall,
             superOverallEligible,
@@ -395,6 +397,60 @@ async function listOverall(eventId) {
 }
 
 /**
+ * Ranking de empresas.
+ *
+ * REGRA HOMOLOGADA: a empresa entra com suas equipes, e a mesma tabela de
+ * pontos e o mesmo desempate valem para ela. Sem peso, multiplicador ou bônus
+ * próprio.
+ *
+ * Derivado de `RankingPoint.companyId`, como o de equipes: cada linha continua
+ * apontando para o resultado do atleta que a originou, e não há um agregado
+ * paralelo para manter sincronizado.
+ */
+async function companyRanking(seasonId, { categoryId = null } = {}) {
+  const pontos = await prisma.rankingPoint.findMany({
+    where: { seasonId, companyId: { not: null }, ...(categoryId ? { categoryId } : {}) },
+    select: {
+      companyId: true, teamId: true, athleteId: true, points: true, placing: true,
+      isOverallChampion: true, eventId: true, externalResultId: true,
+      company: { select: { id: true, name: true, city: true, state: true } }
+    }
+  });
+
+  const acumulado = new Map();
+  for (const ponto of pontos) {
+    if (!acumulado.has(ponto.companyId)) {
+      acumulado.set(ponto.companyId, {
+        companyId: ponto.companyId, company: ponto.company,
+        totalPoints: 0, atletas: new Set(), equipes: new Set(), fontes: new Set(), pontos: []
+      });
+    }
+    const linha = acumulado.get(ponto.companyId);
+    linha.totalPoints += ponto.points;
+    linha.atletas.add(ponto.athleteId);
+    if (ponto.teamId) linha.equipes.add(ponto.teamId);
+    linha.fontes.add(ponto.eventId || ponto.externalResultId || 'externo');
+    linha.pontos.push(ponto);
+  }
+
+  const linhas = [...acumulado.values()].map(linha => ({ ...linha, ...contadores(linha.pontos) }));
+
+  return classificar(linhas).map(linha => ({
+    position: linha.position,
+    tieUnresolved: linha.tieUnresolved,
+    company: linha.company,
+    totalPoints: linha.totalPoints,
+    teamCount: linha.equipes.size,
+    athleteCount: linha.atletas.size,
+    eventCount: linha.fontes.size,
+    overallWins: linha.overallWins,
+    firstPlaceCount: linha.firstPlaceCount,
+    secondPlaceCount: linha.secondPlaceCount,
+    thirdPlaceCount: linha.thirdPlaceCount
+  }));
+}
+
+/**
  * Ranking classificatório do Super Overall anual.
  *
  * REGRA HOMOLOGADA: todas as classes pontuam no campeonato, mas somente os
@@ -561,6 +617,6 @@ async function athletePoints(athleteId, seasonId, actor) {
 module.exports = {
   createSeason, listSeasons, setPointsRules, pointsForPlacing, awardForResult,
   recompute, recompute_, list, athletePoints, teamRanking,
-  declareOverall, listOverall, superOverallRanking, listClasses, upsertClass,
+  declareOverall, listOverall, superOverallRanking, listClasses, upsertClass, companyRanking,
   TABELA_OFICIAL_COLOCACAO, BONUS_OVERALL
 };

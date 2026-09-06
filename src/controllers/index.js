@@ -26,6 +26,7 @@ const auditService = require('../services/auditService');
 const admin = require('../services/adminService');
 const scoring = require('../services/scoringService');
 const health = require('../services/healthService');
+const memberships = require('../services/membershipService');
 
 const ip = req => req.ip || req.headers['x-forwarded-for'] || null;
 
@@ -72,6 +73,10 @@ module.exports = {
   },
 
   athletes: {
+    linkTeam: async (req, res) => res.status(201).json(await memberships.link(req.params.id, req.body, req.user)),
+    transferTeam: async (req, res) => res.json(await memberships.transfer(req.params.id, req.body, req.user)),
+    unlinkTeam: async (req, res) => res.json(await memberships.unlink(req.params.id, req.body, req.user)),
+    teamHistory: async (req, res) => res.json({ items: await memberships.history(req.params.id, req.user) }),
     list: async (req, res) => res.json(await athletes.list(req.query, req.user)),
     create: async (req, res) => res.status(201).json(await athletes.create(req.body, req.user)),
     findById: async (req, res) => res.json(await athletes.findById(req.params.id, req.user)),
@@ -152,7 +157,8 @@ module.exports = {
     listOverall: async (req, res) => res.json({ items: await ranking.listOverall(req.params.id) }),
     superOverall: async (req, res) => res.json(await ranking.superOverallRanking(req.query.seasonId, { categoryId: req.query.categoryId ?? null })),
     listClasses: async (req, res) => res.json({ items: await ranking.listClasses(req.query.organizationId, req.user) }),
-    upsertClass: async (req, res) => res.status(201).json(await ranking.upsertClass(req.body.organizationId, req.body, req.user))
+    upsertClass: async (req, res) => res.status(201).json(await ranking.upsertClass(req.body.organizationId, req.body, req.user)),
+    companies: async (req, res) => res.json(await ranking.companyRanking(req.query.seasonId, { categoryId: req.query.categoryId ?? null }))
   },
 
   muscleWar: {
@@ -167,6 +173,8 @@ module.exports = {
   partners: {
     listTeams: async (req, res) => res.json({ items: await partners.listTeams(req.query, req.user) }),
     createTeam: async (req, res) => res.status(201).json(await partners.createTeam(req.body, req.user)),
+    createCompany: async (req, res) => res.status(201).json(await partners.createCompany(req.body, req.user)),
+    listCompanies: async (req, res) => res.json({ items: await partners.listCompanies(req.query, req.user) }),
     listGyms: async (req, res) => res.json({ items: await partners.listGyms(req.query, req.user) }),
     createGym: async (req, res) => res.status(201).json(await partners.createGym(req.body, req.user)),
     listCoaches: async (req, res) => res.json({ items: await partners.listCoaches(req.query) }),

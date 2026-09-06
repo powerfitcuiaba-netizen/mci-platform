@@ -173,6 +173,7 @@ async function createImport(data, actor) {
           rowNumber: registro.rowNumber,
           isOverallChampion: registro.isOverallChampion === true,
           teamName: registro.teamName,
+          companyName: registro.companyName,
           cpf: registro.cpf,
           athleteName: registro.athleteName,
           affiliationCode: registro.affiliationCode,
@@ -364,8 +365,15 @@ async function apply(importId, actor) {
   const equipes = new Map(
     (await prisma.team.findMany({
       where: { organizationId: lote.organizationId },
+      select: { id: true, name: true, companyId: true }
+    })).map(equipe => [equipe.name.trim().toUpperCase(), equipe])
+  );
+
+  const empresas = new Map(
+    (await prisma.company.findMany({
+      where: { organizationId: lote.organizationId },
       select: { id: true, name: true }
-    })).map(equipe => [equipe.name.trim().toUpperCase(), equipe.id])
+    })).map(empresa => [empresa.name.trim().toUpperCase(), empresa.id])
   );
 
   for (const item of aplicaveis) {
@@ -409,6 +417,8 @@ async function apply(importId, actor) {
             item.className && catalogo.get(item.className.trim().toUpperCase())
           );
 
+          const equipeDoItem = item.teamName ? equipes.get(item.teamName.trim().toUpperCase()) : null;
+
           await tx.rankingPoint.create({
             data: {
               seasonId,
@@ -420,7 +430,11 @@ async function apply(importId, actor) {
               placementPoints, overallBonus,
               isOverallChampion: item.isOverallChampion === true,
               superOverallEligible,
-              teamId: item.teamName ? (equipes.get(item.teamName.trim().toUpperCase()) ?? null) : null,
+              teamId: equipeDoItem?.id ?? null,
+              // A empresa vem da declarada na origem; na falta dela, da equipe
+              // reconhecida — que é a cadeia natural: atleta → equipe → empresa.
+              companyId: (item.companyName ? empresas.get(item.companyName.trim().toUpperCase()) : null)
+                ?? equipeDoItem?.companyId ?? null,
               awardedById: actor?.id ?? null,
               points
             }

@@ -82,6 +82,9 @@ async function create(data, actor) {
         email: data.email ?? null,
         athleteNumber: data.athleteNumber ?? null,
         affiliationId: data.affiliationId ?? null,
+        // O vínculo com equipe é criado logo abaixo, junto da linha de
+        // AthleteTeamMembership. Este campo é o espelho do vínculo corrente e
+        // não deve ser escrito por outro caminho.
         teamId: data.teamId ?? null,
         coachId: data.coachId ?? null,
         gymId: data.gymId ?? null,
@@ -89,6 +92,19 @@ async function create(data, actor) {
       },
       include: INCLUDE_PERFIL
     });
+
+    // Atleta novo nunca tem vínculo anterior, então a criação do vínculo aqui
+    // é sempre possível — e faz o histórico começar no primeiro dia, em vez de
+    // aparecer só na primeira transferência.
+    if (data.teamId) {
+      const equipe = await prisma.team.findUnique({ where: { id: data.teamId }, select: { companyId: true } });
+      await prisma.athleteTeamMembership.create({
+        data: {
+          athleteId: athlete.id, teamId: data.teamId, companyId: equipe?.companyId ?? null,
+          createdById: actor?.id ?? null, activeAthleteId: athlete.id
+        }
+      });
+    }
 
     await audit.record({
       actor, action: audit.ACTIONS.ATHLETE_CREATE, entity: 'Athlete', entityId: athlete.id,

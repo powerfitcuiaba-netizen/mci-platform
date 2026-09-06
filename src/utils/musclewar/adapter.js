@@ -14,7 +14,7 @@ const { somenteDigitos, isValidCpf } = require('../cpf');
 // Saída canônica por registro:
 //   { externalResultId, rowNumber, cpf, athleteName, affiliationCode,
 //     categoryCode, divisionName, className, placing, isOverallChampion,
-//     teamName, points, eventName, eventDate, raw }
+//     teamName, companyName, points, eventName, eventDate, raw }
 //
 // `className` é o que decide a elegibilidade ao Super Overall: resolvido
 // contra o catálogo de classes da organização, nunca comparado ao texto
@@ -36,6 +36,7 @@ const MAPA_PADRAO = Object.freeze({
   // homologada; QUEM foi o campeão o sistema não deduz — é dado informado.
   isOverallChampion: ['overall', 'is_overall', 'campeao_overall', 'overall_champion', 'super_overall'],
   teamName: ['team', 'equipe', 'team_name', 'nome_equipe'],
+  companyName: ['company', 'empresa', 'company_name', 'nome_empresa'],
   points: ['points', 'pontos', 'score'],
   eventName: ['event_name', 'evento', 'event'],
   eventDate: ['event_date', 'data', 'data_evento']
@@ -207,6 +208,7 @@ function parse(sourceType, content, options = {}) {
       placing: inteiroOuNulo(extrair(registro, 'placing', options.fieldMap)),
       isOverallChampion: booleanoDeOrigem(extrair(registro, 'isOverallChampion', options.fieldMap)),
       teamName: textoOuNulo(extrair(registro, 'teamName', options.fieldMap)),
+      companyName: textoOuNulo(extrair(registro, 'companyName', options.fieldMap)),
       points: inteiroOuNulo(extrair(registro, 'points', options.fieldMap)),
       eventName: textoOuNulo(extrair(registro, 'eventName', options.fieldMap)),
       eventDate: dataOuNula(extrair(registro, 'eventDate', options.fieldMap)),

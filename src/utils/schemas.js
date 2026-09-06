@@ -85,7 +85,14 @@ const athleteCreate = z.object({
   userId: opcional(id)
 });
 
-const athleteUpdate = athleteCreate.partial().omit({ organizationId: true, cpf: true });
+// `teamId` NÃO entra aqui de propósito. O vínculo com equipe tem trava de
+// unicidade e histórico, e é governado por /athletes/:id/team — deixá-lo no
+// update genérico seria o contorno mais óbvio da trava.
+const athleteUpdate = athleteCreate.partial().omit({ organizationId: true, cpf: true, teamId: true });
+
+const athleteTeamLink = z.object({ teamId: id, reason: opcional(texto(3, 300)) });
+const athleteTeamTransfer = z.object({ teamId: id, reason: texto(3, 300) });
+const athleteTeamUnlink = z.object({ reason: texto(3, 300) });
 
 const athleteQuery = paginacao.extend({
   organizationId: id.optional(),
@@ -339,7 +346,14 @@ const muscleWarImportCreate = z.object({
 const muscleWarLink = z.object({ athleteId: id });
 
 // -------------------------------------------------------- equipes e parceiros
-const teamCreate = z.object({ organizationId: id, name: texto(2, 120), city: opcional(texto(2, 90)), state: opcional(texto(2, 2)) });
+const teamCreate = z.object({
+  organizationId: id, name: texto(2, 120),
+  // Empresa que inscreve a equipe. Opcional: equipe sem empresa compete
+  // normalmente, apenas não pontua para nenhuma.
+  companyId: id.optional(),
+  city: opcional(texto(2, 90)), state: opcional(texto(2, 2))
+});
+const companyCreate = z.object({ organizationId: id, name: texto(2, 120), city: opcional(texto(2, 90)), state: opcional(texto(2, 2)) });
 const coachCreate = z.object({ name: texto(2, 120), userId: opcional(id), city: opcional(texto(2, 90)), state: opcional(texto(2, 2)) });
 const gymCreate = z.object({ organizationId: id, name: texto(2, 120), city: opcional(texto(2, 90)), state: opcional(texto(2, 2)) });
 
@@ -533,7 +547,7 @@ module.exports = {
   authRegister, authLogin, profileUpdate, passwordChange,
   organizationCreate, organizationMemberCreate,
   affiliationCreate,
-  athleteCreate, athleteUpdate, athleteQuery, athleteLookup, proStatusUpdate,
+  athleteCreate, athleteUpdate, athleteTeamLink, athleteTeamTransfer, athleteTeamUnlink, athleteQuery, athleteLookup, proStatusUpdate,
   eventCreate, eventUpdate, eventTransition, eventQuery,
   categoryCreate, eventCategoryCreate, divisionCreate, classCreate,
   registrationCreate, registrationCancel, registrationQuery,
@@ -544,7 +558,7 @@ module.exports = {
   seasonCreate, pointsRuleSet, rankingQuery, overallDeclare, teamRankingQuery,
   classCatalogUpsert, superOverallQuery,
   muscleWarImportCreate, muscleWarLink,
-  teamCreate, coachCreate, gymCreate, brandCreate, sponsorCreate, sponsorshipCreate,
+  teamCreate, companyCreate, coachCreate, gymCreate, brandCreate, sponsorCreate, sponsorshipCreate,
   partnershipCreate, partnershipStatus,
   profileCreate, profileUpdateSocial, postCreate, commentCreate, shareCreate, storyCaption, feedQuery,
   reportCreate, reportResolve,

@@ -73,6 +73,32 @@ Toda transição é declarada em `src/utils/eventStates.js`. O que não está
 declarado é recusado com o motivo. Depois de publicado, o resultado não
 retrocede por transição de estado: correção é nova versão auditada.
 
+### Empresa, equipe e vínculo único do atleta
+
+Empresas se cadastram e **entram na competição com as suas equipes** — ficam
+acima da equipe, e é pela equipe que os pontos dos atletas chegam até elas:
+
+```
+EMPRESA (Company) → EQUIPE (Team) → ATLETA (Athlete)
+```
+
+Isso é distinto de **patrocínio**: `Sponsor` e `Brand` são relação comercial,
+não competitiva — não vinculam atleta nem geram ponto.
+
+**Um atleta tem no máximo um vínculo ativo de equipe.** A trava é de banco, não
+de tela: `AthleteTeamMembership.activeAthleteId` é único enquanto o vínculo
+estiver ativo, e fica NULL depois de encerrado — a história acumula sem
+enfraquecer a trava. Uma segunda tentativa recebe `409 ATHLETE_ALREADY_LINKED`
+com a equipe atual nomeada na mensagem; duas requisições simultâneas produzem
+exatamente um vínculo, porque a segunda gravação é impossível, não porque a
+aplicação chegou antes.
+
+Vincular um atleta livre (`athletes.update`) e transferi-lo de outra equipe
+(`athletes.transfer`) são atos com permissões distintas: **o treinador não
+transfere sozinho** — a transferência exige o operador da Muscle Contest, gera
+auditoria e preserva o vínculo anterior no histórico
+(`GET /athletes/:id/team-history`).
+
 ### Atleta e CPF
 
 O CPF é a identidade central do atleta: normalizado para 11 dígitos, validado
@@ -343,7 +369,9 @@ Prefixo `/api/v1`. Sondas de infraestrutura ficam fora dele: `GET /health`
 | Operação | `POST /registrations/:id/checkin`, `POST /registrations/:id/weighins`, `POST /events/:id/credentials/scan`, `PUT /batches/:id/order` |
 | Julgamento | `POST /judging-sessions`, `GET /judging-sessions/:id/sheet`, `POST /judging-sessions/:id/scores`, `POST /judging-sessions/:id/close` |
 | Resultados | `POST /classes/:id/result/calculate`, `.../publish`, `.../override`, `GET .../versions` |
-| Ranking | `GET /ranking`, `GET|POST /seasons`, `PUT /seasons/:id/points-rules` |
+| Ranking | `GET /ranking`, `GET /ranking/teams`, `GET /ranking/companies`, `GET /ranking/super-overall`, `GET|POST /seasons`, `PUT /seasons/:id/points-rules` |
+| Classes e Overall | `GET|POST /classes-catalog`, `GET|POST /events/:id/overall` |
+| Empresas e vínculo | `GET|POST /companies`, `POST /athletes/:id/team`, `.../team/transfer`, `.../team/unlink`, `GET /athletes/:id/team-history` |
 | MuscleWar | `GET|POST /musclewar/imports`, `POST /musclewar/items/:id/link`, `POST /musclewar/imports/:id/apply` |
 | Social | `GET /social/feed`, `POST /social/posts`, `POST /social/posts/:id/like`, `GET /social/profiles/:handle` |
 | Messenger | `GET|POST /messenger/conversations`, `GET|POST /messenger/conversations/:id/messages` |
@@ -392,6 +420,7 @@ As validações estáticas que a CI executa, e que reprovam o job, são
 | `homologacao-tabulacao` | efeito de cada opção de apuração no pódio — documentação executável para o comitê técnico |
 | `pontuacao-oficial` | tabela homologada (1º=5…5º=1), bônus Overall +10 e a hierarquia de desempate, com os números abertos |
 | `ranking-oficial` | a regra oficial no caminho real: Overall, equipes, versionamento, idempotência, concorrência e permissão |
+| `vinculo-equipe` | vínculo único atleta → equipe: recusa nomeando a equipe atual, corrida entre requisições simultâneas, transferência só pelo operador, histórico e gravação direta no banco |
 
 ---
 
@@ -449,7 +478,7 @@ regulamento.
 primária continua sendo a camada de service, coberta por teste; o banco é a
 segunda barreira — e, desde a fase 10.2, uma barreira efetiva. Todo handler
 autenticado passa por `withUserContext` (`src/config/rlsSession.js`), que
-define o ator com `SET LOCAL` dentro da transação da requisição; as 19 tabelas
+define o ator com `SET LOCAL` dentro da transação da requisição; as 21 tabelas
 protegidas têm `FORCE ROW LEVEL SECURITY`, de modo que nem o dono do schema é
 isento. O ator vem sempre do token, nunca do corpo da requisição.
 

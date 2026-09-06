@@ -167,6 +167,10 @@ router.route('/classes-catalog')
 // Ranking de equipes: mesma tabela de pontos e mesmo desempate do atleta.
 router.get('/ranking/teams', optionalAuth, validate(s.teamRankingQuery, 'query'), wrap(c.ranking.teams));
 
+// Ranking de empresas: os pontos das equipes que ela inscreveu, pela mesma
+// tabela e o mesmo desempate.
+router.get('/ranking/companies', optionalAuth, validate(s.teamRankingQuery, 'query'), wrap(c.ranking.companies));
+
 // Título Overall. É declarado pela organização, não calculado: o critério de
 // determinação do campeão não foi homologado (ver docs/HOMOLOGACAO-ESPORTIVA.md).
 router.route('/events/:id/overall')
@@ -185,6 +189,20 @@ router.post('/musclewar/imports/:id/apply', requireAuth, validate(s.paramsWithId
 router.post('/musclewar/imports/:id/reject', requireAuth, validate(s.paramsWithId, 'params'), validate(s.rejectImport), wrap(c.muscleWar.reject));
 
 // ================================== EQUIPES, ACADEMIAS, COACHES, MARCAS, PATROCÍNIO
+// Empresas competidoras: cadastram-se e entram com suas equipes.
+// Vínculo do atleta com equipe. A trava de unicidade é do banco; aqui a
+// diferença é de permissão: `athletes.update` vincula um atleta SEM equipe,
+// `athletes.transfer` é o que tira o atleta de outra — ato do operador da
+// Muscle Contest, não do treinador.
+router.post('/athletes/:id/team', requireAuth, validate(s.paramsWithId, 'params'), validate(s.athleteTeamLink), wrap(c.athletes.linkTeam));
+router.post('/athletes/:id/team/transfer', requireAuth, validate(s.paramsWithId, 'params'), validate(s.athleteTeamTransfer), wrap(c.athletes.transferTeam));
+router.post('/athletes/:id/team/unlink', requireAuth, validate(s.paramsWithId, 'params'), validate(s.athleteTeamUnlink), wrap(c.athletes.unlinkTeam));
+router.get('/athletes/:id/team-history', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.athletes.teamHistory));
+
+router.route('/companies')
+  .get(requireAuth, validate(s.scopedListQuery, 'query'), wrap(c.partners.listCompanies))
+  .post(requireAuth, perm('companies.manage', orgDoCorpo), validate(s.companyCreate), wrap(c.partners.createCompany));
+
 router.route('/teams')
   .get(requireAuth, validate(s.scopedListQuery, 'query'), wrap(c.partners.listTeams))
   .post(requireAuth, perm('teams.manage', orgDoCorpo), validate(s.teamCreate), wrap(c.partners.createTeam));

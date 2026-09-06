@@ -19,21 +19,29 @@ const criarComEscopo = modelo => async (data, actor) => {
   }
 };
 
+// O agregado contado difere por modelo — equipe conta atletas, empresa conta
+// equipes — e pedir uma relação que o modelo não tem derruba a consulta. Fica
+// explícito por isso.
 const listarComEscopo = modelo => async (filtros, actor) => {
   const escopo = actor ? organizationFilter(actor, filtros.organizationId) : {};
   return prisma[modelo.model].findMany({
     where: { ...escopo, ...(filtros.search ? { name: { contains: filtros.search, mode: 'insensitive' } } : {}) },
-    include: { _count: { select: { athletes: true } } },
+    ...(modelo.count ? { include: { _count: { select: modelo.count } } } : {}),
     orderBy: { name: 'asc' },
     take: filtros.limit || 50
   });
 };
 
 const createTeam = criarComEscopo({ model: 'team', permission: 'teams.manage', conflictCode: 'TEAM_EXISTS', conflictMessage: 'Já existe equipe com este nome' });
-const listTeams = listarComEscopo({ model: 'team' });
+const listTeams = listarComEscopo({ model: 'team', count: { athletes: true } });
+
+// A empresa entra com suas equipes: ela fica acima delas, e os pontos sobem por
+// essa cadeia (atleta → equipe → empresa).
+const createCompany = criarComEscopo({ model: 'company', permission: 'companies.manage', conflictCode: 'COMPANY_EXISTS', conflictMessage: 'Já existe empresa com este nome' });
+const listCompanies = listarComEscopo({ model: 'company', count: { teams: true } });
 
 const createGym = criarComEscopo({ model: 'gym', permission: 'gyms.manage', conflictCode: 'GYM_EXISTS', conflictMessage: 'Já existe academia com este nome' });
-const listGyms = listarComEscopo({ model: 'gym' });
+const listGyms = listarComEscopo({ model: 'gym', count: { athletes: true } });
 
 // Coach não pertence a uma organização: um técnico atende atletas de várias.
 async function createCoach(data, actor) {
@@ -216,7 +224,7 @@ async function listPartnerships(filtros) {
 }
 
 module.exports = {
-  createTeam, listTeams, createGym, listGyms, createCoach, listCoaches,
+  createTeam, listTeams, createCompany, listCompanies, createGym, listGyms, createCoach, listCoaches,
   createBrand, listBrands, createSponsor, listSponsors,
   createSponsorship, listSponsorships,
   createPartnership, setPartnershipStatus, listPartnerships

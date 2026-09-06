@@ -83,6 +83,38 @@ distinção é outra:
 > A elegibilidade é **gravada em cada lançamento**, para que mudar a
 > configuração de uma classe não reescreva a história de um campeonato encerrado.
 
+## Vínculo único atleta → equipe/empresa *(fase 11.2)*
+
+**Um atleta tem, no máximo, um vínculo ativo de equipe.** Não é validação de
+tela: é trava de integridade cadastral, aplicada em Frontend → API → Service →
+**Banco de dados**.
+
+Uma segunda tentativa de vínculo é **recusada pelo backend** com `409
+ATHLETE_ALREADY_LINKED`, e a mensagem **nomeia a equipe atual** (e a empresa,
+quando houver), em vez de um erro genérico:
+
+> *Não é possível vincular este atleta. Ele está atualmente vinculado a
+> {equipe} ({empresa}). Para mudar de equipe, solicite a alteração ao operador
+> da Muscle Contest.*
+
+**A trava final é do banco.** `AthleteTeamMembership.activeAthleteId` é único e
+só recebe valor enquanto o vínculo está ativo (NULL depois de encerrado, e NULLs
+não colidem em PostgreSQL). Duas requisições simultâneas não produzem dois
+vínculos: uma cria, a outra recebe 409 — não por ordem de chegada na aplicação,
+mas porque a segunda gravação é impossível. O caso concorrente está em
+`tests/vinculo-equipe.test.mjs`.
+
+**O treinador não transfere sozinho.** Vincular um atleta livre
+(`athletes.update`) e tirá-lo de outra equipe (`athletes.transfer`) são atos
+distintos, com permissões distintas: a transferência exige o operador da Muscle
+Contest. `teamId` foi removido do payload de edição do atleta, para que a troca
+não aconteça por uma via lateral.
+
+**A história é preservada.** Encerrar um vínculo não apaga a linha: ela guarda
+início, fim, quem autorizou e o motivo (`GET /athletes/:id/team-history`), e
+toda transferência gera auditoria (`ATHLETE_TEAM_LINK`, `ATHLETE_TEAM_TRANSFER`,
+`ATHLETE_TEAM_UNLINK`).
+
 ## Desempate — hierarquia oficial
 
 Aplicada nesta ordem exata; o primeiro critério que separar encerra a questão:
@@ -183,18 +215,34 @@ empate, **nenhum critério adicional é inventado**: os empatados ficam como
 
 ## P4. Qual entidade representa "empresa" como competidora
 
-O organizador estabeleceu que a mesma tabela de pontos se aplica a **atletas,
-equipes e empresas**. Atletas e equipes estão implementados — `Team` já existia
-e o atleta já se vincula a ela.
+✅ **RESOLVIDO na fase 11.2 — por definição do organizador.** A empresa é uma
+entidade própria, `Company`, e **não** uma reinterpretação de `Brand`,
+`Sponsor`, `Gym` ou `Coach`. A empresa **se cadastra e entra na competição com
+as suas equipes**: fica *acima* da equipe, e é pela equipe que os pontos dos
+atletas chegam até ela.
 
-**Para empresas falta a definição de qual entidade é essa.** O sistema tem
-`Brand` (marca), `Sponsor` (patrocinador), `Gym` (academia) e `Coach`, e o
-atleta se vincula a academia e a treinador — mas nenhuma delas é declaradamente
-"a empresa que o atleta representa em competição". Escolher uma seria presumir.
+```
+EMPRESA (Company)
+   └── EQUIPE (Team)
+          └── ATLETA (Athlete)
+```
 
-**Falta também o campo no arquivo de importação**: o adapter passou a reconhecer
-`overall` e `equipe`, mas não há coluna de empresa porque não há entidade de
-destino.
+A mesma tabela de pontos e o mesmo desempate valem para os três níveis, sem
+peso, multiplicador ou bônus próprio (`GET /rankings/companies`).
+
+**Patrocínio não é isso.** `Sponsor` e `Brand` continuam sendo relação
+**comercial** e não competitiva: patrocinar uma equipe não vincula atleta nem
+gera ponto. Os três eixos são deliberadamente separados no modelo:
+
+| Eixo | Entidade | Gera pontuação | Vincula atleta |
+|---|---|---|---|
+| Equipe esportiva | `Team` | ✅ | ✅ (vínculo único) |
+| Empresa/organização | `Company` | ✅ (via suas equipes) | ➖ (pela equipe) |
+| Patrocínio/parceria comercial | `Sponsor` / `Brand` | ❌ | ❌ |
+
+**Campo de importação:** o adapter reconhece `company` / `empresa` /
+`company_name` / `nome_empresa`. Quando a linha traz apenas a equipe, a empresa
+é resolvida pela equipe — a coluna só é necessária para desambiguar.
 
 ## P5. Pontuação do 6º lugar em diante
 

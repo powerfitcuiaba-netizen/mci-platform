@@ -649,3 +649,150 @@ describe('11.2) importação: a colocação é a fonte dos pontos', () => {
     expect(ponto.points, 'a colocação é a fonte, não o número digitado').toBe(5);
   });
 });
+
+describe('11.2) empresas: entram com suas equipes, mesma regra', () => {
+  it('a empresa pontua pelo que suas equipes fazem — atleta → equipe → empresa', async () => {
+    const empresa = await api().post('/api/v1/companies').set(diretor.auth())
+      .send({ organizationId: orgId, name: unico('Suplementos Alfa'), city: 'Cuiabá', state: 'MT' });
+    expect(empresa.status, JSON.stringify(empresa.body)).toBe(201);
+
+    // Duas equipes DA MESMA empresa: os pontos das duas sobem para ela.
+    const equipeA = await api().post('/api/v1/teams').set(diretor.auth())
+      .send({ organizationId: orgId, name: unico('Alfa Team A'), companyId: empresa.body.id });
+    const equipeB = await api().post('/api/v1/teams').set(diretor.auth())
+      .send({ organizationId: orgId, name: unico('Alfa Team B'), companyId: empresa.body.id });
+    expect(equipeA.body.companyId).toBe(empresa.body.id);
+
+    // Equipe sem empresa: compete, pontua para si, e não pontua para nenhuma.
+    const avulsa = await api().post('/api/v1/teams').set(diretor.auth())
+      .send({ organizationId: orgId, name: unico('Equipe Avulsa') });
+
+    // 1º + Overall (15) e 3º (3) da empresa; 2º (4) da avulsa → empresa = 18
+    await eventoPontuado({
+      colocacoes: ['DA_EQUIPE_A', 'DA_AVULSA', 'DA_EQUIPE_B'],
+      teams: { DA_EQUIPE_A: equipeA.body.id, DA_EQUIPE_B: equipeB.body.id, DA_AVULSA: avulsa.body.id },
+      overall: 'DA_EQUIPE_A',
+      classe: 'OPEN'
+    });
+
+    const classificacao = await api().get('/api/v1/ranking/companies').query({ seasonId });
+    expect(classificacao.status).toBe(200);
+
+    const linha = classificacao.body.find(item => item.company.name === empresa.body.name);
+    expect(linha.totalPoints, '(5+10) da equipe A + 3 da equipe B').toBe(18);
+    expect(linha.teamCount, 'as duas equipes da empresa').toBe(2);
+    expect(linha.athleteCount).toBe(2);
+    expect(linha.overallWins).toBe(1);
+    expect(linha.position).toBe(1);
+
+    // A equipe avulsa não criou empresa nenhuma no ranking.
+    expect(classificacao.body).toHaveLength(1);
+  });
+
+  it('a pontuação da empresa é rastreável até o resultado de cada atleta', async () => {
+    const empresa = await api().post('/api/v1/companies').set(diretor.auth())
+      .send({ organizationId: orgId, name: unico('Rastreada') });
+    const equipe = await api().post('/api/v1/teams').set(diretor.auth())
+      .send({ organizationId: orgId, name: unico('Equipe Rastreada'), companyId: empresa.body.id });
+
+    await eventoPontuado({
+      colocacoes: ['MEMBRO_1', 'MEMBRO_2', 'DE_FORA'],
+      teams: { MEMBRO_1: equipe.body.id, MEMBRO_2: equipe.body.id },
+      classe: 'OPEN'
+    });
+
+    const pontos = await comoAtor(diretor, tx => tx.rankingPoint.findMany({
+      where: { seasonId, companyId: empresa.body.id },
+      select: { athleteId: true, teamId: true, points: true, resultId: true, eventId: true, classId: true }
+    }));
+
+    expect(pontos).toHaveLength(2);
+    expect(pontos.reduce((total, p) => total + p.points, 0), '5 + 4').toBe(9);
+    expect(pontos.every(p => p.resultId && p.eventId && p.classId && p.teamId)).toBe(true);
+
+    const classificacao = await api().get('/api/v1/ranking/companies').query({ seasonId });
+    const linha = classificacao.body.find(item => item.company.name === empresa.body.name);
+    expect(linha.totalPoints, 'o total bate com a soma dos lançamentos').toBe(9);
+  });
+
+  it('empresa usa a mesma tabela e o mesmo desempate — sem fórmula própria', async () => {
+    const comOverall = await api().post('/api/v1/companies').set(diretor.auth())
+      .send({ organizationId: orgId, name: unico('Com Overall') });
+    const semOverall = await api().post('/api/v1/companies').set(diretor.auth())
+      .send({ organizationId: orgId, name: unico('Sem Overall') });
+
+    const equipeCom = await api().post('/api/v1/teams').set(diretor.auth())
+      .send({ organizationId: orgId, name: unico('Time Com'), companyId: comOverall.body.id });
+    const equipeSem = await api().post('/api/v1/teams').set(diretor.auth())
+      .send({ organizationId: orgId, name: unico('Time Sem'), companyId: semOverall.body.id });
+
+    // COM: 1º + Overall = 15. SEM: três primeiros lugares = 15. Empate em
+    // pontos, resolvido pelo Overall — o mesmo critério do atleta.
+    await eventoPontuado({
+      colocacoes: ['COM_A', 'NEUTRA_1', 'NEUTRA_2', 'NEUTRA_3', 'SEM_ZERO'],
+      teams: { COM_A: equipeCom.body.id },
+      overall: 'COM_A', classe: 'OPEN'
+    });
+    for (const rodada of [1, 2, 3]) {
+      await eventoPontuado({
+        colocacoes: ['SEM_B', `EXTRA_${rodada}`],
+        teams: { SEM_B: equipeSem.body.id },
+        classe: 'OPEN'
+      });
+    }
+
+    const classificacao = await api().get('/api/v1/ranking/companies').query({ seasonId });
+    const com = classificacao.body.find(l => l.company.name === comOverall.body.name);
+    const sem = classificacao.body.find(l => l.company.name === semOverall.body.name);
+
+    expect(com.totalPoints, '5 + 10 do Overall').toBe(15);
+    expect(sem.totalPoints, 'três primeiros lugares').toBe(15);
+    expect(com.overallWins).toBe(1);
+    expect(sem.firstPlaceCount).toBe(3);
+
+    expect(com.position, 'o Overall decide antes do número de primeiros lugares').toBe(1);
+    expect(sem.position).toBe(2);
+  });
+
+  it('a importação reconhece a coluna empresa e a resolve pelo cadastro', async () => {
+    const gerente = await criarUsuario({ name: 'Gerente' });
+    await vincular(orgId, gerente, 'RANKING_MANAGER');
+
+    const empresa = await api().post('/api/v1/companies').set(diretor.auth())
+      .send({ organizationId: orgId, name: 'Nutrifit' });
+
+    const cpf = gerarCpf(666000111);
+    await api().post('/api/v1/athletes').set(diretor.auth())
+      .send({ organizationId: orgId, fullName: 'IMPORTADA DA EMPRESA', cpf, sex: 'FEMALE' });
+
+    const conteudo = [
+      'external_result_id,cpf,atleta,categoria,classe,colocacao,empresa,etapa',
+      `MW-EMP-1,${cpf},IMPORTADA DA EMPRESA,BIKINI,OPEN,1,Nutrifit,Etapa`
+    ].join('\n');
+
+    const lote = await api().post('/api/v1/musclewar/imports').set(gerente.auth())
+      .send({ organizationId: orgId, seasonId, sourceType: 'CSV', sourceRef: unico('emp') + '.csv', content: conteudo });
+    expect(lote.status, JSON.stringify(lote.body)).toBe(201);
+    expect(lote.body.items[0].companyName, 'a coluna empresa precisa ser lida').toBe('Nutrifit');
+
+    await api().post(`/api/v1/musclewar/imports/${lote.body.import.id}/apply`).set(gerente.auth()).send({});
+
+    const [ponto] = await pontosDe('IMPORTADA DA EMPRESA');
+    expect(ponto.companyId).toBe(empresa.body.id);
+    expect(ponto.points).toBe(5);
+
+    const classificacao = await api().get('/api/v1/ranking/companies').query({ seasonId });
+    expect(classificacao.body.find(l => l.company.name === 'Nutrifit').totalPoints).toBe(5);
+  });
+
+  it('empresa de outra organização não é criada nem lida por quem não pertence a ela', async () => {
+    const outroDiretor = await criarUsuario({ name: 'Diretor B' });
+    const outraOrg = await criarOrganizacao(admin, { name: unico('Federação B') });
+    await vincular(outraOrg.id, outroDiretor, 'EVENT_DIRECTOR');
+
+    const tentativa = await api().post('/api/v1/companies').set(outroDiretor.auth())
+      .send({ organizationId: orgId, name: unico('Invasora') });
+
+    expect([403, 404]).toContain(tentativa.status);
+  });
+});
