@@ -526,6 +526,11 @@ describe('11.2) classes: todas pontuam, só a elegível alimenta o Super Overall
   it('o operador torna uma classe elegível sem alteração de código', async () => {
     // A prova de que a elegibilidade é DADO: marcar MASTER como elegível passa
     // a incluí-la, sem que nada no motor mude.
+    //
+    // Isto NÃO altera a configuração homologada — nela só a OPEN é elegível
+    // (ver tests/regulamento-11-4.test.mjs). O que se exercita aqui é o
+    // mecanismo que a regra exige: o operador governa a lista de classes sem
+    // alteração de programa.
     const marcada = await api().post('/api/v1/classes-catalog').set(diretor.auth())
       .send({ organizationId: orgId, code: 'MASTER', superOverallEligible: true });
     expect(marcada.status, JSON.stringify(marcada.body)).toBe(201);
@@ -1100,5 +1105,96 @@ describe('11.3) pontuação não se altera sem permissão', () => {
       expect(linha.athlete).not.toHaveProperty('cpfMasked');
       expect(linha.athlete).not.toHaveProperty('birthDate');
     }
+  });
+});
+
+// ============================================================================
+// FASE 11.4 — a MESMA regra para equipes e empresas, na plataforma real.
+//
+// A regra do organizador é literal: "a mesma regra vale para as equipes e para
+// as empresas". Estes casos provam que o acumulado por equipe e por empresa é
+// somável pela métrica elegível SEM tabela nova — cada lançamento já carrega
+// superOverallPoints ao lado de teamId e companyId — e que ele recebe só a
+// OPEN, por construção.
+// ============================================================================
+describe('11.4) equipes e empresas seguem a mesma regra', () => {
+  it('a equipe soma pela mesma tabela e o acumulado elegível recebe só a OPEN', async () => {
+    const empresa = await api().post('/api/v1/companies').set(diretor.auth())
+      .send({ organizationId: orgId, name: unico('Nutri Alfa') });
+    const equipe = (await api().post('/api/v1/teams').set(diretor.auth())
+      .send({ organizationId: orgId, name: unico('Equipe Alfa'), companyId: empresa.body.id })).body;
+
+    // A MESMA equipe pontua em duas classes: uma elegível, outra não.
+    await eventoPontuado({
+      colocacoes: ['ALFA OPEN', 'OUTRA OPEN'],
+      classe: 'OPEN',
+      teams: { 'ALFA OPEN': equipe.id }
+    });
+    await eventoPontuado({
+      colocacoes: ['ALFA NOVICE', 'OUTRA NOVICE'],
+      classe: 'NOVICE',
+      teams: { 'ALFA NOVICE': equipe.id }
+    });
+
+    const pontos = await comoAtor(diretor, tx => tx.rankingPoint.findMany({ where: { seasonId, teamId: equipe.id } }));
+    expect(pontos).toHaveLength(2);
+
+    const campeonato = pontos.reduce((soma, p) => soma + p.points, 0);
+    const elegivel = pontos.reduce((soma, p) => soma + p.superOverallPoints, 0);
+
+    expect(campeonato, 'as duas classes pontuam para a equipe').toBe(10);
+    expect(elegivel, 'só a OPEN alimenta o acumulado do Super Overall').toBe(5);
+
+    // E a empresa acompanha a equipe, pela mesma cadeia.
+    const daEmpresa = await comoAtor(diretor, tx => tx.rankingPoint.findMany({ where: { seasonId, companyId: empresa.body.id } }));
+    expect(daEmpresa.reduce((soma, p) => soma + p.points, 0)).toBe(10);
+    expect(daEmpresa.reduce((soma, p) => soma + p.superOverallPoints, 0)).toBe(5);
+
+    // O ranking de equipes usa a métrica do CAMPEONATO — as duas classes.
+    const rankingEquipes = await api().get('/api/v1/ranking/teams').query({ seasonId });
+    expect(rankingEquipes.body.find(l => l.team.id === equipe.id).totalPoints).toBe(10);
+  });
+
+  it('o desempate de equipes é o mesmo: Overall antes de mais primeiros', async () => {
+    const alfa = (await api().post('/api/v1/teams').set(diretor.auth())
+      .send({ organizationId: orgId, name: unico('Desempate Alfa') })).body;
+    const beta = (await api().post('/api/v1/teams').set(diretor.auth())
+      .send({ organizationId: orgId, name: unico('Desempate Beta') })).body;
+
+    // Alfa: um 1º COM Overall = 15. Beta: três 1º sem Overall = 15.
+    // Cada equipe pontua no seu próprio evento, para que o total de Beta venha
+    // só de primeiros lugares — é isso que põe o desempate à prova.
+    await eventoPontuado({
+      colocacoes: ['ALFA UM', 'ALFA SEGUNDA'],
+      classe: 'OPEN',
+      overall: 'ALFA UM',
+      teams: { 'ALFA UM': alfa.id }
+    });
+    for (const nome of ['BETA UM', 'BETA DOIS', 'BETA TRES']) {
+      await eventoPontuado({
+        colocacoes: [nome, `${nome} SEGUNDA`],
+        classe: 'OPEN',
+        teams: { [nome]: beta.id }
+      });
+    }
+
+    const classificacao = await api().get('/api/v1/ranking/teams').query({ seasonId });
+    const linhaAlfa = classificacao.body.find(l => l.team.id === alfa.id);
+    const linhaBeta = classificacao.body.find(l => l.team.id === beta.id);
+
+    expect(linhaAlfa.totalPoints, 'empatadas em pontos').toBe(linhaBeta.totalPoints);
+    expect(linhaAlfa.position, 'o Overall decide também para equipes').toBe(1);
+    expect(linhaBeta.position).toBe(2);
+  });
+
+  it('patrocinador não pontua nem entra no ranking de equipes', async () => {
+    const patrocinador = await api().post('/api/v1/sponsors').set(diretor.auth())
+      .send({ organizationId: orgId, name: unico('Patrocinadora') });
+    expect(patrocinador.status).toBe(201);
+
+    await eventoPontuado({ colocacoes: ['SEM PATROCINIO', 'OUTRA'], classe: 'OPEN' });
+
+    const classificacao = await api().get('/api/v1/ranking/teams').query({ seasonId });
+    expect(JSON.stringify(classificacao.body)).not.toContain(patrocinador.body.name);
   });
 });

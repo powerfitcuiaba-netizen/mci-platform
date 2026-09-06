@@ -1,9 +1,14 @@
 # Homologação esportiva — o que o comitê técnico precisa ratificar
 
-**Situação: PARCIALMENTE HOMOLOGADO.** A regra de pontuação, o bônus Overall e
-a hierarquia de desempate foram definidos pelo organizador na fase 11.1 e estão
-implementados. As decisões de *apuração* (método, descarte, desempate dentro da
-classe) e a determinação do campeão Overall seguem pendentes.
+**Situação: REGRAS DE RANKING HOMOLOGADAS.** A tabela de pontos (5/4/3/2/1, e
+0 do 6º em diante), o bônus Overall (+10), a elegibilidade ao Super Overall
+(só a OPEN) e a hierarquia de desempate (Overall → 1º → 2º → 3º →
+`TIE_UNRESOLVED`) estão **definidas e implementadas**, e valem igualmente para
+atletas, equipes e empresas.
+
+Segue pendente apenas o que é decisão de **apuração dentro da classe** (método,
+descarte, painel mínimo) — Parte III —, que não se confunde com o desempate de
+**ranking**, já homologado.
 
 Este documento separa, sem ambiguidade, o que é **REGRA HOMOLOGADA** do que é
 **PENDING HOMOLOGATION**. Nada pendente é apresentado como oficial.
@@ -207,9 +212,10 @@ critérios *é* a regra.
 
 ---
 
-# PARTE II — PENDING HOMOLOGATION
+# PARTE II — PONTOS SUBMETIDOS À HOMOLOGAÇÃO
 
-Não implementado por ausência de regra, e **não presumido**.
+Cada item traz o seu estado. Os resolvidos foram **definidos pelo organizador** e
+estão implementados; o que segue pendente não foi presumido.
 
 ## P1. Como se determina o campeão Overall
 
@@ -223,8 +229,10 @@ sozinho** até existir regra específica de apuração.
 sempre com autor e data em auditoria. A pontuação (+10) é regra homologada; a
 determinação continua sendo fato declarado.
 
-**Ainda pendente:** se e quando houver uma regra de *apuração* do Overall, ela
-entra neste mesmo ponto sem alterar o resto do motor.
+✅ **RATIFICADO na fase 11.4.** Não é lacuna à espera de regra: *é* a regra. O
+sistema **não deve inventar algoritmo** para descobrir o campeão Overall. Se um
+dia houver regra de apuração, ela entra neste mesmo ponto sem alterar o resto
+do motor.
 
 ## P2. Quais resultados de atleta são "elegíveis" para a equipe
 
@@ -234,9 +242,14 @@ seria presunção.
 
 ## P3. Desempate além do 3º lugar
 
-A hierarquia oficial vai até o número de terceiros lugares. Persistindo o
-empate, **nenhum critério adicional é inventado**: os empatados ficam como
-`TIE_UNRESOLVED` até que uma regra oficial seja definida.
+✅ **RESOLVIDO na fase 11.4 — a hierarquia é DEFINITIVA.** Overall → 1º → 2º →
+3º e, persistindo o empate, `TIE_UNRESOLVED`. Não há critério adicional a
+definir: **4º e 5º não desempatam**, e o empate que sobrevive à hierarquia não
+é quebrado por id, nome, CPF, data, timestamp, ordem de inscrição, alfabética
+ou sorteio.
+
+Pontuação e desempate são conceitos diferentes: o 4º vale 2 pontos e não
+desempata; o 5º vale 1 e não desempata.
 
 ## P4. Qual entidade representa "empresa" como competidora
 
@@ -271,8 +284,10 @@ gera ponto. Os três eixos são deliberadamente separados no modelo:
 
 ## P5. Pontuação do 6º lugar em diante
 
-A tabela homologada vai até o 5º. Colocações a partir do 6º recebem **zero**, e
-não um valor extrapolado.
+✅ **RESOLVIDO na fase 11.4 — zero é o valor DEFINIDO.** A tabela homologada é
+5/4/3/2/1 e, do 6º em diante, **0 pontos**. Não é lacuna à espera de tabela
+estendida: extrapolar a progressão seria inventar regulamento tanto quanto
+deixar o valor em aberto.
 
 ## P6. Decisões de apuração dentro da classe
 
@@ -450,7 +465,7 @@ Men's Bodybuilding · Men's Physique · Classic Physique · 212 Bodybuilding ·
 Women's Bodybuilding · Women's Physique · Wellness · Bikini · Fitness ·
 Figure · Fitmodel
 
-Classes de referência: `JUNIOR`, `NOVICE`, `OPEN`, `MASTER`.
+Classes homologadas: `ESTREANTE`, `NOVICE`, `OPEN`, `MASTER`.
 
 **A ratificar:** os recortes por idade e peso de cada classe, e quais
 categorias admitem quais classes. Hoje a estrutura é extensível — cada evento

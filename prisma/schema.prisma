@@ -1244,11 +1244,11 @@ model RankingPoint {
 /// colocação (não os substituem), e o número de títulos Overall é o primeiro
 /// critério de desempate do ranking.
 ///
-/// PENDING HOMOLOGATION: COMO o campeão Overall é determinado — entre quais
-/// classes ele é disputado, se há um Overall por categoria ou um por evento, e
-/// se resulta de apuração ou de decisão do painel — não foi definido. Por isso
-/// o título é REGISTRADO pela organização, e não calculado: aplicar o bônus a
-/// partir de um critério que ninguém homologou seria inventar regulamento.
+/// REGRA HOMOLOGADA (fase 11.4): QUEM é o campeão Overall é FATO DECLARADO pela
+/// organização, informado pelo operador ou trazido na importação. O sistema NÃO
+/// deve inventar algoritmo para descobri-lo. Por isso o título é REGISTRADO
+/// aqui, com autoria e data, e nunca calculado — a determinação é do
+/// regulamento esportivo, a pontuação (+10) é do sistema.
 model EventOverallTitle {
   id          String   @id @default(cuid())
   eventId     String

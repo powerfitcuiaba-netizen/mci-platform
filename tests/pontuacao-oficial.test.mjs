@@ -35,9 +35,10 @@ describe('A) tabela de pontos por colocação', () => {
     }
   });
 
-  it('do 6º em diante não há pontuação homologada: zero, e não um valor presumido', () => {
-    // PENDING HOMOLOGATION — a tabela oficial pode estender a faixa; enquanto
-    // não estender, atribuir qualquer valor seria inventar regulamento.
+  it('do 6º em diante a pontuação homologada é ZERO', () => {
+    // REGRA HOMOLOGADA (fase 11.4): zero é o valor DEFINIDO para o 6º em
+    // diante, não uma lacuna à espera de tabela. Extrapolar a progressão
+    // (0,5? 0?) seria inventar regulamento nos dois sentidos.
     expect(pontuarResultado(6, TABELA).points).toBe(0);
     expect(pontuarResultado(10, TABELA).points).toBe(0);
     expect(pontuarResultado(null, TABELA).points).toBe(0);

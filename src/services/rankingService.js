@@ -288,6 +288,10 @@ async function recompute_(seasonId) {
  * originou. Guardar um agregado próprio criaria uma segunda verdade para
  * manter sincronizada sem necessidade.
  *
+ * REGRA HOMOLOGADA (fase 11.4): a equipe usa a MESMA tabela de pontos, o MESMO
+ * bônus de Overall e o MESMO desempate do atleta. Sem fórmula, peso ou
+ * multiplicador próprio.
+ *
  * PENDING HOMOLOGATION: quais resultados de atleta são "elegíveis" para a
  * equipe. Sem regra de descarte, de teto de atletas pontuando ou de mínimo por
  * equipe, TODOS os resultados pontuados contam — presumir qualquer corte seria
@@ -342,9 +346,10 @@ async function teamRanking(seasonId, { categoryId = null } = {}) {
  * REGRA HOMOLOGADA: o título vale +10 pontos, somados aos da colocação, e conta
  * como primeiro critério de desempate.
  *
- * PENDING HOMOLOGATION: o critério de determinação do campeão. Por isso aqui o
- * título é DECLARADO por quem opera o evento, com autoria e data registradas —
- * calculá-lo exigiria uma regra que ninguém definiu.
+ * REGRA HOMOLOGADA (fase 11.4): QUEM é o campeão Overall é FATO DECLARADO pela
+ * organização — informado aqui ou trazido na importação —, e o sistema não deve
+ * tentar descobri-lo sozinho. Não é lacuna de implementação: é a regra. Por
+ * isso o título é registrado com autoria e data, nunca calculado.
  */
 async function declareOverall(eventId, { athleteId, categoryId = null, note = null }, actor) {
   const event = await prisma.event.findUnique({

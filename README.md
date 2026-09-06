@@ -58,8 +58,10 @@ O catálogo é **dado**, não código — novas categorias entram por linha em
 | | Figure |
 | | Fitmodel |
 
-Classes iniciais: `JUNIOR`, `NOVICE`, `OPEN`, `MASTER`. A estrutura aceita
-outras sem mudança de código.
+Classes homologadas: `ESTREANTE`, `NOVICE`, `OPEN`, `MASTER`. Todas pontuam no
+campeonato; **só a OPEN** alimenta o Super Overall anual. O operador cria,
+edita, ordena, ativa e desativa classes pelo catálogo da organização, sem
+mudança de código.
 
 ### Estados do evento
 

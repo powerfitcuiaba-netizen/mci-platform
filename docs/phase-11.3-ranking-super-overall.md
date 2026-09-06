@@ -1,7 +1,10 @@
 # Fase 11.3 — Pontuação, Super Overall e desempate
 
 Documento técnico da regra implementada. O que está aqui é **REGRA HOMOLOGADA**;
-o que não está é **PENDING DEFINITION** e não foi presumido.
+o que não está e segue sem definição está no fim, e não foi presumido.
+
+> Revisto na fase 11.4: as regras de ranking foram ratificadas como oficiais.
+> O regulamento consolidado está em `docs/phase-11.4-regulamento-ranking.md`.
 
 A aritmética é conferível sem subir nada, lendo
 `tests/pontuacao-11-3.test.mjs`; o comportamento na plataforma real, em
@@ -199,19 +202,28 @@ anônimo não alteram nada. CPF continua restrito e fora do ranking público.
 
 ---
 
-# PENDING DEFINITION
+# Estado das definições *(revisto na fase 11.4)*
 
-Registrado, e **não preenchido com suposição**:
+Os itens abaixo **deixaram de ser pendência** — foram definidos pelo
+organizador. Ver `docs/phase-11.4-regulamento-ranking.md`.
 
-1. **Critério esportivo do campeão Overall.** Não é calculado — é fato
-   declarado. Se e quando houver regra de apuração, ela entra neste ponto sem
-   alterar o resto do motor.
-2. **Super Overall de equipes.** Não existe no modelo atual e **não foi
-   inventado** nesta fase. As equipes pontuam pela mesma tabela; um
-   classificatório anual próprio depende de definição da organização.
-3. **Super Overall de empresas.** Idem: as empresas pontuam pela mesma tabela,
-   via suas equipes, e não há classificatório anual próprio.
-4. **Apuração dentro da classe** — método, descarte, painel mínimo e ordem dos
-   desempates internos. Ver `docs/HOMOLOGACAO-ESPORTIVA.md`, Parte III.
-5. **Desempate além do 3º lugar** e **pontuação do 6º em diante**: a cadeia para
-   no 3º e a tabela para no 5º, por decisão do organizador.
+1. ✅ **Critério do campeão Overall.** É a regra, não a lacuna: o campeão é
+   **fato declarado** pelo operador ou pela importação, e o sistema não deve
+   inventar algoritmo para descobri-lo.
+2. ✅ **Desempate além do 3º lugar.** A hierarquia é definitiva e para no 3º;
+   4º e 5º pontuam e não desempatam.
+3. ✅ **Pontuação do 6º em diante.** Zero é o valor definido.
+4. ✅ **Super Overall de equipes e empresas.** Vale a **mesma regra**: só a
+   OPEN é elegível. O modelo já suporta o acumulado sem tabela nova — cada
+   `RankingPoint` carrega `superOverallPoints` ao lado de `teamId` e
+   `companyId` —, e nenhuma tela ou competição paralela foi criada nesta fase.
+
+## Ainda PENDING DEFINITION
+
+Não preenchido com suposição:
+
+1. **Apuração dentro da classe** — método, descarte da maior/menor colocação,
+   painel mínimo e ordem dos desempates internos. Ver
+   `docs/HOMOLOGACAO-ESPORTIVA.md`, Parte III.
+2. **Quais resultados de atleta são elegíveis para a equipe** — sem regra de
+   descarte, de teto ou de mínimo, todos os resultados pontuados contam.

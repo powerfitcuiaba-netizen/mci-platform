@@ -19,10 +19,12 @@
 //   4. mais terceiros lugares
 //   5. TIE_UNRESOLVED
 //
-// A cadeia PARA no terceiro lugar. A fase 11.1 ia até o quinto; a 11.2 encurtou
-// por decisão do organizador. Os contadores de 4º e 5º continuam sendo
-// mantidos — servem à auditoria e àquelas colocações pontuarem —, mas NÃO
-// participam do desempate.
+// A cadeia PARA no terceiro lugar, e isso é DEFINITIVO (fase 11.4). A fase 11.1
+// ia até o quinto; a 11.2 encurtou por decisão do organizador. Os contadores de
+// 4º e 5º continuam mantidos — servem à auditoria, e aquelas colocações
+// pontuam —, mas NÃO participam do desempate. Pontuação e desempate são
+// conceitos diferentes: 4º vale 2 pontos e não desempata; 5º vale 1 e não
+// desempata.
 //
 // Super Overall anual:
 //   Todas as classes pontuam no campeonato. Só as marcadas como elegíveis —
@@ -30,28 +32,34 @@
 //   Super Overall. A marca é atributo da classe, e não o código "OPEN" escrito
 //   aqui: é o que permite criar e desativar classes sem tocar neste arquivo.
 //
-// Esgotada a hierarquia, o empate NÃO é quebrado. Nada de id, nome, data,
-// ordem de inserção ou alfabética: os empatados ficam sem colocação e a
-// decisão volta para quem tem competência de tomá-la. É a mesma postura do
-// motor de apuração (src/utils/tabulation.js).
+// Esgotada a hierarquia, o empate NÃO é quebrado. Nada de id, nome, CPF, data,
+// timestamp, ordem de inserção, alfabética ou sorteio: os empatados ficam sem
+// colocação e a decisão volta para quem tem competência de tomá-la. É a mesma
+// postura do motor de apuração (src/utils/tabulation.js).
+//
+// Colocações a partir do 6º valem ZERO. É regra homologada, não lacuna: a
+// tabela oficial termina no 5º, e zero é o valor definido — não um valor
+// extrapolado da progressão nem uma pendência.
+//
+// Equipes e empresas: a MESMA tabela, o MESMO bônus e o MESMO desempate. Não
+// há fórmula, peso ou multiplicador próprio, e a elegibilidade ao Super
+// Overall também é a mesma — só a OPEN.
 //
 // ------------------------------------ PENDING HOMOLOGATION -----------------
 //
-// Não implementado por ausência de regra, e não presumido:
+// O que segue sem regra, e por isso não é presumido:
 //   * COMO se determina o campeão Overall (entre quais classes, se por
-//     categoria ou por evento, se apurado ou decidido). Aqui o título é um
-//     fato registrado pela organização.
+//     categoria ou por evento, se apurado ou decidido). Não é lacuna de
+//     implementação: por decisão do organizador o título é FATO DECLARADO, e o
+//     sistema não deve tentar descobri-lo sozinho.
 //   * quais resultados de atleta são "elegíveis" para a equipe. Sem regra de
 //     descarte ou de teto, todos os resultados pontuados contam.
-//   * pontuação para colocações a partir do 6º lugar.
-//   * o critério de desempate quando o empate sobrevive ao terceiro lugar.
-//   * qual entidade do sistema representa "empresa" como competidora.
 // ============================================================================
 
 // A tabela é DADO, não constante do motor: fica em RankingPointsRule, por
-// temporada. Estes valores são o ponto de partida homologado, aplicados a uma
-// temporada nova e substituíveis quando a tabela oficial em PDF/planilha
-// chegar — sem alterar uma linha de código.
+// temporada. Estes são os valores HOMOLOGADOS, aplicados a toda temporada
+// nova, e continuam substituíveis por configuração — sem alterar uma linha de
+// código — caso o organizador reveja a tabela numa temporada futura.
 const TABELA_OFICIAL_COLOCACAO = Object.freeze([
   { placing: 1, points: 5 },
   { placing: 2, points: 4 },
