@@ -8,7 +8,7 @@ import { ESTADO_MATCH, formatarDataHora } from '../lib/format';
 // Painel administrativo, ranking, importação MuscleWar, auditoria e
 // configurações da plataforma.
 
-export function AdminPainel({ notificar, navegar }) {
+export function AdminPainel({ navegar }) {
   const estado = useFetch(() => api.dashboard.admin(), []);
 
   return (

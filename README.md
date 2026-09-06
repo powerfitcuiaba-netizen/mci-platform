@@ -125,7 +125,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
 # 3. banco
 npm run db:migrate
-npm run db:seed
+npm run db:seed   # passo explícito: não há gancho de seed automático
 
 # 4. API (porta 3000)
 npm run dev
@@ -357,8 +357,19 @@ Prefixo `/api/v1`. Sondas de infraestrutura ficam fora dele: `GET /health`
 
 ```bash
 npm test                 # prepara o banco, popula o catálogo e roda a suíte
+npm run lint             # ESLint em backend, scripts, testes e frontend
 cd frontend && npm test  # interface
 ```
+
+O ESLint é gate real na CI. A configuração (`eslint.config.js`) mira
+**defeito**, não estilo: variável e argumento sem uso, comparação frouxa,
+expressão binária constante, laço inalcançável, `console` esquecido em service,
+espaço em branco irregular e as regras de hooks do React. Regra que não muda o
+comportamento do programa não entra — ruído de linter ensina a ignorar linter.
+
+Não há etapa de typecheck: o projeto é JavaScript puro, sem tipos para checar.
+As validações estáticas que a CI executa, e que reprovam o job, são
+`node --check` e ESLint.
 
 `npm test` exige PostgreSQL. Aponte `TEST_DATABASE_URL` para um banco de teste
 — a suíte trunca tabelas entre arquivos.
@@ -412,6 +423,15 @@ processo da API conecta como dono do schema e a autorização efetiva em runtime
 **Realtime ainda não está ligado.** Mensagens e notificações são carregadas sob
 demanda, com paginação por cursor; não há polling em intervalo curto. A troca
 por um canal de tempo real é aditiva e não muda o modelo de dados.
+
+**Dependência com aviso em aberto.** `deepmerge-ts@7.1.5` carrega um advisory
+de esgotamento de pilha e chega por `@prisma/config`, que a fixa em versão
+exata. Nenhum release 6.x do Prisma a atualiza, e forçar a subida por override
+mexeria por dentro do CLI de migration — a ferramenta mais crítica do projeto —
+para mitigar um caminho que só roda em desenvolvimento, sobre configuração
+nossa, sem entrada de terceiros. Fica como risco conhecido: não alcança o
+runtime da aplicação nem dado de usuário. Revisar quando o Prisma 7 for
+avaliado.
 
 **Stories expiram por consulta.** Um story vencido nunca aparece, porque a
 expiração é aplicada na cláusula da busca. Não há rotina de limpeza agendada; o

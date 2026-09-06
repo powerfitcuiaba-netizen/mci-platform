@@ -105,7 +105,14 @@ async function eventPage(slug) {
     schedule: event.batches,
     athletes: atletas.map(item => item.athlete),
     results: resultados,
-    sponsors: event.sponsorships.map(item => item.sponsor)
+    sponsors: event.sponsorships.map(item => item.sponsor),
+    posts: posts.map(post => ({
+      id: post.id,
+      content: post.content,
+      createdAt: post.createdAt,
+      author: { id: post.author.id, handle: post.author.handle, displayName: post.author.displayName, avatarKey: post.author.avatarKey },
+      media: post.media.map(item => ({ id: item.id, kind: item.kind }))
+    }))
   };
 }
 

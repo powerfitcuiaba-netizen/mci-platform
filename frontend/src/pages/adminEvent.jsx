@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CalendarDays, ClipboardCheck, Plus, QrCode, Scale, Search, Trophy } from 'lucide-react';
+import { CalendarDays, ClipboardCheck, Plus, QrCode, Scale, Search } from 'lucide-react';
 import api, { refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead } from '../components/ui';

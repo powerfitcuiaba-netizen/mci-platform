@@ -58,8 +58,11 @@ export async function apiRequest(path, options = {}) {
     }
     return corpo;
   } catch (error) {
-    if (error.name === 'AbortError') throw new Error('A API demorou demais para responder.');
-    if (error instanceof TypeError) throw new Error('Não foi possível conectar à API.');
+    // A mensagem trocada é para o usuário; `cause` preserva o erro original
+    // para quem for depurar. Sem isso, a falha de rede vira uma frase sem
+    // rastro no console.
+    if (error.name === 'AbortError') throw new Error('A API demorou demais para responder.', { cause: error });
+    if (error instanceof TypeError) throw new Error('Não foi possível conectar à API.', { cause: error });
     throw error;
   } finally {
     clearTimeout(timeout);

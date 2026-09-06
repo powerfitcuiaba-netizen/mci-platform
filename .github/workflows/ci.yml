@@ -28,7 +28,7 @@ jobs:
           POSTGRES_DB: mci_test
         ports: ['5432:5432']
         options: >-
-          --health-cmd "pg_isready -U mci"
+          --health-cmd "pg_isready -U mci -d mci_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -59,10 +59,18 @@ jobs:
       - name: Gerar Prisma Client
         run: npx prisma generate
 
-      - name: Verificar sintaxe do servidor
+      # O projeto é JavaScript puro: não há etapa de typecheck porque não há
+      # tipos para checar. As duas validações estáticas reais são estas — a
+      # sintaxe, que pega arquivo que nem carrega, e o ESLint, que pega defeito.
+      # Nenhuma delas é decorativa: ambas reprovam o job.
+      - name: Verificar sintaxe
         run: |
           node --check server.js
           find src prisma scripts -name "*.js" -print0 | xargs -0 -n1 node --check
+
+      # A configuração na raiz cobre backend, scripts, testes e frontend/src.
+      - name: ESLint
+        run: npx eslint .
 
       - name: Aplicar migrations
         run: npx prisma migrate deploy

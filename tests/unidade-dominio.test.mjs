@@ -257,6 +257,20 @@ describe('adapter MuscleWar', () => {
     expect(linha.eventDate.toISOString().slice(0, 10)).toBe('2026-09-03');
   });
 
+  it('descarta o BOM do cabeçalho, que planilha exportada do Excel quase sempre traz', () => {
+    // Sem isso, a primeira coluna do cabeçalho vira "\uFEFFid" e nenhum campo
+    // é reconhecido — a importação inteira sai vazia sem explicar por quê.
+    const comBom = '\uFEFFexternal_result_id,cpf,colocacao\nMW-1,11144477735,1';
+    const [linha] = parse('CSV', comBom);
+
+    expect(linha.externalResultId).toBe('MW-1');
+    expect(linha.cpf).toBe('11144477735');
+    expect(linha.placing).toBe(1);
+
+    // E o arquivo sem BOM continua sendo lido igual.
+    expect(parse('CSV', 'external_result_id,cpf\nMW-2,11144477735')[0].externalResultId).toBe('MW-2');
+  });
+
   it('respeita aspas e separador dentro do campo', () => {
     const csv = 'id,cpf,atleta,colocacao\n"MW-2",11144477735,"Silva, Maria",2';
     const [linha] = parse('CSV', csv);

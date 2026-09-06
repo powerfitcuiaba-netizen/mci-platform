@@ -80,6 +80,10 @@ async function create(eventId, data, actor) {
     }
     assertCan(actor, 'athletes.create', event.organizationId);
 
+    // require-atomic-updates aponta reatribuição depois de await. Aqui não há
+    // corrida: `athlete` é local a esta chamada e a sequência é estritamente
+    // sequencial dentro de uma única requisição.
+    // eslint-disable-next-line require-atomic-updates
     athlete = await prisma.athlete.create({
       data: {
         organizationId: event.organizationId,

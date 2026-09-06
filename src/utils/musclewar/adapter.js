@@ -77,7 +77,7 @@ const detectarSeparador = cabecalho => {
 
 function parseCsv(texto) {
   const linhas = String(texto || '')
-    .replace(/^﻿/, '')
+    .replace(/^\uFEFF/, '')
     .split(/\r?\n/)
     .filter(linha => linha.trim().length);
 

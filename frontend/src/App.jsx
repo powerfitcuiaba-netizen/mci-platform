@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Bell, Building2, ClipboardCheck, Gavel, Home, LayoutDashboard, LogOut, Menu, MessageSquare,
+  Bell, ClipboardCheck, Gavel, Home, LayoutDashboard, LogOut, Menu, MessageSquare,
   QrCode, Scale, Search, Settings, ShieldCheck, Trophy, Upload, UserCircle, Users, Users2, Zap
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './AuthContext';
@@ -197,7 +197,7 @@ function Shell() {
         const item = NAVEGACAO_ADMIN.find(entrada => entrada.rota === (segundo ? `admin/${segundo}` : 'admin'));
         if (item && !pode(item.permissao)) return <Inicio navegar={navegar} />;
 
-        if (!segundo) return pode('analytics.read') ? <AdminPainel notificar={notificar} navegar={navegar} /> : <Inicio navegar={navegar} />;
+        if (!segundo) return pode('analytics.read') ? <AdminPainel navegar={navegar} /> : <Inicio navegar={navegar} />;
         if (segundo === 'eventos') return terceiro ? <AdminEventoDetalhe eventId={terceiro} notificar={notificar} navegar={navegar} /> : <AdminEventos notificar={notificar} navegar={navegar} />;
         if (segundo === 'inscricoes') return <AdminInscricoes notificar={notificar} />;
         if (segundo === 'checkin') return <AdminCheckin notificar={notificar} />;
@@ -210,7 +210,7 @@ function Shell() {
         if (segundo === 'musclewar') return <AdminMuscleWar notificar={notificar} />;
         if (segundo === 'auditoria') return <AdminAuditoria />;
         if (segundo === 'configuracoes') return <AdminConfiguracoes notificar={notificar} />;
-        return <AdminPainel notificar={notificar} navegar={navegar} />;
+        return <AdminPainel navegar={navegar} />;
       }
 
       default: return <Inicio navegar={navegar} />;

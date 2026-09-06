@@ -26,7 +26,10 @@ try {
   assertPronto();
 } catch (erro) {
   logger.error('inicialização abortada', { motivo: erro.message });
-  console.error(erro.message);
+  // Escrita direta em stderr: quem lê isto é o operador do deploy, e o logger
+  // pode estar em nível silencioso justamente no ambiente em que a partida
+  // falhou. Mesmo destino do console.error, sem depender dele.
+  process.stderr.write(`${erro.message}\n`);
   process.exit(1);
 }
 

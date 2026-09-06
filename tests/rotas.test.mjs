@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { app, api, prisma, limparBanco, garantirCatalogo, criarUsuario } from './helpers.mjs';
+import { app, api, limparBanco, garantirCatalogo, criarUsuario } from './helpers.mjs';
 
 // Auditoria da superfície HTTP.
 //
