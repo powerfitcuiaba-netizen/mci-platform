@@ -1,53 +1,525 @@
 const { z } = require('zod');
+const { USER_ROLES, PAPEIS_DE_CADASTRO_ABERTO } = require('./roles');
+const { EVENT_STATES } = require('./eventStates');
+const { TIE_BREAKERS, METHODS } = require('./tabulation');
 
-const id = z.string().trim().min(1, 'ID é obrigatório');
-const paramsWithId = z.object({ id }).strict();
-const date = z.coerce.date().optional();
-const cents = z.number().int().nonnegative().max(100000000);
-const tournamentFields = { name: z.string().trim().min(2), description: z.string().trim().optional(), status: z.enum(['PLANNED', 'ACTIVE', 'FINISHED', 'CANCELLED']).optional(), startDate: date, endDate: date, entryFeeCents: cents.optional() };
-const validateDates = (value, context) => {
-	if (value.startDate && value.endDate && value.endDate < value.startDate) context.addIssue({ code: z.ZodIssueCode.custom, path: ['endDate'], message: 'Data de término deve ser posterior à data de início' });
+// Validação de entrada. Tudo o que entra na API passa por aqui antes de chegar
+// a um service: o service confia no formato e cuida da regra de negócio.
+
+const id = z.string().min(1).max(60);
+const texto = (min, max) => z.string().trim().min(min).max(max);
+const opcional = schema => schema.optional().nullable();
+const dataIso = z.coerce.date();
+
+const paginacao = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  cursor: z.string().min(1).max(60).optional()
+});
+
+const paramsWithId = z.object({ id });
+
+// ---------------------------------------------------------------- autenticação
+const authRegister = z.object({
+  name: texto(2, 120),
+  email: z.string().trim().toLowerCase().email().max(180),
+  password: z.string().min(8).max(200),
+  // O cadastro aberto só cria papéis sem poder operacional. Papel privilegiado
+  // é concessão administrativa, nunca autoatribuição.
+  role: z.enum(PAPEIS_DE_CADASTRO_ABERTO).optional()
+});
+
+const authLogin = z.object({
+  email: z.string().trim().toLowerCase().email().max(180),
+  password: z.string().min(8).max(200)
+});
+
+const profileUpdate = z.object({
+  name: texto(2, 120).optional(),
+  email: z.string().trim().toLowerCase().email().max(180).optional()
+}).refine(data => Object.keys(data).length > 0, { message: 'Informe ao menos um campo' });
+
+const passwordChange = z.object({
+  currentPassword: z.string().min(8).max(200),
+  newPassword: z.string().min(8).max(200)
+});
+
+// ---------------------------------------------------------------- organizações
+const organizationCreate = z.object({
+  name: texto(2, 140),
+  slug: z.string().trim().toLowerCase().regex(/^[a-z0-9-]{2,60}$/, 'Slug deve conter apenas letras minúsculas, números e hífen'),
+  timezone: texto(3, 60).optional()
+});
+
+const organizationMemberCreate = z.object({
+  userId: id,
+  role: z.enum(USER_ROLES)
+});
+
+// ------------------------------------------------------------------ filiação
+const affiliationCreate = z.object({
+  organizationId: id,
+  name: texto(2, 140),
+  code: z.string().trim().toUpperCase().regex(/^[A-Z0-9-]{2,30}$/),
+  kind: z.enum(['FEDERATION', 'ENTITY', 'ASSOCIATION', 'TEAM', 'OTHER']).optional(),
+  state: opcional(texto(2, 2))
+});
+
+// ------------------------------------------------------------------- atletas
+const athleteCreate = z.object({
+  organizationId: id,
+  fullName: texto(2, 160),
+  stageName: opcional(texto(1, 80)),
+  cpf: z.string().trim().min(11).max(14),
+  birthDate: opcional(dataIso),
+  sex: z.enum(['MALE', 'FEMALE']),
+  country: texto(2, 3).optional(),
+  state: opcional(texto(2, 2)),
+  city: opcional(texto(2, 90)),
+  phone: opcional(texto(8, 20)),
+  email: opcional(z.string().trim().toLowerCase().email().max(180)),
+  athleteNumber: opcional(texto(1, 20)),
+  affiliationId: opcional(id),
+  teamId: opcional(id),
+  coachId: opcional(id),
+  gymId: opcional(id),
+  userId: opcional(id)
+});
+
+const athleteUpdate = athleteCreate.partial().omit({ organizationId: true, cpf: true });
+
+const athleteQuery = paginacao.extend({
+  organizationId: id.optional(),
+  search: z.string().trim().max(120).optional(),
+  proStatus: z.enum(['NONE', 'ACTIVE', 'INACTIVE', 'SUSPENDED', 'RETIRED']).optional(),
+  affiliationId: id.optional(),
+  teamId: id.optional()
+});
+
+const athleteLookup = z.object({
+  organizationId: id,
+  cpf: z.string().trim().min(11).max(14)
+});
+
+const proStatusUpdate = z.object({
+  status: z.enum(['NONE', 'ACTIVE', 'INACTIVE', 'SUSPENDED', 'RETIRED']),
+  reason: texto(3, 300),
+  eventId: opcional(id),
+  title: opcional(texto(2, 140))
+});
+
+// -------------------------------------------------------------------- eventos
+const eventCreate = z.object({
+  organizationId: id,
+  name: texto(3, 160),
+  slug: z.string().trim().toLowerCase().regex(/^[a-z0-9-]{3,80}$/),
+  description: opcional(texto(1, 4000)),
+  timezone: texto(3, 60).optional(),
+  startDate: opcional(dataIso),
+  endDate: opcional(dataIso),
+  venue: opcional(texto(2, 160)),
+  city: opcional(texto(2, 90)),
+  state: opcional(texto(2, 2)),
+  seasonId: opcional(id),
+  scoringRuleSetId: opcional(id)
+}).refine(data => !data.startDate || !data.endDate || data.endDate >= data.startDate, {
+  message: 'A data final não pode ser anterior à inicial', path: ['endDate']
+});
+
+const eventUpdate = z.object({
+  name: texto(3, 160).optional(),
+  description: opcional(texto(1, 4000)),
+  timezone: texto(3, 60).optional(),
+  startDate: opcional(dataIso),
+  endDate: opcional(dataIso),
+  venue: opcional(texto(2, 160)),
+  city: opcional(texto(2, 90)),
+  state: opcional(texto(2, 2)),
+  seasonId: opcional(id),
+  scoringRuleSetId: opcional(id)
+});
+
+const eventTransition = z.object({ status: z.enum(EVENT_STATES), reason: opcional(texto(3, 300)) });
+
+const eventQuery = paginacao.extend({
+  organizationId: id.optional(),
+  status: z.enum(EVENT_STATES).optional(),
+  search: z.string().trim().max(120).optional()
+});
+
+// --------------------------------------------- categorias, divisões e classes
+const categoryCreate = z.object({
+  code: z.string().trim().toUpperCase().regex(/^[A-Z0-9_]{2,40}$/),
+  name: texto(2, 90),
+  sex: z.enum(['MALE', 'FEMALE']),
+  sortOrder: z.coerce.number().int().min(0).max(999).optional()
+});
+
+const eventCategoryCreate = z.object({ categoryId: id, sortOrder: z.coerce.number().int().min(0).max(999).optional() });
+
+const divisionCreate = z.object({
+  name: texto(1, 90),
+  code: z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]{1,40}$/),
+  sortOrder: z.coerce.number().int().min(0).max(999).optional()
+});
+
+const classCreate = z.object({
+  name: texto(1, 90),
+  code: z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]{1,40}$/),
+  minAge: opcional(z.coerce.number().int().min(0).max(120)),
+  maxAge: opcional(z.coerce.number().int().min(0).max(120)),
+  minWeightGrams: opcional(z.coerce.number().int().min(0).max(500000)),
+  maxWeightGrams: opcional(z.coerce.number().int().min(0).max(500000)),
+  minHeightCm: opcional(z.coerce.number().int().min(0).max(300)),
+  maxHeightCm: opcional(z.coerce.number().int().min(0).max(300)),
+  sortOrder: z.coerce.number().int().min(0).max(999).optional()
+}).refine(d => d.minAge == null || d.maxAge == null || d.maxAge >= d.minAge, { message: 'Idade máxima menor que a mínima', path: ['maxAge'] })
+  .refine(d => d.minWeightGrams == null || d.maxWeightGrams == null || d.maxWeightGrams >= d.minWeightGrams, { message: 'Peso máximo menor que o mínimo', path: ['maxWeightGrams'] });
+
+// ------------------------------------------------------------------ inscrição
+const registrationCreate = z.object({
+  cpf: z.string().trim().min(11).max(14),
+  // Quando o CPF ainda não existe, estes campos criam o perfil do atleta.
+  athlete: athleteCreate.omit({ organizationId: true, cpf: true }).partial().optional(),
+  affiliationId: opcional(id),
+  classIds: z.array(id).min(1).max(10),
+  notes: opcional(texto(1, 500))
+});
+
+const registrationCancel = z.object({ reason: texto(3, 300) });
+
+const registrationQuery = paginacao.extend({
+  status: z.enum(['PENDING', 'CONFIRMED', 'CANCELLED', 'REJECTED']).optional(),
+  classId: id.optional(),
+  search: z.string().trim().max(120).optional()
+});
+
+// ---------------------------------------------------------------- check-in
+const checkInCreate = z.object({ device: opcional(texto(1, 120)) });
+
+const weighInCreate = z.object({
+  weightGrams: z.coerce.number().int().min(20000).max(400000),
+  heightCm: opcional(z.coerce.number().int().min(100).max(260)),
+  device: opcional(texto(1, 120)),
+  notes: opcional(texto(1, 300))
+});
+
+const credentialCreate = z.object({
+  type: z.enum(['ATHLETE', 'COACH', 'STAFF', 'JUDGE', 'MEDIA', 'PHOTOGRAPHER', 'SPONSOR', 'GUEST']),
+  holderName: texto(2, 140),
+  registrationId: opcional(id)
+});
+
+const credentialScan = z.object({ code: texto(4, 80), gate: opcional(texto(1, 60)) });
+
+// ------------------------------------------------------------------- palco
+const batchCreate = z.object({
+  classId: id,
+  name: texto(1, 90),
+  scheduledAt: opcional(dataIso),
+  sortOrder: z.coerce.number().int().min(0).max(9999).optional()
+});
+
+const batchStatusUpdate = z.object({ status: z.enum(['SCHEDULED', 'CALLED', 'ON_STAGE', 'DONE', 'CANCELLED']) });
+
+const stageOrderSet = z.object({
+  items: z.array(z.object({ registrationItemId: id, position: z.coerce.number().int().min(1).max(999) })).min(1).max(200)
+});
+
+// -------------------------------------------------------------- julgamento
+const panelCreate = z.object({ name: texto(1, 90) });
+
+const panelJudgeAdd = z.object({
+  judgeId: id,
+  seat: z.coerce.number().int().min(1).max(20),
+  role: z.enum(['HEAD', 'JUDGE']).optional()
+});
+
+const sessionCreate = z.object({
+  classId: id,
+  panelId: id,
+  batchId: opcional(id),
+  round: z.enum(['PREJUDGING', 'COMPARISON', 'FINALS']).optional()
+});
+
+const scoreSubmit = z.object({
+  placings: z.array(z.object({
+    registrationItemId: id,
+    placing: z.coerce.number().int().min(1).max(200),
+    notes: opcional(texto(1, 300)),
+    criteria: z.array(z.object({ criterionId: id, value: z.coerce.number().int().min(0).max(100) })).max(20).optional()
+  })).min(1).max(200)
+});
+
+// -------------------------------------------------------------- resultados
+const resultPublish = z.object({ reason: opcional(texto(3, 300)) });
+
+const resultOverride = z.object({
+  reason: texto(5, 400),
+  entries: z.array(z.object({
+    registrationItemId: id,
+    placing: opcional(z.coerce.number().int().min(1).max(200)),
+    status: z.enum(['RANKED', 'TIE_UNRESOLVED', 'DISQUALIFIED', 'ABSENT'])
+  })).min(1).max(200)
+});
+
+const scoringRuleSetCreate = z.object({
+  name: texto(2, 90),
+  method: z.enum(METHODS).optional(),
+  dropHighLow: z.boolean().optional(),
+  dropHighLowMinJudges: z.coerce.number().int().min(3).max(20).optional(),
+  tieBreakers: z.array(z.enum(TIE_BREAKERS)).max(TIE_BREAKERS.length).optional()
+});
+
+// ---------------------------------------------------------------- temporadas
+const seasonCreate = z.object({
+  organizationId: id,
+  name: texto(2, 90),
+  year: z.coerce.number().int().min(2000).max(2100),
+  startDate: opcional(dataIso),
+  endDate: opcional(dataIso),
+  scoringRuleSetId: opcional(id)
+});
+
+const pointsRuleSet = z.object({
+  rules: z.array(z.object({
+    placing: z.coerce.number().int().min(1).max(200),
+    points: z.coerce.number().int().min(0).max(100000)
+  })).min(1).max(200)
+});
+
+const rankingQuery = paginacao.extend({
+  seasonId: id.optional(),
+  categoryId: id.optional(),
+  state: z.string().trim().length(2).optional(),
+  country: z.string().trim().min(2).max(3).optional()
+});
+
+// ----------------------------------------------------------------- MuscleWar
+const muscleWarImportCreate = z.object({
+  organizationId: id,
+  seasonId: opcional(id),
+  eventId: opcional(id),
+  sourceType: z.enum(['CSV', 'JSON', 'API']),
+  sourceRef: texto(1, 200),
+  // O conteúdo bruto: texto CSV, JSON serializado ou corpo devolvido pela API.
+  content: z.string().min(1).max(5_000_000),
+  fieldMap: z.record(z.string(), z.string()).optional()
+});
+
+const muscleWarLink = z.object({ athleteId: id });
+
+// -------------------------------------------------------- equipes e parceiros
+const teamCreate = z.object({ organizationId: id, name: texto(2, 120), city: opcional(texto(2, 90)), state: opcional(texto(2, 2)) });
+const coachCreate = z.object({ name: texto(2, 120), userId: opcional(id), city: opcional(texto(2, 90)), state: opcional(texto(2, 2)) });
+const gymCreate = z.object({ organizationId: id, name: texto(2, 120), city: opcional(texto(2, 90)), state: opcional(texto(2, 2)) });
+
+const brandCreate = z.object({
+  organizationId: id,
+  name: texto(2, 120),
+  slug: z.string().trim().toLowerCase().regex(/^[a-z0-9-]{2,60}$/),
+  website: opcional(z.string().trim().url().max(300))
+});
+
+const sponsorCreate = z.object({
+  organizationId: id,
+  name: texto(2, 120),
+  brandId: opcional(id),
+  contactEmail: opcional(z.string().trim().toLowerCase().email().max(180))
+});
+
+const sponsorshipCreate = z.object({
+  sponsorId: id,
+  eventId: opcional(id),
+  teamId: opcional(id),
+  athleteId: opcional(id),
+  scope: opcional(texto(2, 300)),
+  startsAt: opcional(dataIso),
+  endsAt: opcional(dataIso)
+}).refine(d => Boolean(d.eventId || d.teamId || d.athleteId), { message: 'Informe evento, equipe ou atleta' });
+
+const partnershipCreate = z.object({
+  athleteId: id,
+  brandId: id,
+  scope: opcional(texto(2, 300)),
+  startedAt: opcional(dataIso)
+});
+
+const partnershipStatus = z.object({ status: z.enum(['PENDING', 'ACTIVE', 'ENDED']) });
+
+// --------------------------------------------------------------------- social
+const profileCreate = z.object({
+  handle: z.string().trim().toLowerCase().regex(/^[a-z0-9_.]{3,30}$/, 'Handle inválido'),
+  displayName: texto(2, 80),
+  kind: z.enum(['ATHLETE', 'COACH', 'GYM', 'TEAM', 'BRAND', 'SPONSOR', 'FAN', 'MEDIA']).optional(),
+  bio: opcional(texto(1, 500)),
+  isPrivate: z.boolean().optional()
+});
+
+const profileUpdateSocial = profileCreate.partial().omit({ handle: true });
+
+const postCreate = z.object({
+  content: texto(1, 5000),
+  visibility: z.enum(['PUBLIC', 'FOLLOWERS', 'PRIVATE']).optional(),
+  eventId: opcional(id),
+  communityId: opcional(id)
+});
+
+const commentCreate = z.object({ content: texto(1, 2000), parentId: opcional(id) });
+const shareCreate = z.object({ comment: opcional(texto(1, 500)) });
+const storyCaption = z.object({ caption: opcional(texto(1, 200)) });
+
+const feedQuery = paginacao.extend({
+  scope: z.enum(['FOLLOWING', 'DISCOVER', 'EVENT', 'COMMUNITY', 'PROFILE']).default('FOLLOWING'),
+  eventId: id.optional(),
+  communityId: id.optional(),
+  profileId: id.optional()
+});
+
+const reportCreate = z.object({
+  targetType: z.enum(['POST', 'COMMENT', 'PROFILE', 'MESSAGE']),
+  targetId: id,
+  reason: texto(3, 500)
+});
+
+const reportResolve = z.object({
+  status: z.enum(['REVIEWING', 'RESOLVED', 'DISMISSED']),
+  resolution: opcional(texto(3, 500)),
+  removeContent: z.boolean().optional()
+});
+
+// ----------------------------------------------------------------- comunidades
+const communityCreate = z.object({
+  slug: z.string().trim().toLowerCase().regex(/^[a-z0-9-]{3,60}$/),
+  name: texto(2, 90),
+  description: opcional(texto(1, 1000)),
+  visibility: z.enum(['PUBLIC', 'PRIVATE']).optional(),
+  rules: opcional(texto(1, 4000))
+});
+
+// ------------------------------------------------------------------ messenger
+const conversationCreate = z.object({
+  kind: z.enum(['DIRECT', 'GROUP']).default('DIRECT'),
+  title: opcional(texto(1, 90)),
+  participantIds: z.array(id).min(1).max(50)
+});
+
+const messageCreate = z.object({
+  body: opcional(texto(1, 4000)),
+  sharedPostId: opcional(id),
+  sharedProfileId: opcional(id),
+  replyToId: opcional(id)
+}).refine(d => Boolean(d.body || d.sharedPostId || d.sharedProfileId), { message: 'Mensagem vazia' });
+
+const reactionCreate = z.object({ emoji: z.string().trim().min(1).max(16) });
+
+const conversationMembers = z.object({ participantIds: z.array(id).min(1).max(50) });
+
+// -------------------------------------------------------------------- busca
+const searchQuery = z.object({
+  q: z.string().trim().min(2).max(120),
+  types: z.string().trim().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(10)
+});
+
+// ------------------------------------------------------------- notificações
+const notificationQuery = z.object({
+  onlyUnread: z.coerce.boolean().optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50)
+});
+
+// ---------------------------------------------------------------- auditoria
+const auditQuery = z.object({
+  entity: z.string().trim().max(60).optional(),
+  entityId: id.optional(),
+  userId: id.optional(),
+  action: z.string().trim().max(60).optional(),
+  organizationId: id.optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(100)
+});
+
+// ---------------------------------------------------------------- documentos
+const documentUpload = z.object({
+  title: z.string().trim().max(160).optional(),
+  kind: z.enum(['ID', 'MEDICAL', 'TERM', 'AFFILIATION_PROOF', 'OTHER']).optional()
+});
+
+const eventDocumentUpload = z.object({
+  title: z.string().trim().max(160).optional(),
+  isPublic: z.coerce.boolean().optional()
+});
+
+// --------------------------------------------------------------- usuários
+const adminUserUpdate = z.object({
+  role: z.enum(USER_ROLES).optional(),
+  status: z.enum(['ACTIVE', 'SUSPENDED', 'DISABLED']).optional()
+}).refine(data => Object.keys(data).length > 0, { message: 'Informe ao menos um campo' });
+
+const adminUserQuery = paginacao.extend({
+  role: z.enum(USER_ROLES).optional(),
+  status: z.enum(['ACTIVE', 'SUSPENDED', 'DISABLED']).optional(),
+  search: z.string().trim().max(120).optional()
+});
+
+// Listagem simples com busca e escopo de organização, usada por filiações,
+// equipes, academias, coaches, marcas e patrocinadores.
+const scopedListQuery = paginacao.extend({
+  organizationId: id.optional(),
+  search: z.string().trim().max(120).optional()
+});
+
+const checkInQuery = paginacao.extend({
+  search: z.string().trim().max(120).optional()
+});
+
+const sponsorshipQuery = paginacao.extend({
+  organizationId: id.optional(),
+  sponsorId: id.optional(),
+  eventId: id.optional(),
+  teamId: id.optional(),
+  athleteId: id.optional()
+});
+
+const partnershipQuery = paginacao.extend({
+  athleteId: id.optional(),
+  brandId: id.optional(),
+  status: z.enum(['PENDING', 'ACTIVE', 'ENDED']).optional()
+});
+
+const importQuery = paginacao.extend({ organizationId: id.optional() });
+
+const reportQuery = paginacao.extend({ status: z.enum(['OPEN', 'REVIEWING', 'RESOLVED', 'DISMISSED']).optional() });
+
+const rankingPointsQuery = z.object({ seasonId: id.optional() });
+
+const communityMemberAdd = z.object({ profileId: id, role: z.enum(['MEMBER', 'ADMIN']).optional() });
+
+const handleUpdate = z.object({ handle: z.string().trim().toLowerCase().regex(/^[a-z0-9_.]{3,30}$/, 'Handle inválido') });
+
+const rejectImport = z.object({ reason: opcional(texto(3, 300)) });
+
+module.exports = {
+  paginacao, paramsWithId, scopedListQuery, checkInQuery, sponsorshipQuery, partnershipQuery,
+  importQuery, reportQuery, rankingPointsQuery, communityMemberAdd, handleUpdate, rejectImport,
+  authRegister, authLogin, profileUpdate, passwordChange,
+  organizationCreate, organizationMemberCreate,
+  affiliationCreate,
+  athleteCreate, athleteUpdate, athleteQuery, athleteLookup, proStatusUpdate,
+  eventCreate, eventUpdate, eventTransition, eventQuery,
+  categoryCreate, eventCategoryCreate, divisionCreate, classCreate,
+  registrationCreate, registrationCancel, registrationQuery,
+  checkInCreate, weighInCreate, credentialCreate, credentialScan,
+  batchCreate, batchStatusUpdate, stageOrderSet,
+  panelCreate, panelJudgeAdd, sessionCreate, scoreSubmit,
+  resultPublish, resultOverride, scoringRuleSetCreate,
+  seasonCreate, pointsRuleSet, rankingQuery,
+  muscleWarImportCreate, muscleWarLink,
+  teamCreate, coachCreate, gymCreate, brandCreate, sponsorCreate, sponsorshipCreate,
+  partnershipCreate, partnershipStatus,
+  profileCreate, profileUpdateSocial, postCreate, commentCreate, shareCreate, storyCaption, feedQuery,
+  reportCreate, reportResolve,
+  communityCreate,
+  conversationCreate, messageCreate, reactionCreate, conversationMembers,
+  searchQuery, notificationQuery, auditQuery,
+  documentUpload, eventDocumentUpload,
+  adminUserUpdate, adminUserQuery
 };
-const tournament = z.object(tournamentFields).strict().superRefine(validateDates);
-const tournamentUpdate = z.object(tournamentFields).strict().partial().superRefine(validateDates).refine(value => Object.keys(value).length > 0, 'Informe ao menos um campo para atualizar');
-const participant = z.object({ name: z.string().trim().min(2), identification: z.string().trim().min(1), type: z.enum(['PLAYER', 'TEAM']).optional(), coachId: id.nullable().optional(), teamId: id.nullable().optional() }).strict();
-const team = participant.extend({ type: z.literal('TEAM').default('TEAM') });
-const participantUpdate = participant.partial().refine(value => Object.keys(value).length > 0, 'Informe ao menos um campo para atualizar');
-const teamUpdate = z.object({ name: z.string().trim().min(2).optional(), identification: z.string().trim().min(1).optional(), coachId: id.nullable().optional() }).strict().refine(value => Object.keys(value).length > 0, 'Informe ao menos um campo para atualizar');
-const enrollment = z.object({ participantId: id }).strict();
-const match = z.object({ tournamentId: id, participantAId: id, participantBId: id, scheduledAt: date, status: z.enum(['SCHEDULED', 'IN_PROGRESS', 'FINISHED', 'CANCELLED']).optional(), phase: z.string().trim().min(1).optional(), round: z.number().int().positive().optional() }).strict();
-const matchUpdate = z.object({ scheduledAt: date, status: z.enum(['SCHEDULED', 'IN_PROGRESS', 'FINISHED', 'CANCELLED']).optional(), phase: z.string().trim().min(1).optional(), round: z.number().int().positive().optional() }).strict().refine(value => Object.keys(value).length > 0, 'Informe ao menos um campo para atualizar');
-const result = z.object({ winnerParticipantId: id.nullable().optional(), scoreA: z.number().int().nonnegative(), scoreB: z.number().int().nonnegative() }).strict();
-const judgeAssignment = z.object({ tournamentId: id, judgeId: id }).strict();
-const checkIn = z.object({ operatorName: z.string().trim().min(1).optional(), checkedInById: id.optional() }).strict();
-const document = z.object({ tournamentId: id, title: z.string().trim().min(2).max(180), fileName: z.string().trim().min(1).max(255), mimeType: z.string().trim().min(1).max(120).default('application/octet-stream') }).strict();
-const query = z.object({ tournamentId: id.optional(), type: z.enum(['PLAYER', 'TEAM']).optional() }).strict();
-const searchQuery = z.object({ search: z.string().trim().max(120).optional() }).strict();
-const documentQuery = z.object({ tournamentId: id.optional() }).strict();
-const coachSetTeam = z.object({ teamId: id.nullable() }).strict();
-const profileUpdate = z.object({ name: z.string().trim().min(2).max(120).optional(), email: z.string().trim().email().max(180).optional() }).strict().refine(value => Object.keys(value).length > 0, 'Informe ao menos um campo para atualizar');
-const passwordChange = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(8, 'A nova senha deve ter pelo menos 8 caracteres').max(200) }).strict();
-const adminUserUpdate = z.object({ role: z.enum(['ADMIN', 'ORGANIZER', 'JUDGE', 'COACH', 'ATHLETE', 'PUBLIC']).optional(), status: z.enum(['ACTIVE', 'SUSPENDED']).optional() }).strict().refine(value => Object.keys(value).length > 0, 'Informe perfil ou situação para atualizar');
-const adminUserQuery = z.object({ role: z.string().trim().optional(), status: z.string().trim().optional(), search: z.string().trim().max(120).optional(), limit: z.coerce.number().int().positive().max(200).optional() }).strict();
-const auditQuery = z.object({ entity: z.string().trim().max(60).optional(), entityId: z.string().trim().max(60).optional(), userId: z.string().trim().max(60).optional(), action: z.string().trim().max(60).optional(), limit: z.coerce.number().int().positive().max(200).optional() }).strict();
-const notificationQuery = z.object({ onlyUnread: z.enum(['true', 'false']).optional(), limit: z.coerce.number().int().positive().max(200).optional() }).strict();
-const enrollmentQuery = z.object({ incluirCanceladas: z.enum(['true', 'false']).optional() }).strict();
-// O corpo do pedido diz o QUE se quer comprar. Preço, desconto e total são
-// calculados no servidor e por isso não têm campo aqui: schema estrito rejeita
-// qualquer tentativa de enviá-los.
-const orderCreate = z.object({ tournamentId: id, participantId: id, couponCode: z.string().trim().min(1).max(60).optional(), idempotencyKey: z.string().trim().min(8).max(120).optional() }).strict();
-const orderQuery = z.object({ status: z.enum(['PENDING', 'PAID', 'CANCELLED', 'EXPIRED', 'REFUNDED']).optional(), tournamentId: id.optional() }).strict();
-const paymentStart = z.object({ provider: z.string().trim().min(1).max(40).optional(), idempotencyKey: z.string().trim().min(8).max(120).optional() }).strict();
-const couponCreate = z.object({ code: z.string().trim().min(3).max(60), description: z.string().trim().max(180).optional(), percentOff: z.number().int().min(1).max(100).optional(), amountOffCents: cents.optional(), tournamentId: id.optional(), active: z.boolean().optional(), startsAt: date, endsAt: date, maxRedemptions: z.number().int().positive().max(1000000).optional(), maxPerUser: z.number().int().positive().max(100).optional() }).strict();
-const couponToggle = z.object({ active: z.boolean() }).strict();
-const couponPreview = z.object({ code: z.string().trim().min(1).max(60), tournamentId: id }).strict();
-const refundRequest = z.object({ amountCents: cents.optional(), reason: z.string().trim().max(300).optional() }).strict();
-const refundQuery = z.object({ orderId: id.optional() }).strict();
-const sponsorCreate = z.object({ name: z.string().trim().min(2).max(160), document: z.string().trim().max(40).optional(), contactEmail: z.string().trim().email().max(180).optional(), active: z.boolean().optional() }).strict();
-const sponsorshipCreate = z.object({ sponsorId: id, tournamentId: id, status: z.enum(['ACTIVE', 'ENDED', 'CANCELLED']).optional(), amountCents: cents.optional(), startsAt: date, endsAt: date, notes: z.string().trim().max(500).optional() }).strict();
-const sponsorshipQuery = z.object({ tournamentId: id.optional() }).strict();
-const webhookParams = z.object({ provider: z.string().trim().min(1).max(40) }).strict();
-
-const documentUpload = z.object({ tournamentId: id, title: z.string().trim().min(2).max(180).optional(), fileName: z.string().trim().min(1).max(255).optional() }).strict();
-
-module.exports = { id, paramsWithId, tournament, tournamentUpdate, participant, participantUpdate, team, teamUpdate, enrollment, match, matchUpdate, result, judgeAssignment, checkIn, document, query, searchQuery, documentQuery, coachSetTeam, profileUpdate, passwordChange, adminUserUpdate, adminUserQuery, auditQuery, notificationQuery, enrollmentQuery, documentUpload, orderCreate, orderQuery, paymentStart, couponCreate, couponToggle, couponPreview, refundRequest, refundQuery, sponsorCreate, sponsorshipCreate, sponsorshipQuery, webhookParams };

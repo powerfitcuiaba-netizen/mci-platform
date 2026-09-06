@@ -10,7 +10,7 @@ const storage = require('../services/storageService');
 // O buffer é adequado ao tamanho previsto aqui (10 MB por padrão). Para
 // arquivos grandes, o caminho é trocar por gravação em stream num temporário,
 // que o storageService já suporta.
-function singleFileUpload(fieldName = 'file') {
+function singleFileUpload(fieldName = 'file', { maxBytes = storage.MAX_BYTES } = {}) {
   return (req, res, next) => {
     const tipo = String(req.headers['content-type'] || '');
     if (!tipo.toLowerCase().startsWith('multipart/form-data')) {
@@ -19,7 +19,7 @@ function singleFileUpload(fieldName = 'file') {
 
     let busboy;
     try {
-      busboy = Busboy({ headers: req.headers, limits: { files: 1, fileSize: storage.MAX_BYTES, fields: 20 } });
+      busboy = Busboy({ headers: req.headers, limits: { files: 1, fileSize: maxBytes, fields: 20 } });
     } catch (error) {
       return next(new AppError(400, 'INVALID_UPLOAD', 'Envio malformado'));
     }
@@ -64,7 +64,7 @@ function singleFileUpload(fieldName = 'file') {
       if (finalizado) return;
 
       if (excedeuTamanho) {
-        const limiteMb = Math.round(storage.MAX_BYTES / (1024 * 1024));
+        const limiteMb = Math.round(maxBytes / (1024 * 1024));
         return encerrar(new AppError(413, 'FILE_TOO_LARGE', `Arquivo excede o limite de ${limiteMb} MB`));
       }
       if (!arquivo || !arquivo.buffer.length) {

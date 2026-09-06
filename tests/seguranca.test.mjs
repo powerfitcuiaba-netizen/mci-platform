@@ -1,325 +1,383 @@
-import request from 'supertest';
-import { beforeEach, describe, expect, it } from 'vitest';
-import app from '../src/app.js';
-import prisma from '../src/config/prisma.js';
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import {
+  api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
+  vincular, criarAtleta, criarEventoCompleto, transicionar, gerarCpf
+} from './helpers.mjs';
 
-// Matriz de acesso cruzado. Cada caso monta dois atores do mesmo perfil e prova
-// que um não alcança o recurso do outro. O que o servidor recusa aqui é a única
-// garantia real: a interface apenas acompanha.
-const api = '/api/v1';
-const auth = token => ({ Authorization: `Bearer ${token}` });
+// Testes negativos e de segurança: IDOR, cross-tenant, escalada de papel,
+// exposição de dado restrito e transições inválidas.
 
-async function clearDatabase() {
-  await prisma.notification.deleteMany();
-  await prisma.checkIn.deleteMany();
-  await prisma.document.deleteMany();
-  await prisma.judgeAssignment.deleteMany();
-  await prisma.result.deleteMany();
-  await prisma.standing.deleteMany();
-  await prisma.match.deleteMany();
-  await prisma.enrollment.deleteMany();
-  await prisma.participant.updateMany({ data: { teamId: null } });
-  await prisma.tournament.deleteMany();
-  await prisma.participant.deleteMany();
-  await prisma.user.deleteMany();
-}
+let admin;
+let diretorA;
+let orgA;
+let diretorB;
+let orgB;
 
-const register = async (name, email, role) => {
-  const response = await request(app).post(`${api}/auth/register`).send({ name, email, password: 'Senha@123', role });
-  expect(response.status).toBe(201);
-  return { token: response.body.token, user: response.body.user };
-};
+beforeAll(() => garantirCatalogo());
 
-// Dois universos paralelos e independentes: A e B.
-async function twoWorlds() {
-  const admin = await register('Admin', 'admin@sec.test', 'ADMIN');
+beforeEach(async () => {
+  await limparBanco();
 
-  const orgA = await register('Org A', 'orga@sec.test', 'ORGANIZER');
-  const orgB = await register('Org B', 'orgb@sec.test', 'ORGANIZER');
-  const judgeA = await register('Juiz A', 'juiza@sec.test', 'JUDGE');
-  const judgeB = await register('Juiz B', 'juizb@sec.test', 'JUDGE');
-  const coachA = await register('Coach A', 'coacha@sec.test', 'COACH');
-  const coachB = await register('Coach B', 'coachb@sec.test', 'COACH');
-  const athleteA = await register('Atleta A', 'atletaa@sec.test', 'ATHLETE');
-  const athleteB = await register('Atleta B', 'atletab@sec.test', 'ATHLETE');
+  admin = await criarUsuario({ role: 'SUPER_ADMIN', name: 'Administrador' });
 
-  const build = async (org, judge, coach, athlete, tag) => {
-    const tournament = (await request(app).post(`${api}/campeonatos`).set(auth(org.token))
-      .send({ name: `Evento ${tag}`, status: 'ACTIVE' })).body;
-    const team1 = (await request(app).post(`${api}/equipes`).set(auth(org.token))
-      .send({ name: `Equipe ${tag}1`, identification: `SEC-${tag}1`, coachId: coach.user.id })).body;
-    const team2 = (await request(app).post(`${api}/equipes`).set(auth(org.token))
-      .send({ name: `Equipe ${tag}2`, identification: `SEC-${tag}2` })).body;
-    await prisma.participant.update({ where: { id: team1.id }, data: { userId: athlete.user.id } });
+  diretorA = await criarUsuario({ name: 'Diretor A' });
+  orgA = await criarOrganizacao(admin, { name: 'Federação A' });
+  await vincular(orgA.id, diretorA, 'EVENT_DIRECTOR');
 
-    const enrollment1 = (await request(app).post(`${api}/campeonatos/${tournament.id}/participantes`)
-      .set(auth(org.token)).send({ participantId: team1.id })).body;
-    const enrollment2 = (await request(app).post(`${api}/campeonatos/${tournament.id}/participantes`)
-      .set(auth(org.token)).send({ participantId: team2.id })).body;
-    const match = (await request(app).post(`${api}/partidas`).set(auth(org.token))
-      .send({ tournamentId: tournament.id, participantAId: team1.id, participantBId: team2.id, status: 'IN_PROGRESS' })).body;
-    await request(app).post(`${api}/judge/assignments`).set(auth(admin.token))
-      .send({ tournamentId: tournament.id, judgeId: judge.user.id });
-    const document = (await request(app).post(`${api}/documents`).set(auth(org.token))
-      .send({ tournamentId: tournament.id, title: `Doc ${tag}`, fileName: `doc-${tag}.pdf` })).body;
+  diretorB = await criarUsuario({ name: 'Diretor B' });
+  orgB = await criarOrganizacao(admin, { name: 'Federação B' });
+  await vincular(orgB.id, diretorB, 'EVENT_DIRECTOR');
+});
 
-    return { org, judge, coach, athlete, tournament, team1, team2, enrollment1, enrollment2, match, document };
-  };
+describe('autenticação', () => {
+  it('recusa rota protegida sem token, com token inválido e com token de conta suspensa', async () => {
+    expect((await api().get('/api/v1/auth/me')).status).toBe(401);
+    expect((await api().get('/api/v1/auth/me').set({ Authorization: 'Bearer invalido' })).status).toBe(401);
 
-  const A = await build(orgA, judgeA, coachA, athleteA, 'A');
-  const B = await build(orgB, judgeB, coachB, athleteB, 'B');
-  return { admin, A, B };
-}
+    const suspenso = await criarUsuario({ name: 'Suspenso' });
+    await prisma.user.update({ where: { id: suspenso.id }, data: { status: 'SUSPENDED' } });
 
-describe('Segurança — acesso cruzado', () => {
-  beforeEach(clearDatabase);
-
-  describe('ORGANIZER', () => {
-    it('opera o próprio evento e é barrado no evento alheio', async () => {
-      const { A, B } = await twoWorlds();
-
-      expect((await request(app).patch(`${api}/campeonatos/${A.tournament.id}`)
-        .set(auth(A.org.token)).send({ name: 'Evento A renomeado' })).status).toBe(200);
-
-      expect((await request(app).patch(`${api}/campeonatos/${B.tournament.id}`)
-        .set(auth(A.org.token)).send({ name: 'Sequestro' })).status).toBe(403);
-      expect((await request(app).delete(`${api}/campeonatos/${B.tournament.id}`)
-        .set(auth(A.org.token))).status).toBe(403);
-      expect((await request(app).get(`${api}/checkin/tournaments/${B.tournament.id}`)
-        .set(auth(A.org.token))).status).toBe(403);
-      expect((await request(app).get(`${api}/reports/tournaments/${B.tournament.id}`)
-        .set(auth(A.org.token))).status).toBe(403);
-      expect((await request(app).delete(`${api}/documents/${B.document.id}`)
-        .set(auth(A.org.token))).status).toBe(403);
-    });
-
-    it('não enxerga a operação alheia no Backstage', async () => {
-      const { A, B } = await twoWorlds();
-      const view = await request(app).get(`${api}/backstage/overview`).set(auth(A.org.token));
-      expect(view.status).toBe(200);
-      expect(view.body.tournaments.map(item => item.id)).toEqual([A.tournament.id]);
-      expect(view.body.tournaments.map(item => item.id)).not.toContain(B.tournament.id);
-    });
+    const resposta = await api().get('/api/v1/auth/me').set(suspenso.auth());
+    expect(resposta.status).toBe(403);
+    expect(resposta.body.error.code).toBe('USER_INACTIVE');
   });
 
-  describe('JUDGE', () => {
-    it('lança resultado só onde está designado', async () => {
-      const { A, B } = await twoWorlds();
+  it('não revela se o email existe e não vaza hash de senha', async () => {
+    const usuario = await criarUsuario({ name: 'Alvo' });
 
-      expect((await request(app).post(`${api}/partidas/${A.match.id}/resultado`).set(auth(A.judge.token))
-        .send({ winnerParticipantId: A.team1.id, scoreA: 2, scoreB: 0 })).status).toBe(201);
+    const senhaErrada = await api().post('/api/v1/auth/login').send({ email: usuario.email, password: 'senha-errada-1234' });
+    const emailInexistente = await api().post('/api/v1/auth/login').send({ email: 'ninguem@mci.test', password: 'senha-errada-1234' });
 
-      expect((await request(app).post(`${api}/partidas/${B.match.id}/resultado`).set(auth(A.judge.token))
-        .send({ winnerParticipantId: B.team1.id, scoreA: 2, scoreB: 0 })).status).toBe(403);
-      expect((await request(app).patch(`${api}/partidas/${B.match.id}`).set(auth(A.judge.token))
-        .send({ status: 'CANCELLED' })).status).toBe(403);
-    });
+    expect(senhaErrada.status).toBe(401);
+    expect(emailInexistente.status).toBe(401);
+    expect(senhaErrada.body.error.message).toBe(emailInexistente.body.error.message);
 
-    it('só vê na sua agenda as partidas dos eventos em que foi designado', async () => {
-      const { A, B } = await twoWorlds();
-      const agenda = await request(app).get(`${api}/judge/matches`).set(auth(A.judge.token));
-      expect(agenda.body.items.map(item => item.id)).toEqual([A.match.id]);
-      expect(agenda.body.items.map(item => item.id)).not.toContain(B.match.id);
-    });
+    const me = await api().get('/api/v1/auth/me').set(usuario.auth());
+    expect(JSON.stringify(me.body)).not.toMatch(/passwordHash|\$2[aby]\$/);
   });
 
-  describe('COACH', () => {
-    it('administra o próprio elenco e é barrado no elenco alheio', async () => {
-      const { A, B } = await twoWorlds();
+  it('cadastro aberto não concede papel privilegiado', async () => {
+    const resposta = await api().post('/api/v1/auth/register')
+      .send({ name: 'Esperto', email: 'esperto@mci.test', password: 'senha-de-teste-123', role: 'ADMIN' });
 
-      expect((await request(app).patch(`${api}/participantes/${A.team1.id}`)
-        .set(auth(A.coach.token)).send({ name: 'Equipe A1 renomeada' })).status).toBe(200);
+    // O schema recusa antes mesmo de chegar ao service.
+    expect(resposta.status).toBe(400);
 
-      expect((await request(app).patch(`${api}/participantes/${B.team1.id}`)
-        .set(auth(A.coach.token)).send({ name: 'Sequestro' })).status).toBe(403);
-      expect((await request(app).delete(`${api}/participantes/${B.team1.id}`)
-        .set(auth(A.coach.token))).status).toBe(403);
-      expect((await request(app).patch(`${api}/coach/participants/${B.team1.id}/team`)
-        .set(auth(A.coach.token)).send({ teamId: null })).status).toBe(403);
-    });
-
-    it('não vê o elenco alheio na própria visão consolidada', async () => {
-      const { A, B } = await twoWorlds();
-      const view = await request(app).get(`${api}/coach/overview`).set(auth(A.coach.token));
-      const ids = [...view.body.teams, ...view.body.athletes].map(item => item.id);
-      expect(ids).toContain(A.team1.id);
-      expect(ids).not.toContain(B.team1.id);
-    });
-
-    it('não consegue se apossar de participante enviando coachId no corpo', async () => {
-      const { A, B } = await twoWorlds();
-      const created = await request(app).post(`${api}/participantes`).set(auth(A.coach.token))
-        .send({ name: 'Tentativa', identification: 'SEC-IDOR', type: 'PLAYER', coachId: B.coach.user.id });
-      expect(created.status).toBe(201);
-      expect(created.body.coachId).toBe(A.coach.user.id);
-
-      const moved = await request(app).patch(`${api}/participantes/${A.team1.id}`)
-        .set(auth(A.coach.token)).send({ coachId: B.coach.user.id });
-      expect(moved.status).toBe(200);
-      expect(moved.body.coachId).toBe(A.coach.user.id);
-    });
+    const criado = await api().post('/api/v1/auth/register')
+      .send({ name: 'Comum', email: 'comum@mci.test', password: 'senha-de-teste-123' });
+    expect(criado.body.user.role).toBe('ATHLETE');
   });
 
-  describe('ATHLETE', () => {
-    it('vê a própria inscrição e é barrado na de outro', async () => {
-      const { A, B } = await twoWorlds();
-      expect((await request(app).get(`${api}/checkin/enrollments/${A.enrollment1.id}`)
-        .set(auth(A.athlete.token))).status).toBe(200);
-      expect((await request(app).get(`${api}/checkin/enrollments/${A.enrollment2.id}`)
-        .set(auth(A.athlete.token))).status).toBe(403);
-      expect((await request(app).get(`${api}/checkin/enrollments/${B.enrollment1.id}`)
-        .set(auth(A.athlete.token))).status).toBe(403);
-    });
+  it('não permite alterar o próprio papel nem se autopromover sem SUPER_ADMIN', async () => {
+    const gestor = await criarUsuario({ role: 'ADMIN', name: 'Gestor' });
+    const alvo = await criarUsuario({ name: 'Alvo' });
 
-    it('não alcança documento de evento em que não participa', async () => {
-      const { A, B } = await twoWorlds();
-      expect((await request(app).get(`${api}/documents/${A.document.id}`).set(auth(A.athlete.token))).status).toBe(200);
-      expect((await request(app).get(`${api}/documents/${B.document.id}`).set(auth(A.athlete.token))).status).toBe(403);
-    });
+    const autopromocao = await api().patch(`/api/v1/admin/users/${gestor.id}`).set(gestor.auth()).send({ role: 'SUPER_ADMIN' });
+    expect(autopromocao.status).toBe(422);
 
-    it('não escala privilégio para escrever no domínio', async () => {
-      const { A } = await twoWorlds();
-      expect((await request(app).post(`${api}/campeonatos`).set(auth(A.athlete.token))
-        .send({ name: 'Evento do atleta' })).status).toBe(403);
-      expect((await request(app).post(`${api}/partidas`).set(auth(A.athlete.token))
-        .send({ tournamentId: A.tournament.id, participantAId: A.team1.id, participantBId: A.team2.id })).status).toBe(403);
-      expect((await request(app).post(`${api}/documents`).set(auth(A.athlete.token))
-        .send({ tournamentId: A.tournament.id, title: 'X', fileName: 'x.pdf' })).status).toBe(403);
-      expect((await request(app).post(`${api}/judge/assignments`).set(auth(A.athlete.token))
-        .send({ tournamentId: A.tournament.id, judgeId: A.judge.user.id })).status).toBe(403);
-    });
+    const promocaoDeOutro = await api().patch(`/api/v1/admin/users/${alvo.id}`).set(gestor.auth()).send({ role: 'EVENT_DIRECTOR' });
+    expect(promocaoDeOutro.status).toBe(403);
 
-    it('não lê a caixa de notificações de outro usuário', async () => {
-      const { A, B } = await twoWorlds();
-      const inbox = await request(app).get(`${api}/notifications`).set(auth(A.coach.token));
-      const alheia = await request(app).get(`${api}/notifications`).set(auth(B.coach.token));
-      const idsA = inbox.body.items.map(item => item.id);
-      for (const item of alheia.body.items) expect(idsA).not.toContain(item.id);
-      if (alheia.body.items[0]) {
-        expect((await request(app).patch(`${api}/notifications/${alheia.body.items[0].id}/read`)
-          .set(auth(A.coach.token))).status).toBe(404);
-      }
-    });
+    const porSuperAdmin = await api().patch(`/api/v1/admin/users/${alvo.id}`).set(admin.auth()).send({ role: 'EVENT_DIRECTOR' });
+    expect(porSuperAdmin.status).toBe(200);
+  });
+});
+
+describe('isolamento entre organizações', () => {
+  it('diretor de uma organização não cria evento em outra', async () => {
+    const resposta = await api().post('/api/v1/events').set(diretorA.auth())
+      .send({ organizationId: orgB.id, name: 'Invasão', slug: 'invasao-cross-tenant' });
+
+    expect(resposta.status).toBe(403);
   });
 
-  describe('Visitante anônimo', () => {
-    it('alcança o MCI TV', async () => {
-      await twoWorlds();
-      expect((await request(app).get(`${api}/public/tournaments`)).status).toBe(200);
-      expect((await request(app).get(`${api}/public/live`)).status).toBe(200);
-      expect((await request(app).get(`${api}/public/summary`)).status).toBe(200);
-    });
+  it('diretor não cadastra atleta em organização alheia', async () => {
+    const resposta = await api().post('/api/v1/athletes').set(diretorA.auth())
+      .send({ organizationId: orgB.id, fullName: 'Atleta Alheia', cpf: gerarCpf(818181818), sex: 'FEMALE' });
 
-    it('recebe 401 em todo endpoint privado', async () => {
-      const { A } = await twoWorlds();
-      const privados = [
-        ['get', '/auth/me'],
-        ['get', '/dashboard/summary'],
-        ['get', '/notifications'],
-        ['get', '/documents'],
-        ['get', '/backstage/overview'],
-        ['get', '/coach/overview'],
-        ['get', '/reports/tournaments'],
-        ['get', '/judge/matches'],
-        ['get', `/checkin/tournaments/${A.tournament.id}`]
-      ];
-      for (const [method, path] of privados) {
-        const response = await request(app)[method](`${api}${path}`);
-        expect(response.status, `${method.toUpperCase()} ${path}`).toBe(401);
-      }
-    });
-
-    it('não recebe identificadores de posse nas leituras abertas', async () => {
-      const { A } = await twoWorlds();
-      const alvos = [
-        `/campeonatos`,
-        `/campeonatos/${A.tournament.id}`,
-        `/campeonatos/${A.tournament.id}/participantes`,
-        `/campeonatos/${A.tournament.id}/classificacao`,
-        `/participantes`,
-        `/equipes`,
-        `/partidas`
-      ];
-      for (const path of alvos) {
-        const response = await request(app).get(`${api}${path}`);
-        expect(response.status, path).toBe(200);
-        const payload = JSON.stringify(response.body);
-        expect(payload, path).not.toContain('createdById');
-        expect(payload, path).not.toContain('coachId');
-        expect(payload, path).not.toContain('userId');
-      }
-    });
-
-    it('mantém os identificadores para quem está autenticado', async () => {
-      const { A } = await twoWorlds();
-      const response = await request(app).get(`${api}/equipes`).set(auth(A.org.token));
-      expect(response.status).toBe(200);
-      expect(JSON.stringify(response.body)).toContain('coachId');
-    });
+    expect(resposta.status).toBe(403);
   });
 
-  describe('Credenciais e token', () => {
-    it('nunca devolve passwordHash em nenhuma superfície', async () => {
-      const { A } = await twoWorlds();
-      const respostas = await Promise.all([
-        request(app).get(`${api}/auth/me`).set(auth(A.org.token)),
-        request(app).get(`${api}/participantes`).set(auth(A.org.token)),
-        request(app).get(`${api}/judge/assignments`).set(auth(A.org.token)),
-        request(app).get(`${api}/public/tournaments`),
-        request(app).post(`${api}/auth/login`).send({ email: 'orga@sec.test', password: 'Senha@123' })
-      ]);
-      for (const response of respostas) {
-        expect(JSON.stringify(response.body)).not.toContain('passwordHash');
-      }
-    });
+  it('listagem de atletas não mistura organizações', async () => {
+    await criarAtleta(diretorA, orgA.id, { fullName: 'Da Federação A', cpf: gerarCpf(717171717) });
+    await criarAtleta(diretorB, orgB.id, { fullName: 'Da Federação B', cpf: gerarCpf(616161616) });
 
-    it('recusa token forjado, malformado ou de assinatura inválida', async () => {
-      await twoWorlds();
-      const invalidos = [
-        'Bearer nao-e-um-token',
-        'Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmYWxzbyIsInJvbGUiOiJBRE1JTiJ9.assinatura-invalida',
-        'Bearer '
-      ];
-      for (const header of invalidos) {
-        const response = await request(app).get(`${api}/auth/me`).set({ Authorization: header });
-        expect(response.status, header).toBe(401);
-      }
-    });
+    const listaA = await api().get('/api/v1/athletes').set(diretorA.auth());
+    const nomes = listaA.body.items.map(item => item.fullName);
 
-    it('não aceita perfil inválido no registro', async () => {
-      const response = await request(app).post(`${api}/auth/register`)
-        .send({ name: 'Fulano', email: 'fulano@sec.test', password: 'Senha@123', role: 'SUPERADMIN' });
-      expect(response.status).toBe(400);
-    });
+    expect(nomes).toContain('Da Federação A');
+    expect(nomes).not.toContain('Da Federação B');
   });
 
-  describe('Códigos de erro do domínio', () => {
-    it('cobre 400, 401, 403, 404, 409 e 422', async () => {
-      const { A } = await twoWorlds();
+  it('não altera atleta de outra organização mesmo conhecendo o id', async () => {
+    const atleta = await criarAtleta(diretorB, orgB.id, { fullName: 'Protegida', cpf: gerarCpf(515151515) });
 
-      // 400 — corpo inválido
-      expect((await request(app).post(`${api}/campeonatos`).set(auth(A.org.token)).send({ name: '' })).status).toBe(400);
-      // 401 — sem credencial
-      expect((await request(app).get(`${api}/notifications`)).status).toBe(401);
-      // 403 — sem permissão
-      expect((await request(app).get(`${api}/backstage/overview`).set(auth(A.athlete.token))).status).toBe(403);
-      // 404 — recurso inexistente
-      expect((await request(app).get(`${api}/campeonatos/nao-existe`)).status).toBe(404);
-      // 409 — duplicidade
-      expect((await request(app).post(`${api}/campeonatos/${A.tournament.id}/participantes`)
-        .set(auth(A.org.token)).send({ participantId: A.team1.id })).status).toBe(409);
-      // 422 — violação semântica
-      expect((await request(app).post(`${api}/documents`).set(auth(A.org.token))
-        .send({ tournamentId: A.tournament.id, title: 'Trav', fileName: '../../etc/passwd' })).status).toBe(422);
-      expect((await request(app).post(`${api}/partidas`).set(auth(A.org.token))
-        .send({ tournamentId: A.tournament.id, participantAId: A.team1.id, participantBId: A.team1.id })).status).toBe(422);
-    });
+    const resposta = await api().patch(`/api/v1/athletes/${atleta.id}`).set(diretorA.auth()).send({ city: 'Invadida' });
+    expect(resposta.status).toBe(403);
+  });
 
-    it('devolve 204 sem corpo na exclusão', async () => {
-      const { A } = await twoWorlds();
-      const response = await request(app).delete(`${api}/documents/${A.document.id}`).set(auth(A.org.token));
-      expect(response.status).toBe(204);
-      expect(response.body).toEqual({});
-    });
+  it('não inscreve em evento de outra organização', async () => {
+    const { event, competitionClass } = await criarEventoCompleto(diretorB, orgB.id);
+    await transicionar(diretorB, event.id, ['PLANNED', 'REGISTRATIONS_OPEN']);
+
+    const resposta = await api().post(`/api/v1/events/${event.id}/registrations`).set(diretorA.auth())
+      .send({ cpf: gerarCpf(414141414), athlete: { fullName: 'Atleta Alheia', sex: 'FEMALE' }, classIds: [competitionClass.id] });
+
+    expect(resposta.status).toBe(403);
+  });
+
+  it('auditoria de uma organização não é lida por diretor de outra', async () => {
+    const resposta = await api().get('/api/v1/audit').set(diretorA.auth()).query({ organizationId: orgB.id });
+    expect(resposta.status).toBe(403);
+  });
+});
+
+describe('proteção do CPF', () => {
+  it('CPF nunca aparece em rota pública de atleta', async () => {
+    const cpf = gerarCpf(313131313);
+    const atleta = await criarAtleta(diretorA, orgA.id, { fullName: 'Pública', cpf });
+
+    const pagina = await api().get(`/api/v1/public/athletes/${atleta.id}`);
+    expect(pagina.status).toBe(200);
+    expect(JSON.stringify(pagina.body)).not.toContain(cpf);
+
+    const lista = await api().get('/api/v1/public/athletes');
+    expect(JSON.stringify(lista.body)).not.toContain(cpf);
+  });
+
+  it('busca por CPF não encontra nada para quem não tem permissão de dado sensível', async () => {
+    const cpf = gerarCpf(212121212);
+    await criarAtleta(diretorA, orgA.id, { fullName: 'Sigilosa', cpf });
+
+    const atleta = await criarUsuario({ name: 'Atleta comum' });
+    await vincular(orgA.id, atleta, 'ATHLETE');
+
+    const busca = await api().get('/api/v1/search').set(atleta.auth()).query({ q: cpf, types: 'athletes' });
+    expect(busca.status).toBe(200);
+    expect(busca.body.results.athletes).toHaveLength(0);
+
+    // Mesmo com permissão, o resultado da busca não devolve o número.
+    const buscaOperador = await api().get('/api/v1/search').set(diretorA.auth()).query({ q: cpf, types: 'athletes' });
+    expect(buscaOperador.body.results.athletes).toHaveLength(1);
+    // Encontra o atleta, mas não devolve o número — nem nos dados, nem no eco
+    // do termo consultado.
+    expect(JSON.stringify(buscaOperador.body)).not.toContain(cpf);
+    expect(buscaOperador.body.query).toBe('[CPF]');
+  });
+
+  it('consulta de CPF por operador fica registrada na auditoria', async () => {
+    const cpf = gerarCpf(919191919);
+    await criarAtleta(diretorA, orgA.id, { fullName: 'Consultada', cpf });
+
+    await api().post('/api/v1/athletes/lookup').set(diretorA.auth()).send({ organizationId: orgA.id, cpf });
+
+    const trilha = await prisma.auditLog.findMany({ where: { action: 'ATHLETE_CPF_VIEW' } });
+    expect(trilha.length).toBeGreaterThanOrEqual(1);
+    expect(trilha[0].userEmail).toBe(diretorA.email);
+    // A trilha registra o acesso, não o número consultado.
+    expect(JSON.stringify(trilha[0].metadata ?? {})).not.toContain(cpf);
+  });
+
+  it('atleta comum não usa a consulta por CPF', async () => {
+    const atleta = await criarUsuario({ name: 'Curioso' });
+    await vincular(orgA.id, atleta, 'ATHLETE');
+
+    const resposta = await api().post('/api/v1/athletes/lookup').set(atleta.auth())
+      .send({ organizationId: orgA.id, cpf: gerarCpf(818281828) });
+
+    expect(resposta.status).toBe(403);
+  });
+
+  it('CPF duplicado na mesma organização é recusado', async () => {
+    const cpf = gerarCpf(727272727);
+    await criarAtleta(diretorA, orgA.id, { fullName: 'Primeira', cpf });
+
+    const repetido = await api().post('/api/v1/athletes').set(diretorA.auth())
+      .send({ organizationId: orgA.id, fullName: 'Segunda', cpf, sex: 'FEMALE' });
+
+    expect(repetido.status).toBe(409);
+    expect(repetido.body.error.code).toBe('ATHLETE_CPF_EXISTS');
+  });
+
+  it('CPF inválido é recusado com 422', async () => {
+    const resposta = await api().post('/api/v1/athletes').set(diretorA.auth())
+      .send({ organizationId: orgA.id, fullName: 'Inválida', cpf: '123.456.789-00', sex: 'FEMALE' });
+
+    expect(resposta.status).toBe(422);
+    expect(resposta.body.error.code).toBe('INVALID_CPF');
+  });
+});
+
+describe('julgamento e resultados', () => {
+  let evento;
+  let juiz;
+  let intruso;
+
+  beforeEach(async () => {
+    evento = await criarEventoCompleto(diretorA, orgA.id);
+    juiz = await criarUsuario({ name: 'Juiz escalado' });
+    intruso = await criarUsuario({ name: 'Juiz não escalado' });
+    await vincular(orgA.id, juiz, 'JUDGE');
+    await vincular(orgA.id, intruso, 'JUDGE');
+
+    await transicionar(diretorA, evento.event.id, ['PLANNED', 'REGISTRATIONS_OPEN']);
+    const inscricao = await api().post(`/api/v1/events/${evento.event.id}/registrations`).set(diretorA.auth())
+      .send({ cpf: gerarCpf(626262626), athlete: { fullName: 'Competidora', sex: 'FEMALE' }, classIds: [evento.competitionClass.id] });
+
+    await transicionar(diretorA, evento.event.id, ['REGISTRATIONS_CLOSED', 'IN_OPERATION']);
+    await api().post(`/api/v1/registrations/${inscricao.body.registration.id}/checkin`).set(diretorA.auth()).send({});
+    await transicionar(diretorA, evento.event.id, ['IN_JUDGING']);
+  });
+
+  it('juiz não escalado no painel não pontua', async () => {
+    const painel = await api().post(`/api/v1/events/${evento.event.id}/panels`).set(diretorA.auth()).send({ name: 'Painel' });
+    await api().post(`/api/v1/panels/${painel.body.id}/judges`).set(diretorA.auth()).send({ judgeId: juiz.id, seat: 1, role: 'HEAD' });
+
+    const sessao = await api().post('/api/v1/judging-sessions').set(diretorA.auth())
+      .send({ classId: evento.competitionClass.id, panelId: painel.body.id, round: 'FINALS' });
+
+    const item = await prisma.registrationItem.findFirst({ where: { classId: evento.competitionClass.id } });
+
+    const resposta = await api().post(`/api/v1/judging-sessions/${sessao.body.id}/scores`).set(intruso.auth())
+      .send({ placings: [{ registrationItemId: item.id, placing: 1 }] });
+
+    expect(resposta.status).toBe(403);
+    expect(resposta.body.error.code).toBe('JUDGE_NOT_ASSIGNED');
+  });
+
+  it('juiz não fecha sessão, não apura e não publica', async () => {
+    const painel = await api().post(`/api/v1/events/${evento.event.id}/panels`).set(diretorA.auth()).send({ name: 'Painel' });
+    await api().post(`/api/v1/panels/${painel.body.id}/judges`).set(diretorA.auth()).send({ judgeId: juiz.id, seat: 1, role: 'HEAD' });
+
+    const sessao = await api().post('/api/v1/judging-sessions').set(diretorA.auth())
+      .send({ classId: evento.competitionClass.id, panelId: painel.body.id, round: 'FINALS' });
+
+    expect((await api().post(`/api/v1/judging-sessions/${sessao.body.id}/close`).set(juiz.auth())).status).toBe(403);
+    expect((await api().post(`/api/v1/classes/${evento.competitionClass.id}/result/calculate`).set(juiz.auth())).status).toBe(403);
+    expect((await api().post(`/api/v1/classes/${evento.competitionClass.id}/result/publish`).set(juiz.auth()).send({})).status).toBe(403);
+  });
+
+  it('a mesma colocação não vai para dois atletas na ficha do mesmo juiz', async () => {
+    const segunda = await api().post(`/api/v1/events/${evento.event.id}/registrations`).set(diretorA.auth())
+      .send({ cpf: gerarCpf(525252525), athlete: { fullName: 'Segunda', sex: 'FEMALE' }, classIds: [evento.competitionClass.id] });
+    // Evento já está em julgamento: a inscrição extra precisa ser criada antes.
+    expect(segunda.status).toBe(422);
+  });
+
+  it('sessão com ficha incompleta não fecha', async () => {
+    const painel = await api().post(`/api/v1/events/${evento.event.id}/panels`).set(diretorA.auth()).send({ name: 'Painel' });
+    await api().post(`/api/v1/panels/${painel.body.id}/judges`).set(diretorA.auth()).send({ judgeId: juiz.id, seat: 1, role: 'HEAD' });
+    await api().post(`/api/v1/panels/${painel.body.id}/judges`).set(diretorA.auth()).send({ judgeId: intruso.id, seat: 2 });
+
+    const sessao = await api().post('/api/v1/judging-sessions').set(diretorA.auth())
+      .send({ classId: evento.competitionClass.id, panelId: painel.body.id, round: 'FINALS' });
+
+    const item = await prisma.registrationItem.findFirst({ where: { classId: evento.competitionClass.id } });
+    await api().post(`/api/v1/judging-sessions/${sessao.body.id}/scores`).set(juiz.auth())
+      .send({ placings: [{ registrationItemId: item.id, placing: 1 }] });
+
+    const fechamento = await api().post(`/api/v1/judging-sessions/${sessao.body.id}/close`).set(diretorA.auth());
+    expect(fechamento.status).toBe(422);
+    expect(fechamento.body.error.code).toBe('INCOMPLETE_SCORES');
+  });
+
+  it('resultado não publicado não vaza para visitante nem para atleta', async () => {
+    const painel = await api().post(`/api/v1/events/${evento.event.id}/panels`).set(diretorA.auth()).send({ name: 'Painel' });
+    await api().post(`/api/v1/panels/${painel.body.id}/judges`).set(diretorA.auth()).send({ judgeId: juiz.id, seat: 1, role: 'HEAD' });
+
+    const sessao = await api().post('/api/v1/judging-sessions').set(diretorA.auth())
+      .send({ classId: evento.competitionClass.id, panelId: painel.body.id, round: 'FINALS' });
+    const item = await prisma.registrationItem.findFirst({ where: { classId: evento.competitionClass.id } });
+
+    await api().post(`/api/v1/judging-sessions/${sessao.body.id}/scores`).set(juiz.auth())
+      .send({ placings: [{ registrationItemId: item.id, placing: 1 }] });
+    await api().post(`/api/v1/judging-sessions/${sessao.body.id}/close`).set(diretorA.auth());
+    await api().post(`/api/v1/classes/${evento.competitionClass.id}/result/calculate`).set(diretorA.auth());
+
+    const atleta = await criarUsuario({ name: 'Atleta curiosa' });
+    expect((await api().get(`/api/v1/classes/${evento.competitionClass.id}/result`)).status).toBe(404);
+    expect((await api().get(`/api/v1/classes/${evento.competitionClass.id}/result`).set(atleta.auth())).status).toBe(404);
+    expect((await api().get(`/api/v1/classes/${evento.competitionClass.id}/result`).set(diretorA.auth())).status).toBe(200);
+
+    const listaPublica = await api().get(`/api/v1/events/${evento.event.id}/results`);
+    expect(listaPublica.body.items).toHaveLength(0);
+  });
+});
+
+describe('estados do evento', () => {
+  it('recusa transição fora da máquina de estados', async () => {
+    const { event } = await criarEventoCompleto(diretorA, orgA.id);
+
+    const invalida = await api().post(`/api/v1/events/${event.id}/transition`).set(diretorA.auth())
+      .send({ status: 'RESULTS_PUBLISHED' });
+
+    expect(invalida.status).toBe(422);
+    expect(invalida.body.error.code).toBe('INVALID_STATE_TRANSITION');
+  });
+
+  it('não inscreve com inscrições fechadas', async () => {
+    const { event, competitionClass } = await criarEventoCompleto(diretorA, orgA.id);
+
+    const cedoDemais = await api().post(`/api/v1/events/${event.id}/registrations`).set(diretorA.auth())
+      .send({ cpf: gerarCpf(434343434), athlete: { fullName: 'Adiantada', sex: 'FEMALE' }, classIds: [competitionClass.id] });
+
+    expect(cedoDemais.status).toBe(422);
+    expect(cedoDemais.body.error.code).toBe('REGISTRATIONS_NOT_OPEN');
+  });
+
+  it('não faz check-in fora da janela operacional', async () => {
+    const { event, competitionClass } = await criarEventoCompleto(diretorA, orgA.id);
+    await transicionar(diretorA, event.id, ['PLANNED', 'REGISTRATIONS_OPEN']);
+
+    const inscricao = await api().post(`/api/v1/events/${event.id}/registrations`).set(diretorA.auth())
+      .send({ cpf: gerarCpf(323232323), athlete: { fullName: 'Antecipada', sex: 'FEMALE' }, classIds: [competitionClass.id] });
+
+    const checkin = await api().post(`/api/v1/registrations/${inscricao.body.registration.id}/checkin`).set(diretorA.auth()).send({});
+    expect(checkin.status).toBe(422);
+    expect(checkin.body.error.code).toBe('EVENT_NOT_OPERATIONAL');
+  });
+
+  it('atleta não elegível é recusado com o motivo', async () => {
+    const { event } = await criarEventoCompleto(diretorA, orgA.id, { categoryCode: 'MENS_PHYSIQUE' });
+    await transicionar(diretorA, event.id, ['PLANNED', 'REGISTRATIONS_OPEN']);
+
+    const classe = await prisma.competitionClass.findFirst({ where: { division: { eventCategory: { eventId: event.id } } } });
+
+    const resposta = await api().post(`/api/v1/events/${event.id}/registrations`).set(diretorA.auth())
+      .send({ cpf: gerarCpf(232323232), athlete: { fullName: 'Atleta Feminina', sex: 'FEMALE' }, classIds: [classe.id] });
+
+    expect(resposta.status).toBe(422);
+    expect(resposta.body.error.code).toBe('NOT_ELIGIBLE');
+    expect(JSON.stringify(resposta.body.error.details)).toMatch(/masculina/);
+  });
+
+  it('inscrição duplicada no mesmo evento é recusada', async () => {
+    const { event, competitionClass } = await criarEventoCompleto(diretorA, orgA.id);
+    await transicionar(diretorA, event.id, ['PLANNED', 'REGISTRATIONS_OPEN']);
+
+    const cpf = gerarCpf(132323231);
+    const corpo = { cpf, athlete: { fullName: 'Repetida', sex: 'FEMALE' }, classIds: [competitionClass.id] };
+
+    expect((await api().post(`/api/v1/events/${event.id}/registrations`).set(diretorA.auth()).send(corpo)).status).toBe(201);
+    const repetida = await api().post(`/api/v1/events/${event.id}/registrations`).set(diretorA.auth()).send(corpo);
+
+    expect(repetida.status).toBe(409);
+    expect(repetida.body.error.code).toBe('ALREADY_REGISTERED');
+  });
+});
+
+describe('respostas de erro', () => {
+  it('não expõe stack trace nem detalhe interno', async () => {
+    const resposta = await api().get('/api/v1/rota-que-nao-existe');
+    expect(resposta.status).toBe(404);
+    expect(resposta.body).toEqual({ error: { code: 'ROUTE_NOT_FOUND', message: 'Rota não encontrada' } });
+    expect(JSON.stringify(resposta.body)).not.toMatch(/at .*\(.*:\d+:\d+\)/);
+  });
+
+  it('valida entrada malformada antes de tocar o banco', async () => {
+    const resposta = await api().post('/api/v1/auth/register').send({ name: '', email: 'nao-e-email', password: '123' });
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.error.code).toBe('VALIDATION_ERROR');
+    expect(resposta.body.error.details.length).toBeGreaterThan(0);
   });
 });

@@ -1,6 +1,9 @@
 // Configuração centralizada e validada na partida. Em produção o processo se
 // recusa a subir com segredo de desenvolvimento: é preferível falhar no deploy
 // a servir tráfego real com JWT que qualquer um consegue adivinhar.
+//
+// Não existe variável financeira nesta plataforma. Se alguma aparecer aqui,
+// ela é um erro de escopo, não uma funcionalidade.
 
 const AMBIENTES = Object.freeze(['development', 'test', 'production']);
 
@@ -8,12 +11,10 @@ const NODE_ENV = AMBIENTES.includes(process.env.NODE_ENV) ? process.env.NODE_ENV
 const isProduction = NODE_ENV === 'production';
 const isTest = NODE_ENV === 'test';
 
-// Valores que só existem porque facilitam o desenvolvimento local. Nenhum deles
-// pode sobreviver a um deploy.
 const PLACEHOLDERS = Object.freeze([
   'development-secret-change-me',
   'change-this-secret-in-production',
-  'sandbox-webhook-secret',
+  'local-development-secret-not-for-production-use',
   'secret',
   'changeme'
 ]);
@@ -42,23 +43,28 @@ const config = Object.freeze({
   isDevelopment: NODE_ENV === 'development',
 
   port: inteiro(process.env.PORT, 3000),
-  databaseUrl: process.env.DATABASE_URL || 'file:./dev.db',
-  // O provider do Prisma é declarado no schema; aqui só se registra qual banco
-  // a URL aponta, para health check e diagnóstico.
-  databaseKind: String(process.env.DATABASE_URL || '').startsWith('postgres') ? 'postgresql' : 'sqlite',
+  databaseUrl: process.env.DATABASE_URL || '',
+  databaseKind: String(process.env.DATABASE_URL || '').startsWith('postgres') ? 'postgresql' : 'desconhecido',
 
   jwtSecret: process.env.JWT_SECRET || 'development-secret-change-me',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '12h',
+  // Custo do bcrypt. Alto por padrão; a suíte de teste reduz para que a
+  // verificação de milhares de hashes não domine o tempo de execução.
+  bcryptRounds: inteiro(process.env.BCRYPT_ROUNDS, isTest ? 4 : 12),
 
   corsOrigins: origensPermitidas(),
+
+  // Fuso padrão de novas organizações e eventos. Nenhum cálculo do domínio
+  // assume fuso fixo: cada evento carrega o seu.
+  defaultTimezone: process.env.DEFAULT_TIMEZONE || 'America/Sao_Paulo',
 
   storageDriver: process.env.STORAGE_DRIVER || 'local',
   storageDir: process.env.STORAGE_DIR || null,
   uploadMaxBytes: inteiro(process.env.UPLOAD_MAX_BYTES, 10 * 1024 * 1024),
+  mediaMaxBytes: inteiro(process.env.MEDIA_MAX_BYTES, 50 * 1024 * 1024),
 
-  paymentProvider: process.env.PAYMENT_PROVIDER || 'sandbox',
-  paymentWebhookSecret: process.env.PAYMENT_WEBHOOK_SECRET || 'sandbox-webhook-secret',
-  allowSandboxPayments: bool(process.env.ALLOW_SANDBOX_PAYMENTS, false),
+  // Duração de um story antes de expirar.
+  storyTtlHours: inteiro(process.env.STORY_TTL_HOURS, 24),
 
   rateLimitEnabled: bool(process.env.RATE_LIMIT_ENABLED, isProduction),
   logLevel: process.env.LOG_LEVEL || (isTest ? 'silent' : isProduction ? 'info' : 'debug')
@@ -76,24 +82,18 @@ function validar(ambiente = config) {
   else if (ambiente.jwtSecret.length < 32) problemas.push('JWT_SECRET deve ter ao menos 32 caracteres');
 
   if (!process.env.DATABASE_URL) problemas.push('DATABASE_URL não está definido');
-  else if (ambiente.databaseKind === 'sqlite') problemas.push('SQLite não é adequado para produção: aponte DATABASE_URL para PostgreSQL');
+  else if (ambiente.databaseKind !== 'postgresql') problemas.push('DATABASE_URL precisa apontar para PostgreSQL');
 
   if (!process.env.CORS_ORIGINS && !process.env.FRONTEND_URL) {
     problemas.push('CORS_ORIGINS não está definido: a origem do frontend precisa ser explícita');
   }
   if (ambiente.corsOrigins.includes('*')) problemas.push('CORS não pode liberar todas as origens em produção');
 
-  if (ambiente.paymentProvider === 'sandbox' && !ambiente.allowSandboxPayments) {
-    problemas.push('PAYMENT_PROVIDER é o de desenvolvimento: configure um provedor real ou assuma ALLOW_SANDBOX_PAYMENTS=true');
-  }
-  if (PLACEHOLDERS.includes(ambiente.paymentWebhookSecret)) {
-    problemas.push('PAYMENT_WEBHOOK_SECRET ainda usa o valor de desenvolvimento');
-  }
+  if (ambiente.bcryptRounds < 10) problemas.push('BCRYPT_ROUNDS abaixo de 10 é fraco demais para produção');
 
   return problemas;
 }
 
-// Chamado por server.js antes de abrir a porta.
 function assertPronto(ambiente = config) {
   const problemas = validar(ambiente);
   if (!problemas.length) return true;

@@ -1,42 +1,33 @@
 const prisma = require('../config/prisma');
-const { config, validar } = require('../config/environment');
 const storage = require('./storageService');
+const { config } = require('../config/environment');
 
-// Sondas de infraestrutura. Ficam num service para que o controller continue
-// sem tocar no Prisma, como o resto da aplicação.
+// /health responde se o processo está de pé. /ready responde se ele consegue
+// atender: banco alcançável e armazenamento gravável. Um orquestrador precisa
+// distinguir as duas coisas.
 
-const inicio = Date.now();
-
-const liveness = () => ({
-  status: 'ok',
-  env: config.env,
-  uptimeSeconds: Math.floor((Date.now() - inicio) / 1000),
-  timestamp: new Date().toISOString()
-});
-
-async function readiness() {
-  const checks = {};
-
-  try {
-    await prisma.$queryRawUnsafe('SELECT 1');
-    checks.database = { status: 'ok', kind: config.databaseKind };
-  } catch (error) {
-    checks.database = { status: 'error', kind: config.databaseKind };
-  }
-
-  try {
-    checks.storage = { status: (await storage.healthCheck()) ? 'ok' : 'error', driver: storage.driver() };
-  } catch (error) {
-    checks.storage = { status: 'error', driver: config.storageDriver };
-  }
-
-  // Em produção, configuração incompleta impede a instância de se declarar
-  // pronta — a resposta diz quantos problemas existem, nunca quais valores.
-  const problemas = validar();
-  checks.configuration = { status: problemas.length ? 'error' : 'ok', issues: problemas.length };
-
-  const pronto = Object.values(checks).every(item => item.status === 'ok');
-  return { pronto, corpo: { status: pronto ? 'ready' : 'not-ready', checks, timestamp: new Date().toISOString() } };
+function health() {
+  return { status: 'ok', env: config.env, uptimeSeconds: Math.round(process.uptime()) };
 }
 
-module.exports = { liveness, readiness };
+async function ready() {
+  const verificacoes = { database: false, storage: false };
+
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    verificacoes.database = true;
+  } catch (error) {
+    verificacoes.database = false;
+  }
+
+  try {
+    verificacoes.storage = await storage.healthCheck();
+  } catch (error) {
+    verificacoes.storage = false;
+  }
+
+  const pronto = Object.values(verificacoes).every(Boolean);
+  return { ready: pronto, checks: verificacoes, databaseKind: config.databaseKind, storageDriver: config.storageDriver };
+}
+
+module.exports = { health, ready };

@@ -10,6 +10,7 @@ const { LocalStorageProvider } = require('./storage/localStorageProvider');
 
 const ROOT = path.resolve(config.storageDir || path.join(process.cwd(), 'uploads'));
 const MAX_BYTES = config.uploadMaxBytes;
+const MAX_MEDIA_BYTES = config.mediaMaxBytes;
 
 // Lista fechada: o que não está aqui não entra.
 const ALLOWED = Object.freeze({
@@ -18,7 +19,21 @@ const ALLOWED = Object.freeze({
   'image/jpeg': 'jpg',
   'image/webp': 'webp',
   'text/plain': 'txt',
-  'text/csv': 'csv'
+  'text/csv': 'csv',
+  'application/json': 'json'
+});
+
+// Mídia social e de mensagem aceita vídeo, que documento não aceita. As duas
+// listas são separadas de propósito: um anexo de inscrição não deveria abrir
+// caminho para upload de vídeo.
+const ALLOWED_MEDIA = Object.freeze({
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov'
 });
 
 const provedores = new Map([['local', new LocalStorageProvider({ root: ROOT })]]);
@@ -37,7 +52,11 @@ function resolverProvedor() {
 const registerProvider = provider => provedores.set(provider.name, provider);
 
 const isAllowedMime = mime => Object.prototype.hasOwnProperty.call(ALLOWED, String(mime || '').toLowerCase());
-const extensionFor = mime => ALLOWED[String(mime || '').toLowerCase()] || 'bin';
+const isAllowedMediaMime = mime => Object.prototype.hasOwnProperty.call(ALLOWED_MEDIA, String(mime || '').toLowerCase());
+const extensionFor = mime => {
+  const normalizado = String(mime || '').toLowerCase();
+  return ALLOWED[normalizado] || ALLOWED_MEDIA[normalizado] || 'bin';
+};
 
 // A chave é sempre gerada pelo servidor. Nada vindo do cliente compõe o caminho
 // de armazenamento: o nome original fica apenas como metadado, para exibição.
@@ -59,8 +78,11 @@ const driver = () => resolverProvedor().name;
 module.exports = {
   ROOT,
   MAX_BYTES,
+  MAX_MEDIA_BYTES,
   ALLOWED,
+  ALLOWED_MEDIA,
   isAllowedMime,
+  isAllowedMediaMime,
   extensionFor,
   buildKey,
   resolveKey,

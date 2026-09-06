@@ -1,15 +1,18 @@
 {
   "name": "mci-platform",
   "version": "1.0.0",
-  "description": "",
+  "description": "MCI Platform — Campeonato Brasileiro Muscle Contest",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "cross-env DATABASE_URL=file:./test.db prisma migrate deploy && cross-env DATABASE_URL=file:./test.db STORAGE_DIR=./uploads-test vitest run",
-    "prisma:generate": "prisma generate",
-    "prisma:validate": "prisma validate",
-    "prisma:migrate": "prisma migrate dev --name init"
+    "test": "node scripts/run-tests.mjs",
+    "test:watch": "vitest",
+    "db:migrate": "prisma migrate deploy",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:generate": "prisma generate",
+    "db:validate": "prisma validate",
+    "db:seed": "node prisma/seed.js"
   },
   "keywords": [],
   "author": "",
@@ -30,5 +33,8 @@
     "prisma": "^6.16.0",
     "supertest": "^7.2.2",
     "vitest": "^4.1.11"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
   }
 }

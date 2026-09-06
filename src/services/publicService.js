@@ -1,197 +1,167 @@
 const prisma = require('../config/prisma');
 const { AppError } = require('../utils/errors');
+const { athletePublic } = require('../utils/visibility');
 
-// Superfície pública: somente leitura, sem login e sem qualquer dado de usuário.
-// Nada aqui expõe email, perfil, operador de check-in ou identificador interno
-// de quem cadastrou o registro.
-const publicParticipant = { select: { id: true, name: true, type: true } };
-const publicTournament = { id: true, name: true, description: true, status: true, startDate: true, endDate: true };
-const publicMatch = {
-  id: true,
-  status: true,
-  scheduledAt: true,
-  phase: true,
-  round: true,
-  tournament: { select: { id: true, name: true } },
-  participantA: publicParticipant,
-  participantB: publicParticipant,
-  result: { select: { scoreA: true, scoreB: true, winnerParticipantId: true } }
-};
+// Vitrine pública: só dado público, e sempre da base real.
+// Nenhuma rota daqui expõe CPF, telefone, e-mail, documento ou resultado ainda
+// não publicado.
+
+const EVENTOS_VISIVEIS = Object.freeze(['PLANNED', 'REGISTRATIONS_OPEN', 'REGISTRATIONS_CLOSED', 'IN_OPERATION', 'IN_JUDGING', 'RESULTS_IN_REVIEW', 'RESULTS_PUBLISHED', 'CLOSED']);
 
 async function summary() {
-  const [tournaments, matches, documents, standings] = await Promise.all([
-    prisma.tournament.count(),
-    prisma.match.count(),
-    prisma.document.count(),
-    prisma.standing.findMany({ take: 5, include: { participant: publicParticipant }, orderBy: [{ points: 'desc' }, { wins: 'desc' }, { scored: 'desc' }] })
+  const [eventos, atletas, pros, resultados, temporadas] = await Promise.all([
+    prisma.event.count({ where: { status: { in: EVENTOS_VISIVEIS } } }),
+    prisma.athlete.count(),
+    prisma.athlete.count({ where: { proStatus: 'ACTIVE' } }),
+    prisma.result.count({ where: { status: 'PUBLISHED' } }),
+    prisma.rankingSeason.count({ where: { status: 'OPEN' } })
   ]);
 
-  return {
-    tournamentCount: tournaments,
-    matchCount: matches,
-    documentCount: documents,
-    leaderboard: standings.map(row => ({
-      participantId: row.participantId,
-      participantName: row.participant.name,
-      points: row.points,
-      wins: row.wins,
-      played: row.played
-    }))
-  };
-}
-
-// Campeonatos visíveis ao público. Rascunhos (PLANNED) só aparecem quando já
-// têm data definida, para a grade pública não listar evento sem informação.
-async function listTournaments() {
-  const items = await prisma.tournament.findMany({
-    where: { OR: [{ status: { in: ['ACTIVE', 'FINISHED'] } }, { AND: [{ status: 'PLANNED' }, { startDate: { not: null } }] }] },
-    select: { ...publicTournament, _count: { select: { enrollments: true, matches: true } } },
-    orderBy: [{ startDate: 'desc' }]
+  const proximos = await prisma.event.findMany({
+    where: { status: { in: ['PLANNED', 'REGISTRATIONS_OPEN'] }, startDate: { gte: new Date() } },
+    select: { id: true, name: true, slug: true, startDate: true, city: true, state: true, venue: true },
+    orderBy: { startDate: 'asc' },
+    take: 5
   });
-  return { items };
+
+  return { events: eventos, athletes: atletas, proAthletes: pros, publishedResults: resultados, openSeasons: temporadas, upcoming: proximos };
 }
 
-async function tournamentDetail(id) {
-  const tournament = await prisma.tournament.findUnique({ where: { id }, select: { ...publicTournament, _count: { select: { enrollments: true, matches: true } } } });
-  if (!tournament) throw new AppError(404, 'TOURNAMENT_NOT_FOUND', 'Campeonato não encontrado');
-
-  const [matches, standings] = await Promise.all([
-    prisma.match.findMany({ where: { tournamentId: id }, select: publicMatch, orderBy: { scheduledAt: 'asc' } }),
-    prisma.standing.findMany({
-      where: { tournamentId: id },
-      select: { points: true, wins: true, losses: true, draws: true, played: true, scored: true, conceded: true, participant: publicParticipant },
-      orderBy: [{ points: 'desc' }, { wins: 'desc' }, { scored: 'desc' }]
-    })
-  ]);
-
-  const now = new Date();
-  const live = matches.filter(item => item.status === 'IN_PROGRESS');
-  const nextMatch = matches.find(item => item.status === 'SCHEDULED' && item.scheduledAt && item.scheduledAt >= now)
-    || matches.find(item => item.status === 'SCHEDULED')
-    || null;
-
-  return {
-    tournament,
-    matches,
-    standings,
-    liveMatches: live,
-    nextMatch,
-    results: matches.filter(item => item.result)
-  };
-}
-
-// Grade ao vivo do MCI TV: o que está acontecendo agora, o que vem a seguir e
-// os últimos resultados reais. Sem dados inventados: listas vazias quando não há.
-async function live() {
-  const now = new Date();
-
-  const [liveMatches, upcoming, recent] = await Promise.all([
-    prisma.match.findMany({ where: { status: 'IN_PROGRESS' }, select: publicMatch, orderBy: { scheduledAt: 'asc' } }),
-    prisma.match.findMany({
-      where: { status: 'SCHEDULED', scheduledAt: { gte: now } },
-      select: publicMatch,
-      orderBy: { scheduledAt: 'asc' },
-      take: 8
-    }),
-    prisma.match.findMany({
-      where: { result: { isNot: null } },
-      select: publicMatch,
-      orderBy: { updatedAt: 'desc' },
-      take: 8
-    })
-  ]);
-
-  return { liveMatches, upcoming, recentResults: recent, nextMatch: upcoming[0] || null };
-}
-
-// Só entra na vitrine pública quem de fato compete: participante sem inscrição
-// confirmada não é exposto, para que a superfície aberta não vire um índice do
-// cadastro interno.
-const competeEmAlgumLugar = { enrollments: { some: { status: 'CONFIRMED' } } };
-
-const perfilPublico = {
-  id: true,
-  name: true,
-  identification: true,
-  type: true,
-  createdAt: true,
-  team: { select: { id: true, name: true } },
-  _count: { select: { enrollments: true } }
-};
-
-async function listAthletes() {
-  const items = await prisma.participant.findMany({
-    where: { AND: [{ type: { not: 'TEAM' } }, competeEmAlgumLugar] },
-    select: perfilPublico,
-    orderBy: { name: 'asc' }
+async function listEvents(filtros) {
+  const items = await prisma.event.findMany({
+    where: { status: { in: EVENTOS_VISIVEIS }, ...(filtros.search ? { name: { contains: filtros.search, mode: 'insensitive' } } : {}) },
+    select: {
+      id: true, name: true, slug: true, status: true, startDate: true, endDate: true,
+      city: true, state: true, venue: true, description: true,
+      organization: { select: { id: true, name: true, slug: true } },
+      _count: { select: { registrations: true } }
+    },
+    orderBy: [{ startDate: 'desc' }],
+    take: filtros.limit,
+    ...(filtros.cursor ? { cursor: { id: filtros.cursor }, skip: 1 } : {})
   });
-  return { items };
+
+  return { items, nextCursor: items.length === filtros.limit ? items[items.length - 1].id : null };
 }
 
-async function listTeams() {
-  const items = await prisma.participant.findMany({
-    where: { AND: [{ type: 'TEAM' }, competeEmAlgumLugar] },
-    select: { ...perfilPublico, _count: { select: { enrollments: true, members: true } } },
-    orderBy: { name: 'asc' }
-  });
-  return { items };
-}
-
-// Histórico esportivo de um participante: onde compete, o que jogou e como está
-// classificado. Nada de conta, técnico, operador ou quem cadastrou.
-async function participantDetail(id, tipoEsperado) {
-  const participant = await prisma.participant.findFirst({
-    where: { AND: [{ id }, competeEmAlgumLugar, ...(tipoEsperado === 'TEAM' ? [{ type: 'TEAM' }] : tipoEsperado === 'ATHLETE' ? [{ type: { not: 'TEAM' } }] : [])] },
-    select: perfilPublico
-  });
-  if (!participant) throw new AppError(404, 'PARTICIPANT_NOT_FOUND', 'Participante não encontrado');
-
-  const [enrollments, matches, standings, members] = await Promise.all([
-    prisma.enrollment.findMany({
-      where: { participantId: id, status: 'CONFIRMED' },
-      select: { id: true, createdAt: true, tournament: { select: publicTournament } },
-      orderBy: { createdAt: 'desc' }
-    }),
-    prisma.match.findMany({
-      where: { OR: [{ participantAId: id }, { participantBId: id }] },
-      select: publicMatch,
-      orderBy: { scheduledAt: 'asc' }
-    }),
-    prisma.standing.findMany({
-      where: { participantId: id },
-      select: {
-        points: true, wins: true, losses: true, draws: true, played: true, scored: true, conceded: true,
-        tournament: { select: { id: true, name: true, status: true } }
+// Página pública do campeonato: agenda, categorias, atletas, resultados
+// publicados, patrocinadores e conteúdo social do evento.
+async function eventPage(slug) {
+  const event = await prisma.event.findUnique({
+    where: { slug },
+    include: {
+      organization: { select: { id: true, name: true, slug: true } },
+      eventCategories: {
+        orderBy: { sortOrder: 'asc' },
+        include: { category: true, divisions: { orderBy: { sortOrder: 'asc' }, include: { classes: { orderBy: { sortOrder: 'asc' } } } } }
       },
-      orderBy: { points: 'desc' }
-    }),
-    participant.type === 'TEAM'
-      ? prisma.participant.findMany({ where: { teamId: id }, select: { id: true, name: true, identification: true, type: true }, orderBy: { name: 'asc' } })
-      : Promise.resolve([])
-  ]);
+      batches: {
+        orderBy: [{ sortOrder: 'asc' }, { scheduledAt: 'asc' }],
+        include: { competitionClass: { select: { id: true, name: true } } }
+      },
+      sponsorships: { where: { status: 'ACTIVE' }, include: { sponsor: { select: { id: true, name: true, brand: { select: { id: true, name: true, slug: true } } } } } }
+    }
+  });
 
-  const vitorias = matches.filter(item => item.result?.winnerParticipantId === id).length;
-  const comResultado = matches.filter(item => item.result);
+  if (!event || !EVENTOS_VISIVEIS.includes(event.status)) {
+    throw new AppError(404, 'EVENT_NOT_FOUND', 'Evento não encontrado');
+  }
+
+  const resultados = await prisma.result.findMany({
+    where: { eventId: event.id, status: 'PUBLISHED' },
+    include: {
+      competitionClass: { include: { division: { include: { eventCategory: { include: { category: true } } } } } },
+      entries: {
+        where: { status: 'RANKED' },
+        include: { athlete: { select: { id: true, fullName: true, stageName: true, photoKey: true, state: true, city: true, team: { select: { id: true, name: true } } } } },
+        orderBy: { placing: 'asc' }
+      }
+    },
+    orderBy: { publishedAt: 'asc' }
+  });
+
+  const atletas = await prisma.registration.findMany({
+    where: { eventId: event.id, status: 'CONFIRMED' },
+    select: { athlete: { select: { id: true, fullName: true, stageName: true, photoKey: true, state: true, city: true, proStatus: true, team: { select: { id: true, name: true } } } } },
+    orderBy: { athlete: { fullName: 'asc' } },
+    take: 500
+  });
+
+  const posts = await prisma.post.findMany({
+    where: { eventId: event.id, visibility: 'PUBLIC', deletedAt: null },
+    include: { author: true, media: { orderBy: { position: 'asc' } } },
+    orderBy: { createdAt: 'desc' },
+    take: 20
+  });
 
   return {
-    participant,
-    team: participant.team || null,
-    members,
-    tournaments: enrollments.map(item => item.tournament),
-    matches,
-    results: comResultado,
-    standings,
-    totals: {
-      tournaments: enrollments.length,
-      matches: matches.length,
-      played: comResultado.length,
-      wins: vitorias,
-      members: members.length
-    }
+    event: {
+      id: event.id, name: event.name, slug: event.slug, description: event.description,
+      status: event.status, startDate: event.startDate, endDate: event.endDate,
+      venue: event.venue, city: event.city, state: event.state, timezone: event.timezone,
+      organization: event.organization
+    },
+    categories: event.eventCategories,
+    schedule: event.batches,
+    athletes: atletas.map(item => item.athlete),
+    results: resultados,
+    sponsors: event.sponsorships.map(item => item.sponsor)
   };
 }
 
-const athleteDetail = id => participantDetail(id, 'ATHLETE');
-const teamDetail = id => participantDetail(id, 'TEAM');
+async function athletePage(id) {
+  const athlete = await prisma.athlete.findUnique({
+    where: { id },
+    include: {
+      team: { select: { id: true, name: true } },
+      coach: { select: { id: true, name: true } },
+      gym: { select: { id: true, name: true } },
+      affiliation: { select: { id: true, name: true, code: true } },
+      socialProfile: { select: { id: true, handle: true, displayName: true, avatarKey: true, bio: true, isPrivate: true } }
+    }
+  });
+  if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
 
-module.exports = { summary, listTournaments, tournamentDetail, live, listAthletes, listTeams, athleteDetail, teamDetail };
+  const resultados = await prisma.resultEntry.findMany({
+    where: { athleteId: id, result: { status: 'PUBLISHED' } },
+    include: {
+      result: { select: { publishedAt: true, event: { select: { id: true, name: true, slug: true, startDate: true } } } },
+      registrationItem: { include: { competitionClass: { include: { division: { include: { eventCategory: { include: { category: true } } } } } } } }
+    },
+    orderBy: { result: { publishedAt: 'desc' } },
+    take: 100
+  });
+
+  const rankings = await prisma.ranking.findMany({
+    where: { athleteId: id },
+    include: { season: { select: { id: true, name: true, year: true } }, category: { select: { id: true, code: true, name: true } } },
+    orderBy: { totalPoints: 'desc' }
+  });
+
+  return {
+    athlete: { ...athletePublic(athlete), socialProfile: athlete.socialProfile },
+    results: resultados.map(entry => ({
+      placing: entry.placing,
+      status: entry.status,
+      event: entry.result.event,
+      publishedAt: entry.result.publishedAt,
+      competitionClass: entry.registrationItem.competitionClass
+    })),
+    titles: resultados.filter(entry => entry.placing === 1).length,
+    rankings
+  };
+}
+
+async function listAthletes(filtros) {
+  const items = await prisma.athlete.findMany({
+    where: filtros.search ? { OR: [{ fullName: { contains: filtros.search, mode: 'insensitive' } }, { stageName: { contains: filtros.search, mode: 'insensitive' } }] } : {},
+    include: { team: { select: { id: true, name: true } }, gym: { select: { id: true, name: true } }, coach: { select: { id: true, name: true } }, affiliation: { select: { id: true, name: true, code: true } } },
+    orderBy: { fullName: 'asc' },
+    take: filtros.limit,
+    ...(filtros.cursor ? { cursor: { id: filtros.cursor }, skip: 1 } : {})
+  });
+
+  return { items: items.map(athletePublic), nextCursor: items.length === filtros.limit ? items[items.length - 1].id : null };
+}
+
+module.exports = { summary, listEvents, eventPage, athletePage, listAthletes, EVENTOS_VISIVEIS };

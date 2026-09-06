@@ -1,434 +1,1739 @@
+// ============================================================================
+// MCI PLATFORM — Campeonato Brasileiro Muscle Contest
+//
+// Domínio: esporte, atletas, competições, comunidade, conteúdo e comunicação.
+// NÃO existe camada financeira: nenhuma tabela, coluna ou enum representa
+// dinheiro, cobrança, pagamento, cupom, reembolso ou saldo. A ausência é
+// deliberada e verificada por teste (tests/financeiro-ausente.test.mjs).
+// ============================================================================
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id          String      @id @default(cuid())
-  name        String
-  email       String      @unique
-  passwordHash String     @map("passwordHash")
-  status      String      @default("ACTIVE")
-  role        String      @default("ATHLETE")
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  participant Participant? @relation("UserParticipant")
-  createdTournaments Tournament[] @relation("TournamentCreatedBy")
-  createdParticipants Participant[] @relation("ParticipantCreatedBy")
-  judgeAssignments JudgeAssignment[] @relation("JudgeAssignmentUser")
-  notifications Notification[]
-  documents Document[] @relation("DocumentCreatedBy")
-  checkIns CheckIn[] @relation("CheckInOperator")
-  coachedParticipants Participant[] @relation("ParticipantCoach")
-  cancelledEnrollments Enrollment[] @relation("EnrollmentCancelledBy")
-  orders     Order[]
-  couponRedemptions CouponRedemption[]
-  requestedRefunds Refund[] @relation("RefundRequestedBy")
-  createdCoupons Coupon[] @relation("CouponCreatedBy")
-  auditLogs  AuditLog[] @relation("AuditLogActor")
+// ============================================================================
+// ORGANIZAÇÕES (multi-tenancy)
+// ============================================================================
 
-  @@index([role])
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  // Fuso do tenant. Eventos podem sobrescrever; nada no código assume
+  // America/Sao_Paulo por conta própria.
+  timezone  String   @default("America/Sao_Paulo")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members          OrganizationMember[]
+  affiliations     Affiliation[]
+  athletes         Athlete[]
+  events           Event[]
+  teams            Team[]
+  gyms             Gym[]
+  brands           Brand[]
+  sponsors         Sponsor[]
+  seasons          RankingSeason[]
+  muscleWarImports MuscleWarImport[]
+
+  @@index([active])
 }
 
-model Tournament {
-  id          String       @id @default(cuid())
-  name        String
-  description String?
-  status      String       @default("PLANNED")
-  entryFeeCents Int        @default(0)
-  currency    String       @default("BRL")
-  startDate   DateTime?
-  endDate     DateTime?
-  createdById String?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  createdBy   User?        @relation("TournamentCreatedBy", fields: [createdById], references: [id])
-  enrollments Enrollment[]
-  matches     Match[]
-  standings   Standing[]
-  judgeAssignments JudgeAssignment[]
-  documents Document[]
-  orders    Order[]
-  coupons   Coupon[]
-  sponsorships Sponsorship[]
+model OrganizationMember {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  role           UserRole
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, role])
+  @@index([userId])
+  @@index([organizationId, role])
+}
+
+// ============================================================================
+// USUÁRIOS E ACESSO
+// ============================================================================
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  EVENT_DIRECTOR
+  EVENT_COORDINATOR
+  JUDGE_COORDINATOR
+  JUDGE
+  STAFF
+  REGISTRATION_OPERATOR
+  CHECKIN_OPERATOR
+  WEIGHIN_OPERATOR
+  RESULTS_OPERATOR
+  RANKING_MANAGER
+  SOCIAL_ADMIN
+  MODERATOR
+  ATHLETE
+  COACH
+  GYM
+  TEAM
+  BRAND
+  SPONSOR
+  MEDIA
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  passwordHash String
+  status       UserStatus @default(ACTIVE)
+  // Papel global. Papéis por organização vivem em OrganizationMember; a
+  // autorização efetiva é a união dos dois, resolvida em utils/permissions.
+  role         UserRole   @default(ATHLETE)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  memberships   OrganizationMember[]
+  athlete       Athlete?             @relation("AthleteUser")
+  socialProfile SocialProfile?
+  coach         Coach?
+  notifications Notification[]
+  auditLogs     AuditLog[]           @relation("AuditActor")
+
+  createdEvents          Event[]             @relation("EventCreatedBy")
+  createdAthletes        Athlete[]           @relation("AthleteCreatedBy")
+  createdRegistrations   Registration[]      @relation("RegistrationCreatedBy")
+  cancelledRegistrations Registration[]      @relation("RegistrationCancelledBy")
+  checkInsOperated       CheckIn[]           @relation("CheckInOperator")
+  weighInsOperated       WeighIn[]           @relation("WeighInOperator")
+  credentialScans        CredentialScan[]    @relation("CredentialScanner")
+  panelSeats             PanelJudge[]
+  scoresGiven            JudgingScore[]      @relation("ScoreJudge")
+  resultsPublished       Result[]            @relation("ResultPublishedBy")
+  resultVersions         ResultVersion[]     @relation("ResultVersionAuthor")
+  uploadedDocuments      AthleteDocument[]   @relation("DocumentUploader")
+  eventDocuments         EventDocument[]     @relation("EventDocumentUploader")
+  muscleWarImports       MuscleWarImport[]   @relation("ImportCreatedBy")
+  muscleWarApplied       MuscleWarImport[]   @relation("ImportAppliedBy")
+  moderationActions      ContentReport[]     @relation("ReportResolver")
+  proHistoryEntries      AthleteProHistory[] @relation("ProHistoryAuthor")
+
+  @@index([role])
   @@index([status])
 }
 
-model Participant {
-  id             String       @id @default(cuid())
-  name           String
-  identification String       @unique
-  type           String       @default("TEAM")
-  userId         String?      @unique
-  coachId        String?
-  teamId         String?
-  createdById    String?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  user           User?        @relation("UserParticipant", fields: [userId], references: [id])
-  coach          User?        @relation("ParticipantCoach", fields: [coachId], references: [id], onDelete: SetNull)
-  team           Participant? @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
-  members        Participant[] @relation("TeamMembers")
-  createdBy      User?        @relation("ParticipantCreatedBy", fields: [createdById], references: [id])
-  enrollments    Enrollment[]
-  matchesAsA     Match[]      @relation("ParticipantA")
-  matchesAsB     Match[]      @relation("ParticipantB")
-  wins           Result[]     @relation("Winner")
-  standings      Standing[]
+// ============================================================================
+// FILIAÇÃO ESPORTIVA
+//
+// A filiação é o vínculo esportivo formal do atleta com a entidade responsável
+// por ele. É uma das chaves do matching com o MuscleWar, por isso `code` é
+// estável e único dentro da organização.
+// ============================================================================
 
-  @@index([type])
-  @@index([coachId])
-  @@index([teamId])
+enum AffiliationKind {
+  FEDERATION
+  ENTITY
+  ASSOCIATION
+  TEAM
+  OTHER
 }
 
-model Enrollment {
-  id            String      @id @default(cuid())
-  tournamentId  String
-  participantId String
-  status        String      @default("CONFIRMED")
-  paymentStatus String      @default("NOT_REQUIRED")
-  paidAt        DateTime?
+model Affiliation {
+  id             String          @id @default(cuid())
+  organizationId String
+  name           String
+  code           String
+  kind           AffiliationKind @default(ENTITY)
+  state          String?
+  active         Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  athletes      Athlete[]
+  registrations Registration[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, active])
+}
+
+// ============================================================================
+// ATLETAS
+// ============================================================================
+
+enum Sex {
+  MALE
+  FEMALE
+}
+
+enum ProStatus {
+  NONE
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  RETIRED
+}
+
+model Athlete {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String?   @unique
+  fullName       String
+  stageName      String?
+  // CPF normalizado (11 dígitos). Dado restrito: nunca sai em serializador
+  // público nem em busca pública, e o índice único é o que impede atleta
+  // duplicado. A proteção é de aplicação + RLS, não de ofuscação.
+  cpf            String
+  birthDate      DateTime?
+  sex            Sex
+  country        String    @default("BR")
+  state          String?
+  city           String?
+  phone          String?
+  email          String?
+  photoKey       String?
+  athleteNumber  String?
+  affiliationId  String?
+  teamId         String?
+  coachId        String?
+  gymId          String?
+  proStatus      ProStatus @default(NONE)
+  proSince       DateTime?
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation("AthleteUser", fields: [userId], references: [id], onDelete: SetNull)
+  affiliation  Affiliation? @relation(fields: [affiliationId], references: [id], onDelete: SetNull)
+  team         Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  coach        Coach?       @relation(fields: [coachId], references: [id], onDelete: SetNull)
+  gym          Gym?         @relation(fields: [gymId], references: [id], onDelete: SetNull)
+  createdBy    User?        @relation("AthleteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  registrations     Registration[]
+  documents         AthleteDocument[]
+  proHistory        AthleteProHistory[]
+  resultEntries     ResultEntry[]
+  rankingPoints     RankingPoint[]
+  rankings          Ranking[]
+  externalResults   ExternalResult[]
+  muscleWarItems    MuscleWarImportItem[]
+  socialProfile     SocialProfile?
+  sponsorships      Sponsorship[]
+  brandPartnerships AthleteBrandPartnership[]
+
+  @@unique([organizationId, cpf])
+  @@unique([organizationId, athleteNumber])
+  @@index([organizationId, fullName])
+  @@index([organizationId, proStatus])
+  @@index([affiliationId])
+  @@index([teamId])
+  @@index([coachId])
+}
+
+enum DocumentKind {
+  ID
+  MEDICAL
+  TERM
+  AFFILIATION_PROOF
+  OTHER
+}
+
+model AthleteDocument {
+  id           String       @id @default(cuid())
+  athleteId    String
+  kind         DocumentKind @default(OTHER)
+  title        String
+  fileName     String
+  mimeType     String       @default("application/octet-stream")
+  storageKey   String       @unique
+  sizeBytes    Int          @default(0)
+  uploadedById String?
+  createdAt    DateTime     @default(now())
+
+  athlete    Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  uploadedBy User?   @relation("DocumentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([athleteId, kind])
+}
+
+model AthleteProHistory {
+  id          String    @id @default(cuid())
+  athleteId   String
+  status      ProStatus
+  reason      String
+  eventId     String?
+  title       String?
+  effectiveAt DateTime  @default(now())
+  createdById String?
+  createdAt   DateTime  @default(now())
+
+  athlete   Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  event     Event?  @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  createdBy User?   @relation("ProHistoryAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([athleteId, effectiveAt])
+}
+
+// ============================================================================
+// EQUIPES, COACHES, ACADEMIAS
+// ============================================================================
+
+model Team {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  city           String?
+  state          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  athletes      Athlete[]
+  socialProfile SocialProfile?
+  sponsorships  Sponsorship[]
+
+  @@unique([organizationId, name])
+}
+
+model Coach {
+  id        String   @id @default(cuid())
+  userId    String?  @unique
+  name      String
+  city      String?
+  state     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user          User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  athletes      Athlete[]
+  socialProfile SocialProfile?
+}
+
+model Gym {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  city           String?
+  state          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  athletes      Athlete[]
+  socialProfile SocialProfile?
+
+  @@unique([organizationId, name])
+}
+
+// ============================================================================
+// EVENTOS → CATEGORIAS → DIVISÕES → CLASSES
+// ============================================================================
+
+enum EventStatus {
+  DRAFT
+  PLANNED
+  REGISTRATIONS_OPEN
+  REGISTRATIONS_CLOSED
+  IN_OPERATION
+  IN_JUDGING
+  RESULTS_IN_REVIEW
+  RESULTS_PUBLISHED
+  CLOSED
+  CANCELLED
+}
+
+model Event {
+  id               String      @id @default(cuid())
+  organizationId   String
+  name             String
+  slug             String      @unique
+  description      String?
+  status           EventStatus @default(DRAFT)
+  // Fuso do evento. Sem isto, chamada de palco e pesagem seriam exibidas no
+  // fuso do servidor.
+  timezone         String      @default("America/Sao_Paulo")
+  startDate        DateTime?
+  endDate          DateTime?
+  venue            String?
+  city             String?
+  state            String?
+  seasonId         String?
+  scoringRuleSetId String?
+  createdById      String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  season         RankingSeason?  @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  scoringRuleSet ScoringRuleSet? @relation(fields: [scoringRuleSetId], references: [id], onDelete: SetNull)
+  createdBy      User?           @relation("EventCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  eventCategories  EventCategory[]
+  registrations    Registration[]
+  credentials      Credential[]
+  batches          StageBatch[]
+  panels           JudgePanel[]
+  results          Result[]
+  documents        EventDocument[]
+  posts            Post[]
+  sponsorships     Sponsorship[]
+  proHistory       AthleteProHistory[]
+  rankingPoints    RankingPoint[]
+  muscleWarImports MuscleWarImport[]
+
+  @@index([organizationId, status])
+  @@index([startDate])
+}
+
+model EventDocument {
+  id           String   @id @default(cuid())
+  eventId      String
+  title        String
+  fileName     String
+  mimeType     String   @default("application/octet-stream")
+  storageKey   String   @unique
+  sizeBytes    Int      @default(0)
+  isPublic     Boolean  @default(false)
+  uploadedById String?
+  createdAt    DateTime @default(now())
+
+  event      Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  uploadedBy User? @relation("EventDocumentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([eventId])
+}
+
+// Catálogo global de categorias oficiais. Novas categorias entram por linha,
+// nunca por alteração de código: nada aqui é enum fechado.
+model Category {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  sex       Sex
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  eventCategories EventCategory[]
+  criteria        ScoreCriterion[]
+  rankingPoints   RankingPoint[]
+  rankings        Ranking[]
+
+  @@index([active, sortOrder])
+}
+
+model EventCategory {
+  id         String   @id @default(cuid())
+  eventId    String
+  categoryId String
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  category  Category   @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  divisions Division[]
+
+  @@unique([eventId, categoryId])
+  @@index([eventId])
+}
+
+model Division {
+  id              String   @id @default(cuid())
+  eventCategoryId String
+  name            String
+  code            String
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  eventCategory EventCategory      @relation(fields: [eventCategoryId], references: [id], onDelete: Cascade)
+  classes       CompetitionClass[]
+
+  @@unique([eventCategoryId, code])
+  @@index([eventCategoryId])
+}
+
+// Classe é a unidade em que se compete e em que se apura resultado.
+model CompetitionClass {
+  id             String   @id @default(cuid())
+  divisionId     String
+  name           String
+  code           String
+  minAge         Int?
+  maxAge         Int?
+  // Limites de peso em gramas: inteiro evita erro de arredondamento na
+  // comparação com a pesagem, que também é gravada em gramas.
+  minWeightGrams Int?
+  maxWeightGrams Int?
+  minHeightCm    Int?
+  maxHeightCm    Int?
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  division          Division           @relation(fields: [divisionId], references: [id], onDelete: Cascade)
+  rules             CategoryRule[]
+  registrationItems RegistrationItem[]
+  batches           StageBatch[]
+  judgingSessions   JudgingSession[]
+  results           Result[]
+
+  @@unique([divisionId, code])
+  @@index([divisionId])
+}
+
+model CategoryRule {
+  id      String @id @default(cuid())
+  classId String
+  key     String
+  value   String
+
+  competitionClass CompetitionClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, key])
+}
+
+// ============================================================================
+// INSCRIÇÕES
+// ============================================================================
+
+enum RegistrationStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  REJECTED
+}
+
+model Registration {
+  id            String             @id @default(cuid())
+  eventId       String
+  athleteId     String
+  affiliationId String?
+  status        RegistrationStatus @default(PENDING)
+  notes         String?
+  createdById   String?
   cancelledAt   DateTime?
   cancelledById String?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @default(now()) @updatedAt
-  tournament    Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
-  checkIns      CheckIn[]
-  orderItems    OrderItem[]
+  cancelReason  String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
-  cancelledBy   User?       @relation("EnrollmentCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+  event       Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  athlete     Athlete      @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  affiliation Affiliation? @relation(fields: [affiliationId], references: [id], onDelete: SetNull)
+  createdBy   User?        @relation("RegistrationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  cancelledBy User?        @relation("RegistrationCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
 
-  @@unique([tournamentId, participantId])
-  @@index([participantId])
-  @@index([tournamentId, status])
+  items       RegistrationItem[]
+  checkIn     CheckIn?
+  weighIns    WeighIn[]
+  credentials Credential[]
+
+  @@unique([eventId, athleteId])
+  @@index([eventId, status])
+  @@index([athleteId])
 }
 
-model Match {
-  id             String      @id @default(cuid())
-  tournamentId   String
-  participantAId String
-  participantBId String
-  scheduledAt    DateTime?
-  status         String      @default("SCHEDULED")
-  phase          String?
-  round          Int?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
-  tournament     Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  participantA   Participant @relation("ParticipantA", fields: [participantAId], references: [id])
-  participantB   Participant @relation("ParticipantB", fields: [participantBId], references: [id])
-  result         Result?
+model RegistrationItem {
+  id             String             @id @default(cuid())
+  registrationId String
+  classId        String
+  status         RegistrationStatus @default(PENDING)
+  bibNumber      String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
 
-  @@index([tournamentId, status])
+  registration     Registration     @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  competitionClass CompetitionClass @relation(fields: [classId], references: [id], onDelete: Restrict)
+
+  stageOrders   StageOrder[]
+  scores        JudgingScore[]
+  resultEntries ResultEntry[]
+
+  @@unique([registrationId, classId])
+  @@index([classId, status])
 }
 
-model Result {
-  id                  String       @id @default(cuid())
-  matchId             String       @unique
-  winnerParticipantId String?
-  scoreA              Int
-  scoreB              Int
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
-  match               Match        @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  winner              Participant? @relation("Winner", fields: [winnerParticipantId], references: [id])
-}
+// ============================================================================
+// OPERAÇÃO: CHECK-IN, PESAGEM, CREDENCIAMENTO, PALCO
+// ============================================================================
 
-model Standing {
-  id            String      @id @default(cuid())
-  tournamentId  String
-  participantId String
-  points        Int         @default(0)
-  wins          Int         @default(0)
-  losses        Int         @default(0)
-  draws         Int         @default(0)
-  played        Int         @default(0)
-  scored        Int         @default(0)
-  conceded      Int         @default(0)
-  updatedAt     DateTime    @updatedAt
-  tournament    Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
-
-  @@unique([tournamentId, participantId])
-  @@index([tournamentId, points, wins, scored])
-}
-
-model JudgeAssignment {
-  id          String     @id @default(cuid())
-  tournamentId String
-  judgeId     String
-  createdAt   DateTime   @default(now())
-  tournament  Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  judge       User       @relation("JudgeAssignmentUser", fields: [judgeId], references: [id], onDelete: Cascade)
-
-  @@unique([tournamentId, judgeId])
-  @@index([judgeId])
+enum CheckInStatus {
+  CHECKED_IN
+  CANCELLED
 }
 
 model CheckIn {
-  id            String     @id @default(cuid())
-  enrollmentId  String     @unique
-  status        String     @default("CHECKED_IN")
-  checkedInAt   DateTime   @default(now())
-  operatorName  String?
-  checkedInById String?
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-  enrollment    Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
-  checkedInBy   User?      @relation("CheckInOperator", fields: [checkedInById], references: [id], onDelete: SetNull)
+  id             String        @id @default(cuid())
+  registrationId String        @unique
+  status         CheckInStatus @default(CHECKED_IN)
+  operatorId     String?
+  device         String?
+  checkedInAt    DateTime      @default(now())
+  cancelledAt    DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  operator     User?        @relation("CheckInOperator", fields: [operatorId], references: [id], onDelete: SetNull)
 
   @@index([status])
 }
 
-model Notification {
+model WeighIn {
+  id             String   @id @default(cuid())
+  registrationId String
+  weightGrams    Int
+  heightCm       Int?
+  operatorId     String?
+  device         String?
+  notes          String?
+  measuredAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  operator     User?        @relation("WeighInOperator", fields: [operatorId], references: [id], onDelete: SetNull)
+
+  @@index([registrationId, measuredAt])
+}
+
+enum CredentialType {
+  ATHLETE
+  COACH
+  STAFF
+  JUDGE
+  MEDIA
+  PHOTOGRAPHER
+  SPONSOR
+  GUEST
+}
+
+enum CredentialStatus {
+  ACTIVE
+  REVOKED
+}
+
+model Credential {
+  id             String           @id @default(cuid())
+  eventId        String
+  type           CredentialType
+  holderName     String
+  registrationId String?
+  code           String           @unique
+  status         CredentialStatus @default(ACTIVE)
+  issuedAt       DateTime         @default(now())
+  revokedAt      DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  event        Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration Registration?    @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+  scans        CredentialScan[]
+
+  @@index([eventId, type])
+  @@index([status])
+}
+
+model CredentialScan {
+  id           String   @id @default(cuid())
+  credentialId String
+  gate         String?
+  scannedById  String?
+  accepted     Boolean  @default(true)
+  reason       String?
+  scannedAt    DateTime @default(now())
+
+  credential Credential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+  scannedBy  User?      @relation("CredentialScanner", fields: [scannedById], references: [id], onDelete: SetNull)
+
+  @@index([credentialId, scannedAt])
+}
+
+enum BatchStatus {
+  SCHEDULED
+  CALLED
+  ON_STAGE
+  DONE
+  CANCELLED
+}
+
+model StageBatch {
+  id          String      @id @default(cuid())
+  eventId     String
+  classId     String
+  name        String
+  scheduledAt DateTime?
+  status      BatchStatus @default(SCHEDULED)
+  sortOrder   Int         @default(0)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  event            Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  competitionClass CompetitionClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  orders           StageOrder[]
+  sessions         JudgingSession[]
+
+  @@index([eventId, status])
+  @@index([classId])
+}
+
+enum StageOrderStatus {
+  WAITING
+  CALLED
+  PRESENT
+  ABSENT
+}
+
+model StageOrder {
+  id                 String           @id @default(cuid())
+  batchId            String
+  registrationItemId String
+  position           Int
+  status             StageOrderStatus @default(WAITING)
+  calledAt           DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  batch            StageBatch       @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  registrationItem RegistrationItem @relation(fields: [registrationItemId], references: [id], onDelete: Cascade)
+
+  @@unique([batchId, registrationItemId])
+  @@unique([batchId, position])
+  @@index([batchId])
+}
+
+// ============================================================================
+// JULGAMENTO
+// ============================================================================
+
+enum PanelJudgeRole {
+  HEAD
+  JUDGE
+}
+
+model JudgePanel {
   id        String   @id @default(cuid())
-  userId    String
-  title     String
-  message   String
-  type      String   @default("INFO")
-  priority  String   @default("NORMAL")
-  entityType String?
-  entityId  String?
-  link      String?
-  isRead    Boolean  @default(false)
-  readAt    DateTime?
+  eventId   String
+  name      String
   createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  updatedAt DateTime @updatedAt
+
+  event    Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  judges   PanelJudge[]
+  sessions JudgingSession[]
+
+  @@unique([eventId, name])
+}
+
+model PanelJudge {
+  id        String         @id @default(cuid())
+  panelId   String
+  judgeId   String
+  seat      Int
+  role      PanelJudgeRole @default(JUDGE)
+  createdAt DateTime       @default(now())
+
+  panel JudgePanel @relation(fields: [panelId], references: [id], onDelete: Cascade)
+  judge User       @relation(fields: [judgeId], references: [id], onDelete: Cascade)
+
+  @@unique([panelId, judgeId])
+  @@unique([panelId, seat])
+  @@index([judgeId])
+}
+
+enum JudgingRound {
+  PREJUDGING
+  COMPARISON
+  FINALS
+}
+
+enum JudgingSessionStatus {
+  OPEN
+  SCORING
+  CLOSED
+}
+
+model JudgingSession {
+  id        String               @id @default(cuid())
+  classId   String
+  panelId   String
+  batchId   String?
+  round     JudgingRound         @default(PREJUDGING)
+  status    JudgingSessionStatus @default(OPEN)
+  openedAt  DateTime             @default(now())
+  closedAt  DateTime?
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  competitionClass CompetitionClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  panel            JudgePanel       @relation(fields: [panelId], references: [id], onDelete: Restrict)
+  batch            StageBatch?      @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  scores           JudgingScore[]
+
+  @@unique([classId, round])
+  @@index([status])
+}
+
+// Critérios de avaliação por categoria. São descritivos e auditáveis; a
+// apuração oficial usa colocação (relative placement), não a soma de notas.
+model ScoreCriterion {
+  id         String  @id @default(cuid())
+  categoryId String?
+  code       String
+  name       String
+  weight     Int     @default(1)
+  sortOrder  Int     @default(0)
+  active     Boolean @default(true)
+
+  category Category?               @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  values   JudgingScoreCriterion[]
+
+  @@unique([categoryId, code])
+}
+
+// Uma linha por juiz e por atleta na sessão: a colocação que aquele juiz deu.
+model JudgingScore {
+  id                 String    @id @default(cuid())
+  sessionId          String
+  judgeId            String
+  registrationItemId String
+  placing            Int
+  notes              String?
+  submittedAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  session          JudgingSession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  judge            User                    @relation("ScoreJudge", fields: [judgeId], references: [id], onDelete: Restrict)
+  registrationItem RegistrationItem        @relation(fields: [registrationItemId], references: [id], onDelete: Cascade)
+  criteria         JudgingScoreCriterion[]
+
+  // Um juiz não repete a mesma colocação dentro da mesma sessão, e dá uma
+  // única colocação por atleta. As duas constraints são o que impede uma
+  // apuração ambígua.
+  @@unique([sessionId, judgeId, registrationItemId])
+  @@unique([sessionId, judgeId, placing])
+  @@index([sessionId])
+}
+
+model JudgingScoreCriterion {
+  id          String @id @default(cuid())
+  scoreId     String
+  criterionId String
+  value       Int
+
+  score     JudgingScore   @relation(fields: [scoreId], references: [id], onDelete: Cascade)
+  criterion ScoreCriterion @relation(fields: [criterionId], references: [id], onDelete: Cascade)
+
+  @@unique([scoreId, criterionId])
+}
+
+// ============================================================================
+// APURAÇÃO
+//
+// O método de apuração e os desempates são configuração explícita do
+// organizador, nunca regra inventada pelo código. Se nenhum critério
+// configurado resolver o empate, o resultado sai como TIE_UNRESOLVED.
+// ============================================================================
+
+enum TabulationMethod {
+  RELATIVE_PLACEMENT_SUM
+}
+
+enum TieBreaker {
+  HEAD_JUDGE_PLACING
+  COUNT_BACK
+  SUM_WITHOUT_DROP
+}
+
+model ScoringRuleSet {
+  id                   String           @id @default(cuid())
+  name                 String           @unique
+  method               TabulationMethod @default(RELATIVE_PLACEMENT_SUM)
+  // Descarte da maior e da menor colocação, aplicado apenas quando o painel
+  // tem ao menos `dropHighLowMinJudges` juízes. Desligado por padrão: o
+  // descarte é decisão de regulamento, não default do sistema.
+  dropHighLow          Boolean          @default(false)
+  dropHighLowMinJudges Int              @default(7)
+  tieBreakers          TieBreaker[]
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  events  Event[]
+  seasons RankingSeason[]
+}
+
+enum ResultStatus {
+  DRAFT
+  IN_REVIEW
+  PUBLISHED
+}
+
+model Result {
+  id               String       @id @default(cuid())
+  eventId          String
+  classId          String
+  status           ResultStatus @default(DRAFT)
+  version          Int          @default(1)
+  // Assinatura determinística da entrada de apuração. Recalcular com os
+  // mesmos votos produz o mesmo checksum; qualquer divergência indica que a
+  // entrada mudou.
+  checksum         String
+  hasUnresolvedTie Boolean      @default(false)
+  computedAt       DateTime     @default(now())
+  publishedAt      DateTime?
+  publishedById    String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  event            Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  competitionClass CompetitionClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  publishedBy      User?            @relation("ResultPublishedBy", fields: [publishedById], references: [id], onDelete: SetNull)
+
+  entries       ResultEntry[]
+  versions      ResultVersion[]
+  rankingPoints RankingPoint[]
+
+  @@unique([eventId, classId])
+  @@index([status])
+}
+
+enum ResultEntryStatus {
+  RANKED
+  TIE_UNRESOLVED
+  DISQUALIFIED
+  ABSENT
+}
+
+model ResultEntry {
+  id                 String            @id @default(cuid())
+  resultId           String
+  registrationItemId String
+  athleteId          String
+  placing            Int?
+  status             ResultEntryStatus @default(RANKED)
+  // Soma das colocações efetivamente considerada na apuração.
+  score              Int
+  // Soma sem descarte, guardada para desempate e auditoria.
+  rawScore           Int
+  // Contagem de colocações por posição (countback), em JSON, para tornar a
+  // apuração reproduzível sem reabrir as fichas dos juízes.
+  breakdown          Json
+  createdAt          DateTime          @default(now())
+
+  result           Result           @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  registrationItem RegistrationItem @relation(fields: [registrationItemId], references: [id], onDelete: Cascade)
+  athlete          Athlete          @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+
+  @@unique([resultId, registrationItemId])
+  @@index([athleteId])
+  @@index([resultId, placing])
+}
+
+model ResultVersion {
+  id          String   @id @default(cuid())
+  resultId    String
+  version     Int
+  reason      String
+  snapshot    Json
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  result    Result @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation("ResultVersionAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([resultId, version])
+  @@index([resultId])
+}
+
+// ============================================================================
+// RANKING E TEMPORADAS
+// ============================================================================
+
+enum SeasonStatus {
+  OPEN
+  CLOSED
+}
+
+model RankingSeason {
+  id               String       @id @default(cuid())
+  organizationId   String
+  name             String
+  year             Int
+  startDate        DateTime?
+  endDate          DateTime?
+  status           SeasonStatus @default(OPEN)
+  scoringRuleSetId String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scoringRuleSet  ScoringRuleSet?     @relation(fields: [scoringRuleSetId], references: [id], onDelete: SetNull)
+  events          Event[]
+  pointsRules     RankingPointsRule[]
+  points          RankingPoint[]
+  rankings        Ranking[]
+  externalResults ExternalResult[]
+  imports         MuscleWarImport[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, status])
+}
+
+// Tabela de pontos por colocação. É dado, não código: nenhuma pontuação é
+// embutida no sistema.
+model RankingPointsRule {
+  id        String   @id @default(cuid())
+  seasonId  String
+  placing   Int
+  points    Int
+  createdAt DateTime @default(now())
+
+  season RankingSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@unique([seasonId, placing])
+}
+
+enum PointSource {
+  EVENT
+  MUSCLEWAR
+}
+
+// Cada ponto do ranking é rastreável até a sua origem: nunca existe pontuação
+// sem linha de proveniência.
+model RankingPoint {
+  id               String      @id @default(cuid())
+  seasonId         String
+  athleteId        String
+  categoryId       String?
+  source           PointSource
+  eventId          String?
+  resultId         String?
+  externalResultId String?     @unique
+  placing          Int?
+  points           Int
+  awardedAt        DateTime    @default(now())
+  createdAt        DateTime    @default(now())
+
+  season         RankingSeason   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  athlete        Athlete         @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  category       Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  event          Event?          @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  result         Result?         @relation(fields: [resultId], references: [id], onDelete: SetNull)
+  externalResult ExternalResult? @relation(fields: [externalResultId], references: [id], onDelete: SetNull)
+
+  // Um mesmo resultado de evento não pontua duas vezes para o mesmo atleta na
+  // mesma temporada.
+  @@unique([seasonId, athleteId, resultId])
+  @@index([seasonId, athleteId])
+  @@index([source])
+}
+
+// Agregado materializado, recalculado a partir de RankingPoint.
+model Ranking {
+  id          String   @id @default(cuid())
+  seasonId    String
+  athleteId   String
+  categoryId  String?
+  totalPoints Int      @default(0)
+  eventCount  Int      @default(0)
+  position    Int?
+  state       String?
+  country     String?
+  updatedAt   DateTime @updatedAt
+
+  season   RankingSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  athlete  Athlete       @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  category Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@unique([seasonId, athleteId, categoryId])
+  @@index([seasonId, totalPoints])
+}
+
+// ============================================================================
+// MUSCLEWAR — IMPORTAÇÃO DE RESULTADOS EXTERNOS
+// ============================================================================
+
+enum ImportSourceType {
+  CSV
+  JSON
+  API
+}
+
+enum ImportStatus {
+  PENDING
+  PREVIEWED
+  APPLIED
+  REJECTED
+}
+
+model MuscleWarImport {
+  id             String           @id @default(cuid())
+  organizationId String
+  seasonId       String?
+  eventId        String?
+  sourceType     ImportSourceType
+  sourceRef      String
+  status         ImportStatus     @default(PENDING)
+  totalRecords   Int              @default(0)
+  matchedCount   Int              @default(0)
+  pendingCount   Int              @default(0)
+  conflictCount  Int              @default(0)
+  duplicateCount Int              @default(0)
+  rejectedCount  Int              @default(0)
+  appliedCount   Int              @default(0)
+  version        Int              @default(1)
+  createdById    String?
+  appliedById    String?
+  appliedAt      DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  season       RankingSeason? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  event        Event?         @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  createdBy    User?          @relation("ImportCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  appliedBy    User?          @relation("ImportAppliedBy", fields: [appliedById], references: [id], onDelete: SetNull)
+
+  items MuscleWarImportItem[]
+
+  @@index([organizationId, status])
+  @@index([createdAt])
+}
+
+enum MatchStatus {
+  MATCHED
+  MATCH_PENDING
+  CONFLICT
+  DUPLICATE
+  IMPORT_REJECTED
+  APPLIED
+}
+
+model MuscleWarImportItem {
+  id               String      @id @default(cuid())
+  importId         String
+  externalResultId String
+  rowNumber        Int
+  cpf              String?
+  athleteName      String?
+  affiliationCode  String?
+  categoryCode     String?
+  divisionName     String?
+  className        String?
+  placing          Int?
+  points           Int?
+  eventName        String?
+  eventDate        DateTime?
+  raw              Json
+  matchStatus      MatchStatus @default(MATCH_PENDING)
+  reason           String?
+  athleteId        String?
+  linkedById       String?
+  linkedAt         DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  import         MuscleWarImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  athlete        Athlete?        @relation(fields: [athleteId], references: [id], onDelete: SetNull)
+  externalResult ExternalResult?
+
+  // O mesmo identificador externo não entra duas vezes no mesmo lote.
+  @@unique([importId, externalResultId])
+  @@index([importId, matchStatus])
+}
+
+// Registro canônico de um resultado externo já aplicado. O par
+// (source, externalId) é único: reimportar o mesmo resultado não gera segunda
+// pontuação — é isto que torna a importação idempotente.
+model ExternalResult {
+  id           String    @id @default(cuid())
+  source       String    @default("MUSCLEWAR")
+  externalId   String
+  seasonId     String?
+  athleteId    String
+  categoryCode String?
+  className    String?
+  placing      Int?
+  points       Int       @default(0)
+  eventName    String?
+  eventDate    DateTime?
+  importItemId String?   @unique
+  appliedAt    DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+
+  season       RankingSeason?       @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  athlete      Athlete              @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  importItem   MuscleWarImportItem? @relation(fields: [importItemId], references: [id], onDelete: SetNull)
+  rankingPoint RankingPoint?
+
+  @@unique([source, externalId])
+  @@index([athleteId])
+}
+
+// ============================================================================
+// MARCAS, PATROCINADORES, PARCERIAS
+//
+// Relação esportiva, institucional e de marketing. Nenhum valor monetário é
+// armazenado — nem contrato, nem cota, nem repasse.
+// ============================================================================
+
+model Brand {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  slug           String   @unique
+  website        String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization  Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  socialProfile SocialProfile?
+  sponsors      Sponsor[]
+  partnerships  AthleteBrandPartnership[]
+
+  @@index([organizationId, active])
+}
+
+model Sponsor {
+  id             String   @id @default(cuid())
+  organizationId String
+  brandId        String?
+  name           String
+  contactEmail   String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  brand         Brand?         @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  socialProfile SocialProfile?
+  sponsorships  Sponsorship[]
+
+  @@unique([organizationId, name])
+}
+
+enum SponsorshipStatus {
+  PENDING
+  ACTIVE
+  ENDED
+}
+
+// Patrocínio de evento, equipe ou atleta. `scope` descreve a natureza do
+// apoio em texto; não existe campo de valor por decisão de escopo.
+model Sponsorship {
+  id        String            @id @default(cuid())
+  sponsorId String
+  eventId   String?
+  teamId    String?
+  athleteId String?
+  status    SponsorshipStatus @default(ACTIVE)
+  scope     String?
+  startsAt  DateTime?
+  endsAt    DateTime?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  sponsor Sponsor  @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
+  event   Event?   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  team    Team?    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  athlete Athlete? @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+
+  @@index([sponsorId, status])
+  @@index([eventId])
+}
+
+model AthleteBrandPartnership {
+  id        String            @id @default(cuid())
+  athleteId String
+  brandId   String
+  status    SponsorshipStatus @default(PENDING)
+  scope     String?
+  startedAt DateTime?
+  endedAt   DateTime?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  brand   Brand   @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  @@unique([athleteId, brandId])
+  @@index([status])
+}
+
+// ============================================================================
+// MCI SOCIAL
+// ============================================================================
+
+enum ProfileKind {
+  ATHLETE
+  COACH
+  GYM
+  TEAM
+  BRAND
+  SPONSOR
+  FAN
+  MEDIA
+}
+
+model SocialProfile {
+  id          String      @id @default(cuid())
+  userId      String?     @unique
+  handle      String      @unique
+  displayName String
+  kind        ProfileKind @default(FAN)
+  bio         String?
+  avatarKey   String?
+  coverKey    String?
+  athleteId   String?     @unique
+  coachId     String?     @unique
+  gymId       String?     @unique
+  teamId      String?     @unique
+  brandId     String?     @unique
+  sponsorId   String?     @unique
+  isPrivate   Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  athlete Athlete? @relation(fields: [athleteId], references: [id], onDelete: SetNull)
+  coach   Coach?   @relation(fields: [coachId], references: [id], onDelete: SetNull)
+  gym     Gym?     @relation(fields: [gymId], references: [id], onDelete: SetNull)
+  team    Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  brand   Brand?   @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  sponsor Sponsor? @relation(fields: [sponsorId], references: [id], onDelete: SetNull)
+
+  posts                   Post[]
+  comments                Comment[]
+  postLikes               PostLike[]
+  commentLikes            CommentLike[]
+  shares                  PostShare[]
+  saves                   PostSave[]
+  followers               Follow[]             @relation("Following")
+  following               Follow[]             @relation("Follower")
+  stories                 Story[]
+  storyViews              StoryView[]
+  blocksMade              Block[]              @relation("Blocker")
+  blocksReceived          Block[]              @relation("Blocked")
+  reportsMade             ContentReport[]      @relation("Reporter")
+  conversationMemberships ConversationMember[]
+  messages                Message[]
+  reactions               MessageReaction[]
+  communityMemberships    CommunityMember[]
+  sharedInMessages        Message[]            @relation("MessageSharedProfile")
+
+  @@index([kind])
+  @@index([displayName])
+}
+
+enum PostVisibility {
+  PUBLIC
+  FOLLOWERS
+  PRIVATE
+}
+
+model Post {
+  id           String         @id @default(cuid())
+  authorId     String
+  content      String
+  visibility   PostVisibility @default(PUBLIC)
+  eventId      String?
+  communityId  String?
+  likeCount    Int            @default(0)
+  commentCount Int            @default(0)
+  shareCount   Int            @default(0)
+  saveCount    Int            @default(0)
+  deletedAt    DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  author    SocialProfile @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  event     Event?        @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  community Community?    @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  media            PostMedia[]
+  comments         Comment[]
+  likes            PostLike[]
+  shares           PostShare[]
+  saves            PostSave[]
+  sharedInMessages Message[]   @relation("MessageSharedPost")
+
+  @@index([authorId, createdAt])
+  @@index([visibility, createdAt])
+  @@index([eventId])
+  @@index([communityId, createdAt])
+}
+
+enum MediaKind {
+  IMAGE
+  VIDEO
+}
+
+model PostMedia {
+  id         String    @id @default(cuid())
+  postId     String
+  kind       MediaKind
+  storageKey String    @unique
+  mimeType   String
+  sizeBytes  Int       @default(0)
+  width      Int?
+  height     Int?
+  durationMs Int?
+  position   Int       @default(0)
+  createdAt  DateTime  @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId, position])
+}
+
+model Comment {
+  id        String    @id @default(cuid())
+  postId    String
+  authorId  String
+  parentId  String?
+  content   String
+  likeCount Int       @default(0)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  post    Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author  SocialProfile @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent  Comment?      @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies Comment[]     @relation("CommentThread")
+  likes   CommentLike[]
+
+  @@index([postId, createdAt])
+  @@index([parentId])
+}
+
+model PostLike {
+  id        String   @id @default(cuid())
+  postId    String
+  profileId String
+  createdAt DateTime @default(now())
+
+  post    Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  profile SocialProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, profileId])
+  @@index([profileId])
+}
+
+model CommentLike {
+  id        String   @id @default(cuid())
+  commentId String
+  profileId String
+  createdAt DateTime @default(now())
+
+  comment Comment       @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  profile SocialProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, profileId])
+}
+
+model PostShare {
+  id        String   @id @default(cuid())
+  postId    String
+  profileId String
+  comment   String?
+  createdAt DateTime @default(now())
+
+  post    Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  profile SocialProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([postId, createdAt])
+  @@index([profileId])
+}
+
+model PostSave {
+  id        String   @id @default(cuid())
+  postId    String
+  profileId String
+  createdAt DateTime @default(now())
+
+  post    Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  profile SocialProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, profileId])
+  @@index([profileId, createdAt])
+}
+
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+
+  follower  SocialProfile @relation("Follower", fields: [followerId], references: [id], onDelete: Cascade)
+  following SocialProfile @relation("Following", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followingId])
+}
+
+model Story {
+  id         String    @id @default(cuid())
+  authorId   String
+  storageKey String    @unique
+  mimeType   String
+  kind       MediaKind @default(IMAGE)
+  caption    String?
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+
+  author SocialProfile @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  views  StoryView[]
+
+  @@index([authorId, expiresAt])
+  @@index([expiresAt])
+}
+
+model StoryView {
+  id        String   @id @default(cuid())
+  storyId   String
+  profileId String
+  viewedAt  DateTime @default(now())
+
+  story   Story         @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  profile SocialProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([storyId, profileId])
+}
+
+model Block {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+
+  blocker SocialProfile @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked SocialProfile @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+}
+
+enum ReportTargetType {
+  POST
+  COMMENT
+  PROFILE
+  MESSAGE
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}
+
+model ContentReport {
+  id           String           @id @default(cuid())
+  reporterId   String
+  targetType   ReportTargetType
+  targetId     String
+  reason       String
+  status       ReportStatus     @default(OPEN)
+  resolution   String?
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime         @default(now())
+
+  reporter   SocialProfile @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  resolvedBy User?         @relation("ReportResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@unique([reporterId, targetType, targetId])
+  @@index([status, createdAt])
+  @@index([targetType, targetId])
+}
+
+// ============================================================================
+// COMUNIDADES
+// ============================================================================
+
+enum CommunityVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+model Community {
+  id          String              @id @default(cuid())
+  slug        String              @unique
+  name        String
+  description String?
+  visibility  CommunityVisibility @default(PUBLIC)
+  rules       String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  members CommunityMember[]
+  posts   Post[]
+}
+
+enum CommunityRole {
+  MEMBER
+  ADMIN
+}
+
+model CommunityMember {
+  id          String        @id @default(cuid())
+  communityId String
+  profileId   String
+  role        CommunityRole @default(MEMBER)
+  joinedAt    DateTime      @default(now())
+
+  community Community     @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  profile   SocialProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, profileId])
+  @@index([profileId])
+}
+
+// ============================================================================
+// MCI MESSENGER
+// ============================================================================
+
+enum ConversationKind {
+  DIRECT
+  GROUP
+}
+
+model Conversation {
+  id            String           @id @default(cuid())
+  kind          ConversationKind @default(DIRECT)
+  title         String?
+  // Chave canônica de conversa direta: os dois ids ordenados. É o que impede
+  // duas conversas 1:1 entre as mesmas pessoas.
+  directKey     String?          @unique
+  lastMessageAt DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  members  ConversationMember[]
+  messages Message[]
+
+  @@index([lastMessageAt])
+}
+
+enum ConversationRole {
+  MEMBER
+  ADMIN
+}
+
+model ConversationMember {
+  id             String           @id @default(cuid())
+  conversationId String
+  profileId      String
+  role           ConversationRole @default(MEMBER)
+  lastReadAt     DateTime?
+  joinedAt       DateTime         @default(now())
+  leftAt         DateTime?
+
+  conversation Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  profile      SocialProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, profileId])
+  @@index([profileId, joinedAt])
+}
+
+model Message {
+  id              String     @id @default(cuid())
+  conversationId  String
+  senderId        String
+  body            String?
+  storageKey      String?
+  mimeType        String?
+  mediaKind       MediaKind?
+  sharedPostId    String?
+  sharedProfileId String?
+  replyToId       String?
+  deletedAt       DateTime?
+  createdAt       DateTime   @default(now())
+
+  conversation  Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender        SocialProfile     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  sharedPost    Post?             @relation("MessageSharedPost", fields: [sharedPostId], references: [id], onDelete: SetNull)
+  sharedProfile SocialProfile?    @relation("MessageSharedProfile", fields: [sharedProfileId], references: [id], onDelete: SetNull)
+  replyTo       Message?          @relation("MessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies       Message[]         @relation("MessageReply")
+  reactions     MessageReaction[]
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+}
+
+model MessageReaction {
+  id        String   @id @default(cuid())
+  messageId String
+  profileId String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  message Message       @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  profile SocialProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, profileId, emoji])
+}
+
+// ============================================================================
+// NOTIFICAÇÕES E AUDITORIA
+// ============================================================================
+
+model Notification {
+  id         String    @id @default(cuid())
+  userId     String
+  type       String
+  title      String
+  message    String
+  entityType String?
+  entityId   String?
+  link       String?
+  isRead     Boolean   @default(false)
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, isRead])
   @@index([userId, createdAt])
 }
 
 model AuditLog {
-  id         String   @id @default(cuid())
-  userId     String?
-  userEmail  String?
-  action     String
-  entity     String
-  entityId   String?
-  metadata   String?
-  createdAt  DateTime @default(now())
-  user       User?    @relation("AuditLogActor", fields: [userId], references: [id], onDelete: SetNull)
+  id             String   @id @default(cuid())
+  organizationId String?
+  userId         String?
+  userEmail      String?
+  action         String
+  entity         String
+  entityId       String?
+  metadata       Json?
+  ip             String?
+  createdAt      DateTime @default(now())
+
+  user User? @relation("AuditActor", fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([entity, entityId])
   @@index([userId, createdAt])
-  @@index([createdAt])
-}
-
-model Document {
-  id           String     @id @default(cuid())
-  tournamentId String
-  title        String
-  fileName     String
-  mimeType     String     @default("application/octet-stream")
-  storageKey   String?    @unique
-  sizeBytes    Int        @default(0)
-  uploadedById String?
-  createdAt    DateTime   @default(now())
-  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  uploadedBy   User?      @relation("DocumentCreatedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
-
-  @@index([tournamentId])
-}
-
-// ============================================================
-// Camada financeira. Todo valor monetário é inteiro, em centavos:
-// ponto flutuante não representa dinheiro sem erro de arredondamento.
-// ============================================================
-
-model Order {
-  id             String      @id @default(cuid())
-  userId         String
-  tournamentId   String
-  status         String      @default("PENDING")
-  currency       String      @default("BRL")
-  subtotalCents  Int         @default(0)
-  discountCents  Int         @default(0)
-  totalCents     Int         @default(0)
-  couponId       String?
-  // Chave enviada pelo cliente para que um reenvio da mesma intenção de compra
-  // não gere um segundo pedido.
-  idempotencyKey String?     @unique
-  expiresAt      DateTime?
-  paidAt         DateTime?
-  cancelledAt    DateTime?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @default(now()) @updatedAt
-
-  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tournament     Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  coupon         Coupon?     @relation(fields: [couponId], references: [id], onDelete: SetNull)
-  items          OrderItem[]
-  payments       Payment[]
-  refunds        Refund[]
-  redemption     CouponRedemption?
-
-  @@index([userId, status])
-  @@index([tournamentId, status])
-  @@index([status, createdAt])
-}
-
-model OrderItem {
-  id             String      @id @default(cuid())
-  orderId        String
-  enrollmentId   String?
-  description    String
-  quantity       Int         @default(1)
-  unitPriceCents Int
-  totalCents     Int
-  createdAt      DateTime    @default(now())
-
-  order          Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  enrollment     Enrollment? @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
-
-  @@index([orderId])
-  @@index([enrollmentId])
-}
-
-model Payment {
-  id             String      @id @default(cuid())
-  orderId        String
-  status         String      @default("PENDING")
-  provider       String
-  providerRef    String?     @unique
-  amountCents    Int
-  idempotencyKey String?     @unique
-  failureReason  String?
-  authorizedAt   DateTime?
-  paidAt         DateTime?
-  refundedAt     DateTime?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @default(now()) @updatedAt
-
-  order          Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  events         PaymentEvent[]
-  refunds        Refund[]
-
-  @@index([orderId, status])
-  @@index([status])
-}
-
-// Histórico imutável: cada notificação recebida do provedor vira uma linha e
-// nunca é sobrescrita. externalId único é o que torna o webhook idempotente —
-// a segunda entrega da mesma notificação colide na constraint e é descartada.
-model PaymentEvent {
-  id             String      @id @default(cuid())
-  paymentId      String?
-  provider       String
-  externalId     String
-  type           String
-  signatureValid Boolean     @default(false)
-  payload        String?
-  processedAt    DateTime?
-  createdAt      DateTime    @default(now())
-
-  payment        Payment?    @relation(fields: [paymentId], references: [id], onDelete: SetNull)
-
-  @@unique([provider, externalId])
-  @@index([paymentId])
-  @@index([createdAt])
-}
-
-model Coupon {
-  id             String      @id @default(cuid())
-  code           String      @unique
-  description    String?
-  percentOff     Int?
-  amountOffCents Int?
-  tournamentId   String?
-  active         Boolean     @default(true)
-  startsAt       DateTime?
-  endsAt         DateTime?
-  maxRedemptions Int?
-  maxPerUser     Int         @default(1)
-  redeemedCount  Int         @default(0)
-  createdById    String?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @default(now()) @updatedAt
-
-  tournament     Tournament? @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  createdBy      User?       @relation("CouponCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  redemptions    CouponRedemption[]
-  orders         Order[]
-
-  @@index([active, endsAt])
-  @@index([tournamentId])
-}
-
-model CouponRedemption {
-  id             String      @id @default(cuid())
-  couponId       String
-  userId         String
-  orderId        String      @unique
-  discountCents  Int
-  createdAt      DateTime    @default(now())
-
-  coupon         Coupon      @relation(fields: [couponId], references: [id], onDelete: Cascade)
-  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  order          Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
-
-  @@index([couponId, userId])
-}
-
-model Refund {
-  id             String      @id @default(cuid())
-  orderId        String
-  paymentId      String
-  status         String      @default("PENDING")
-  amountCents    Int
-  reason         String?
-  requestedById  String?
-  failureReason  String?
-  processedAt    DateTime?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @default(now()) @updatedAt
-
-  order          Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  payment        Payment     @relation(fields: [paymentId], references: [id], onDelete: Cascade)
-  requestedBy    User?       @relation("RefundRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
-
-  @@index([orderId])
-  @@index([status])
-}
-
-// Patrocínio é receita de contrato, não de inscrição: fica em modelo próprio e
-// nunca se mistura ao fluxo de pedido do atleta.
-model Sponsor {
-  id             String      @id @default(cuid())
-  name           String
-  document       String?     @unique
-  contactEmail   String?
-  active         Boolean     @default(true)
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @default(now()) @updatedAt
-
-  sponsorships   Sponsorship[]
-
-  @@index([active])
-}
-
-model Sponsorship {
-  id             String      @id @default(cuid())
-  sponsorId      String
-  tournamentId   String
-  status         String      @default("ACTIVE")
-  amountCents    Int         @default(0)
-  currency       String      @default("BRL")
-  startsAt       DateTime?
-  endsAt         DateTime?
-  notes          String?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @default(now()) @updatedAt
-
-  sponsor        Sponsor     @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
-  tournament     Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-
-  @@unique([sponsorId, tournamentId])
-  @@index([tournamentId, status])
+  @@index([action, createdAt])
+  @@index([organizationId, createdAt])
 }
