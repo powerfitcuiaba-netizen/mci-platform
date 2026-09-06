@@ -171,7 +171,9 @@ const classCreate = z.object({
   maxWeightGrams: opcional(z.coerce.number().int().min(0).max(500000)),
   minHeightCm: opcional(z.coerce.number().int().min(0).max(300)),
   maxHeightCm: opcional(z.coerce.number().int().min(0).max(300)),
-  sortOrder: z.coerce.number().int().min(0).max(999).optional()
+  sortOrder: z.coerce.number().int().min(0).max(999).optional(),
+  superOverallEligible: z.coerce.boolean().optional(),
+  active: z.coerce.boolean().optional()
 }).refine(d => d.minAge == null || d.maxAge == null || d.maxAge >= d.minAge, { message: 'Idade máxima menor que a mínima', path: ['maxAge'] })
   .refine(d => d.minWeightGrams == null || d.maxWeightGrams == null || d.maxWeightGrams >= d.minWeightGrams, { message: 'Peso máximo menor que o mínimo', path: ['maxWeightGrams'] });
 
@@ -285,6 +287,22 @@ const pointsRuleSet = z.object({
     placing: z.coerce.number().int().min(1).max(200),
     points: z.coerce.number().int().min(0).max(100000)
   })).min(1).max(200)
+});
+
+const classCatalogUpsert = z.object({
+  organizationId: id,
+  code: z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]{1,40}$/),
+  name: opcional(texto(1, 90)),
+  // REGRA HOMOLOGADA: só as classes marcadas alimentam o Super Overall anual.
+  superOverallEligible: z.coerce.boolean().optional(),
+  active: z.coerce.boolean().optional(),
+  sortOrder: z.coerce.number().int().min(0).max(999).optional()
+});
+
+const superOverallQuery = z.object({
+  seasonId: id.optional(),
+  categoryId: id.optional(),
+  organizationId: id.optional()
 });
 
 const overallDeclare = z.object({
@@ -524,6 +542,7 @@ module.exports = {
   panelCreate, panelJudgeAdd, sessionCreate, scoreSubmit,
   resultPublish, resultOverride, scoringRuleSetCreate,
   seasonCreate, pointsRuleSet, rankingQuery, overallDeclare, teamRankingQuery,
+  classCatalogUpsert, superOverallQuery,
   muscleWarImportCreate, muscleWarLink,
   teamCreate, coachCreate, gymCreate, brandCreate, sponsorCreate, sponsorshipCreate,
   partnershipCreate, partnershipStatus,

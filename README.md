@@ -425,9 +425,12 @@ Não existe variável financeira, e o teste de ausência confere isso.
   separa o que é **REGRA HOMOLOGADA** do que é **PENDING HOMOLOGATION**.
   Homologado na fase 11.1: pontuação 1º=5 · 2º=4 · 3º=3 · 4º=2 · 5º=1, bônus
   Overall de +10 somado à colocação, mesma regra para equipes, e o desempate
-  por Overall → 1º → 2º → 3º → 4º → 5º → `TIE_UNRESOLVED`. **Ainda pendente**:
-  como se determina o campeão Overall, e as decisões de apuração dentro da
-  classe.
+  por Overall → 1º → 2º → 3º → `TIE_UNRESOLVED`. Homologado na 11.2: as classes
+  Estreante, Novice, Open e Master **todas pontuam**, mas **só a OPEN alimenta o
+  ranking classificatório do Super Overall anual** — e essa marca é atributo da
+  classe, gerenciável pelo operador, nunca um código escrito no motor. **Ainda
+  pendente**: qual entidade representa "empresa" como competidora, e as decisões
+  de apuração dentro da classe.
 
 ---
 
@@ -446,7 +449,7 @@ regulamento.
 primária continua sendo a camada de service, coberta por teste; o banco é a
 segunda barreira — e, desde a fase 10.2, uma barreira efetiva. Todo handler
 autenticado passa por `withUserContext` (`src/config/rlsSession.js`), que
-define o ator com `SET LOCAL` dentro da transação da requisição; as 18 tabelas
+define o ator com `SET LOCAL` dentro da transação da requisição; as 19 tabelas
 protegidas têm `FORCE ROW LEVEL SECURITY`, de modo que nem o dono do schema é
 isento. O ator vem sempre do token, nunca do corpo da requisição.
 

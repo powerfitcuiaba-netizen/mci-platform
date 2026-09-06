@@ -30,9 +30,17 @@ const cpfDe = nome => {
   return cpfPorNome.get(nome);
 };
 
-async function eventoPontuado({ colocacoes, teams = {}, overall = null, publicar = true }) {
+async function eventoPontuado({ colocacoes, teams = {}, overall = null, publicar = true, classe = null }) {
   const montado = await criarEventoCompleto(diretor, orgId, { seasonId });
   const { event, competitionClass } = montado;
+
+  // A classe do evento é renomeada para o código pedido; a elegibilidade ao
+  // Super Overall vem do catálogo da organização, resolvida na atribuição.
+  if (classe) {
+    await comoAtor(diretor, tx => tx.competitionClass.update({
+      where: { id: competitionClass.id }, data: { code: classe }
+    }));
+  }
 
   await transicionar(diretor, event.id, ['PLANNED', 'REGISTRATIONS_OPEN']);
 
@@ -457,5 +465,187 @@ describe('D) equipes: a MESMA regra, sem fórmula própria', () => {
       const esperado = comOverall.totalPoints > semOverall.totalPoints ? comOverall : semOverall;
       expect(esperado.position).toBe(1);
     }
+  });
+});
+
+describe('11.2) classes: todas pontuam, só a elegível alimenta o Super Overall', () => {
+  it('a organização nasce com o catálogo do Campeonato Brasileiro', async () => {
+    const catalogo = await comoAtor(diretor, tx => tx.classCatalog.findMany({
+      where: { organizationId: orgId }, orderBy: { sortOrder: 'asc' }
+    }));
+
+    expect(catalogo.map(c => c.code)).toEqual(['ESTREANTE', 'NOVICE', 'OPEN', 'MASTER']);
+
+    // REGRA HOMOLOGADA: as quatro pontuam; só a OPEN é elegível.
+    expect(catalogo.filter(c => c.superOverallEligible).map(c => c.code)).toEqual(['OPEN']);
+    expect(catalogo.every(c => c.active)).toBe(true);
+  });
+
+  it('OPEN pontua no campeonato E entra no Super Overall', async () => {
+    await eventoPontuado({ colocacoes: ['DA_OPEN', 'SEGUNDA_OPEN'], classe: 'OPEN' });
+
+    const [ponto] = await pontosDe('DA_OPEN');
+    expect(ponto.points, 'pontua no campeonato como qualquer classe').toBe(5);
+    expect(ponto.superOverallEligible).toBe(true);
+
+    const superOverall = await api().get('/api/v1/ranking/super-overall').query({ seasonId });
+    expect(superOverall.status).toBe(200);
+    expect(superOverall.body.map(l => l.athlete.fullName)).toContain('DA_OPEN');
+  });
+
+  it('NOVICE pontua no campeonato mas NÃO entra no Super Overall', async () => {
+    await eventoPontuado({ colocacoes: ['DA_NOVICE', 'SEGUNDA_NOVICE'], classe: 'NOVICE' });
+
+    const [ponto] = await pontosDe('DA_NOVICE');
+    expect(ponto.points, 'a classe pontua normalmente no campeonato').toBe(5);
+    expect(ponto.superOverallEligible, 'mas não é elegível ao Super Overall').toBe(false);
+
+    // Ranking do campeonato: aparece.
+    const campeonato = await api().get('/api/v1/ranking').query({ seasonId });
+    expect(JSON.stringify(campeonato.body.items)).toContain('DA_NOVICE');
+
+    // Classificatório do Super Overall: não aparece.
+    const superOverall = await api().get('/api/v1/ranking/super-overall').query({ seasonId });
+    expect(superOverall.body.map(l => l.athlete.fullName)).not.toContain('DA_NOVICE');
+  });
+
+  it('ESTREANTE e MASTER seguem a mesma distinção', async () => {
+    await eventoPontuado({ colocacoes: ['DA_ESTREANTE', 'X1'], classe: 'ESTREANTE' });
+    await eventoPontuado({ colocacoes: ['DA_MASTER', 'X2'], classe: 'MASTER' });
+
+    for (const nome of ['DA_ESTREANTE', 'DA_MASTER']) {
+      const [ponto] = await pontosDe(nome);
+      expect(ponto.points, `${nome} pontua no campeonato`).toBe(5);
+      expect(ponto.superOverallEligible, `${nome} não é elegível`).toBe(false);
+    }
+
+    const superOverall = await api().get('/api/v1/ranking/super-overall').query({ seasonId });
+    expect(superOverall.body).toHaveLength(0);
+  });
+
+  it('o operador torna uma classe elegível sem alteração de código', async () => {
+    // A prova de que a elegibilidade é DADO: marcar MASTER como elegível passa
+    // a incluí-la, sem que nada no motor mude.
+    const marcada = await api().post('/api/v1/classes-catalog').set(diretor.auth())
+      .send({ organizationId: orgId, code: 'MASTER', superOverallEligible: true });
+    expect(marcada.status, JSON.stringify(marcada.body)).toBe(201);
+
+    await eventoPontuado({ colocacoes: ['MASTER_ELEGIVEL', 'Y1'], classe: 'MASTER' });
+
+    const [ponto] = await pontosDe('MASTER_ELEGIVEL');
+    expect(ponto.superOverallEligible).toBe(true);
+
+    const superOverall = await api().get('/api/v1/ranking/super-overall').query({ seasonId });
+    expect(superOverall.body.map(l => l.athlete.fullName)).toContain('MASTER_ELEGIVEL');
+  });
+
+  it('o operador desativa uma classe, e o histórico dela continua válido', async () => {
+    await eventoPontuado({ colocacoes: ['ANTES_DE_DESATIVAR', 'Z1'], classe: 'OPEN' });
+
+    const desativada = await api().post('/api/v1/classes-catalog').set(diretor.auth())
+      .send({ organizationId: orgId, code: 'NOVICE', active: false });
+    expect(desativada.status).toBe(201);
+    expect(desativada.body.active).toBe(false);
+
+    // O ponto já atribuído não é reescrito por mudança de configuração.
+    const [ponto] = await pontosDe('ANTES_DE_DESATIVAR');
+    expect(ponto.superOverallEligible).toBe(true);
+  });
+
+  it('o Super Overall usa o mesmo desempate — e ele para no 3º lugar', async () => {
+    const superOverall = await api().get('/api/v1/ranking/super-overall').query({ seasonId });
+    expect(superOverall.status).toBe(200);
+    // A resposta expõe os critérios que a regra usa, e apenas eles.
+    if (superOverall.body.length) {
+      const linha = superOverall.body[0];
+      expect(Object.keys(linha)).toContain('thirdPlaceCount');
+      expect(Object.keys(linha)).not.toContain('fourthPlaceCount');
+    }
+  });
+});
+
+describe('11.2) importação: a colocação é a fonte dos pontos', () => {
+  const csv = linhas => [
+    'external_result_id,cpf,atleta,filiacao,categoria,classe,colocacao,overall,equipe,etapa',
+    ...linhas
+  ].join('\n');
+
+  async function importar(conteudo, gerente) {
+    const lote = await api().post('/api/v1/musclewar/imports').set(gerente.auth())
+      .send({ organizationId: orgId, seasonId, sourceType: 'CSV', sourceRef: unico('lote') + '.csv', content: conteudo });
+    expect(lote.status, JSON.stringify(lote.body)).toBe(201);
+    return lote.body;
+  }
+
+  it('o adapter reconhece Overall e equipe — campos que faltavam', async () => {
+    const gerente = await criarUsuario({ name: 'Gerente' });
+    await vincular(orgId, gerente, 'RANKING_MANAGER');
+
+    const cpf = gerarCpf(555000111);
+    await api().post('/api/v1/athletes').set(diretor.auth())
+      .send({ organizationId: orgId, fullName: 'IMPORTADA OPEN', cpf, sex: 'FEMALE' });
+
+    const lote = await importar(csv([`MW-11-1,${cpf},IMPORTADA OPEN,,BIKINI,OPEN,1,SIM,Equipe X,Etapa`]), gerente);
+    const item = lote.items[0];
+
+    expect(item.className).toBe('OPEN');
+    expect(item.isOverallChampion, 'a coluna overall precisa ser lida').toBe(true);
+    expect(item.teamName).toBe('Equipe X');
+  });
+
+  it('o sistema calcula os pontos pela colocação: OPEN 1º + Overall = 15, e é elegível', async () => {
+    const gerente = await criarUsuario({ name: 'Gerente' });
+    await vincular(orgId, gerente, 'RANKING_MANAGER');
+
+    const cpf = gerarCpf(555000222);
+    await api().post('/api/v1/athletes').set(diretor.auth())
+      .send({ organizationId: orgId, fullName: 'IMPORTADA CAMPEA', cpf, sex: 'FEMALE' });
+
+    const lote = await importar(csv([`MW-11-2,${cpf},IMPORTADA CAMPEA,,BIKINI,OPEN,1,SIM,,Etapa`]), gerente);
+    const aplicacao = await api().post(`/api/v1/musclewar/imports/${lote.import.id}/apply`).set(gerente.auth()).send({});
+    expect(aplicacao.status, JSON.stringify(aplicacao.body)).toBe(200);
+
+    const [ponto] = await pontosDe('IMPORTADA CAMPEA');
+    expect({ colocacao: ponto.placementPoints, overall: ponto.overallBonus, total: ponto.points })
+      .toEqual({ colocacao: 5, overall: 10, total: 15 });
+    expect(ponto.superOverallEligible).toBe(true);
+  });
+
+  it('NOVICE importada pontua 5 e não é elegível', async () => {
+    const gerente = await criarUsuario({ name: 'Gerente' });
+    await vincular(orgId, gerente, 'RANKING_MANAGER');
+
+    const cpf = gerarCpf(555000333);
+    await api().post('/api/v1/athletes').set(diretor.auth())
+      .send({ organizationId: orgId, fullName: 'IMPORTADA NOVICE', cpf, sex: 'FEMALE' });
+
+    const lote = await importar(csv([`MW-11-3,${cpf},IMPORTADA NOVICE,,BIKINI,NOVICE,1,,,Etapa`]), gerente);
+    await api().post(`/api/v1/musclewar/imports/${lote.import.id}/apply`).set(gerente.auth()).send({});
+
+    const [ponto] = await pontosDe('IMPORTADA NOVICE');
+    expect(ponto.points).toBe(5);
+    expect(ponto.superOverallEligible).toBe(false);
+    expect(ponto.isOverallChampion).toBe(false);
+  });
+
+  it('pontos digitados no arquivo NÃO substituem a regra quando há colocação', async () => {
+    const gerente = await criarUsuario({ name: 'Gerente' });
+    await vincular(orgId, gerente, 'RANKING_MANAGER');
+
+    const cpf = gerarCpf(555000444);
+    await api().post('/api/v1/athletes').set(diretor.auth())
+      .send({ organizationId: orgId, fullName: 'PONTOS FORJADOS', cpf, sex: 'FEMALE' });
+
+    // A origem tenta impor 999 pontos para um 1º lugar. A regra vale 5.
+    const conteudo = [
+      'external_result_id,cpf,atleta,categoria,classe,colocacao,pontos,etapa',
+      `MW-11-4,${cpf},PONTOS FORJADOS,BIKINI,OPEN,1,999,Etapa`
+    ].join('\n');
+
+    const lote = await importar(conteudo, gerente);
+    await api().post(`/api/v1/musclewar/imports/${lote.import.id}/apply`).set(gerente.auth()).send({});
+
+    const [ponto] = await pontosDe('PONTOS FORJADOS');
+    expect(ponto.points, 'a colocação é a fonte, não o número digitado').toBe(5);
   });
 });

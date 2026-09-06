@@ -154,6 +154,16 @@ router.route('/seasons')
   .post(requireAuth, perm('ranking.manage', orgDoCorpo), validate(s.seasonCreate), wrap(c.ranking.createSeason));
 router.put('/seasons/:id/points-rules', requireAuth, validate(s.paramsWithId, 'params'), validate(s.pointsRuleSet), wrap(c.ranking.setPointsRules));
 router.post('/seasons/:id/recompute', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.ranking.recompute));
+// Ranking classificatório do Super Overall anual: mesmo motor, considerando
+// apenas os pontos das classes marcadas como elegíveis (pela regra, a OPEN).
+router.get('/ranking/super-overall', optionalAuth, validate(s.superOverallQuery, 'query'), wrap(c.ranking.superOverall));
+
+// Catálogo de classes. O operador cria, edita e desativa classes e marca quais
+// alimentam o Super Overall — sem alteração no motor de pontuação.
+router.route('/classes-catalog')
+  .get(requireAuth, validate(s.scopedListQuery, 'query'), wrap(c.ranking.listClasses))
+  .post(requireAuth, perm('ranking.manage', orgDoCorpo), validate(s.classCatalogUpsert), wrap(c.ranking.upsertClass));
+
 // Ranking de equipes: mesma tabela de pontos e mesmo desempate do atleta.
 router.get('/ranking/teams', optionalAuth, validate(s.teamRankingQuery, 'query'), wrap(c.ranking.teams));
 

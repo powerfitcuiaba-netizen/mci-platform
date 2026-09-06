@@ -17,9 +17,18 @@
 //   2. mais primeiros lugares
 //   3. mais segundos lugares
 //   4. mais terceiros lugares
-//   5. mais quartos lugares
-//   6. mais quintos lugares
-//   7. TIE_UNRESOLVED
+//   5. TIE_UNRESOLVED
+//
+// A cadeia PARA no terceiro lugar. A fase 11.1 ia até o quinto; a 11.2 encurtou
+// por decisão do organizador. Os contadores de 4º e 5º continuam sendo
+// mantidos — servem à auditoria e àquelas colocações pontuarem —, mas NÃO
+// participam do desempate.
+//
+// Super Overall anual:
+//   Todas as classes pontuam no campeonato. Só as marcadas como elegíveis —
+//   pela REGRA HOMOLOGADA, a OPEN — alimentam o ranking classificatório do
+//   Super Overall. A marca é atributo da classe, e não o código "OPEN" escrito
+//   aqui: é o que permite criar e desativar classes sem tocar neste arquivo.
 //
 // Esgotada a hierarquia, o empate NÃO é quebrado. Nada de id, nome, data,
 // ordem de inserção ou alfabética: os empatados ficam sem colocação e a
@@ -35,6 +44,8 @@
 //   * quais resultados de atleta são "elegíveis" para a equipe. Sem regra de
 //     descarte ou de teto, todos os resultados pontuados contam.
 //   * pontuação para colocações a partir do 6º lugar.
+//   * o critério de desempate quando o empate sobrevive ao terceiro lugar.
+//   * qual entidade do sistema representa "empresa" como competidora.
 // ============================================================================
 
 // A tabela é DADO, não constante do motor: fica em RankingPointsRule, por
@@ -58,9 +69,7 @@ const CRITERIOS_DESEMPATE = Object.freeze([
   'overallWins',
   'firstPlaceCount',
   'secondPlaceCount',
-  'thirdPlaceCount',
-  'fourthPlaceCount',
-  'fifthPlaceCount'
+  'thirdPlaceCount'
 ]);
 
 /**

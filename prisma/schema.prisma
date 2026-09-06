@@ -44,6 +44,7 @@ model Organization {
 
   @@index([active])
   athleteIdentities AthleteIdentity[]
+  classCatalog ClassCatalog[]
 }
 
 model OrganizationMember {
@@ -502,6 +503,38 @@ model Division {
 }
 
 // Classe é a unidade em que se compete e em que se apura resultado.
+/// Catálogo de classes da organização.
+///
+/// As classes de competição (`CompetitionClass`) existem por divisão de cada
+/// evento — servem para montar a prova, mas não respondem "esta classe conta
+/// para o Super Overall?" fora dela. A importação de pontuações, que traz a
+/// classe como texto e não está presa a um evento do MCI, ficaria sem onde
+/// resolver a elegibilidade.
+///
+/// Este catálogo é esse lugar: o operador cria, edita e desativa classes aqui,
+/// marcando quais alimentam o Super Overall. O motor de pontuação lê a marca —
+/// nunca o código "OPEN" — e por isso uma classe nova entra sem alteração de
+/// programa.
+///
+/// REGRA HOMOLOGADA: Estreante, Novice, Open e Master pontuam no campeonato;
+/// somente OPEN é elegível ao Super Overall anual.
+model ClassCatalog {
+  id             String   @id @default(cuid())
+  organizationId String
+  code           String
+  name           String
+  superOverallEligible Boolean @default(false)
+  active         Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, code])
+  @@index([organizationId, active])
+}
+
 model CompetitionClass {
   id             String   @id @default(cuid())
   divisionId     String
@@ -514,7 +547,15 @@ model CompetitionClass {
   minWeightGrams Int?
   maxWeightGrams Int?
   minHeightCm    Int?
-  maxHeightCm    Int?
+  /// Se os pontos desta classe entram no ranking classificatório do Super
+  /// Overall anual. REGRA HOMOLOGADA: todas as classes pontuam no campeonato,
+  /// mas só a OPEN alimenta o Super Overall. A distinção é ATRIBUTO DA CLASSE,
+  /// nunca o código "OPEN" escrito no motor — é o que permite ao operador criar
+  /// e desativar classes sem tocar em programa.
+  superOverallEligible Boolean @default(false)
+  /// Classe desativada some das novas inscrições e não é oferecida, mas os
+  /// resultados já apurados nela continuam válidos.
+  active         Boolean  @default(true)
   sortOrder      Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -1066,6 +1107,11 @@ model RankingPoint {
   placementPoints  Int         @default(0)
   overallBonus     Int         @default(0)
   isOverallChampion Boolean    @default(false)
+  /// Se este lançamento entra no ranking classificatório do Super Overall.
+  /// Resolvido no momento da atribuição, a partir da classe — e gravado, para
+  /// que uma mudança futura na configuração da classe não reescreva a
+  /// história de um campeonato já encerrado.
+  superOverallEligible Boolean @default(false)
   points           Int
   // Equipe do atleta no momento da atribuição. Guardada aqui, e não lida do
   // cadastro na hora da consulta, para que uma troca de equipe depois do
@@ -1236,6 +1282,13 @@ model MuscleWarImportItem {
   divisionName     String?
   className        String?
   placing          Int?
+  /// Campeão Overall informado pela origem. A pontuação (+10) é regra
+  /// homologada; QUEM é o campeão continua sendo dado informado, nunca
+  /// deduzido pelo sistema.
+  isOverallChampion Boolean   @default(false)
+  /// Equipe declarada pela origem. `className`, logo acima, é o que resolve a
+  /// elegibilidade ao Super Overall contra o catálogo da organização.
+  teamName         String?
   points           Int?
   eventName        String?
   eventDate        DateTime?

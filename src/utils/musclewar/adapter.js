@@ -13,8 +13,12 @@ const { somenteDigitos, isValidCpf } = require('../cpf');
 //
 // Saída canônica por registro:
 //   { externalResultId, rowNumber, cpf, athleteName, affiliationCode,
-//     categoryCode, divisionName, className, placing, points,
-//     eventName, eventDate, raw }
+//     categoryCode, divisionName, className, placing, isOverallChampion,
+//     teamName, points, eventName, eventDate, raw }
+//
+// `className` é o que decide a elegibilidade ao Super Overall: resolvido
+// contra o catálogo de classes da organização, nunca comparado ao texto
+// "OPEN" dentro do código.
 // ============================================================================
 
 // Nomes de coluna reconhecidos por padrão. Um contrato diferente é atendido
@@ -28,10 +32,27 @@ const MAPA_PADRAO = Object.freeze({
   divisionName: ['division', 'divisao', 'division_name'],
   className: ['class', 'classe', 'class_name'],
   placing: ['placing', 'colocacao', 'position', 'place'],
+  // Campeão Overall informado pela origem. A pontuação (+10) é regra
+  // homologada; QUEM foi o campeão o sistema não deduz — é dado informado.
+  isOverallChampion: ['overall', 'is_overall', 'campeao_overall', 'overall_champion', 'super_overall'],
+  teamName: ['team', 'equipe', 'team_name', 'nome_equipe'],
   points: ['points', 'pontos', 'score'],
   eventName: ['event_name', 'evento', 'event'],
   eventDate: ['event_date', 'data', 'data_evento']
 });
+
+// Planilha não tem tipo booleano: o mesmo campo chega como SIM, S, TRUE, 1 ou
+// X conforme quem exportou. Ausência e valor não reconhecido são `false` — a
+// falta de marcação nunca vira um título de campeão.
+function booleanoDeOrigem(valor) {
+  if (valor === true) return true;
+  if (valor == null || valor === false) return false;
+
+  const texto = String(valor).trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  return ['sim', 's', 'true', 't', '1', 'x', 'yes', 'y', 'overall'].includes(texto);
+}
 
 const normalizarChave = chave => String(chave || '')
   .trim()
@@ -184,6 +205,8 @@ function parse(sourceType, content, options = {}) {
       divisionName: textoOuNulo(extrair(registro, 'divisionName', options.fieldMap)),
       className: textoOuNulo(extrair(registro, 'className', options.fieldMap)),
       placing: inteiroOuNulo(extrair(registro, 'placing', options.fieldMap)),
+      isOverallChampion: booleanoDeOrigem(extrair(registro, 'isOverallChampion', options.fieldMap)),
+      teamName: textoOuNulo(extrair(registro, 'teamName', options.fieldMap)),
       points: inteiroOuNulo(extrair(registro, 'points', options.fieldMap)),
       eventName: textoOuNulo(extrair(registro, 'eventName', options.fieldMap)),
       eventDate: dataOuNula(extrair(registro, 'eventDate', options.fieldMap)),

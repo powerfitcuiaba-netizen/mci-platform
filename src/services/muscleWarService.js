@@ -6,6 +6,7 @@ const adapter = require('../utils/musclewar/adapter');
 const audit = require('./auditService');
 const notifications = require('./notificationService');
 const ranking = require('./rankingService');
+const { pontuarResultado } = require('../utils/rankingScoring');
 
 const SOURCE = 'MUSCLEWAR';
 
@@ -170,6 +171,8 @@ async function createImport(data, actor) {
           importId: criado.id,
           externalResultId: chaveDoItem,
           rowNumber: registro.rowNumber,
+          isOverallChampion: registro.isOverallChampion === true,
+          teamName: registro.teamName,
           cpf: registro.cpf,
           athleteName: registro.athleteName,
           affiliationCode: registro.affiliationCode,
@@ -345,6 +348,26 @@ async function apply(importId, actor) {
   let aplicados = 0;
   let ignorados = 0;
 
+  // Tabela da temporada e catálogo de classes carregados uma vez: a regra é a
+  // mesma para o lote inteiro, e consultá-la por linha só somaria idas ao banco.
+  const tabela = seasonId
+    ? await prisma.rankingPointsRule.findMany({ where: { seasonId }, select: { placing: true, points: true } })
+    : [];
+
+  const catalogo = new Map(
+    (await prisma.classCatalog.findMany({
+      where: { organizationId: lote.organizationId },
+      select: { code: true, superOverallEligible: true }
+    })).map(classe => [classe.code.toUpperCase(), classe.superOverallEligible])
+  );
+
+  const equipes = new Map(
+    (await prisma.team.findMany({
+      where: { organizationId: lote.organizationId },
+      select: { id: true, name: true }
+    })).map(equipe => [equipe.name.trim().toUpperCase(), equipe.id])
+  );
+
   for (const item of aplicaveis) {
     // Cada linha em sua própria transação: uma colisão de idempotência no meio
     // do lote não desfaz o que já entrou legitimamente.
@@ -367,18 +390,24 @@ async function apply(importId, actor) {
         });
 
         if (seasonId) {
-          // Pontuação: a que veio da origem; na falta dela, a tabela da
-          // temporada para a colocação. Nada é inventado — sem regra e sem
-          // pontos, a linha entra no histórico com zero.
-          let points = item.points;
-          if (points == null && item.placing != null) {
-            const regra = await tx.rankingPointsRule.findUnique({ where: { seasonId_placing: { seasonId, placing: item.placing } } });
-            points = regra?.points ?? 0;
-          }
+          // A COLOCAÇÃO é a fonte primária dos pontos, não um número digitado.
+          // O operador informa o resultado oficial; o sistema aplica a regra
+          // homologada — inclusive o bônus de Overall, quando a origem o
+          // informa. Uma coluna de pontos no arquivo só é usada quando a linha
+          // não traz colocação alguma, caso em que não há regra a aplicar.
+          const { placementPoints, overallBonus, points } = item.placing != null
+            ? pontuarResultado(item.placing, tabela, item.isOverallChampion)
+            : { placementPoints: item.points ?? 0, overallBonus: 0, points: item.points ?? 0 };
 
           const categoria = item.categoryCode
             ? await tx.category.findUnique({ where: { code: item.categoryCode.toUpperCase() } })
             : null;
+
+          // Elegibilidade ao Super Overall: resolvida pela classe declarada,
+          // contra o catálogo da organização. O código "OPEN" não aparece aqui.
+          const superOverallEligible = Boolean(
+            item.className && catalogo.get(item.className.trim().toUpperCase())
+          );
 
           await tx.rankingPoint.create({
             data: {
@@ -388,7 +417,12 @@ async function apply(importId, actor) {
               source: 'MUSCLEWAR',
               externalResultId: externo.id,
               placing: item.placing,
-              points: points ?? 0
+              placementPoints, overallBonus,
+              isOverallChampion: item.isOverallChampion === true,
+              superOverallEligible,
+              teamId: item.teamName ? (equipes.get(item.teamName.trim().toUpperCase()) ?? null) : null,
+              awardedById: actor?.id ?? null,
+              points
             }
           });
         }

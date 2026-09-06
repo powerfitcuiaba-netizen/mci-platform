@@ -18,6 +18,16 @@ async function list(actor) {
   });
 }
 
+// Classes do Campeonato Brasileiro. `superOverallEligible` é o que separa
+// "pontua no campeonato" de "conta para o Super Overall anual" — e é atributo
+// do dado, não condição escrita no motor.
+const CLASSES_DO_CAMPEONATO = Object.freeze([
+  { code: 'ESTREANTE', name: 'Estreante', superOverallEligible: false, sortOrder: 10 },
+  { code: 'NOVICE', name: 'Novice', superOverallEligible: false, sortOrder: 20 },
+  { code: 'OPEN', name: 'Open', superOverallEligible: true, sortOrder: 30 },
+  { code: 'MASTER', name: 'Master', superOverallEligible: false, sortOrder: 40 }
+]);
+
 async function create(data, actor) {
   assertPermission(actor, 'organizations.manage');
 
@@ -31,6 +41,14 @@ async function create(data, actor) {
   // Quem cria entra como ADMIN da organização — do contrário criaria um tenant
   // ao qual não teria acesso.
   await prisma.organizationMember.create({ data: { organizationId: organization.id, userId: actor.id, role: 'ADMIN' } });
+
+  // Catálogo de classes do Campeonato Brasileiro, já com a REGRA HOMOLOGADA:
+  // as quatro pontuam, e só a OPEN alimenta o Super Overall anual. Entram como
+  // DADO editável — o operador acrescenta, renomeia e desativa classes sem que
+  // o motor de pontuação mude.
+  await prisma.classCatalog.createMany({
+    data: CLASSES_DO_CAMPEONATO.map(classe => ({ organizationId: organization.id, ...classe }))
+  });
 
   await audit.record({ actor, action: 'ORGANIZATION_CREATE', entity: 'Organization', entityId: organization.id, organizationId: organization.id, metadata: { slug: data.slug } });
 

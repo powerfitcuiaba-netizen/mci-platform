@@ -86,26 +86,39 @@ describe('E–H) desempate, na ordem oficial', () => {
     expect(classificar([b, a]).map(l => l.nome)).toEqual(['A', 'B']);
   });
 
-  it('H) a cadeia continua até o 5º lugar', () => {
+  it('H) a cadeia PARA no terceiro lugar', () => {
     const base = { totalPoints: 9, overallWins: 1, firstPlaceCount: 1, secondPlaceCount: 1 };
 
+    // Até o terceiro, o critério separa.
     const porTerceiro = classificar([
       competidor('menos', { ...base, thirdPlaceCount: 1 }),
       competidor('mais', { ...base, thirdPlaceCount: 2 })
     ]).map(l => l.nome);
     expect(porTerceiro).toEqual(['mais', 'menos']);
+  });
 
-    const porQuarto = classificar([
-      competidor('menos', { ...base, thirdPlaceCount: 2, fourthPlaceCount: 0 }),
-      competidor('mais', { ...base, thirdPlaceCount: 2, fourthPlaceCount: 1 })
-    ]).map(l => l.nome);
-    expect(porQuarto).toEqual(['mais', 'menos']);
+  it('4º e 5º NÃO desempatam — a regra parou no 3º', () => {
+    // A fase 11.1 ia até o quinto; a 11.2 encurtou a cadeia. Empatados até o
+    // terceiro lugar, o quarto e o quinto não são consultados: o empate fica
+    // sem solução, e inventar um critério a mais seria justamente o que a
+    // regra proíbe.
+    const iguaisAte3 = { totalPoints: 9, overallWins: 1, firstPlaceCount: 1, secondPlaceCount: 1, thirdPlaceCount: 1 };
 
-    const porQuinto = classificar([
-      competidor('menos', { ...base, thirdPlaceCount: 2, fourthPlaceCount: 1, fifthPlaceCount: 3 }),
-      competidor('mais', { ...base, thirdPlaceCount: 2, fourthPlaceCount: 1, fifthPlaceCount: 4 })
-    ]).map(l => l.nome);
-    expect(porQuinto).toEqual(['mais', 'menos']);
+    const classificados = classificar([
+      competidor('com_mais_quartos', { ...iguaisAte3, fourthPlaceCount: 5, fifthPlaceCount: 5 }),
+      competidor('sem_quartos', { ...iguaisAte3, fourthPlaceCount: 0, fifthPlaceCount: 0 })
+    ]);
+
+    expect(classificados.every(l => l.tieUnresolved), 'o 4º lugar não pode ter desempatado').toBe(true);
+    expect(classificados.every(l => l.position === null)).toBe(true);
+  });
+
+  it('os contadores de 4º e 5º continuam existindo para auditoria', () => {
+    // Deixaram de desempatar, mas não deixaram de importar: essas colocações
+    // pontuam (2 e 1 ponto) e a conta precisa continuar conferível.
+    const contagem = contadores([{ placing: 4 }, { placing: 5 }, { placing: 5 }]);
+    expect(contagem.fourthPlaceCount).toBe(1);
+    expect(contagem.fifthPlaceCount).toBe(2);
   });
 
   it('a ORDEM dos critérios é a regra: o primeiro que separar encerra', () => {
@@ -131,7 +144,7 @@ describe('I) empate absoluto', () => {
     competidor('B', { totalPoints: 15, overallWins: 1, firstPlaceCount: 1, secondPlaceCount: 2, thirdPlaceCount: 3, fourthPlaceCount: 4, fifthPlaceCount: 5 })
   ];
 
-  it('esgotada a hierarquia, ninguém recebe colocação: TIE_UNRESOLVED', () => {
+  it('esgotada a hierarquia (Overall, 1º, 2º, 3º), ninguém recebe colocação', () => {
     const classificados = classificar(identicos());
 
     expect(classificados.every(linha => linha.tieUnresolved)).toBe(true);

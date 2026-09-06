@@ -110,6 +110,20 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
     where: { seasonId }, select: { placing: true, points: true }
   });
 
+  // Elegibilidade ao Super Overall: atributo da CLASSE, resolvido agora e
+  // gravado em cada lançamento. Nunca o código "OPEN" comparado aqui — assim o
+  // operador cria e desativa classes sem que este arquivo mude.
+  //
+  // A classe do evento manda; na ausência da marca nela, vale o catálogo da
+  // organização, que é onde o operador governa a lista.
+  const classe = result.competitionClass;
+  const doCatalogo = await prisma.classCatalog.findUnique({
+    where: { organizationId_code: { organizationId: result.event.organizationId, code: classe.code } },
+    select: { superOverallEligible: true }
+  });
+
+  const superOverallEligible = classe.superOverallEligible || Boolean(doCatalogo?.superOverallEligible);
+
   // Títulos Overall declarados para este evento — o do recorte da categoria e o
   // do evento inteiro. O critério de determinação não é do sistema: o título é
   // registrado pela organização (ver EventOverallTitle).
@@ -149,6 +163,7 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
             teamId: equipes.get(entry.athleteId) ?? null,
             placing: entry.placing,
             placementPoints, overallBonus, isOverallChampion: ehCampeaoOverall,
+            superOverallEligible,
             points,
             resultVersion: result.version,
             awardedById: actor?.id ?? null
@@ -379,6 +394,104 @@ async function listOverall(eventId) {
   });
 }
 
+/**
+ * Ranking classificatório do Super Overall anual.
+ *
+ * REGRA HOMOLOGADA: todas as classes pontuam no campeonato, mas somente os
+ * pontos das classes marcadas como elegíveis — pela regra, a OPEN — contam
+ * para a classificação que leva ao Super Overall no fim do ano.
+ *
+ * É o MESMO motor: mesma tabela de pontos, mesmo desempate. O que muda é só o
+ * conjunto de lançamentos considerado. Duas coisas que o modelo mantém
+ * separadas de propósito: "pontuou no evento" e "é elegível ao Super Overall".
+ */
+async function superOverallRanking(seasonId, { categoryId = null } = {}) {
+  const pontos = await prisma.rankingPoint.findMany({
+    where: { seasonId, superOverallEligible: true, ...(categoryId ? { categoryId } : {}) },
+    select: {
+      athleteId: true, categoryId: true, points: true, placing: true,
+      isOverallChampion: true, eventId: true, externalResultId: true,
+      athlete: { select: { id: true, fullName: true, stageName: true, state: true, team: { select: { id: true, name: true } } } }
+    }
+  });
+
+  const acumulado = new Map();
+  for (const ponto of pontos) {
+    if (!acumulado.has(ponto.athleteId)) {
+      acumulado.set(ponto.athleteId, {
+        athleteId: ponto.athleteId, athlete: ponto.athlete,
+        totalPoints: 0, fontes: new Set(), pontos: []
+      });
+    }
+    const linha = acumulado.get(ponto.athleteId);
+    linha.totalPoints += ponto.points;
+    linha.fontes.add(ponto.eventId || ponto.externalResultId || 'externo');
+    linha.pontos.push(ponto);
+  }
+
+  const linhas = [...acumulado.values()].map(linha => ({ ...linha, ...contadores(linha.pontos) }));
+
+  return classificar(linhas).map(linha => ({
+    position: linha.position,
+    tieUnresolved: linha.tieUnresolved,
+    athlete: linha.athlete,
+    totalPoints: linha.totalPoints,
+    eventCount: linha.fontes.size,
+    overallWins: linha.overallWins,
+    firstPlaceCount: linha.firstPlaceCount,
+    secondPlaceCount: linha.secondPlaceCount,
+    thirdPlaceCount: linha.thirdPlaceCount
+  }));
+}
+
+// ------------------------------------------------------ catálogo de classes
+//
+// O operador governa a lista aqui: cria, edita e desativa classes, e marca
+// quais alimentam o Super Overall. O motor de pontuação lê a marca; nenhum
+// código de classe está escrito nele.
+
+async function listClasses(organizationId, actor) {
+  assertCan(actor, 'ranking.read', organizationId);
+  return prisma.classCatalog.findMany({
+    where: { organizationId },
+    orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }]
+  });
+}
+
+async function upsertClass(organizationId, data, actor) {
+  assertCan(actor, 'ranking.manage', organizationId);
+
+  const existente = await prisma.classCatalog.findUnique({
+    where: { organizationId_code: { organizationId, code: data.code } }
+  });
+
+  const classe = existente
+    ? await prisma.classCatalog.update({
+      where: { id: existente.id },
+      data: {
+        name: data.name ?? existente.name,
+        superOverallEligible: data.superOverallEligible ?? existente.superOverallEligible,
+        active: data.active ?? existente.active,
+        sortOrder: data.sortOrder ?? existente.sortOrder
+      }
+    })
+    : await prisma.classCatalog.create({
+      data: {
+        organizationId, code: data.code, name: data.name ?? data.code,
+        superOverallEligible: data.superOverallEligible ?? false,
+        active: data.active ?? true,
+        sortOrder: data.sortOrder ?? 0
+      }
+    });
+
+  await audit.record({
+    actor, action: 'CLASS_CATALOG_SET', entity: 'ClassCatalog', entityId: classe.id,
+    organizationId, metadata: { code: classe.code, superOverallEligible: classe.superOverallEligible, active: classe.active }
+  });
+
+  return classe;
+}
+
 async function recompute(seasonId, actor) {
   const season = await prisma.rankingSeason.findUnique({ where: { id: seasonId } });
   if (!season) throw new AppError(404, 'SEASON_NOT_FOUND', 'Temporada não encontrada');
@@ -448,6 +561,6 @@ async function athletePoints(athleteId, seasonId, actor) {
 module.exports = {
   createSeason, listSeasons, setPointsRules, pointsForPlacing, awardForResult,
   recompute, recompute_, list, athletePoints, teamRanking,
-  declareOverall, listOverall,
+  declareOverall, listOverall, superOverallRanking, listClasses, upsertClass,
   TABELA_OFICIAL_COLOCACAO, BONUS_OVERALL
 };

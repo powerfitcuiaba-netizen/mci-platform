@@ -60,6 +60,29 @@ Se o campeão Overall vier de outra colocação, o bônus acompanha essa coloca�
 próprio de equipe. A pontuação da equipe é a soma dos pontos dos seus atletas, e
 cada parcela continua apontando para o resultado que a originou.
 
+## Classes e elegibilidade ao Super Overall *(fase 11.2)*
+
+Dentro de cada categoria/divisão existem as classes **Estreante**, **Novice**,
+**Open** e **Master**. O operador acrescenta, edita e desativa classes pelo
+catálogo da organização (`/classes-catalog`), sem alteração no motor.
+
+**Todas as classes pontuam no campeonato**, pela mesma tabela acima. A
+distinção é outra:
+
+| Classe | Pontua no campeonato | Alimenta o Super Overall anual |
+|---|---|---|
+| Estreante | ✅ | ❌ |
+| Novice | ✅ | ❌ |
+| **Open** | ✅ | **✅** |
+| Master | ✅ | ❌ |
+
+> São duas perguntas diferentes, e o modelo as separa: `points` responde
+> "pontuou no evento"; `superOverallEligible` responde "conta para o Super
+> Overall". A marca é **atributo da classe**, nunca o código `OPEN` comparado
+> dentro do motor — é o que permite criar uma classe nova sem tocar em programa.
+> A elegibilidade é **gravada em cada lançamento**, para que mudar a
+> configuração de uma classe não reescreva a história de um campeonato encerrado.
+
 ## Desempate — hierarquia oficial
 
 Aplicada nesta ordem exata; o primeiro critério que separar encerra a questão:
@@ -68,9 +91,25 @@ Aplicada nesta ordem exata; o primeiro critério que separar encerra a questão:
 2. Mais **1º** lugares
 3. Mais **2º** lugares
 4. Mais **3º** lugares
-5. Mais **4º** lugares
-6. Mais **5º** lugares
-7. **`TIE_UNRESOLVED`**
+5. **`TIE_UNRESOLVED`**
+
+> **Revisão da fase 11.2:** a cadeia parava no 5º lugar e passou a parar no 3º,
+> por decisão do organizador. Os contadores de 4º e 5º continuam mantidos —
+> essas colocações pontuam e a conta precisa seguir conferível —, mas **não
+> participam do desempate**.
+
+## Origem dos pontos: a colocação, não um número digitado
+
+O operador informa o **resultado oficial** (colocação, classe, e se houve
+Overall); o sistema aplica a regra. Uma coluna de pontos no arquivo de
+importação **não substitui** a tabela quando há colocação — só é usada quando a
+linha não traz colocação alguma, caso em que não há regra a aplicar.
+
+```
+OPERADOR → IMPORTAÇÃO → CATEGORIA → DIVISÃO/CLASSE → ATLETA/EQUIPE
+         → COLOCAÇÃO → PONTOS (regra) → OVERALL, SE INFORMADO
+         → RANKING → FILTRO DE ELEGIBILIDADE → SUPER OVERALL ANUAL
+```
 
 Esgotada a hierarquia, o empate **não é quebrado**. Nada de id, nome, data,
 ordem de inserção ou alfabética: os empatados ficam **sem colocação**, sinalizados
@@ -117,14 +156,18 @@ Não implementado por ausência de regra, e **não presumido**.
 
 ## P1. Como se determina o campeão Overall
 
-**A regra do bônus está homologada; o critério de determinação, não.** Não foi
-definido entre quais classes o Overall é disputado, se há um por categoria ou um
-por evento, nem se resulta de apuração ou de decisão do painel.
+✅ **RESOLVIDO na fase 11.2 — por definição, e não por implementação.** O
+organizador estabeleceu que **quem é o campeão Overall é dado informado** pelo
+operador ou pela importação, e que o sistema **não deve tentar descobri-lo
+sozinho** até existir regra específica de apuração.
 
-Enquanto isso, o título é **registrado** pela organização
-(`POST /events/:id/overall`), com autor e data em auditoria — nunca calculado.
-Aplicar +10 a partir de um critério que ninguém homologou seria inventar
-regulamento.
+É exatamente o que está implementado: o título é registrado
+(`POST /events/:id/overall`) ou vem marcado na importação (coluna `overall`),
+sempre com autor e data em auditoria. A pontuação (+10) é regra homologada; a
+determinação continua sendo fato declarado.
+
+**Ainda pendente:** se e quando houver uma regra de *apuração* do Overall, ela
+entra neste mesmo ponto sem alterar o resto do motor.
 
 ## P2. Quais resultados de atleta são "elegíveis" para a equipe
 
@@ -132,12 +175,33 @@ Sem regra de descarte, de teto de atletas pontuando ou de mínimo por equipe,
 **todos** os resultados pontuados do atleta contam para a equipe. Qualquer corte
 seria presunção.
 
-## P3. Pontuação do 6º lugar em diante
+## P3. Desempate além do 3º lugar
+
+A hierarquia oficial vai até o número de terceiros lugares. Persistindo o
+empate, **nenhum critério adicional é inventado**: os empatados ficam como
+`TIE_UNRESOLVED` até que uma regra oficial seja definida.
+
+## P4. Qual entidade representa "empresa" como competidora
+
+O organizador estabeleceu que a mesma tabela de pontos se aplica a **atletas,
+equipes e empresas**. Atletas e equipes estão implementados — `Team` já existia
+e o atleta já se vincula a ela.
+
+**Para empresas falta a definição de qual entidade é essa.** O sistema tem
+`Brand` (marca), `Sponsor` (patrocinador), `Gym` (academia) e `Coach`, e o
+atleta se vincula a academia e a treinador — mas nenhuma delas é declaradamente
+"a empresa que o atleta representa em competição". Escolher uma seria presumir.
+
+**Falta também o campo no arquivo de importação**: o adapter passou a reconhecer
+`overall` e `equipe`, mas não há coluna de empresa porque não há entidade de
+destino.
+
+## P5. Pontuação do 6º lugar em diante
 
 A tabela homologada vai até o 5º. Colocações a partir do 6º recebem **zero**, e
 não um valor extrapolado.
 
-## P4. Decisões de apuração dentro da classe
+## P6. Decisões de apuração dentro da classe
 
 Método, descarte da maior/menor colocação, painel mínimo para o descarte e
 ordem dos desempates *dentro da classe* seguem pendentes — são a Parte III

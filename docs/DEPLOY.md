@@ -43,7 +43,7 @@ HTTP → autenticação (req.user) → asyncHandler → withUserContext
      → SET LOCAL mci.user_id (mesma transação) → Prisma → política → dado
 ```
 
-- `FORCE ROW LEVEL SECURITY` nas 18 tabelas protegidas: o dono também é
+- `FORCE ROW LEVEL SECURITY` nas 19 tabelas protegidas: o dono também é
   filtrado.
 - O ator vem sempre de `req.user`, preenchido a partir do token. Nunca do
   corpo, da query ou de parâmetro de rota.
@@ -337,6 +337,6 @@ API, ou o navegador bloqueia as chamadas.
 - [ ] `readinessProbe` em `/ready`, `livenessProbe` em `/health`
 - [ ] TLS terminando antes da API; `trust proxy` já ligado em produção
 - [ ] Backup do PostgreSQL configurado e **restauração testada**
-- [ ] `FORCE ROW LEVEL SECURITY` confirmado nas 18 tabelas (§1.1)
+- [ ] `FORCE ROW LEVEL SECURITY` confirmado nas 19 tabelas (§1.1)
 - [ ] **`current_setting('is_superuser')` = `off` na conexão da aplicação (§1.2)** — superusuário anula o RLS inteiro
 - [ ] [`HOMOLOGACAO-ESPORTIVA.md`](HOMOLOGACAO-ESPORTIVA.md) ratificado antes de apurar prova oficial
