@@ -1,3 +1,4 @@
+const { randomUUID } = require('node:crypto');
 const prisma = require('../config/prisma');
 const { AppError } = require('../utils/errors');
 const { profilePublic } = require('../utils/visibility');
@@ -44,6 +45,34 @@ async function conversaDoParticipante(conversationId, profileId) {
   return { membership: membro, conversation: membro.conversation };
 }
 
+// Cria a conversa e seus participantes sem ler a linha de volta antes da hora.
+//
+// `create` do Prisma emite INSERT ... RETURNING, e o RETURNING é submetido à
+// política de SELECT da tabela. A política de "Conversation" é "só participante
+// lê" — e no instante do RETURNING nenhum participante existe ainda, porque as
+// linhas de "ConversationMember" só entram depois. O criador ficava sem
+// conseguir ler a própria conversa recém-criada.
+//
+// `createMany` não usa RETURNING: a escrita responde apenas à política de
+// INSERT. Com os participantes já gravados, a leitura seguinte passa pela
+// política normalmente. O id é gerado aqui porque, sem RETURNING, o banco não
+// tem como devolvê-lo.
+async function criarComParticipantes(dados, participantes) {
+  const id = randomUUID();
+
+  await prisma.$transaction(async tx => {
+    await tx.conversation.createMany({ data: { id, ...dados } });
+    await tx.conversationMember.createMany({
+      data: participantes.map(participante => ({ conversationId: id, ...participante }))
+    });
+  });
+
+  return prisma.conversation.findUnique({
+    where: { id },
+    include: { members: { include: { profile: true } } }
+  });
+}
+
 async function createConversation(userId, data) {
   const profile = await meuPerfil(userId);
 
@@ -67,25 +96,17 @@ async function createConversation(userId, data) {
     });
     if (existente) return serializar(existente, profile.id);
 
-    const criada = await prisma.conversation.create({
-      data: {
-        kind: 'DIRECT',
-        directKey,
-        members: { create: [{ profileId: profile.id, role: 'ADMIN' }, { profileId: outros[0] }] }
-      },
-      include: { members: { include: { profile: true } } }
-    });
+    const criada = await criarComParticipantes(
+      { kind: 'DIRECT', directKey },
+      [{ profileId: profile.id, role: 'ADMIN' }, { profileId: outros[0] }]
+    );
     return serializar(criada, profile.id);
   }
 
-  const criada = await prisma.conversation.create({
-    data: {
-      kind: 'GROUP',
-      title: data.title || 'Grupo',
-      members: { create: [{ profileId: profile.id, role: 'ADMIN' }, ...outros.map(id => ({ profileId: id }))] }
-    },
-    include: { members: { include: { profile: true } } }
-  });
+  const criada = await criarComParticipantes(
+    { kind: 'GROUP', title: data.title || 'Grupo' },
+    [{ profileId: profile.id, role: 'ADMIN' }, ...outros.map(id => ({ profileId: id }))]
+  );
 
   await notifications.notify({
     userIds: perfis.map(item => item.userId).filter(Boolean),

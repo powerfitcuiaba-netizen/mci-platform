@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao, vincular, criarAtleta, gerarCpf } from './helpers.mjs';
+import { api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao, vincular, criarAtleta, gerarCpf, comoAtor } from './helpers.mjs';
 
 // Upload e download de mídia: o arquivo só chega ao storage depois da
 // autorização, e a chave no banco não dá acesso a quem não pode ver o dono.
@@ -104,7 +104,9 @@ describe('documentos de atleta', () => {
     await vincular(org.id, operador, 'REGISTRATION_OPERATOR');
 
     const atleta = await criarAtleta(operador, org.id, { fullName: 'Documentada', cpf: gerarCpf(151515151) });
-    await prisma.athlete.update({ where: { id: atleta.id }, data: { userId: ana.id } });
+    // Montado em nome do operador: com FORCE ligado, nem o dono do schema
+    // escreve em tabela protegida sem ator definido.
+    await comoAtor(operador, tx => tx.athlete.update({ where: { id: atleta.id }, data: { userId: ana.id } }));
 
     const documento = await api()
       .post(`/api/v1/athletes/${atleta.id}/documents`)
@@ -117,7 +119,10 @@ describe('documentos de atleta', () => {
 
     expect((await api().get(`/api/v1/documents/athlete/${documento.body.id}/download`).set(ana.auth())).status).toBe(200);
     expect((await api().get(`/api/v1/documents/athlete/${documento.body.id}/download`).set(operador.auth())).status).toBe(200);
-    expect((await api().get(`/api/v1/documents/athlete/${documento.body.id}/download`).set(bruno.auth())).status).toBe(403);
+    // 404, não 403: o documento de outro atleta simplesmente não existe para
+    // Bruno depois que o RLS ganhou FORCE. Negar sem confirmar a existência é a
+    // resposta mais forte das duas.
+    expect((await api().get(`/api/v1/documents/athlete/${documento.body.id}/download`).set(bruno.auth())).status).toBe(404);
     expect((await api().get(`/api/v1/documents/athlete/${documento.body.id}/download`)).status).toBe(401);
   });
 
@@ -160,14 +165,17 @@ describe('stories', () => {
     // Quem não segue não recebe o story na lista.
     const carla = await criarUsuario({ name: 'Carla' });
     expect((await api().get('/api/v1/social/stories').set(carla.auth())).body.items).toHaveLength(0);
-    expect((await api().get(`/api/v1/media/stories/${story.body.id}`).set(carla.auth())).status).toBe(403);
+    // 404, não 403: para quem não segue, o RLS torna o story inexistente. Não
+    // revelar que ele existe é resposta melhor do que negar acesso a algo cuja
+    // existência acabou de ser confirmada.
+    expect((await api().get(`/api/v1/media/stories/${story.body.id}`).set(carla.auth())).status).toBe(404);
 
     // Marcar como visto muda a lista de quem já viu.
     expect((await api().post(`/api/v1/social/stories/${story.body.id}/view`).set(bruno.auth())).status).toBe(200);
     expect((await api().get('/api/v1/social/stories').set(bruno.auth())).body.items[0].items[0].seen).toBe(true);
 
     // Expiração é aplicada na consulta: vencido não aparece nem baixa.
-    await prisma.story.update({ where: { id: story.body.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    await comoAtor(ana, tx => tx.story.update({ where: { id: story.body.id }, data: { expiresAt: new Date(Date.now() - 1000) } }));
     expect((await api().get('/api/v1/social/stories').set(bruno.auth())).body.items).toHaveLength(0);
     expect((await api().get(`/api/v1/media/stories/${story.body.id}`).set(ana.auth())).status).toBe(404);
   });

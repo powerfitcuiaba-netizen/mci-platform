@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
   api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, criarAtleta, criarEventoCompleto, transicionar, gerarCpf
+  vincular, criarAtleta, criarEventoCompleto, transicionar, gerarCpf, comoAtor
 } from './helpers.mjs';
 
 // Testes negativos e de segurança: IDOR, cross-tenant, escalada de papel,
@@ -113,7 +113,10 @@ describe('isolamento entre organizações', () => {
     const atleta = await criarAtleta(diretorB, orgB.id, { fullName: 'Protegida', cpf: gerarCpf(515151515) });
 
     const resposta = await api().patch(`/api/v1/athletes/${atleta.id}`).set(diretorA.auth()).send({ city: 'Invadida' });
-    expect(resposta.status).toBe(403);
+    // 404, não 403: com FORCE ligado, o atleta da outra federação não existe
+    // para este diretor nem no banco. Conhecer o id deixou de ser suficiente
+    // até para confirmar que o registro existe.
+    expect(resposta.status).toBe(404);
   });
 
   it('não inscreve em evento de outra organização', async () => {
@@ -171,7 +174,9 @@ describe('proteção do CPF', () => {
 
     await api().post('/api/v1/athletes/lookup').set(diretorA.auth()).send({ organizationId: orgA.id, cpf });
 
-    const trilha = await prisma.auditLog.findMany({ where: { action: 'ATHLETE_CPF_VIEW' } });
+    // A auditoria só é legível por administrador da plataforma ou operador da
+    // organização — inclusive para o dono do schema, desde que o RLS ganhou FORCE.
+    const trilha = await comoAtor(admin, tx => tx.auditLog.findMany({ where: { action: 'ATHLETE_CPF_VIEW' } }));
     expect(trilha.length).toBeGreaterThanOrEqual(1);
     expect(trilha[0].userEmail).toBe(diretorA.email);
     // A trilha registra o acesso, não o número consultado.

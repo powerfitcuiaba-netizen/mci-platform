@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import {
   api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, criarAtleta, criarEventoCompleto, transicionar, gerarCpf
+  vincular, criarAtleta, criarEventoCompleto, transicionar, gerarCpf, comoAtor
 } from './helpers.mjs';
 
 // Row Level Security executado de verdade.
@@ -148,10 +148,13 @@ describe('RLS — dados restritos do campeonato', () => {
   it('documento de atleta só é lido pelo dono e pelo operador da organização', async () => {
     const atletaUsuario = await criarUsuario({ name: 'Atleta com documento' });
     const atleta = await criarAtleta(diretorA, orgA.id, { fullName: 'Documentada', cpf: gerarCpf(181818181) });
-    await prisma.athlete.update({ where: { id: atleta.id }, data: { userId: atletaUsuario.id } });
-
-    await prisma.athleteDocument.create({
-      data: { athleteId: atleta.id, kind: 'MEDICAL', title: 'Atestado', fileName: 'a.pdf', storageKey: `teste/${atleta.id}.pdf`, sizeBytes: 10 }
+    // O cenário é montado em nome do diretor da organização: com FORCE ligado,
+    // nem o dono do schema escreve em tabela protegida sem ator definido.
+    await comoAtor(diretorA, async tx => {
+      await tx.athlete.update({ where: { id: atleta.id }, data: { userId: atletaUsuario.id } });
+      await tx.athleteDocument.create({
+        data: { athleteId: atleta.id, kind: 'MEDICAL', title: 'Atestado', fileName: 'a.pdf', storageKey: `teste/${atleta.id}.pdf`, sizeBytes: 10 }
+      });
     });
 
     expect(await comoUsuario(atletaUsuario.id, tx => tx.athleteDocument.findMany())).toHaveLength(1);
@@ -223,9 +226,9 @@ describe('RLS — dados restritos do campeonato', () => {
     const gerente = await criarUsuario({ name: 'Gerente' });
     await vincular(orgA.id, gerente, 'RANKING_MANAGER');
 
-    await prisma.muscleWarImport.create({
+    await comoAtor(gerente, tx => tx.muscleWarImport.create({
       data: { organizationId: orgA.id, sourceType: 'CSV', sourceRef: 'lote.csv', createdById: gerente.id }
-    });
+    }));
 
     expect(await comoUsuario(gerente.id, tx => tx.muscleWarImport.findMany())).toHaveLength(1);
     expect(await comoUsuario(diretorB.id, tx => tx.muscleWarImport.findMany())).toHaveLength(0);

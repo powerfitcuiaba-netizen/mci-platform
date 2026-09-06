@@ -13,7 +13,8 @@ Honestidade sobre o que foi e o que não foi executado:
 |---|---|
 | Migrations aplicadas em PostgreSQL real | ✅ executado (local e CI) |
 | Políticas de RLS aplicadas e testadas contra o papel `mci_app` | ✅ executado (12 testes) |
-| Suíte completa (171 testes) e ESLint | ✅ executado |
+| **RLS aplicado ao caminho real da requisição** | ✅ executado (14 testes, inclusive o caso do dono) |
+| Suíte completa (185 testes) e ESLint | ✅ executado |
 | Barreira de configuração de produção | ✅ executado (15 testes) |
 | `/health` e `/ready` respondendo em processo real | ✅ executado |
 | Encerramento ordenado em SIGTERM | ✅ executado |
@@ -27,26 +28,52 @@ primeiro `docker build` como parte do trabalho de deploy.
 
 ## 1. Antes de tudo: os dois riscos que precisam de decisão
 
-### 1.1 RLS não está ligado no caminho da requisição
+### 1.1 RLS aplicado no caminho da requisição
 
-As políticas de RLS **existem, estão aplicadas e são testadas** — os testes
-conectam como `mci_app` (papel `NOBYPASSRLS`) e verificam que o banco recusa
-leitura e escrita indevidas. Isso é fato verificado.
+**Resolvido na fase 10.2.** Antes, as políticas existiam e eram testadas, mas
+não protegiam nada em execução: a aplicação conecta como dono das tabelas, e o
+PostgreSQL isenta o dono das políticas salvo `FORCE ROW LEVEL SECURITY`, que
+não estava aplicado. Na prática, a política negava e o dono lia assim mesmo.
 
-Mas a API conecta como **dono do schema** (`DATABASE_URL`), e o dono do schema
-não é submetido às políticas. O helper que define o ator da transação
-(`src/config/rlsSession.js`, `withUserContext`) está implementado e testado,
-mas **nenhum service o utiliza hoje**.
+Hoje a cadeia é real e verificável:
 
-Consequência prática: **a autorização em produção é feita pelo RBAC da
-aplicação; o RLS é uma segunda camada provada, porém inativa no runtime.**
+```
+HTTP → autenticação (req.user) → asyncHandler → withUserContext
+     → SET LOCAL mci.user_id (mesma transação) → Prisma → política → dado
+```
 
-⚠️ **Não tente ligar o RLS apenas trocando `DATABASE_URL` para `mci_app`.** Sem
-`withUserContext` envolvendo cada consulta, `current_setting('mci.user_id')`
-fica vazio, as políticas negam tudo e a aplicação para de funcionar por
-completo. Ligar o RLS de verdade exige passar as consultas dos services por
-`withUserContext` — é trabalho de desenvolvimento, não de configuração, e deve
-ser decidido e planejado, não improvisado durante um deploy.
+- `FORCE ROW LEVEL SECURITY` nas 16 tabelas protegidas: o dono também é
+  filtrado.
+- O ator vem sempre de `req.user`, preenchido a partir do token. Nunca do
+  corpo, da query ou de parâmetro de rota.
+- O contexto é definido com `SET LOCAL` dentro da transação da requisição, na
+  mesma conexão da consulta — o que o torna imune à troca de conexão do pool.
+- Requisição sem token não abre transação e roda anônima: as políticas liberam
+  só o que é público por definição.
+- `tests/rls-runtime.test.mjs` cobre isso com 14 testes, incluindo o caso do
+  dono, concorrência entre atores e ausência de contexto residual.
+
+**Ponto de atenção que continua valendo:** o RLS é barreira de LINHA, não de
+coluna. Onde a política libera a linha, ela libera todas as colunas. Duas
+consequências práticas, ambas com o service como responsável e com teste
+cobrindo:
+
+- o CPF sai das respostas públicas pela projeção do service, não pelo banco;
+- a edição de texto de publicação alheia é impedida pelo service; a política de
+  UPDATE precisa ser permissiva o bastante para os contadores de curtida e
+  comentário, que outros usuários incrementam.
+
+Restringir por coluna no banco é possível com `GRANT` de coluna, mas só tem
+efeito quando a aplicação conecta como `mci_app` — que **não** é o modo padrão
+hoje. Ver §1.3.
+
+### 1.3 Conectar como `mci_app` (opcional, mais restritivo)
+
+A aplicação conecta hoje como dono do schema, e o `FORCE` é o que garante o
+RLS. Apontar `DATABASE_URL` para `mci_app` é seguro **agora** — antes da fase
+10.2 isso derrubaria a aplicação inteira, porque nada definia o contexto — e
+acrescenta duas camadas: o papel não é dono, e passa a respeitar `GRANT` de
+coluna. Antes de trocar, rode a suíte apontando para ele.
 
 ### 1.2 Armazenamento de arquivos
 
@@ -266,5 +293,5 @@ API, ou o navegador bloqueia as chamadas.
 - [ ] `readinessProbe` em `/ready`, `livenessProbe` em `/health`
 - [ ] TLS terminando antes da API; `trust proxy` já ligado em produção
 - [ ] Backup do PostgreSQL configurado e **restauração testada**
-- [ ] Risco de RLS em runtime (§1.1) lido e aceito conscientemente
+- [ ] `FORCE ROW LEVEL SECURITY` confirmado nas 16 tabelas (§1.1)
 - [ ] [`HOMOLOGACAO-ESPORTIVA.md`](HOMOLOGACAO-ESPORTIVA.md) ratificado antes de apurar prova oficial

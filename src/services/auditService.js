@@ -59,9 +59,15 @@ function sanitize(valor, profundidade = 0) {
 
 // Auditar é efeito colateral: uma falha aqui não derruba a operação auditada,
 // mas também não passa despercebida.
+// `createMany` e não `create`: o `create` do Prisma emite INSERT ... RETURNING,
+// e o RETURNING é submetido à política de SELECT da tabela. Como a auditoria só
+// é legível por administrador e operador da organização, gravar um registro em
+// nome de um ator comum falharia ao tentar lê-lo de volta — e o retorno é
+// descartado por todas as 44 chamadas. Sem RETURNING, a escrita passa pela
+// política de INSERT, que é a que de fato governa quem pode auditar.
 async function record({ actor, action, entity, entityId = null, organizationId = null, metadata = null, ip = null }) {
   try {
-    return await prisma.auditLog.create({
+    return await prisma.auditLog.createMany({
       data: {
         organizationId,
         userId: actor?.id || null,

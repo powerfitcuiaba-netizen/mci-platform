@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { api, prisma, limparBanco, garantirCatalogo, criarUsuario, unico } from './helpers.mjs';
+import { api, prisma, limparBanco, garantirCatalogo, criarUsuario, unico, comoAtor } from './helpers.mjs';
 
 // MCI Social e MCI Messenger: feed real, interações persistidas e privacidade
 // aplicada no servidor.
@@ -188,7 +188,7 @@ describe('messenger', () => {
       .send({ kind: 'DIRECT', participantIds: [ana.profileId] });
 
     expect(segunda.body.id).toBe(primeira.body.id);
-    expect(await prisma.conversation.count()).toBe(1);
+    expect(await comoAtor(ana, tx => tx.conversation.count())).toBe(1);
   });
 
   it('troca mensagens, marca lidas e conta não lidas', async () => {
@@ -312,7 +312,11 @@ describe('moderação', () => {
 
     expect((await api().get(`/api/v1/social/posts/${post.body.id}`).set(ana.auth())).status).toBe(404);
 
-    const trilha = await prisma.auditLog.findMany({ where: { action: 'CONTENT_MODERATION' } });
+    // A auditoria é legível por administrador da plataforma ou operador da
+    // organização. MODERATOR modera conteúdo mas não lê trilha: quem confere o
+    // registro aqui é um administrador.
+    const auditor = await criarUsuario({ role: 'SUPER_ADMIN', name: 'Auditor' });
+    const trilha = await comoAtor(auditor, tx => tx.auditLog.findMany({ where: { action: 'CONTENT_MODERATION' } }));
     expect(trilha).toHaveLength(1);
     expect(trilha[0].userEmail).toBe(moderador.email);
   });

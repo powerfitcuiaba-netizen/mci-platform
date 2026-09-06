@@ -15,8 +15,18 @@ process.env.BCRYPT_ROUNDS = '4';
 
 const { default: app } = await import('../src/app.js');
 const { default: prisma } = await import('../src/config/prisma.js');
+const { withUserContext } = await import('../src/config/rlsSession.js');
 
 export { app, prisma };
+
+// Executa uma escrita de fixture em nome de um ator, usando o MESMO helper que
+// a aplicação usa em produção — não uma reimplementação.
+//
+// Passou a ser necessário quando o RLS ganhou FORCE: o dono das tabelas
+// deixou de ser isento das políticas, então montar cenário gravando direto no
+// banco sem ator não funciona mais. Isso não é obstáculo do teste, é a prova
+// de que a barreira passou a valer para todo mundo.
+export const comoAtor = (usuario, callback) => withUserContext(usuario?.id ?? usuario, callback);
 
 export const api = () => request(app);
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
   api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, criarAtleta, gerarCpf, unico
+  vincular, criarAtleta, gerarCpf, unico, comoAtor
 } from './helpers.mjs';
 
 // Importação de resultados do MuscleWar: reconhecimento por CPF, confirmação
@@ -200,8 +200,12 @@ describe('importação MuscleWar', () => {
     expect(aplicacao.metadata.sourceRef).toBeTruthy();
 
     // Histórico de importação não é apagado em silêncio.
-    expect(await prisma.muscleWarImport.count()).toBe(1);
-    expect(await prisma.muscleWarImportItem.count()).toBe(1);
+    const historico = await comoAtor(gerente, async tx => ({
+      lotes: await tx.muscleWarImport.count(),
+      itens: await tx.muscleWarImportItem.count()
+    }));
+    expect(historico.lotes).toBe(1);
+    expect(historico.itens).toBe(1);
   });
 
   it('recusa importação de quem não tem a permissão', async () => {
