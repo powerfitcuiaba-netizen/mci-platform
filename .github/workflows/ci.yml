@@ -35,7 +35,9 @@ jobs:
 
     env:
       NODE_ENV: test
-      DATABASE_URL: postgresql://mci:mci_ci@localhost:5432/mci_test?schema=public
+      # NÃO é o usuário de bootstrap do contêiner: aquele é superusuário, e
+      # superusuário ignora RLS. Ver o passo que cria este papel.
+      DATABASE_URL: postgresql://mci_owner:mci_owner_ci@localhost:5432/mci_test?schema=public
       RLS_DATABASE_URL: postgresql://mci_app:mci_app_ci@localhost:5432/mci_test?schema=public
       STORAGE_DIR: ./uploads-test
       JWT_SECRET: ci-secret-apenas-para-a-pipeline-com-tamanho-suficiente
@@ -52,6 +54,30 @@ jobs:
 
       - name: Instalar dependências
         run: npm ci
+
+      # O POSTGRES_USER da imagem oficial é o usuário de bootstrap e nasce
+      # SUPERUSUÁRIO — e superusuário ignora RLS incondicionalmente, mesmo com
+      # FORCE. Rodar a suíte com ele deixaria a barreira sem efeito e a CI
+      # verde justamente no cenário que ela precisa reprovar.
+      #
+      # Rebaixá-lo não é possível: o PostgreSQL recusa remover SUPERUSER do
+      # usuário de bootstrap. Então a aplicação recebe um papel próprio, comum,
+      # que passa a ser dono do schema e das tabelas.
+      - name: Criar o papel dono do schema, sem superusuário
+        env:
+          PGPASSWORD: mci_ci
+        run: |
+          set -e
+          PSQL="psql -h localhost -U mci -d mci_test -v ON_ERROR_STOP=1"
+          $PSQL -c "CREATE ROLE mci_owner LOGIN PASSWORD 'mci_owner_ci' NOSUPERUSER CREATEROLE"
+          $PSQL -c "GRANT ALL ON DATABASE mci_test TO mci_owner"
+          $PSQL -c "ALTER SCHEMA public OWNER TO mci_owner"
+          # Falha alto se o papel sair superusuário: sem isto, a suíte inteira
+          # rodaria sem RLS e mesmo assim ficaria verde.
+          PGPASSWORD=mci_owner_ci psql -h localhost -U mci_owner -d mci_test -v ON_ERROR_STOP=1 -tAc \
+            "SELECT CASE WHEN current_setting('is_superuser') = 'on' THEN 1/0 ELSE 1 END"
+          echo "mci_owner criado sem superusuário."
+
 
       - name: Validar schema do Prisma
         run: npx prisma validate
@@ -80,32 +106,16 @@ jobs:
 
       - name: Provisionar o papel de aplicação usado nos testes de RLS
         env:
-          PGPASSWORD: mci_ci
+          PGPASSWORD: mci_owner_ci
         run: |
-          # A criação do papel exige CREATEROLE, que o usuário de migration não
-          # tem por decisão de segurança. Na CI, o superusuário do container faz
-          # a concessão.
-          psql -h localhost -U mci -d mci_test -c "ALTER ROLE mci CREATEROLE"
-          psql -h localhost -U mci -d mci_test -v senha="'mci_app_ci'" -f scripts/provision-app-role.sql
+          # A criação do papel exige CREATEROLE. Em produção o usuário de
+          # migration não deve tê-lo, e o provisionamento é passo separado com
+          # um papel administrativo (ver docs/DEPLOY.md); aqui `mci_owner` o
+          # recebe para que a pipeline se baste.
+          psql -h localhost -U mci_owner -d mci_test -v senha="'mci_app_ci'" -f scripts/provision-app-role.sql
 
       - name: Popular o catálogo oficial
         run: node prisma/seed.js
-
-      # POSTGRES_USER da imagem oficial nasce SUPERUSUÁRIO, e superusuário
-      # ignora RLS mesmo com FORCE ligado. Sem este passo, a suíte rodaria
-      # contra um banco em que a barreira simplesmente não existe — e a CI
-      # ficaria verde justamente no cenário que ela deveria reprovar.
-      #
-      # Depois daqui `mci` continua dono das tabelas e mantém CREATEROLE; perde
-      # apenas a isenção que tornaria o teste de RLS decorativo. É também a
-      # configuração correta em produção (ver docs/DEPLOY.md).
-      - name: Tirar o superusuário do papel da aplicação
-        env:
-          PGPASSWORD: mci_ci
-        run: |
-          psql -h localhost -U mci -d mci_test -c "ALTER ROLE mci NOSUPERUSER"
-          psql -h localhost -U mci -d mci_test -tAc \
-            "SELECT 'is_superuser=' || current_setting('is_superuser')"
 
       - name: Testes do backend
         run: npx vitest run
