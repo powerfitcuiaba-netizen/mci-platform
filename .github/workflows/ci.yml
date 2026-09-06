@@ -91,6 +91,22 @@ jobs:
       - name: Popular o catálogo oficial
         run: node prisma/seed.js
 
+      # POSTGRES_USER da imagem oficial nasce SUPERUSUÁRIO, e superusuário
+      # ignora RLS mesmo com FORCE ligado. Sem este passo, a suíte rodaria
+      # contra um banco em que a barreira simplesmente não existe — e a CI
+      # ficaria verde justamente no cenário que ela deveria reprovar.
+      #
+      # Depois daqui `mci` continua dono das tabelas e mantém CREATEROLE; perde
+      # apenas a isenção que tornaria o teste de RLS decorativo. É também a
+      # configuração correta em produção (ver docs/DEPLOY.md).
+      - name: Tirar o superusuário do papel da aplicação
+        env:
+          PGPASSWORD: mci_ci
+        run: |
+          psql -h localhost -U mci -d mci_test -c "ALTER ROLE mci NOSUPERUSER"
+          psql -h localhost -U mci -d mci_test -tAc \
+            "SELECT 'is_superuser=' || current_setting('is_superuser')"
+
       - name: Testes do backend
         run: npx vitest run
 

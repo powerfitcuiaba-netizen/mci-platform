@@ -13,8 +13,8 @@ Honestidade sobre o que foi e o que não foi executado:
 |---|---|
 | Migrations aplicadas em PostgreSQL real | ✅ executado (local e CI) |
 | Políticas de RLS aplicadas e testadas contra o papel `mci_app` | ✅ executado (12 testes) |
-| **RLS aplicado ao caminho real da requisição** | ✅ executado (14 testes, inclusive o caso do dono) |
-| Suíte completa (185 testes) e ESLint | ✅ executado |
+| **RLS aplicado ao caminho real da requisição** | ✅ executado (15 testes: caso do dono, superusuário, concorrência) |
+| Suíte completa (186 testes) e ESLint | ✅ executado |
 | Barreira de configuração de produção | ✅ executado (15 testes) |
 | `/health` e `/ready` respondendo em processo real | ✅ executado |
 | Encerramento ordenado em SIGTERM | ✅ executado |
@@ -65,17 +65,31 @@ cobrindo:
 
 Restringir por coluna no banco é possível com `GRANT` de coluna, mas só tem
 efeito quando a aplicação conecta como `mci_app` — que **não** é o modo padrão
-hoje. Ver §1.3.
+hoje. Ver §1.4.
 
-### 1.3 Conectar como `mci_app` (opcional, mais restritivo)
+### 1.2 A conexão da aplicação NÃO pode ser superusuário
 
-A aplicação conecta hoje como dono do schema, e o `FORCE` é o que garante o
-RLS. Apontar `DATABASE_URL` para `mci_app` é seguro **agora** — antes da fase
-10.2 isso derrubaria a aplicação inteira, porque nada definia o contexto — e
-acrescenta duas camadas: o papel não é dono, e passa a respeitar `GRANT` de
-coluna. Antes de trocar, rode a suíte apontando para ele.
+⚠️ **Superusuário do PostgreSQL ignora RLS incondicionalmente.** Não importa
+política, `FORCE` ou contexto: para um superusuário nada disso existe. Um banco
+provisionado com o papel da aplicação como superusuário deixa toda a proteção
+sem efeito — em silêncio, sem erro, sem nada no log.
 
-### 1.2 Armazenamento de arquivos
+Isso não é teórico: aconteceu na própria pipeline. A imagem oficial do
+PostgreSQL cria o `POSTGRES_USER` como superusuário, então a CI rodava contra
+um banco em que a barreira não existia, enquanto a máquina local — com papel
+comum — a exercitava de verdade. A suíte passava aqui e falhava lá, e o motivo
+era esse.
+
+Confira antes de subir:
+
+```sql
+SELECT current_user, current_setting('is_superuser');   -- precisa dar 'off'
+```
+
+`tests/rls-runtime.test.mjs` reprova a suíte inteira se a conexão for
+superusuária, para que o cenário não volte despercebido.
+
+### 1.3 Armazenamento de arquivos
 
 `STORAGE_DRIVER=local` grava no disco do próprio contêiner. Sem volume
 persistente, **todo upload — documento de atleta, foto, mídia de mensagem —
@@ -90,6 +104,14 @@ uma escolha explícita:
   `ALLOW_LOCAL_STORAGE=true`.
 
 Não existe caminho silencioso entre as duas.
+
+### 1.4 Conectar como `mci_app` (opcional, mais restritivo)
+
+A aplicação conecta hoje como dono do schema, e o `FORCE` é o que garante o
+RLS. Apontar `DATABASE_URL` para `mci_app` é seguro **agora** — antes da fase
+10.2 isso derrubaria a aplicação inteira, porque nada definia o contexto — e
+acrescenta duas camadas: o papel não é dono, e passa a respeitar `GRANT` de
+coluna. Antes de trocar, rode a suíte apontando para ele.
 
 ---
 
@@ -289,9 +311,10 @@ API, ou o navegador bloqueia as chamadas.
 - [ ] `JWT_SECRET` com 32+ caracteres, gerado aleatoriamente, **fora do repositório**
 - [ ] `CORS_ORIGINS` com as origens reais, sem curinga
 - [ ] `BCRYPT_ROUNDS` ≥ 10
-- [ ] Decisão de armazenamento tomada (§1.2) — provedor de objetos ou volume persistente
+- [ ] Decisão de armazenamento tomada (§1.3) — provedor de objetos ou volume persistente
 - [ ] `readinessProbe` em `/ready`, `livenessProbe` em `/health`
 - [ ] TLS terminando antes da API; `trust proxy` já ligado em produção
 - [ ] Backup do PostgreSQL configurado e **restauração testada**
 - [ ] `FORCE ROW LEVEL SECURITY` confirmado nas 16 tabelas (§1.1)
+- [ ] **`current_setting('is_superuser')` = `off` na conexão da aplicação (§1.2)** — superusuário anula o RLS inteiro
 - [ ] [`HOMOLOGACAO-ESPORTIVA.md`](HOMOLOGACAO-ESPORTIVA.md) ratificado antes de apurar prova oficial

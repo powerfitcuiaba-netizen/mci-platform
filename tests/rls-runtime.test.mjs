@@ -54,6 +54,24 @@ describe('FORCE ROW LEVEL SECURITY — o dono da tabela também é filtrado', ()
     expect(semForce, 'tabela com RLS mas sem FORCE volta a isentar o dono').toEqual([]);
   });
 
+  it('a conexão da aplicação NÃO é superusuário — senão o FORCE não vale nada', async () => {
+    // Superusuário do PostgreSQL ignora RLS incondicionalmente: nem política,
+    // nem FORCE, nem contexto valem para ele. Um banco provisionado com o papel
+    // da aplicação como superusuário deixa toda esta fase sem efeito, em
+    // silêncio e sem erro nenhum.
+    //
+    // Foi exatamente o que aconteceu: a suíte passava na máquina local, onde o
+    // papel é comum, e falhava na CI, onde POSTGRES_USER nasce superusuário.
+    const [{ superusuario }] = await prisma.$queryRaw`
+      SELECT current_setting('is_superuser') = 'on' AS superusuario
+    `;
+
+    expect(
+      superusuario,
+      'a aplicação está conectada como superusuário: o RLS não protege nada nesta configuração'
+    ).toBe(false);
+  });
+
   it('a aplicação conecta como DONO das tabelas — e ainda assim é barrada', async () => {
     // Este é o teste que reproduz o achado da auditoria. Antes do FORCE, a
     // política negava e o dono lia assim mesmo, porque o PostgreSQL isenta o
