@@ -48,6 +48,14 @@ const sponsorshipCreate = z.object({ sponsorId: id, tournamentId: id, status: z.
 const sponsorshipQuery = z.object({ tournamentId: id.optional() }).strict();
 const webhookParams = z.object({ provider: z.string().trim().min(1).max(40) }).strict();
 
+
+// --- Julgamento (domínio competitivo MCI) ---
+// A nota é uma COLOCAÇÃO ordinal, não um placar: inteiro positivo, e o motor de
+// apuração recusa valor fora do intervalo de atletas da bateria.
+const judgingScore = z.object({ enrollmentId: id, placing: z.number().int().positive().max(500), clientRef: z.string().trim().min(1).max(120).optional() }).strict();
+// Motivo só é exigido nas transições privilegiadas; o service decide.
+const resultTransition = z.object({ status: z.enum(["CALCULANDO", "EM_REVISAO", "APROVADO", "BLOQUEADO", "RASCUNHO"]), motivo: z.string().trim().min(5).max(500).optional() }).strict();
+
 const documentUpload = z.object({ tournamentId: id, title: z.string().trim().min(2).max(180).optional(), fileName: z.string().trim().min(1).max(255).optional() }).strict();
 
-module.exports = { id, paramsWithId, tournament, tournamentUpdate, participant, participantUpdate, team, teamUpdate, enrollment, match, matchUpdate, result, judgeAssignment, checkIn, document, query, searchQuery, documentQuery, coachSetTeam, profileUpdate, passwordChange, adminUserUpdate, adminUserQuery, auditQuery, notificationQuery, enrollmentQuery, documentUpload, orderCreate, orderQuery, paymentStart, couponCreate, couponToggle, couponPreview, refundRequest, refundQuery, sponsorCreate, sponsorshipCreate, sponsorshipQuery, webhookParams };
+module.exports = { id, paramsWithId, tournament, tournamentUpdate, participant, participantUpdate, team, teamUpdate, enrollment, match, matchUpdate, result, judgeAssignment, checkIn, document, query, searchQuery, documentQuery, coachSetTeam, profileUpdate, passwordChange, adminUserUpdate, adminUserQuery, auditQuery, notificationQuery, enrollmentQuery, documentUpload, orderCreate, orderQuery, paymentStart, couponCreate, couponToggle, couponPreview, refundRequest, refundQuery, sponsorCreate, sponsorshipCreate, sponsorshipQuery, webhookParams, judgingScore, resultTransition };

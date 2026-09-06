@@ -1,7 +1,7 @@
 const express = require('express');
 const asyncHandler = require('../utils/asyncHandler');
 const validate = require('../middlewares/validate');
-const { optionalAuth, requireAuth, requireRole } = require('../middlewares/auth');
+const { optionalAuth, requireAuth, requireRole, requirePermission } = require('../middlewares/auth');
 const { rateLimit } = require('../middlewares/rateLimit');
 const authSchemas = require('../utils/authSchemas');
 const schemas = require('../utils/schemas');
@@ -31,6 +31,7 @@ const payments = require('../controllers/paymentController');
 const coupons = require('../controllers/couponController');
 const refunds = require('../controllers/refundController');
 const sponsors = require('../controllers/sponsorController');
+const judging = require('../controllers/judgingController');
 
 const router = express.Router();
 const wrap = handler => asyncHandler(handler);
@@ -141,5 +142,21 @@ router.get('/backstage/overview', requireAuth, requireRole(['ADMIN', 'ORGANIZER'
 
 router.get('/reports/tournaments', requireAuth, requireRole(['ADMIN', 'ORGANIZER']), wrap(reports.listAvailable));
 router.get('/reports/tournaments/:id', requireAuth, requireRole(['ADMIN', 'ORGANIZER']), validate(schemas.paramsWithId, 'params'), wrap(reports.tournamentReport));
+
+
+// ---------------------------------------------------------------
+// Julgamento e resultados (dominio competitivo MCI).
+//
+// Autorizacao por permissao nomeada. Estar escalado NAQUELE painel e checado
+// no service: ter o papel de juiz nao da acesso a bateria dos outros.
+// ---------------------------------------------------------------
+router.post('/julgamento/baterias/:id/notas', requireAuth, requirePermission('judging.score'), validate(schemas.paramsWithId, 'params'), validate(schemas.judgingScore), wrap(judging.registrarNota));
+router.get('/julgamento/baterias/:id/minhas-notas', requireAuth, requirePermission('judging.read'), validate(schemas.paramsWithId, 'params'), wrap(judging.minhasNotas));
+router.post('/julgamento/baterias/:id/apurar', requireAuth, requirePermission('results.review'), validate(schemas.paramsWithId, 'params'), wrap(judging.apurar));
+
+router.patch('/resultados/:id/status', requireAuth, requirePermission('results.review'), validate(schemas.paramsWithId, 'params'), validate(schemas.resultTransition), wrap(judging.transitar));
+router.post('/resultados/:id/publicar', requireAuth, requirePermission('results.publish'), validate(schemas.paramsWithId, 'params'), wrap(judging.publicar));
+// optionalAuth: o publico ve resultado publicado; em revisao, so quem revisa.
+router.get('/categorias-evento/:id/resultado', optionalAuth, validate(schemas.paramsWithId, 'params'), wrap(judging.resultadoDaCategoria));
 
 module.exports = router;
