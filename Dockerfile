@@ -23,7 +23,11 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
+# O schema entra ANTES do `npm ci`: o postinstall do @prisma/client procura por
+# ele, e instalar sem o schema presente deixa o passo de geração dependendo
+# apenas da chamada explícita adiante.
 COPY package.json package-lock.json ./
+COPY prisma ./prisma
 
 # Instalação completa, devDependencies inclusive, e ela permanece na imagem
 # final de propósito: o CLI do Prisma precisa estar disponível para rodar
@@ -32,7 +36,8 @@ COPY package.json package-lock.json ./
 # real, não hipotético. Um único `npm ci` mantém os dois travados no lockfile.
 RUN npm ci
 
-COPY prisma ./prisma
+# Explícito mesmo que o postinstall já tenha gerado: o passo é barato e não
+# depende de o postinstall continuar existindo numa versão futura.
 RUN npx prisma generate
 
 

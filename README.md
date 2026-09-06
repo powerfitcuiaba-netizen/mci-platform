@@ -27,6 +27,7 @@ comunidade — feed, mensagens e comunidades.
 - [API](#api)
 - [Testes](#testes)
 - [Variáveis de ambiente](#variáveis-de-ambiente)
+- [Deploy e homologação](#deploy-e-homologação)
 - [Decisões e limites conhecidos](#decisões-e-limites-conhecidos)
 
 ---
@@ -382,7 +383,11 @@ As validações estáticas que a CI executa, e que reprovam o job, são
 | `e2e-social-messenger` | feed, interações, visibilidade, bloqueio, conversas, grupos, moderação, comunidades |
 | `seguranca` | autenticação, escalada de papel, cross-tenant, proteção do CPF, juiz não escalado, resultado não publicado, transições inválidas |
 | `rls` | políticas executadas como papel sem `BYPASSRLS`, direto no banco |
+| `midia` | upload, limites de tamanho, tipos aceitos, entrega com cabeçalho seguro |
+| `rotas` | auditoria dos endpoints registrados, percorridos um a um |
 | `financeiro-ausente` | schema, banco real, arquivos, rotas e variáveis: nenhum resquício financeiro |
+| `producao` | barreira de configuração da partida: segredo, banco, CORS, hash e armazenamento |
+| `homologacao-tabulacao` | efeito de cada opção de apuração no pódio — documentação executável para o comitê técnico |
 
 ---
 
@@ -395,9 +400,28 @@ com segredo de desenvolvimento:
 - `JWT_SECRET` ausente, placeholder ou com menos de 32 caracteres;
 - `DATABASE_URL` ausente ou apontando para banco que não seja PostgreSQL;
 - `CORS_ORIGINS` ausente ou liberando todas as origens;
-- `BCRYPT_ROUNDS` abaixo de 10.
+- `BCRYPT_ROUNDS` abaixo de 10;
+- `STORAGE_DRIVER=local` sem `ALLOW_LOCAL_STORAGE=true` — gravar no disco do
+  contêiner sem volume persistente perde todo upload no primeiro redeploy, e a
+  perda só aparece quando alguém vai buscar o documento do atleta. A escolha
+  precisa ser deliberada, não herdada do padrão de desenvolvimento.
+
+Todos os problemas são relatados de uma vez, não um por deploy.
 
 Não existe variável financeira, e o teste de ausência confere isso.
+
+---
+
+## Deploy e homologação
+
+- **[`docs/DEPLOY.md`](docs/DEPLOY.md)** — runbook: ordem do primeiro deploy,
+  provisionamento do papel `mci_app`, sondas, rollback e checklist. Declara o
+  que foi verificado e o que não foi (a imagem Docker **nunca foi construída**).
+- **[`docs/HOMOLOGACAO-ESPORTIVA.md`](docs/HOMOLOGACAO-ESPORTIVA.md)** — as 7
+  decisões que o comitê técnico do Muscle Contest precisa ratificar antes de
+  uma prova oficial, cada uma com a demonstração numérica do seu efeito no
+  pódio. **A plataforma não está homologada**: a regra `Padrão MCI` criada pelo
+  seed é ponto de partida de desenvolvimento, não regulamento.
 
 ---
 
