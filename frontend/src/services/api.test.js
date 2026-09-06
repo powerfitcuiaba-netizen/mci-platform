@@ -141,6 +141,25 @@ describe('cliente de API', () => {
     expect(caminhos[1]).toMatch(/\/sponsors$/);
   });
 
+  it('os QUATRO rankings vêm de quatro endpoints distintos', async () => {
+    // A tela pública mostra os quatro em abas. Se dois compartilhassem rota,
+    // uma aba exibiria o número da outra — e o do Super Overall não é o do
+    // campeonato.
+    global.fetch.mockResolvedValue(responder({ items: [] }));
+
+    await api.ranking.list({ seasonId: 's1' });
+    await api.ranking.superOverall({ seasonId: 's1' });
+    await api.ranking.teams({ seasonId: 's1' });
+    await api.ranking.companies({ seasonId: 's1' });
+
+    const caminhos = global.fetch.mock.calls.map(([url]) => new URL(url, 'http://x').pathname);
+    expect(caminhos[0]).toMatch(/\/ranking$/);
+    expect(caminhos[1]).toMatch(/\/ranking\/super-overall$/);
+    expect(caminhos[2]).toMatch(/\/ranking\/teams$/);
+    expect(caminhos[3]).toMatch(/\/ranking\/companies$/);
+    expect(new Set(caminhos).size).toBe(4);
+  });
+
   it('campeonato e Super Overall são endpoints DIFERENTES', async () => {
     // As duas métricas não podem chegar do mesmo lugar: se a tela buscasse os
     // dois números na mesma rota, Estreante, Novice e Master sumiriam do

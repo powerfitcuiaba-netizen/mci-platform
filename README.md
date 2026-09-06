@@ -372,7 +372,7 @@ Prefixo `/api/v1`. Sondas de infraestrutura ficam fora dele: `GET /health`
 | Operação | `POST /registrations/:id/checkin`, `POST /registrations/:id/weighins`, `POST /events/:id/credentials/scan`, `PUT /batches/:id/order` |
 | Julgamento | `POST /judging-sessions`, `GET /judging-sessions/:id/sheet`, `POST /judging-sessions/:id/scores`, `POST /judging-sessions/:id/close` |
 | Resultados | `POST /classes/:id/result/calculate`, `.../publish`, `.../override`, `GET .../versions` |
-| Ranking | `GET /ranking`, `GET /ranking/teams`, `GET /ranking/companies`, `GET /ranking/super-overall`, `GET|POST /seasons`, `PUT /seasons/:id/points-rules` |
+| Ranking | `GET /ranking` (campeonato), `GET /ranking/super-overall` (anual, só Open), `GET /ranking/teams`, `GET /ranking/companies` — os quatro públicos, `GET|POST /seasons`, `PUT /seasons/:id/points-rules` |
 | Classes e Overall | `GET|POST /classes-catalog`, `GET|POST /events/:id/overall` |
 | Empresas e vínculo | `GET|POST /companies`, `POST /athletes/:id/team`, `.../team/transfer`, `.../team/unlink`, `GET /athletes/:id/team-history` |
 | MuscleWar | `GET|POST /musclewar/imports`, `POST /musclewar/items/:id/link`, `POST /musclewar/imports/:id/apply` |

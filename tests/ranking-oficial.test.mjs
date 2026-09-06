@@ -1198,3 +1198,70 @@ describe('11.4) equipes e empresas seguem a mesma regra', () => {
     expect(JSON.stringify(classificacao.body)).not.toContain(patrocinador.body.name);
   });
 });
+
+// ============================================================================
+// FASE 11.5 — os quatro rankings respondem ao público anônimo.
+//
+// A tela pública abre os quatro em abas, sem sessão. Se equipes ou empresas
+// dependessem de autenticação — por permissão ou por política de RLS —, a aba
+// apareceria vazia para o visitante e ninguém notaria pelo servidor, que
+// responderia 200 com lista vazia.
+// ============================================================================
+describe('11.5) os quatro rankings são públicos e não se misturam', () => {
+  it('anônimo lê campeonato, Super Overall, equipes e empresas', async () => {
+    const empresa = await api().post('/api/v1/companies').set(diretor.auth())
+      .send({ organizationId: orgId, name: unico('Publica Nutri') });
+    const equipe = (await api().post('/api/v1/teams').set(diretor.auth())
+      .send({ organizationId: orgId, name: unico('Publica Equipe'), companyId: empresa.body.id })).body;
+
+    await eventoPontuado({
+      colocacoes: ['PUBLICA UM', 'PUBLICA DOIS'],
+      classe: 'OPEN',
+      teams: { 'PUBLICA UM': equipe.id }
+    });
+
+    // Sem `.set(...auth())` em nenhuma das quatro: é o visitante.
+    const campeonato = await api().get('/api/v1/ranking').query({ seasonId });
+    const anual = await api().get('/api/v1/ranking/super-overall').query({ seasonId });
+    const equipes = await api().get('/api/v1/ranking/teams').query({ seasonId });
+    const empresas = await api().get('/api/v1/ranking/companies').query({ seasonId });
+
+    for (const resposta of [campeonato, anual, equipes, empresas]) {
+      expect(resposta.status).toBe(200);
+    }
+
+    expect(campeonato.body.items.length).toBeGreaterThan(0);
+    expect(anual.body.length).toBeGreaterThan(0);
+
+    // O nome da equipe e o da empresa precisam CHEGAR — se a política de RLS
+    // devolvesse a relação nula, a linha existiria sem nome e a tela mostraria
+    // um traço no lugar do competidor.
+    const linhaEquipe = equipes.body.find(l => l.team?.id === equipe.id);
+    expect(linhaEquipe, 'a equipe precisa aparecer para o anônimo').toBeTruthy();
+    expect(linhaEquipe.team.name).toBe(equipe.name);
+
+    const linhaEmpresa = empresas.body.find(l => l.company?.id === empresa.body.id);
+    expect(linhaEmpresa, 'a empresa precisa aparecer para o anônimo').toBeTruthy();
+    expect(linhaEmpresa.company.name).toBe(empresa.body.name);
+  });
+
+  it('os contadores de desempate chegam à tela — e o 4º/5º não decidem nada', async () => {
+    // A tela pública mostra Overall · 1º · 2º · 3º ao lado dos pontos, porque é
+    // por eles que uma posição se explica. Se o payload não os trouxesse, o
+    // visitante veria dois competidores com os mesmos pontos em ordem
+    // aparentemente arbitrária.
+    await eventoPontuado({ colocacoes: ['CONTADOR UM', 'CONTADOR DOIS'], classe: 'OPEN', overall: 'CONTADOR UM' });
+
+    const anual = await api().get('/api/v1/ranking/super-overall').query({ seasonId });
+    const linha = anual.body.find(l => l.athlete.fullName === 'CONTADOR UM');
+
+    expect(linha.overallWins).toBe(1);
+    expect(linha.firstPlaceCount).toBe(1);
+    expect(linha).toHaveProperty('secondPlaceCount');
+    expect(linha).toHaveProperty('thirdPlaceCount');
+
+    // 4º e 5º não são expostos como critério: eles pontuam, não desempatam.
+    expect(linha).not.toHaveProperty('fourthPlaceCount');
+    expect(linha).not.toHaveProperty('fifthPlaceCount');
+  });
+});

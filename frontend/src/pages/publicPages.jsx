@@ -448,16 +448,64 @@ export function AtletaDetalhe({ id, navegar }) {
   );
 }
 
+// Os QUATRO rankings da temporada. São recortes diferentes do mesmo motor —
+// mesma tabela de pontos, mesmo desempate —, e o que muda entre eles é o
+// conjunto de lançamentos considerado e a métrica somada:
+//
+//   Campeonato · Equipes · Empresas  →  pontos do campeonato (toda classe)
+//   Super Overall anual              →  pontos elegíveis (só a classe OPEN)
+//
+// Ficam em abas separadas de propósito: o número do anual não é o do
+// campeonato, e apresentá-los na mesma coluna convidaria a somar um com o
+// outro.
+const ABAS = [
+  { chave: 'atletas', rotulo: 'Campeonato' },
+  { chave: 'superOverall', rotulo: 'Super Overall' },
+  { chave: 'equipes', rotulo: 'Equipes' },
+  { chave: 'empresas', rotulo: 'Empresas' }
+];
+
 export function Ranking() {
   const temporadas = useFetch(() => api.ranking.seasons(), []);
   const [seasonId, setSeasonId] = useState('');
   const [categoryId, setCategoryId] = useState('');
+  const [aba, setAba] = useState('atletas');
   const categorias = useFetch(() => api.categories.list(), []);
   const estado = useFetch(() => api.ranking.list({ seasonId: seasonId || undefined, categoryId: categoryId || undefined, limit: 50 }), [seasonId, categoryId]);
 
+  const filtros = { seasonId: seasonId || undefined, categoryId: categoryId || undefined };
+  const superOverall = useFetch(() => api.ranking.superOverall(filtros), [seasonId, categoryId]);
+  const equipes = useFetch(() => api.ranking.teams(filtros), [seasonId, categoryId]);
+  const empresas = useFetch(() => api.ranking.companies(filtros), [seasonId, categoryId]);
+
   return (
     <div className="page">
-      <PageHead eyebrow="Temporada" title="Ranking" description="Pontuação por atleta, categoria e temporada. Cada ponto é rastreável até a sua origem." />
+      <PageHead eyebrow="Temporada" title="Ranking" description="Pontuação por atleta, equipe, empresa e temporada. Cada ponto é rastreável até a sua origem." />
+
+      <div className="chips" style={{ marginBottom: 14 }}>
+        {ABAS.map(item => (
+          <button
+            key={item.chave}
+            type="button"
+            className={`chip${aba === item.chave ? ' is-on' : ''}`}
+            onClick={() => setAba(item.chave)}
+          >
+            {item.rotulo}
+          </button>
+        ))}
+      </div>
+
+      {aba === 'superOverall' && (
+        <div className="alert alert-info" style={{ marginBottom: 14 }}>
+          <div>
+            <strong>Classificatório anual</strong>
+            <p>
+              Todas as classes pontuam no campeonato, mas somente a <strong>Open</strong>
+              {' '}alimenta o Super Overall. Os números desta aba não se somam aos das outras.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="toolbar">
         <select className="select-control" value={seasonId} onChange={evento => setSeasonId(evento.target.value)} aria-label="Temporada">
@@ -474,6 +522,14 @@ export function Ranking() {
         </select>
       </div>
 
+      {aba !== 'atletas' && (
+        <TabelaDeRanking
+          estado={aba === 'superOverall' ? superOverall : aba === 'equipes' ? equipes : empresas}
+          modo={aba}
+        />
+      )}
+
+      {aba === 'atletas' && (
       <AsyncSection state={estado} linhas={6}>
         {dados => (dados.items.length
           ? (
@@ -515,6 +571,85 @@ export function Ranking() {
           : <EmptyState title="Ranking vazio" description="A pontuação aparece quando resultados forem publicados ou importados." />
         )}
       </AsyncSection>
+      )}
     </div>
+  );
+}
+
+// Super Overall, equipes e empresas: os três respondem em ARRAY, não no
+// envelope paginado do ranking de atletas, e trazem os contadores do
+// desempate. Uma tabela só para os três porque a regra é a mesma — dar a cada
+// um a sua tabela seria convidar as três a divergirem com o tempo.
+function TabelaDeRanking({ estado, modo }) {
+  const titulo = {
+    superOverall: 'Nenhum resultado elegível',
+    equipes: 'Nenhuma equipe pontuou',
+    empresas: 'Nenhuma empresa pontuou'
+  }[modo];
+
+  const descricao = {
+    superOverall: 'Só resultados da classe Open publicados alimentam o classificatório anual.',
+    equipes: 'A equipe pontua pelo que os seus atletas conquistam.',
+    empresas: 'A empresa pontua pelo que as suas equipes conquistam.'
+  }[modo];
+
+  return (
+    <AsyncSection state={estado} linhas={6}>
+      {linhas => (linhas.length
+        ? (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th style={{ width: 60 }}>#</th>
+                  <th>{modo === 'equipes' ? 'Equipe' : modo === 'empresas' ? 'Empresa' : 'Atleta'}</th>
+                  {modo === 'empresas' && <th className="num">Equipes</th>}
+                  {modo !== 'superOverall' && <th className="num">Atletas</th>}
+                  <th className="num">Etapas</th>
+                  <th className="num" title="Primeiro critério de desempate">Overall</th>
+                  <th className="num">1º</th>
+                  <th className="num">2º</th>
+                  <th className="num">3º</th>
+                  <th className="num">Pontos</th>
+                </tr>
+              </thead>
+              <tbody>
+                {linhas.map((linha, indice) => {
+                  const nome = linha.team?.name || linha.company?.name
+                    || linha.athlete?.stageName || linha.athlete?.fullName || '—';
+                  return (
+                    <tr key={linha.team?.id || linha.company?.id || linha.athlete?.id || indice}>
+                      <td>
+                        {linha.position
+                          ? <span className={`placing placing-${linha.position}`}>{linha.position}</span>
+                          // Empate que a hierarquia oficial não resolveu: ninguém
+                          // recebe a colocação, e a tela diz isso em vez de
+                          // inventar uma ordem.
+                          : <Badge tom="alerta">empate</Badge>}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                          <Avatar name={nome} size="avatar-sm" />
+                          <strong style={{ fontSize: 13 }}>{nome}</strong>
+                        </div>
+                      </td>
+                      {modo === 'empresas' && <td className="num">{linha.teamCount ?? '—'}</td>}
+                      {modo !== 'superOverall' && <td className="num">{linha.athleteCount ?? '—'}</td>}
+                      <td className="num">{linha.eventCount}</td>
+                      <td className="num">{linha.overallWins ?? 0}</td>
+                      <td className="num">{linha.firstPlaceCount ?? 0}</td>
+                      <td className="num">{linha.secondPlaceCount ?? 0}</td>
+                      <td className="num">{linha.thirdPlaceCount ?? 0}</td>
+                      <td className="num"><strong style={{ color: 'var(--vermelho-claro)' }}>{linha.totalPoints}</strong></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
+        : <EmptyState title={titulo} description={descricao} />
+      )}
+    </AsyncSection>
   );
 }
