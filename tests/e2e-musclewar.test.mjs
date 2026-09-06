@@ -228,9 +228,38 @@ describe('importação MuscleWar', () => {
     expect(resposta.status).toBe(403);
   });
 
-  it('conflita quando a temporada não tem pontuação para a colocação informada', async () => {
+  it('colocação fora da tabela NÃO é conflito: do 6º em diante vale zero', async () => {
+    // REGRA HOMOLOGADA (fase 11.3): a tabela vai até o 5º e a partir do 6º a
+    // colocação vale zero. Tratar isso como conflito obrigaria o operador a
+    // cadastrar pontuação para colocações que a regra manda não pontuar — e a
+    // linha é um resultado legítimo, que precisa entrar no histórico.
     const lote = await importar(csv([`MW-90,${CPF_A},Atleta Reconhecida,FED-MT,BIKINI,OPEN,9,,Etapa`]));
+    expect(lote.body.items[0].matchStatus).toBe('MATCHED');
+
+    await api().post(`/api/v1/musclewar/imports/${lote.body.import.id}/apply`).set(gerente.auth());
+
+    const [ponto] = await comoAtor(gerente, tx => tx.rankingPoint.findMany({ where: { seasonId } }));
+    expect(ponto.placing).toBe(9);
+    expect(ponto.points, 'do 6º em diante, zero — não um valor extrapolado').toBe(0);
+    expect(ponto.superOverallPoints).toBe(0);
+  });
+
+  it('temporada SEM tabela nenhuma continua sendo conflito', async () => {
+    // O caso que a guarda existe para pegar: não há regra a aplicar, e atribuir
+    // zero a todo mundo seria inventar um resultado.
+    const semTabela = await api().post('/api/v1/seasons').set(admin.auth())
+      .send({ organizationId, name: unico('Temporada sem tabela'), year: 2027 });
+
+    // Temporada nova nasce com a tabela homologada; aqui ela é esvaziada de
+    // propósito, para exercitar exatamente o caso que a guarda protege.
+    await comoAtor(admin, tx => tx.rankingPointsRule.deleteMany({ where: { seasonId: semTabela.body.id } }));
+
+    const lote = await importar(
+      csv([`MW-91,${CPF_A},Atleta Reconhecida,FED-MT,BIKINI,OPEN,1,,Etapa`]),
+      { seasonId: semTabela.body.id }
+    );
+
     expect(lote.body.items[0].matchStatus).toBe('CONFLICT');
-    expect(lote.body.items[0].reason).toMatch(/sem pontuação definida/);
+    expect(lote.body.items[0].reason).toMatch(/sem tabela de pontuação/);
   });
 });

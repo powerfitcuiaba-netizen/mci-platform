@@ -51,7 +51,12 @@ async function listSeasons(filtros, actor) {
   const escopo = actor ? organizationFilter(actor, filtros.organizationId) : {};
   return prisma.rankingSeason.findMany({
     where: escopo,
-    include: { _count: { select: { events: true, points: true, pointsRules: true } } },
+    include: {
+      _count: { select: { events: true, points: true, pointsRules: true } },
+      // A tabela vigente acompanha a temporada: a tela de edição precisa
+      // mostrar o que ESTÁ valendo, e não uma sugestão inventada no frontend.
+      pointsRules: { select: { placing: true, points: true }, orderBy: { placing: 'asc' } }
+    },
     orderBy: [{ year: 'desc' }, { name: 'asc' }]
   });
 }
@@ -149,7 +154,8 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
     let total = 0;
     for (const entry of classificados) {
       const ehCampeaoOverall = campeoesOverall.has(entry.athleteId);
-      const { placementPoints, overallBonus, points } = pontuarResultado(entry.placing, tabela, ehCampeaoOverall);
+      const { placementPoints, overallBonus, points, superOverallPoints } =
+        pontuarResultado(entry.placing, tabela, ehCampeaoOverall, superOverallEligible);
 
       // Colocação sem pontuação na tabela e sem Overall não gera linha: ponto
       // zero no histórico só faria ruído.
@@ -167,6 +173,7 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
             placementPoints, overallBonus, isOverallChampion: ehCampeaoOverall,
             superOverallEligible,
             points,
+            superOverallPoints,
             resultVersion: result.version,
             awardedById: actor?.id ?? null
           }
@@ -465,7 +472,7 @@ async function superOverallRanking(seasonId, { categoryId = null } = {}) {
   const pontos = await prisma.rankingPoint.findMany({
     where: { seasonId, superOverallEligible: true, ...(categoryId ? { categoryId } : {}) },
     select: {
-      athleteId: true, categoryId: true, points: true, placing: true,
+      athleteId: true, categoryId: true, points: true, superOverallPoints: true, placing: true,
       isOverallChampion: true, eventId: true, externalResultId: true,
       athlete: { select: { id: true, fullName: true, stageName: true, state: true, team: { select: { id: true, name: true } } } }
     }
@@ -480,7 +487,10 @@ async function superOverallRanking(seasonId, { categoryId = null } = {}) {
       });
     }
     const linha = acumulado.get(ponto.athleteId);
-    linha.totalPoints += ponto.points;
+    // O ranking anual soma os pontos ELEGÍVEIS, não os do campeonato. São
+    // números diferentes de propósito: somar `points` aqui traria de volta,
+    // por dentro, as classes que a regra exclui.
+    linha.totalPoints += ponto.superOverallPoints;
     linha.fontes.add(ponto.eventId || ponto.externalResultId || 'externo');
     linha.pontos.push(ponto);
   }
@@ -608,6 +618,9 @@ async function athletePoints(athleteId, seasonId, actor) {
       event: { select: { id: true, name: true, slug: true } },
       category: { select: { id: true, code: true, name: true } },
       season: { select: { id: true, name: true, year: true } },
+      // A classe fecha a explicação: é ela que responde por que um lançamento
+      // vale no campeonato e não vale no Super Overall.
+      competitionClass: { select: { id: true, name: true, code: true } },
       externalResult: { select: { id: true, source: true, externalId: true, eventName: true, eventDate: true } }
     },
     orderBy: { awardedAt: 'desc' }

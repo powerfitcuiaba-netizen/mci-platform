@@ -79,12 +79,51 @@ const CRITERIOS_DESEMPATE = Object.freeze([
  * @param {Array}  tabela                  [{ placing, points }] da temporada.
  * @param {boolean} isOverallChampion      Se o atleta levou o Overall.
  */
-function pontuarResultado(placing, tabela, isOverallChampion = false) {
+function pontuarResultado(placing, tabela, isOverallChampion = false, superOverallEligible = false) {
   const regra = (tabela || []).find(item => item.placing === placing);
+  // Colocação fora da tabela vale ZERO — não um valor extrapolado. Pela regra
+  // homologada a tabela vai até o 5º, então do 6º em diante é zero.
   const placementPoints = regra?.points ?? 0;
   const overallBonus = isOverallChampion ? BONUS_OVERALL : 0;
+  const points = placementPoints + overallBonus;
 
-  return { placementPoints, overallBonus, points: placementPoints + overallBonus };
+  // As duas métricas, calculadas juntas e devolvidas separadas. O bônus de
+  // Overall NÃO tem elegibilidade própria: segue a da participação que o
+  // originou. Um Overall numa classe não elegível soma no campeonato e não
+  // soma no Super Overall — tratá-lo de outro modo exigiria regra esportiva
+  // que não existe.
+  return {
+    placementPoints,
+    overallBonus,
+    points,
+    superOverallPoints: superOverallEligible ? points : 0
+  };
+}
+
+/**
+ * Confere uma pontuação vinda de fora contra a regra oficial da temporada.
+ *
+ * O operador importa resultados, e o arquivo é redigido fora da plataforma. Um
+ * número de pontos que possa ser DERIVADO de colocação, Overall e temporada
+ * não é fonte: é uma afirmação a conferir. Divergir não pode ser resolvido em
+ * silêncio — nem sobrescrevendo o arquivo, nem confiando nele.
+ *
+ * @returns {null|{importedPoints,calculatedPoints,difference}} null quando não
+ *          há divergência (ou quando não há o que comparar).
+ */
+function conferirPontuacaoImportada(placing, tabela, isOverallChampion, pontosImportados) {
+  // Sem colocação não há regra a aplicar, e sem número informado não há o que
+  // conferir: nos dois casos, nada a divergir.
+  if (placing == null || pontosImportados == null) return null;
+
+  const { points } = pontuarResultado(placing, tabela, isOverallChampion);
+  if (points === pontosImportados) return null;
+
+  return {
+    importedPoints: pontosImportados,
+    calculatedPoints: points,
+    difference: pontosImportados - points
+  };
 }
 
 // Contadores de desempate a partir das linhas de ponto de um competidor.
@@ -159,6 +198,7 @@ module.exports = {
   BONUS_OVERALL,
   CRITERIOS_DESEMPATE,
   pontuarResultado,
+  conferirPontuacaoImportada,
   contadores,
   compararOficial,
   classificar

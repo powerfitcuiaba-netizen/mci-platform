@@ -106,4 +106,4 @@ async function removeMember(organizationId, membershipId, actor) {
   return { success: true };
 }
 
-module.exports = { list, create, findById, addMember, removeMember };
+module.exports = { list, create, findById, addMember, removeMember, CLASSES_DO_CAMPEONATO };

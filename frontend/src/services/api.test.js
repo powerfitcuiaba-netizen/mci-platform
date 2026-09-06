@@ -141,6 +141,29 @@ describe('cliente de API', () => {
     expect(caminhos[1]).toMatch(/\/sponsors$/);
   });
 
+  it('campeonato e Super Overall são endpoints DIFERENTES', async () => {
+    // As duas métricas não podem chegar do mesmo lugar: se a tela buscasse os
+    // dois números na mesma rota, Estreante, Novice e Master sumiriam do
+    // ranking do campeonato ou entrariam no anual — nos dois casos, errado.
+    global.fetch.mockResolvedValue(responder({ items: [] }));
+
+    await api.ranking.list({ seasonId: 's1' });
+    await api.ranking.superOverall({ seasonId: 's1' });
+
+    const caminhos = global.fetch.mock.calls.map(([url]) => new URL(url, 'http://x').pathname);
+    expect(caminhos[0]).toMatch(/\/ranking$/);
+    expect(caminhos[1]).toMatch(/\/ranking\/super-overall$/);
+    expect(new Set(caminhos).size).toBe(2);
+  });
+
+  it('o cliente não carrega nenhuma tabela de pontos própria', () => {
+    // Pontuação é dado do regulamento, servido pela temporada. Um valor
+    // guardado no frontend vira uma segunda verdade — e foi assim que o
+    // formulário chegou a sugerir 100/80/60, que não são de regulamento algum.
+    const fonte = api.ranking.setPointsRules.toString() + api.ranking.list.toString();
+    expect(fonte).not.toMatch(/points\s*:\s*\d+/);
+  });
+
   it('não expõe nenhuma rota financeira', () => {
     // Nomes exatos: 'order' como substring casaria com 'stageOrder', que é
     // ordem de palco — um falso positivo que ensinaria a ignorar este teste.

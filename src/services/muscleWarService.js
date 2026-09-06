@@ -6,7 +6,7 @@ const adapter = require('../utils/musclewar/adapter');
 const audit = require('./auditService');
 const notifications = require('./notificationService');
 const ranking = require('./rankingService');
-const { pontuarResultado } = require('../utils/rankingScoring');
+const { pontuarResultado, conferirPontuacaoImportada } = require('../utils/rankingScoring');
 
 const SOURCE = 'MUSCLEWAR';
 
@@ -83,10 +83,41 @@ async function analisarLinha(registro, organizationId, seasonId) {
     }
   }
 
-  if (seasonId && registro.points == null && registro.placing != null) {
-    const regra = await prisma.rankingPointsRule.findUnique({ where: { seasonId_placing: { seasonId, placing: registro.placing } } });
-    if (!regra) {
-      return { matchStatus: 'CONFLICT', reason: `Temporada sem pontuação definida para a colocação ${registro.placing}`, athleteId: athlete.id };
+  if (seasonId && registro.placing != null) {
+    const tabela = await prisma.rankingPointsRule.findMany({
+      where: { seasonId }, select: { placing: true, points: true }
+    });
+
+    // Temporada SEM tabela nenhuma é conflito: não há regra a aplicar, e
+    // atribuir zero a todo mundo seria inventar um resultado.
+    //
+    // Colocação fora de uma tabela que EXISTE não é conflito: pela regra
+    // homologada a tabela vai até o 5º, e do 6º em diante vale zero. Tratar
+    // isso como conflito obrigaria o operador a cadastrar pontuação para
+    // colocações que a regra manda não pontuar.
+    if (!tabela.length) {
+      return { matchStatus: 'CONFLICT', reason: 'Temporada sem tabela de pontuação definida', athleteId: athlete.id };
+    }
+
+    // Pontuação informada no arquivo é AFIRMAÇÃO, não fonte: quando pode ser
+    // derivada de colocação + Overall + temporada, é conferida contra a regra
+    // oficial. Divergir não se resolve em silêncio — nem sobrescrevendo o
+    // arquivo, nem confiando nele.
+    const divergencia = conferirPontuacaoImportada(
+      registro.placing, tabela, registro.isOverallChampion === true, registro.points
+    );
+
+    if (divergencia) {
+      return {
+        matchStatus: 'CONFLICT',
+        reason: `Pontuação divergente: o arquivo informa ${divergencia.importedPoints}, `
+          + `a regra oficial da temporada calcula ${divergencia.calculatedPoints} `
+          + `(colocação ${registro.placing}${registro.isOverallChampion === true ? ' + Overall' : ''}), `
+          + `diferença de ${divergencia.difference > 0 ? '+' : ''}${divergencia.difference}. `
+          + 'Corrija o arquivo ou a tabela da temporada antes de aplicar.',
+        athleteId: athlete.id,
+        pointsMismatch: divergencia
+      };
     }
   }
 
@@ -187,6 +218,7 @@ async function createImport(data, actor) {
           raw: registro.raw,
           matchStatus: analise.matchStatus,
           reason: analise.reason,
+          pointsMismatch: analise.pointsMismatch ?? null,
           athleteId: analise.athleteId
         }
       });
@@ -200,6 +232,27 @@ async function createImport(data, actor) {
     organizationId: data.organizationId,
     metadata: { sourceType: data.sourceType, sourceRef: data.sourceRef, total: registros.length, ...totais }
   });
+
+  // Divergência de pontuação é registrada à parte, com os números. Diluída na
+  // contagem geral de CONFLICT ela se perderia entre filiação divergente e
+  // categoria desconhecida — e é justamente a que indica alguém tentando
+  // entrar com uma pontuação que a regra oficial não produz.
+  const divergenciasDePontos = analisados
+    .filter(item => item.analise.pointsMismatch)
+    .map(item => ({
+      externalResultId: item.registro.externalResultId,
+      placing: item.registro.placing,
+      isOverallChampion: item.registro.isOverallChampion === true,
+      ...item.analise.pointsMismatch
+    }));
+
+  if (divergenciasDePontos.length) {
+    await audit.record({
+      actor, action: audit.ACTIONS.SCORE_CONFLICT, entity: 'MuscleWarImport', entityId: lote.id,
+      organizationId: data.organizationId,
+      metadata: { sourceRef: data.sourceRef, seasonId: data.seasonId ?? null, mismatches: divergenciasDePontos }
+    });
+  }
 
   return preview(lote.id, actor);
 }
@@ -455,19 +508,29 @@ async function apply(importId, actor) {
           // homologada — inclusive o bônus de Overall, quando a origem o
           // informa. Uma coluna de pontos no arquivo só é usada quando a linha
           // não traz colocação alguma, caso em que não há regra a aplicar.
-          const { placementPoints, overallBonus, points } = item.placing != null
-            ? pontuarResultado(item.placing, tabela, item.isOverallChampion)
-            : { placementPoints: item.points ?? 0, overallBonus: 0, points: item.points ?? 0 };
+          // Elegibilidade ao Super Overall: resolvida pela classe declarada,
+          // contra o catálogo da organização. O código "OPEN" não aparece aqui.
+          // Resolvida ANTES da pontuação porque é ela que decide quanto deste
+          // lançamento alimenta o ranking anual.
+          const superOverallEligible = Boolean(
+            item.className && catalogo.get(item.className.trim().toUpperCase())
+          );
+
+          const { placementPoints, overallBonus, points, superOverallPoints } = item.placing != null
+            ? pontuarResultado(item.placing, tabela, item.isOverallChampion, superOverallEligible)
+            : {
+              // Linha sem colocação: não há regra a aplicar, e o número do
+              // arquivo é o único dado disponível. A elegibilidade continua
+              // valendo — o que muda é apenas a origem do valor.
+              placementPoints: item.points ?? 0,
+              overallBonus: 0,
+              points: item.points ?? 0,
+              superOverallPoints: superOverallEligible ? (item.points ?? 0) : 0
+            };
 
           const categoria = item.categoryCode
             ? await tx.category.findUnique({ where: { code: item.categoryCode.toUpperCase() } })
             : null;
-
-          // Elegibilidade ao Super Overall: resolvida pela classe declarada,
-          // contra o catálogo da organização. O código "OPEN" não aparece aqui.
-          const superOverallEligible = Boolean(
-            item.className && catalogo.get(item.className.trim().toUpperCase())
-          );
 
           // Na ausência de equipe no arquivo, o vínculo registrado responde —
           // é o mesmo fato, vindo da fonte que a plataforma controla.
@@ -485,6 +548,7 @@ async function apply(importId, actor) {
               placementPoints, overallBonus,
               isOverallChampion: item.isOverallChampion === true,
               superOverallEligible,
+              superOverallPoints,
               teamId: equipeDoItem?.id ?? null,
               // A empresa vem da declarada na origem; na falta dela, da equipe
               // reconhecida — que é a cadeia natural: atleta → equipe → empresa.

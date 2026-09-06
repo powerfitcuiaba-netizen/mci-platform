@@ -628,7 +628,11 @@ describe('11.2) importação: a colocação é a fonte dos pontos', () => {
     expect(ponto.isOverallChampion).toBe(false);
   });
 
-  it('pontos digitados no arquivo NÃO substituem a regra quando há colocação', async () => {
+  it('pontos digitados divergentes da regra geram CONFLICT, e não entram', async () => {
+    // REVISÃO DA FASE 11.3: na 11.2 o número do arquivo era ignorado em
+    // silêncio e a linha entrava valendo 5. Silêncio é a pior resposta aqui —
+    // quem redigiu o arquivo acredita que passou. Agora a linha PARA, com os
+    // dois números à vista, e alguém decide qual está errado.
     const gerente = await criarUsuario({ name: 'Gerente' });
     await vincular(orgId, gerente, 'RANKING_MANAGER');
 
@@ -643,10 +647,42 @@ describe('11.2) importação: a colocação é a fonte dos pontos', () => {
     ].join('\n');
 
     const lote = await importar(conteudo, gerente);
+    const item = lote.items[0];
+
+    expect(item.matchStatus).toBe('CONFLICT');
+    expect(item.reason).toMatch(/999/);
+    expect(item.reason).toMatch(/\b5\b/);
+
+    // O aplicar recusa o lote inteiro: não há linha reconhecida para aplicar.
+    const aplicacao = await api().post(`/api/v1/musclewar/imports/${lote.import.id}/apply`)
+      .set(gerente.auth()).send({});
+    expect(aplicacao.status).toBe(422);
+
+    expect(await pontosDe('PONTOS FORJADOS'), 'nada entra enquanto o conflito não for resolvido').toHaveLength(0);
+  });
+
+  it('pontos digitados COERENTES com a regra passam sem conflito', async () => {
+    // A conferência não pode virar um obstáculo para o arquivo correto: 1º
+    // lugar com 5 pontos declarados bate com a regra e entra normalmente.
+    const gerente = await criarUsuario({ name: 'Gerente' });
+    await vincular(orgId, gerente, 'RANKING_MANAGER');
+
+    const cpf = gerarCpf(555000455);
+    await api().post('/api/v1/athletes').set(diretor.auth())
+      .send({ organizationId: orgId, fullName: 'PONTOS COERENTES', cpf, sex: 'FEMALE' });
+
+    const conteudo = [
+      'external_result_id,cpf,atleta,categoria,classe,colocacao,pontos,etapa',
+      `MW-11-5,${cpf},PONTOS COERENTES,BIKINI,OPEN,1,5,Etapa`
+    ].join('\n');
+
+    const lote = await importar(conteudo, gerente);
+    expect(lote.items[0].matchStatus).toBe('MATCHED');
+
     await api().post(`/api/v1/musclewar/imports/${lote.import.id}/apply`).set(gerente.auth()).send({});
 
-    const [ponto] = await pontosDe('PONTOS FORJADOS');
-    expect(ponto.points, 'a colocação é a fonte, não o número digitado').toBe(5);
+    const [ponto] = await pontosDe('PONTOS COERENTES');
+    expect(ponto.points).toBe(5);
   });
 });
 
@@ -794,5 +830,275 @@ describe('11.2) empresas: entram com suas equipes, mesma regra', () => {
       .send({ organizationId: orgId, name: unico('Invasora') });
 
     expect([403, 404]).toContain(tentativa.status);
+  });
+});
+
+// ============================================================================
+// FASE 11.3 — as duas métricas no caminho real da plataforma.
+//
+// A aritmética está provada em tests/pontuacao-11-3.test.mjs. Aqui prova-se
+// que ela chega inteira até o banco e até os dois rankings: que toda classe
+// pontua no campeonato, que só a OPEN alimenta o Super Overall, que resultado
+// não publicado não aparece, e que reprocessar não duplica.
+// ============================================================================
+describe('11.3) pontos do campeonato × pontos do Super Overall', () => {
+  const gerenteDeImportacao = async () => {
+    const gerente = await criarUsuario({ name: unico('Gerente') });
+    await vincular(orgId, gerente, 'RANKING_MANAGER');
+    return gerente;
+  };
+
+  const importarLote = async (conteudo, gerente) => {
+    const lote = await api().post('/api/v1/musclewar/imports').set(gerente.auth())
+      .send({ organizationId: orgId, seasonId, sourceType: 'CSV', sourceRef: unico('lote') + '.csv', content: conteudo });
+    expect(lote.status, JSON.stringify(lote.body)).toBe(201);
+    return lote.body;
+  };
+
+  it('TESTE 22 — resultado OPEN alimenta os DOIS rankings', async () => {
+    await eventoPontuado({ colocacoes: ['ABRE PRIMEIRA', 'ABRE SEGUNDA'], classe: 'OPEN' });
+
+    const [ponto] = await pontosDe('ABRE PRIMEIRA');
+    expect(ponto.points, 'pontuou no campeonato').toBe(5);
+    expect(ponto.superOverallPoints, 'e alimenta o Super Overall').toBe(5);
+    expect(ponto.superOverallEligible).toBe(true);
+
+    const campeonato = await api().get('/api/v1/ranking').query({ seasonId });
+    const anual = await api().get('/api/v1/ranking/super-overall').query({ seasonId });
+
+    expect(campeonato.body.items.find(l => l.athlete.fullName === 'ABRE PRIMEIRA').totalPoints).toBe(5);
+    expect(anual.body.find(l => l.athlete.fullName === 'ABRE PRIMEIRA').totalPoints).toBe(5);
+  });
+
+  it('TESTES 23/24/25 — Novice, Estreante e Master pontuam no campeonato e NÃO no anual', async () => {
+    // O erro que a regra proíbe é justamente este: usar a métrica do anual no
+    // ranking do campeonato faria estas três classes sumirem do pódio.
+    for (const [classe, atleta] of [['NOVICE', 'NOVATA'], ['ESTREANTE', 'ESTREIA'], ['MASTER', 'VETERANA']]) {
+      await eventoPontuado({ colocacoes: [atleta, `${atleta} DOIS`], classe });
+
+      const [ponto] = await pontosDe(atleta);
+      expect(ponto.points, `${classe} pontua no campeonato`).toBe(5);
+      expect(ponto.superOverallPoints, `${classe} NÃO alimenta o Super Overall`).toBe(0);
+      expect(ponto.superOverallEligible).toBe(false);
+    }
+
+    const campeonato = await api().get('/api/v1/ranking').query({ seasonId });
+    const anual = await api().get('/api/v1/ranking/super-overall').query({ seasonId });
+
+    for (const nome of ['NOVATA', 'ESTREIA', 'VETERANA']) {
+      expect(campeonato.body.items.some(l => l.athlete.fullName === nome), `${nome} no campeonato`).toBe(true);
+      expect(anual.body.some(l => l.athlete.fullName === nome), `${nome} fora do anual`).toBe(false);
+    }
+  });
+
+  it('TESTE 9 (integrado) — Overall em classe não elegível soma no campeonato, não no anual', async () => {
+    await eventoPontuado({
+      colocacoes: ['NOVICE COM OVERALL', 'OUTRA NOVICE'],
+      classe: 'NOVICE',
+      overall: 'NOVICE COM OVERALL'
+    });
+
+    const [ponto] = await pontosDe('NOVICE COM OVERALL');
+    expect(ponto.placementPoints).toBe(5);
+    expect(ponto.overallBonus).toBe(10);
+    expect(ponto.points, '5 + 10 no campeonato').toBe(15);
+    expect(ponto.superOverallPoints, 'o bônus segue a elegibilidade da participação').toBe(0);
+  });
+
+  it('TESTE 18 — resultado NÃO publicado não aparece em ranking nenhum', async () => {
+    await eventoPontuado({ colocacoes: ['NAO PUBLICADA', 'OUTRA'], classe: 'OPEN', publicar: false });
+
+    expect(await pontosDe('NAO PUBLICADA'), 'sem publicação não há ponto').toHaveLength(0);
+
+    const campeonato = await api().get('/api/v1/ranking').query({ seasonId });
+    const anual = await api().get('/api/v1/ranking/super-overall').query({ seasonId });
+
+    expect(campeonato.body.items.some(l => l.athlete.fullName === 'NAO PUBLICADA')).toBe(false);
+    expect(anual.body.some(l => l.athlete.fullName === 'NAO PUBLICADA')).toBe(false);
+  });
+
+  it('TESTE 19 — publicado aparece, com os dois números explicáveis', async () => {
+    const { competitionClass } = await eventoPontuado({
+      colocacoes: ['PUBLICADA', 'SEGUNDA'], classe: 'OPEN', publicar: false
+    });
+
+    const antes = await api().get('/api/v1/ranking').query({ seasonId });
+    expect(antes.body.items.some(l => l.athlete.fullName === 'PUBLICADA')).toBe(false);
+
+    await api().post(`/api/v1/classes/${competitionClass.id}/result/publish`).set(diretor.auth())
+      .send({ note: 'Homologado' });
+
+    const depois = await api().get('/api/v1/ranking').query({ seasonId });
+    expect(depois.body.items.find(l => l.athlete.fullName === 'PUBLICADA').totalPoints).toBe(5);
+  });
+
+  it('TESTE 20 — reprocessar mantém o mesmo total, nas duas métricas', async () => {
+    await eventoPontuado({ colocacoes: ['IDEMPOTENTE', 'SEGUNDA IDEM'], classe: 'OPEN' });
+
+    const antes = await pontosDe('IDEMPOTENTE');
+    expect(antes).toHaveLength(1);
+
+    const recalculo = await api().post(`/api/v1/seasons/${seasonId}/recompute`).set(diretor.auth()).send({});
+    expect(recalculo.status).toBe(200);
+
+    const depois = await pontosDe('IDEMPOTENTE');
+    expect(depois, 'reprocessar não cria linha nova').toHaveLength(1);
+    expect(depois[0].points).toBe(antes[0].points);
+    expect(depois[0].superOverallPoints).toBe(antes[0].superOverallPoints);
+  });
+
+  it('TESTE 16 — importar o mesmo arquivo duas vezes não duplica pontos', async () => {
+    const gerente = await gerenteDeImportacao();
+    const cpf = gerarCpf(556000111);
+    await api().post('/api/v1/athletes').set(diretor.auth())
+      .send({ organizationId: orgId, fullName: 'IMPORTADA DUAS VEZES', cpf, sex: 'FEMALE' });
+
+    const conteudo = [
+      'external_result_id,cpf,atleta,categoria,classe,colocacao,etapa',
+      `MW-11-3-DUP,${cpf},IMPORTADA DUAS VEZES,BIKINI,OPEN,1,Etapa`
+    ].join('\n');
+
+    const primeiro = await importarLote(conteudo, gerente);
+    await api().post(`/api/v1/musclewar/imports/${primeiro.import.id}/apply`).set(gerente.auth()).send({});
+
+    // Segundo lote, MESMO external_result_id: reconhecido como já aplicado.
+    const segundo = await importarLote(conteudo, gerente);
+    expect(segundo.items[0].matchStatus).toBe('DUPLICATE');
+
+    const pontos = await pontosDe('IMPORTADA DUAS VEZES');
+    expect(pontos, 'a mesma linha não pontua duas vezes').toHaveLength(1);
+    expect(pontos[0].points).toBe(5);
+  });
+
+  it('TESTE 21 — duas importações CONCORRENTES da mesma linha não duplicam', async () => {
+    const gerente = await gerenteDeImportacao();
+    const cpf = gerarCpf(556000222);
+    await api().post('/api/v1/athletes').set(diretor.auth())
+      .send({ organizationId: orgId, fullName: 'CORRIDA IMPORT', cpf, sex: 'FEMALE' });
+
+    const conteudo = [
+      'external_result_id,cpf,atleta,categoria,classe,colocacao,etapa',
+      `MW-11-3-RACE,${cpf},CORRIDA IMPORT,BIKINI,OPEN,1,Etapa`
+    ].join('\n');
+
+    // Dois lotes distintos carregando a MESMA linha, aplicados ao mesmo tempo.
+    // Quem garante é a unicidade de ExternalResult no banco, não a ordem em que
+    // as duas requisições chegarem.
+    const [a, b] = await Promise.all([importarLote(conteudo, gerente), importarLote(conteudo, gerente)]);
+
+    await Promise.all([
+      api().post(`/api/v1/musclewar/imports/${a.import.id}/apply`).set(gerente.auth()).send({}),
+      api().post(`/api/v1/musclewar/imports/${b.import.id}/apply`).set(gerente.auth()).send({})
+    ]);
+
+    const pontos = await pontosDe('CORRIDA IMPORT');
+    expect(pontos, 'exatamente um ponto, sob concorrência').toHaveLength(1);
+  });
+
+  it('a origem de cada ponto é explicável: evento, classe, colocação e as parcelas', async () => {
+    await eventoPontuado({
+      colocacoes: ['RASTREAVEL', 'SEGUNDA RASTRO'], classe: 'OPEN', overall: 'RASTREAVEL'
+    });
+
+    const atleta = await comoAtor(diretor, tx => tx.athlete.findFirst({ where: { fullName: 'RASTREAVEL' } }));
+    const detalhe = await api().get(`/api/v1/athletes/${atleta.id}/ranking-points`)
+      .query({ seasonId }).set(diretor.auth());
+
+    expect(detalhe.status).toBe(200);
+    const [ponto] = detalhe.body.items;
+
+    // "Por que esta atleta tem 15 pontos?" — a resposta inteira, numa linha.
+    expect(ponto.placing).toBe(1);
+    expect(ponto.placementPoints).toBe(5);
+    expect(ponto.overallBonus).toBe(10);
+    expect(ponto.points).toBe(15);
+    expect(ponto.superOverallPoints).toBe(15);
+    expect(ponto.placementPoints + ponto.overallBonus, 'o total é reconstituível').toBe(ponto.points);
+    expect(ponto.event, 'até o evento de origem').toBeTruthy();
+    expect(ponto.competitionClass.code).toBe('OPEN');
+    expect(ponto.resultId, 'e até o resultado que o gerou').toBeTruthy();
+
+    // E o CPF não vem junto: dado restrito não acompanha rastreabilidade.
+    expect(JSON.stringify(detalhe.body.items)).not.toContain(atleta.cpf ?? '__sem_cpf__');
+  });
+});
+
+// ============================================================================
+// FASE 11.3 — quem PODE mexer em pontuação.
+//
+// `RankingPoint` não está no escopo de RLS: o ranking é superfície pública, e
+// as políticas de linha existem para dado pessoal (atleta, CPF, social,
+// mensagens, auditoria). A barreira da pontuação é de PERMISSÃO, na camada de
+// service — e barreira sem teste é barreira que ninguém sabe se ainda existe.
+// ============================================================================
+describe('11.3) pontuação não se altera sem permissão', () => {
+  const papelSemPontuacao = async papel => {
+    const usuario = await criarUsuario({ name: unico(papel) });
+    await vincular(orgId, usuario, papel);
+    return usuario;
+  };
+
+  it('juiz, atleta e coach não criam temporada nem mexem na tabela de pontos', async () => {
+    for (const papel of ['JUDGE', 'ATHLETE', 'COACH', 'CHECKIN_OPERATOR']) {
+      const usuario = await papelSemPontuacao(papel);
+
+      const temporada = await api().post('/api/v1/seasons').set(usuario.auth())
+        .send({ organizationId: orgId, name: unico('Pirata'), year: 2030 });
+      expect([403, 404], `${papel} não cria temporada`).toContain(temporada.status);
+
+      const tabela = await api().put(`/api/v1/seasons/${seasonId}/points-rules`).set(usuario.auth())
+        .send({ rules: [{ placing: 1, points: 999 }] });
+      expect([403, 404], `${papel} não reescreve a tabela`).toContain(tabela.status);
+
+      const recalculo = await api().post(`/api/v1/seasons/${seasonId}/recompute`).set(usuario.auth()).send({});
+      expect([403, 404], `${papel} não recalcula o ranking`).toContain(recalculo.status);
+    }
+
+    // E a tabela homologada continua intacta depois de todas as tentativas.
+    const regras = await comoAtor(diretor, tx => tx.rankingPointsRule.findMany({ where: { seasonId }, orderBy: { placing: 'asc' } }));
+    expect(regras.map(r => [r.placing, r.points])).toEqual([[1, 5], [2, 4], [3, 3], [4, 2], [5, 1]]);
+  });
+
+  it('anônimo lê o ranking, e não escreve nada', async () => {
+    await eventoPontuado({ colocacoes: ['PUBLICA UM', 'PUBLICA DOIS'], classe: 'OPEN' });
+
+    // Leitura é pública: é para isso que o ranking existe.
+    const leitura = await api().get('/api/v1/ranking').query({ seasonId });
+    expect(leitura.status).toBe(200);
+
+    // Escrita, não.
+    const escrita = await api().post(`/api/v1/seasons/${seasonId}/recompute`).send({});
+    expect([401, 403]).toContain(escrita.status);
+  });
+
+  it('o Overall não é declarado por quem não tem permissão', async () => {
+    const { event } = await eventoPontuado({ colocacoes: ['SEM OVERALL UM', 'SEM OVERALL DOIS'], classe: 'OPEN' });
+    const juiz = await papelSemPontuacao('JUDGE');
+    const atleta = await comoAtor(diretor, tx => tx.athlete.findFirst({ where: { fullName: 'SEM OVERALL UM' } }));
+
+    const tentativa = await api().post(`/api/v1/events/${event.id}/overall`).set(juiz.auth())
+      .send({ athleteId: atleta.id });
+
+    expect([403, 404]).toContain(tentativa.status);
+
+    const titulos = await comoAtor(diretor, tx => tx.eventOverallTitle.findMany({ where: { eventId: event.id } }));
+    expect(titulos, 'nenhum título declarado').toHaveLength(0);
+  });
+
+  it('o ranking público não expõe CPF', async () => {
+    await eventoPontuado({ colocacoes: ['SEM CPF UM', 'SEM CPF DOIS'], classe: 'OPEN' });
+
+    const identidade = await comoAtor(diretor, tx => tx.athleteIdentity.findFirst({}));
+    const publico = await api().get('/api/v1/ranking').query({ seasonId });
+
+    expect(JSON.stringify(publico.body)).not.toContain(identidade.cpf);
+
+    // Estrutural, e não por substring: um cuid aleatório pode conter as letras
+    // "cpf" por acaso, e um teste que falha por isso ensina a ignorá-lo.
+    for (const linha of publico.body.items) {
+      expect(linha.athlete, 'nem o CPF nem a versão mascarada').not.toHaveProperty('cpf');
+      expect(linha.athlete).not.toHaveProperty('cpfMasked');
+      expect(linha.athlete).not.toHaveProperty('birthDate');
+    }
   });
 });

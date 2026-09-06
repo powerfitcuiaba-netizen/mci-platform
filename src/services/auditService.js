@@ -25,6 +25,11 @@ const ACTIONS = Object.freeze({
   RESULT_PUBLICATION: 'RESULT_PUBLICATION',
   RESULT_OVERRIDE: 'RESULT_OVERRIDE',
   RANKING_UPDATE: 'RANKING_UPDATE',
+  // Pontuação (fase 11.3). O padrão do projeto é ENTIDADE_VERBO, então os
+  // nomes seguem SCORE_*, e não os do enunciado, que usa VERBO no particípio.
+  // RANKING_UPDATE já cobre o recálculo do agregado e permanece como está.
+  SCORE_CONFLICT: 'SCORE_CONFLICT',
+  SUPER_OVERALL_UPDATE: 'SUPER_OVERALL_UPDATE',
   OVERALL_DECLARE: 'OVERALL_DECLARE',
   CLASS_CATALOG_SET: 'CLASS_CATALOG_SET',
   ATHLETE_TEAM_LINK: 'ATHLETE_TEAM_LINK',

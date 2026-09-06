@@ -1194,7 +1194,13 @@ model RankingPoint {
   /// que uma mudança futura na configuração da classe não reescreva a
   /// história de um campeonato já encerrado.
   superOverallEligible Boolean @default(false)
+  /// Pontos do CAMPEONATO: toda classe pontua, pela tabela da temporada.
   points           Int
+  /// Pontos elegíveis ao SUPER OVERALL anual: iguais a `points` onde a classe
+  /// era elegível, zero nas demais. Gravado, e não deduzido na leitura, para
+  /// que as duas métricas nunca sejam confundidas uma com a outra — e para que
+  /// o bônus de Overall siga a elegibilidade da participação que o originou.
+  superOverallPoints Int      @default(0)
   // Equipe do atleta no momento da atribuição. Guardada aqui, e não lida do
   // cadastro na hora da consulta, para que uma troca de equipe depois do
   // evento não reescreva a história do ranking.
@@ -1384,6 +1390,10 @@ model MuscleWarImportItem {
   raw              Json
   matchStatus      MatchStatus @default(MATCH_PENDING)
   reason           String?
+  /// Divergência entre a pontuação do arquivo e a calculada pela regra oficial:
+  /// { importedPoints, calculatedPoints, difference }. Preenchida junto com o
+  /// CONFLICT, para que o operador veja os números e não só a frase.
+  pointsMismatch   Json?
   athleteId        String?
   linkedById       String?
   linkedAt         DateTime?

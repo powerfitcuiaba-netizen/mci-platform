@@ -20,9 +20,14 @@ const CATEGORIAS = [
   { code: 'FITMODEL', name: 'Fitmodel', sex: 'FEMALE', sortOrder: 110 }
 ];
 
-// Classes iniciais. A estrutura é extensível: cada evento cria as suas
-// divisões e classes, e estas são apenas os códigos de referência.
-const CLASSES_INICIAIS = ['JUNIOR', 'NOVICE', 'OPEN', 'MASTER'];
+// Classes iniciais, para referência. A lista que VALE é a de
+// `organizationService.CLASSES_DO_CAMPEONATO`, persistida no catálogo de cada
+// organização junto com a elegibilidade ao Super Overall — esta aqui só é
+// exibida no log da carga, e por isso precisa dizer a mesma coisa.
+//
+// Até a fase 11.3 dizia JUNIOR, classe que a configuração homologada não tem:
+// quem lesse o log do seed via uma lista que não existe em lugar nenhum.
+const CLASSES_INICIAIS = ['ESTREANTE', 'NOVICE', 'OPEN', 'MASTER'];
 
 // Comunidades iniciais da MCI Social.
 const COMUNIDADES = [

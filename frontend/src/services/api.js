@@ -216,7 +216,15 @@ export const api = {
   },
 
   ranking: {
+    // Duas métricas, dois endpoints — de propósito. `list` é o ranking do
+    // CAMPEONATO, onde toda classe pontua; `superOverall` é o classificatório
+    // ANUAL, que só as classes elegíveis alimentam. Misturá-los apagaria
+    // Estreante, Novice e Master do pódio do campeonato.
     list: params => get('/ranking', params),
+    superOverall: params => get('/ranking/super-overall', params),
+    teams: params => get('/ranking/teams', params),
+    companies: params => get('/ranking/companies', params),
+    athletePoints: (id, params) => get(`/athletes/${id}/ranking-points`, params),
     seasons: params => get('/seasons', params),
     createSeason: dados => post('/seasons', dados),
     setPointsRules: (id, dados) => put(`/seasons/${id}/points-rules`, dados),

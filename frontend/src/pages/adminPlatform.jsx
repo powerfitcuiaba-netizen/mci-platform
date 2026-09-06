@@ -67,6 +67,7 @@ export function AdminPainel({ navegar }) {
 export function AdminRanking({ notificar }) {
   const [criando, setCriando] = useState(false);
   const [pontuando, setPontuando] = useState(null);
+  const [conferindo, setConferindo] = useState(null);
   const estado = useFetch(() => api.ranking.seasons(), []);
 
   const recalcular = async temporada => {
@@ -102,6 +103,7 @@ export function AdminRanking({ notificar }) {
                 <div className="actions">
                   <Badge tom={temporada.status === 'OPEN' ? 'ok' : 'neutro'}>{temporada.status === 'OPEN' ? 'Aberta' : 'Encerrada'}</Badge>
                   <button type="button" className="button button-secondary button-sm" onClick={() => setPontuando(temporada)}>Tabela de pontos</button>
+                  <button type="button" className="button button-secondary button-sm" onClick={() => setConferindo(temporada)}>Conferir pontuação</button>
                   <button type="button" className="button button-secondary button-sm" onClick={() => recalcular(temporada)}>Recalcular</button>
                 </div>
               </div>
@@ -119,7 +121,98 @@ export function AdminRanking({ notificar }) {
 
       {criando && <NovaTemporada notificar={notificar} onClose={() => setCriando(false)} onSalvo={() => { setCriando(false); estado.reload(); }} />}
       {pontuando && <TabelaDePontos temporada={pontuando} notificar={notificar} onClose={() => setPontuando(null)} onSalvo={() => { setPontuando(null); estado.reload(); }} />}
+      {conferindo && <ConferirPontuacao temporada={conferindo} onClose={() => setConferindo(null)} />}
     </div>
+  );
+}
+
+// ================================================= CONFERÊNCIA DA PONTUAÇÃO
+// Os dois números que a regra manda NÃO confundir, lado a lado e nomeados:
+//
+//   Pontos do Campeonato            → toda classe pontua
+//   Pontos elegíveis ao Super Overall → só as classes elegíveis (a OPEN)
+//
+// Mostrá-los na mesma tela, em colunas separadas, é o que impede o operador de
+// ler um número achando que é o outro — e deixa visível quem pontuou no
+// campeonato sem alimentar o anual.
+function ConferirPontuacao({ temporada, onClose }) {
+  const campeonato = useFetch(() => api.ranking.list({ seasonId: temporada.id }), [temporada.id]);
+  const anual = useFetch(() => api.ranking.superOverall({ seasonId: temporada.id }), [temporada.id]);
+
+  const doAnual = new Map((anual.data || []).map(linha => [linha.athlete?.id, linha.totalPoints]));
+
+  return (
+    <Modal
+      title="Conferir pontuação"
+      description={`${temporada.name} · o ranking do campeonato e o classificatório do Super Overall são métricas diferentes.`}
+      wide
+      onClose={onClose}
+    >
+      <AsyncSection state={campeonato} linhas={4}>
+        {dados => (dados.items.length
+          ? (
+            <>
+              <div className="alert alert-info" style={{ marginBottom: 14 }}>
+                <div>
+                  <strong>Duas métricas, não uma</strong>
+                  <p>
+                    Todas as classes pontuam no campeonato. Somente as classes elegíveis —
+                    pela regra homologada, a OPEN — alimentam o Super Overall anual.
+                  </p>
+                </div>
+              </div>
+
+              <div className="table-wrap" style={{ maxHeight: 380, overflowY: 'auto' }}>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th className="num">#</th>
+                      <th>Atleta</th>
+                      <th className="num">Pontos do Campeonato</th>
+                      <th className="num">Elegíveis ao Super Overall</th>
+                      <th className="num">Overall</th>
+                      <th className="num">1º</th>
+                      <th className="num">2º</th>
+                      <th className="num">3º</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dados.items.map(linha => {
+                      const elegiveis = doAnual.get(linha.athlete?.id) ?? 0;
+                      return (
+                        <tr key={linha.athlete?.id || linha.position}>
+                          <td className="num">{linha.position ?? '—'}</td>
+                          <td>
+                            {linha.athlete?.fullName || '—'}
+                            {linha.tieUnresolved && <Badge tom="alerta">empate não resolvido</Badge>}
+                          </td>
+                          <td className="num"><strong>{linha.totalPoints}</strong></td>
+                          <td className="num">
+                            {elegiveis > 0
+                              ? <strong>{elegiveis}</strong>
+                              : <span style={{ color: 'var(--cinza-fraco)' }}>0</span>}
+                          </td>
+                          <td className="num">{linha.overallWins ?? 0}</td>
+                          <td className="num">{linha.firstPlaceCount ?? 0}</td>
+                          <td className="num">{linha.secondPlaceCount ?? 0}</td>
+                          <td className="num">{linha.thirdPlaceCount ?? 0}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <p style={{ fontSize: 11, color: 'var(--cinza-fraco)', marginTop: 10 }}>
+                Desempate oficial, nesta ordem: Overall → 1º → 2º → 3º. Persistindo o empate,
+                ninguém recebe a colocação — 4º e 5º pontuam, mas não desempatam.
+              </p>
+            </>
+          )
+          : <EmptyState title="Nenhuma pontuação" description="Publique resultados para que a temporada pontue." />
+        )}
+      </AsyncSection>
+    </Modal>
   );
 }
 
@@ -159,10 +252,14 @@ function NovaTemporada({ notificar, onClose, onSalvo }) {
 }
 
 function TabelaDePontos({ temporada, notificar, onClose, onSalvo }) {
-  const [regras, setRegras] = useState([
-    { placing: 1, points: 100 }, { placing: 2, points: 80 }, { placing: 3, points: 60 },
-    { placing: 4, points: 50 }, { placing: 5, points: 40 }, { placing: 6, points: 30 }
-  ]);
+  // A tabela vigente da temporada, e NUNCA valores sugeridos aqui. O formulário
+  // trazia 100/80/60/50/40/30 pré-preenchidos — números que não são de
+  // regulamento nenhum: bastava abrir e salvar para substituir a tabela
+  // homologada (5/4/3/2/1) por eles. Pontuação é dado do regulamento, e o
+  // frontend não é lugar de guardá-la.
+  const [regras, setRegras] = useState(
+    (temporada.pointsRules || []).map(regra => ({ placing: regra.placing, points: regra.points }))
+  );
   const [salvando, setSalvando] = useState(false);
 
   const salvar = async evento => {
@@ -181,6 +278,15 @@ function TabelaDePontos({ temporada, notificar, onClose, onSalvo }) {
   return (
     <Modal title={`Tabela de pontos — ${temporada.name}`} description="Quantos pontos cada colocação vale nesta temporada. O sistema não presume nenhuma pontuação." onClose={onClose}>
       <form onSubmit={salvar}>
+        {!regras.length && (
+          <div className="alert alert-alerta" style={{ marginBottom: 12 }}>
+            <AlertTriangle size={15} />
+            <div>
+              <strong>Esta temporada não tem tabela de pontos</strong>
+              <p>Nada pontua até que ela seja cadastrada. Informe a tabela do regulamento.</p>
+            </div>
+          </div>
+        )}
         {regras.map((regra, indice) => (
           <div className="field-row" key={indice}>
             <Field label="Colocação">
@@ -373,7 +479,18 @@ function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
 
             <div className="table-wrap" style={{ maxHeight: 340, overflowY: 'auto' }}>
               <table className="table">
-                <thead><tr><th>#</th><th>CPF</th><th>Atleta</th><th>Filiação</th><th>Categoria</th><th className="num">Col.</th><th className="num">Pts</th><th>Situação</th><th /></tr></thead>
+                <thead>
+                  <tr>
+                    <th>#</th><th>CPF</th><th>Atleta</th><th>Filiação</th><th>Categoria</th>
+                    {/* A classe é o que decide se o resultado alimenta o Super
+                        Overall — sem ela na tela o operador não consegue
+                        conferir a elegibilidade. */}
+                    <th>Classe</th>
+                    <th className="num">Col.</th>
+                    <th className="num">Pts arquivo</th>
+                    <th>Situação</th><th />
+                  </tr>
+                </thead>
                 <tbody>
                   {dados.items.map(item => {
                     const info = ESTADO_MATCH[item.matchStatus] || { rotulo: item.matchStatus, tom: 'neutro' };
@@ -384,11 +501,29 @@ function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                         <td>{item.athlete?.fullName || item.athleteName || '—'}</td>
                         <td>{item.affiliationCode || '—'}</td>
                         <td>{item.categoryCode || '—'}</td>
+                        <td>
+                          {item.className || '—'}
+                          {item.isOverallChampion && <Badge tom="ok">Overall</Badge>}
+                        </td>
                         <td className="num">{item.placing ?? '—'}</td>
                         <td className="num">{item.points ?? '—'}</td>
                         <td>
                           <Badge tom={info.tom}>{info.rotulo}</Badge>
                           {item.reason && <small style={{ display: 'block', color: 'var(--cinza-fraco)', marginTop: 3 }}>{item.reason}</small>}
+                          {/* Divergência de pontuação: os três números lado a
+                              lado, para o operador decidir o que corrigir — o
+                              arquivo ou a tabela da temporada. */}
+                          {item.pointsMismatch && (
+                            <small style={{ display: 'block', marginTop: 4 }}>
+                              <span>arquivo <strong>{item.pointsMismatch.importedPoints}</strong></span>
+                              {' · '}
+                              <span>regra oficial <strong>{item.pointsMismatch.calculatedPoints}</strong></span>
+                              {' · '}
+                              <span>diferença <strong>
+                                {item.pointsMismatch.difference > 0 ? '+' : ''}{item.pointsMismatch.difference}
+                              </strong></span>
+                            </small>
+                          )}
                         </td>
                         <td style={{ textAlign: 'right' }}>
                           {['MATCH_PENDING', 'CONFLICT'].includes(item.matchStatus) && dados.import.status !== 'APPLIED' && (

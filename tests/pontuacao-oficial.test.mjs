@@ -48,12 +48,15 @@ describe('B/C) bônus Overall', () => {
   it('o bônus é +10 e SOMA aos pontos da colocação — não os substitui', () => {
     expect(BONUS_OVERALL).toBe(10);
 
-    const comOverall = pontuarResultado(1, TABELA, true);
-    expect(comOverall).toEqual({ placementPoints: 5, overallBonus: 10, points: 15 });
+    // Numa classe elegível o bônus também vai para o Super Overall: ele não
+    // tem elegibilidade própria, segue a da participação que o originou.
+    const comOverall = pontuarResultado(1, TABELA, true, true);
+    expect(comOverall).toEqual({ placementPoints: 5, overallBonus: 10, points: 15, superOverallPoints: 15 });
   });
 
   it('1º sem Overall = 5', () => {
-    expect(pontuarResultado(1, TABELA, false)).toEqual({ placementPoints: 5, overallBonus: 0, points: 5 });
+    expect(pontuarResultado(1, TABELA, false, true))
+      .toEqual({ placementPoints: 5, overallBonus: 0, points: 5, superOverallPoints: 5 });
   });
 
   it('o bônus acompanha a colocação de quem o recebeu', () => {
