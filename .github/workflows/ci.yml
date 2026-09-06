@@ -13,23 +13,41 @@ concurrency:
 
 jobs:
   backend:
-    name: Backend — validação e testes
+    name: Backend — migrations, RLS e testes
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
+    # A suíte exige PostgreSQL de verdade: o RLS é testado executando as
+    # políticas, não lendo o SQL.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mci
+          POSTGRES_PASSWORD: mci_ci
+          POSTGRES_DB: mci_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U mci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
     env:
       NODE_ENV: test
-      DATABASE_URL: file:./test.db
+      DATABASE_URL: postgresql://mci:mci_ci@localhost:5432/mci_test?schema=public
+      RLS_DATABASE_URL: postgresql://mci_app:mci_app_ci@localhost:5432/mci_test?schema=public
       STORAGE_DIR: ./uploads-test
       JWT_SECRET: ci-secret-apenas-para-a-pipeline-com-tamanho-suficiente
-      PAYMENT_WEBHOOK_SECRET: ci-webhook-secret
+      BCRYPT_ROUNDS: '4'
+      LOG_LEVEL: silent
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '22'
           cache: npm
 
       - name: Instalar dependências
@@ -44,13 +62,26 @@ jobs:
       - name: Verificar sintaxe do servidor
         run: |
           node --check server.js
-          find src -name "*.js" -print0 | xargs -0 -n1 node --check
+          find src prisma scripts -name "*.js" -print0 | xargs -0 -n1 node --check
 
-      - name: Aplicar migrations no banco de teste
+      - name: Aplicar migrations
         run: npx prisma migrate deploy
 
       - name: Conferir que nenhuma migration ficou pendente
         run: npx prisma migrate status
+
+      - name: Provisionar o papel de aplicação usado nos testes de RLS
+        env:
+          PGPASSWORD: mci_ci
+        run: |
+          # A criação do papel exige CREATEROLE, que o usuário de migration não
+          # tem por decisão de segurança. Na CI, o superusuário do container faz
+          # a concessão.
+          psql -h localhost -U mci -d mci_test -c "ALTER ROLE mci CREATEROLE"
+          psql -h localhost -U mci -d mci_test -v senha="'mci_app_ci'" -f scripts/provision-app-role.sql
+
+      - name: Popular o catálogo oficial
+        run: node prisma/seed.js
 
       - name: Testes do backend
         run: npx vitest run
@@ -69,7 +100,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -95,7 +126,7 @@ jobs:
           set +e
           # Comprimento realista de propósito: 'sk_live_x' num teste de redação
           # não é credencial, e um padrão que o acusa vira ruído que se aprende
-          # a ignorar. tests/ continua no escopo para não criar ponto cego.
+          # a ignorar.
           PADRAO='sk_live_[A-Za-z0-9]{20,}|pk_live_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY|ghp_[A-Za-z0-9]{36}|xox[baprs]-[A-Za-z0-9-]{20,}'
           ENCONTRADO=$(git ls-files | grep -vE 'package-lock|design/|\.github/' | xargs grep -lnE "$PADRAO" 2>/dev/null)
           if [ -n "$ENCONTRADO" ]; then
@@ -124,5 +155,17 @@ jobs:
           fi
           echo "Nenhum marcador de trabalho inacabado."
 
-      - name: Whitespace limpo
-        run: git diff --check HEAD~1 HEAD || true
+      - name: Nenhum módulo financeiro no repositório
+        run: |
+          set +e
+          # A ausência de camada financeira é requisito do produto. A suíte já
+          # verifica schema, banco e rotas; aqui a checagem é de nome de
+          # arquivo, para pegar um módulo reintroduzido antes de ele ser
+          # ligado em qualquer lugar.
+          ENCONTRADO=$(git ls-files 'src/**' 'frontend/src/**' | grep -iE '(payment|checkout|coupon|refund|invoice|billing|wallet)')
+          if [ -n "$ENCONTRADO" ]; then
+            echo "Arquivo financeiro encontrado:"
+            echo "$ENCONTRADO"
+            exit 1
+          fi
+          echo "Nenhum módulo financeiro."

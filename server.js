@@ -1,3 +1,19 @@
+const fs = require('fs');
+const path = require('path');
+
+// Carrega o .env local ANTES de qualquer módulo ler process.env — config,
+// logger e Prisma congelam os valores na primeira carga.
+//
+// Em produção as variáveis vêm do ambiente, não de arquivo: um .env esquecido
+// no servidor sobrescreveria a configuração real do deploy. Usa o carregador
+// nativo do Node, sem dependência extra.
+if (process.env.NODE_ENV !== 'production') {
+  const arquivo = path.join(__dirname, '.env');
+  if (fs.existsSync(arquivo) && typeof process.loadEnvFile === 'function') {
+    process.loadEnvFile(arquivo);
+  }
+}
+
 const app = require('./src/app');
 const prisma = require('./src/config/prisma');
 const logger = require('./src/utils/logger');

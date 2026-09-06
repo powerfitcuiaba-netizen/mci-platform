@@ -1,491 +1,418 @@
-# MCI Campeonatos
+# MCI Platform — Campeonato Brasileiro Muscle Contest
 
-Plataforma de gestão de campeonatos: eventos, participantes, equipes, inscrições, partidas, resultados e classificação, com os módulos operacionais de arbitragem, credenciamento, comunicação e relatórios.
+Plataforma esportiva do Campeonato Brasileiro Muscle Contest: gestão de
+competição de fisiculturismo e fitness, julgamento, resultados, ranking,
+Atletas PRO, importação de resultados do MuscleWar e a rede social da
+comunidade — feed, mensagens e comunidades.
 
-O repositório contém a API em `src/` e a interface React/Vite em `frontend/`.
+> **Esta plataforma não é um sistema financeiro.** Não há pagamento, cobrança,
+> cartão, gateway, PIX, boleto, cupom, reembolso, carteira ou saldo. A ausência
+> é requisito de produto, está verificada por teste automatizado
+> (`tests/financeiro-ausente.test.mjs`) e é conferida na CI. A inscrição no
+> campeonato é um processo esportivo e cadastral. Se existir cobrança em algum
+> sistema externo, ela permanece externa.
 
-## Referências visuais
+---
 
-As referências oficiais ficam permanentemente em `design/referencias/` (48 imagens). Elas definem a linguagem MCI aplicada na interface: superfícies near-black, vermelho MCI para ação e seleção, azul para informação, estados semânticos, navegação lateral operacional, cards densos e composição mobile própria. Essas imagens não devem ser alteradas, movidas ou renomeadas.
+## Sumário
 
-## Tecnologias
+- [Domínio](#domínio)
+- [Arquitetura](#arquitetura)
+- [Começando](#começando)
+- [Banco de dados e RLS](#banco-de-dados-e-rls)
+- [Segurança](#segurança)
+- [Motor de apuração](#motor-de-apuração)
+- [Importação MuscleWar](#importação-musclewar)
+- [MCI Social e Messenger](#mci-social-e-messenger)
+- [API](#api)
+- [Testes](#testes)
+- [Variáveis de ambiente](#variáveis-de-ambiente)
+- [Decisões e limites conhecidos](#decisões-e-limites-conhecidos)
 
-- Node.js 22+ (o `jsdom` da suíte de interface exige `^22.22.2 || ^24.15.0`; validado em Node 24)
-- Express 5
-- Prisma 6 com SQLite
-- Zod para validação
-- JWT (`jsonwebtoken`) e `bcryptjs`
-- Vitest e Supertest
-- React 19 + Vite no frontend
+---
 
-## Requisitos
+## Domínio
 
-- Node.js 22 ou superior — o backend roda em 20, mas a suíte de interface exige 22+
-- npm
+O campeonato **não** é modelado como confronto direto. A estrutura é:
 
-## Instalação
-
-Backend, a partir da raiz:
-
-```bash
-npm install
-copy .env.example .env
-npm run prisma:generate
-npm run prisma:migrate
+```
+EVENTO → CATEGORIA → DIVISÃO → CLASSE → ATLETA
 ```
 
-Frontend:
+A classe é a unidade em que se compete e em que se apura resultado. O
+julgamento é de N atletas por N juízes, com colocação relativa.
 
-```bash
-cd frontend
-copy .env.example .env
-npm install
-```
+### Categorias oficiais
 
-## Variáveis de ambiente
+O catálogo é **dado**, não código — novas categorias entram por linha em
+`prisma/seed.js` ou pela rota `POST /categories`, sem alteração de lógica:
 
-Raiz (`.env`):
-
-| Variável | Finalidade | Padrão |
-| --- | --- | --- |
-| `DATABASE_URL` | Banco do Prisma | `file:./dev.db` |
-| `PORT` | Porta da API | `3000` |
-| `NODE_ENV` | Ambiente de execução | `development` |
-| `FRONTEND_URL` | Origem liberada no CORS | `http://localhost:5173` |
-| `JWT_SECRET` | Segredo de assinatura do token | — (obrigatório em produção) |
-| `CORS_ORIGINS` | Origens liberadas, separadas por vírgula | `http://localhost:5173` |
-| `STORAGE_DRIVER` | Provedor de armazenamento | `local` |
-| `STORAGE_DIR` | Raiz do armazenamento de arquivos | `uploads/` (fora do versionamento) |
-| `UPLOAD_MAX_BYTES` | Teto de tamanho por arquivo | `10485760` (10 MB) |
-| `PAYMENT_PROVIDER` | Provedor de pagamento | `sandbox` (desenvolvimento) |
-| `PAYMENT_WEBHOOK_SECRET` | Segredo do HMAC do webhook | — (obrigatório em produção) |
-| `ALLOW_SANDBOX_PAYMENTS` | Permite o provedor de desenvolvimento em produção | `false` |
-| `ORDER_EXPIRATION_MINUTES` | Prazo para pagar antes de o pedido expirar | `60` |
-| `RATE_LIMIT_ENABLED` | Liga o limitador de requisições | ligado só em produção |
-| `LOG_LEVEL` | `silent`/`error`/`warn`/`info`/`debug` | por ambiente |
-
-`frontend/.env`:
-
-| Variável | Finalidade | Padrão |
-| --- | --- | --- |
-| `VITE_API_URL` | Endereço da API | `http://localhost:3000/api/v1` |
-
-O `JWT_SECRET` tem um valor de desenvolvimento embutido como último recurso. Defina um segredo próprio antes de qualquer uso real.
-
-## Execução local
-
-Em um terminal, a API:
-
-```bash
-npm start        # produção
-npm run dev      # watch nativo do Node
-```
-
-Em outro, a interface:
-
-```bash
-cd frontend
-npm run dev      # http://localhost:5173
-```
-
-## Banco e Prisma
-
-O banco de desenvolvimento fica em `prisma/dev.db` e não é versionado.
-
-```bash
-npx prisma validate        # valida o schema
-npx prisma migrate status  # estado das migrations
-npx prisma generate        # regenera o client
-npx prisma migrate deploy  # aplica migrations pendentes
-```
-
-Migrations existentes não devem ser apagadas. Para PostgreSQL, altere o `provider` do datasource em `prisma/schema.prisma`, use uma `DATABASE_URL` PostgreSQL e gere uma migration própria para esse banco.
-
-## Autenticação e perfis
-
-Autenticação por JWT, com senha protegida por `bcryptjs`. O `passwordHash` nunca é retornado em nenhuma superfície.
-
-- `POST /api/v1/auth/register` — cria usuário e devolve token.
-- `POST /api/v1/auth/login` — autentica e devolve token.
-- `GET /api/v1/auth/me` — usuário da sessão atual.
-
-Perfis: `ADMIN`, `ORGANIZER`, `JUDGE`, `COACH`, `ATHLETE`, `PUBLIC`.
-
-### Regras de posse
-
-A autorização nunca usa identificador vindo do corpo da requisição. O ator é sempre `req.user`, carregado a partir do token.
-
-- `ADMIN` tem override administrativo.
-- `ORGANIZER` opera apenas os campeonatos que criou.
-- `JUDGE` só lança ou edita resultado em campeonato onde possui `JudgeAssignment`.
-- `COACH` administra apenas participantes cujo `coachId` é o seu. No cadastro o vínculo é imposto pelo servidor: um `coachId` enviado no corpo é ignorado.
-- `ATHLETE` consulta a própria situação de inscrição e não opera a de terceiros.
-- Leituras abertas (`/campeonatos`, `/participantes`, `/equipes`, `/partidas`) omitem identificadores de posse — `createdById`, `userId`, `coachId` — quando o chamador não está autenticado.
-- A superfície pública `/public/*` é somente leitura e não expõe email, perfil, operador nem identificadores internos. Só aparece na vitrine quem tem inscrição confirmada: participante sem competição não é exposto, para que a área aberta não vire um índice do cadastro interno.
-- `/dashboard/summary` devolve uma composição diferente por perfil. Quem decide o conteúdo é o servidor, a partir de `req.user.role`; a interface apenas escolhe a apresentação correspondente.
-
-## Estado dos módulos
-
-| Módulo | Estado | Observação |
-| --- | --- | --- |
-| Eventos / campeonatos | REAL | CRUD, filtros, detalhe, inscrições |
-| Participantes e equipes | REAL | CRUD com posse por criador e por técnico |
-| Inscrições | REAL | Cancelamento por transição de estado, com reinscrição |
-| Partidas | REAL | Sem exclusão: cancelamento por status |
-| Resultados | REAL | Validação, recálculo da classificação |
-| Classificação | REAL | Materializada, recalculada a cada resultado |
-| Judge Center | REAL | Agenda por designação, lançamento de resultado |
-| Check-in | REAL | Estado derivado da inscrição, operador e horário |
-| Coach Center | REAL | Elenco, competições, agenda, isolamento entre técnicos |
-| Backstage | REAL | Consolidação com alertas operacionais |
-| MCI TV | REAL | Superfície pública somente leitura |
-| Notificações | REAL | Emissão em inscrição, check-in, partida e resultado |
-| Relatórios | REAL | JSON consolidado e visualização |
-| Dashboard | REAL | Composição própria por perfil: global, operação, arbitragem, elenco ou carreira |
-| Organizer Center | REAL | Consolida os módulos de operação do organizador num ponto único |
-| Vitrine pública | REAL | Competições, atletas e equipes acessíveis sem login |
-| Pedidos e checkout | REAL | Valor calculado no servidor, cupom, idempotência, expiração |
-| Pagamentos | REAL | Provedor abstraído, webhook assinado e idempotente. **Sem gateway real integrado** |
-| Cupons | REAL | Percentual ou valor fixo, validade, limite total e por usuário |
-| Reembolsos | REAL | Só sobre pedido pago, reverte inscrição e devolve o cupom |
-| Patrocínios | REAL | Contrato por evento, separado do fluxo de inscrição |
-| Documentos | REAL | Upload e download reais, com tipo, tamanho e nome validados |
-| Athlete Center | REAL | Carreira do atleta, isolada por conta |
-| Admin Center | REAL | Contas, retrato global e trilha de auditoria |
-| Perfil | REAL | Edição dos próprios dados e troca segura de senha |
-| Auditoria | REAL | Registro de ações administrativas, sem dado sensível |
-
-## Endpoints
-
-Prefixo `/api/v1`.
-
-| Método | Endpoint | Finalidade |
-| --- | --- | --- |
-| GET | `/` | Health check textual |
-| POST | `/auth/register` · `/auth/login` | Criar conta · autenticar |
-| GET | `/auth/me` | Usuário da sessão |
-| GET | `/dashboard/summary` | Painel do perfil autenticado (composição distinta por papel) |
-| GET/PATCH | `/profile` | Consultar ou editar os próprios dados |
-| POST | `/profile/password` | Trocar a própria senha |
-| GET | `/athlete/overview` | Carreira do atleta autenticado |
-| GET | `/admin/overview` · `/admin/users` · `/admin/users/:id` | Administração global |
-| PATCH | `/admin/users/:id` | Alterar perfil ou situação de uma conta |
-| GET | `/audit` | Trilha de auditoria (somente ADMIN) |
-| GET/POST | `/campeonatos` | Listar ou criar campeonatos |
-| GET/PUT/PATCH/DELETE | `/campeonatos/:id` | Operações sobre campeonato |
-| GET/POST | `/campeonatos/:id/participantes` | Consultar ou realizar inscrição |
-| GET | `/campeonatos/:id/classificacao` | Consultar classificação |
-| GET/POST | `/participantes` · `/equipes` | Listar ou criar |
-| GET/PUT/PATCH/DELETE | `/participantes/:id` · `/equipes/:id` | Operações sobre o registro |
-| GET/POST | `/partidas` | Listar ou criar partidas |
-| GET/PUT/PATCH | `/partidas/:id` | Consultar ou atualizar partida |
-| GET/POST/PATCH | `/partidas/:id/resultado` | Consultar, registrar ou atualizar resultado |
-| GET | `/judge/matches` | Partidas dos campeonatos designados ao juiz |
-| GET/POST | `/judge/assignments` | Consultar ou criar designação |
-| GET | `/checkin/tournaments/:id` | Inscritos com situação de check-in |
-| GET/POST | `/checkin/enrollments/:id` | Situação · registrar check-in |
-| PATCH | `/checkin/enrollments/:id/cancel` | Cancelar check-in |
-| PATCH | `/inscricoes/:id/cancel` | Cancelar inscrição (transição de estado) |
-| GET | `/notifications` | Caixa do usuário com contador de não lidas |
-| PATCH | `/notifications/:id/read` | Marcar como lida |
-| POST | `/notifications/read-all` | Marcar todas como lidas |
-| GET/POST | `/documents` | Listar ou registrar documento por metadados |
-| POST | `/documents/upload` | Enviar documento com arquivo (multipart) |
-| GET | `/documents/:id/download` | Baixar o arquivo do documento |
-| GET/DELETE | `/documents/:id` | Consultar ou excluir documento |
-| GET | `/coach/overview` · `/coach/teams` · `/coach/athletes` | Visão do técnico |
-| PATCH | `/coach/participants/:id/team` | Mover atleta entre equipes do próprio elenco |
-| GET | `/backstage/overview` | Operação consolidada com alertas |
-| GET | `/reports/tournaments` · `/reports/tournaments/:id` | Índice e relatório do campeonato |
-| GET/POST | `/orders` | Listar pedidos do escopo · criar pedido |
-| GET | `/orders/:id` | Consultar pedido com itens, pagamentos e reembolsos |
-| PATCH | `/orders/:id/cancel` | Cancelar pedido pendente |
-| GET/POST | `/orders/:id/payments` | Histórico de tentativas · abrir cobrança |
-| POST | `/orders/:id/refunds` | Reembolsar pedido pago (ADMIN ou dono do evento) |
-| GET | `/refunds` | Reembolsos do escopo do usuário |
-| GET/POST | `/coupons` | Listar ou criar cupom |
-| PATCH | `/coupons/:id/active` | Ativar ou desativar cupom |
-| POST | `/coupons/preview` | Calcular o desconto antes de fechar o pedido |
-| GET/POST | `/sponsors` · `/sponsorships` | Patrocinadores e contratos por evento |
-| POST | `/webhooks/payments/:provider` | Notificação do provedor — pública, protegida por assinatura |
-| GET | `/public/summary` · `/public/tournaments` · `/public/tournaments/:id` · `/public/live` | MCI TV, sem autenticação |
-| GET | `/public/athletes` · `/public/athletes/:id` | Vitrine pública de atletas |
-| GET | `/public/teams` · `/public/teams/:id` | Vitrine pública de equipes |
-
-Exemplo:
-
-```bash
-curl -X POST http://localhost:3000/api/v1/campeonatos -H "Content-Type: application/json" -H "Authorization: Bearer SEU_TOKEN" -d "{\"name\":\"Copa MCI\",\"status\":\"ACTIVE\"}"
-```
-
-Erros seguem o formato:
-
-```json
-{"error":{"code":"RESOURCE_NOT_FOUND","message":"Campeonato não encontrado"}}
-```
-
-Entradas inválidas retornam `400` com `error.code = VALIDATION_ERROR` e uma lista `error.details`. Falta de credencial retorna `401`, falta de permissão `403`, recurso ausente `404`, duplicidade `409` e violação semântica `422`.
-
-## Modelo de dados
-
-- `User`: conta de acesso e perfil.
-- `Tournament`: campeonato e seu ciclo de vida; `createdById` define a posse.
-- `Participant`: participante ou equipe (`type`). `coachId` vincula ao técnico, `teamId` compõe o elenco de uma equipe, `userId` liga a uma conta.
-- `Enrollment`: relação única entre campeonato e participante. `status` (`CONFIRMED`/`CANCELLED`) permite baixa sem perder o histórico.
-- `Match`: partida entre dois participantes inscritos.
-- `Result`: placar e vencedor, um por partida.
-- `Standing`: classificação materializada, recalculada após cada resultado.
-- `JudgeAssignment`: designação que autoriza o juiz a operar o campeonato.
-- `CheckIn`: presença por inscrição, com operador e horário. Sem registro, a inscrição é `PENDING`.
-- `Notification`: caixa por usuário.
-- `Document`: documento vinculado a um campeonato. `storageKey` aponta para o arquivo no armazenamento; quando ausente, o registro é apenas uma referência.
-- `AuditLog`: trilha de ações administrativas, com ator, entidade e metadados sanitizados.
-
-## Regra de classificação
-
-Vitória vale 3 pontos, empate 1 para cada participante e derrota 0. A ordenação usa, nesta ordem: pontos, vitórias, pontos marcados e menor pontuação sofrida. A regra está isolada em `standingService` para permitir ajustes.
-
-## Financeiro
-
-### Dinheiro é inteiro
-
-Todo valor monetário é um `Int` em centavos. Ponto flutuante não representa
-0,10 + 0,20 exatamente, e erro de arredondamento em cobrança não é detalhe
-estético: é diferença de caixa. `src/utils/money.js` recusa float, negativo e
-valor acima do teto; percentual arredonda **para baixo**, de modo que o desconto
-nunca supere o anunciado, e nunca ultrapassa o subtotal.
-
-### O preço nunca vem do cliente
-
-O corpo de `POST /orders` aceita **apenas** `tournamentId`, `participantId`,
-`couponCode` e `idempotencyKey`. O schema é estrito e **não possui campo** para
-`totalCents`, `subtotalCents`, `discountCents` ou `unitPriceCents` — tentar
-enviá-los devolve `400` e nenhum pedido é criado. O valor sai de
-`Tournament.entryFeeCents`, lido no servidor no momento do pedido.
-
-A regra vale também para `POST /coupons/preview`, que só recebe `code` e
-`tournamentId`: o subtotal sobre o qual o desconto incide é lido do campeonato,
-pelo mesmo cálculo que o pedido usa (`src/utils/pricing.js`). Assim a prévia
-mostra exatamente o que a cobrança vai fazer — e uma tela não consegue exibir
-desconto que o servidor não honraria.
-
-### Estados
-
-Transições permitidas são declaradas em `src/utils/financialStates.js`. O que não
-está no mapa é recusado com `422`.
-
-| Entidade | Estados |
+| Masculinas | Femininas |
 | --- | --- |
-| Pedido | `PENDING` · `PAID` · `CANCELLED` · `EXPIRED` · `REFUNDED` |
-| Pagamento | `PENDING` · `PROCESSING` · `AUTHORIZED` · `PAID` · `FAILED` · `CANCELLED` · `REFUNDED` |
-| Reembolso | `PENDING` · `PROCESSING` · `COMPLETED` · `FAILED` |
+| Men's Bodybuilding | Women's Bodybuilding |
+| Men's Physique | Women's Physique |
+| Classic Physique | Wellness |
+| 212 Bodybuilding | Bikini |
+| | Fitness |
+| | Figure |
+| | Fitmodel |
 
-Um pedido pendente não vira reembolsado sem passar por pago.
+Classes iniciais: `JUNIOR`, `NOVICE`, `OPEN`, `MASTER`. A estrutura aceita
+outras sem mudança de código.
 
-### Idempotência
+### Estados do evento
 
-Pedido e pagamento aceitam `Idempotency-Key` no cabeçalho (ou no corpo). A chave
-é única no banco: reenviar a mesma intenção devolve o registro já criado em vez
-de gerar um segundo. Chave usada por outro usuário devolve `409`.
-
-### Webhook
-
-`POST /api/v1/webhooks/payments/:provider` é público — quem chama é o provedor —
-e se protege por três camadas:
-
-1. **Assinatura** HMAC-SHA256 sobre o corpo cru, comparada em tempo constante.
-   Assinatura ausente ou inválida devolve `401` e não altera nada.
-2. **Idempotência** pela unicidade de `(provedor, id externo)` em `PaymentEvent`.
-   A segunda entrega da mesma notificação é descartada sem reprocessar.
-3. **Ordem**: estado terminal não é revisitado por notificação atrasada, e valor
-   divergente do cobrado devolve `422` e registra `PAYMENT_AMOUNT_MISMATCH`.
-
-### Cupons e concorrência
-
-O consumo usa comparação-e-troca sobre o contador recém-lido: duas requisições
-simultâneas disputam a mesma linha e apenas uma escreve, de modo que o limite não
-é ultrapassado. Cancelar ou reembolsar um pedido devolve a unidade ao estoque.
-
-### Provedor de pagamento
-
-O domínio não importa gateway nenhum: fala com o contrato `PaymentProvider`
-(`createCharge`, `refundCharge`, `verifySignature`, `parseWebhook`). Um gateway
-real implementa esse contrato, registra-se e passa a ser selecionado por
-`PAYMENT_PROVIDER`.
-
-**O provedor incluído é de desenvolvimento.** Não move dinheiro, não fala com
-banco algum e **se recusa a operar em produção** sem `ALLOW_SANDBOX_PAYMENTS=true`
-assumido de propósito. Nenhum gateway real está integrado.
-
-### Patrocínio
-
-Receita de contrato entre evento e marca. Não passa por pedido, cupom ou
-pagamento de inscrição — misturar os dois tornaria o relatório de vendas
-indefensável. Aparece separado em `financeiro.receitaPatrocinioCents`.
-
-## Armazenamento de arquivos
-
-Documentos com arquivo são gravados em `uploads/` (ou no caminho de `STORAGE_DIR`), fora do versionamento. Nada vindo do cliente compõe o caminho em disco: a chave é gerada pelo servidor a partir do campeonato e de um UUID, e o caminho resolvido é conferido contra a raiz antes de qualquer operação. O nome original é guardado apenas como metadado, para exibição e para o cabeçalho de download.
-
-O envio é `multipart/form-data`, lido por `busboy` com teto de tamanho aplicado pelo próprio parser. A autorização é resolvida antes da gravação, de modo que uma requisição negada não deixa resíduo em disco. Tipos aceitos: PDF, PNG, JPEG, WebP, texto e CSV.
-
-O download exige o mesmo direito de leitura do registro e passa pelo servidor — não há URL pública para o arquivo.
-
-## Produção
-
-### Configuração validada na partida
-
-`src/config/environment.js` centraliza a configuração e é verificada antes de a porta abrir. Em produção o processo **se recusa a subir** se encontrar:
-
-- `JWT_SECRET` ausente, com menos de 32 caracteres ou ainda no valor de desenvolvimento;
-- `DATABASE_URL` ausente ou apontando para SQLite;
-- CORS sem origem explícita, ou com curinga;
-- provedor de pagamento de desenvolvimento sem `ALLOW_SANDBOX_PAYMENTS=true` assumido de propósito;
-- `PAYMENT_WEBHOOK_SECRET` ainda no valor de exemplo.
-
-Falhar no deploy é preferível a servir tráfego real com segredo que qualquer um adivinha.
-
-### Caminho para PostgreSQL
-
-O desenvolvimento continua em SQLite; nada aqui destrói o banco local.
-
-```bash
-# 1. Trocar o provider no datasource
-#    prisma/schema.prisma:  provider = "postgresql"
-# 2. Apontar a URL
-export DATABASE_URL="postgresql://usuario:senha@host:5432/mci?schema=public"
-# 3. Gerar a migration própria do PostgreSQL num banco limpo
-npx prisma migrate dev --name init_postgres
-# 4. Conferir e aplicar
-npx prisma migrate status
-npx prisma migrate deploy
+```
+DRAFT → PLANNED → REGISTRATIONS_OPEN → REGISTRATIONS_CLOSED
+      → IN_OPERATION → IN_JUDGING → RESULTS_IN_REVIEW
+      → RESULTS_PUBLISHED → CLOSED
 ```
 
-As migrations existentes foram escritas para SQLite. O PostgreSQL exige uma linha de migração própria, gerada a partir do mesmo schema — por isso o passo 3 roda contra um banco vazio, e nenhuma migration atual é apagada.
+Toda transição é declarada em `src/utils/eventStates.js`. O que não está
+declarado é recusado com o motivo. Depois de publicado, o resultado não
+retrocede por transição de estado: correção é nova versão auditada.
 
-### Health e prontidão
+### Atleta e CPF
 
-| Rota | Responde |
+O CPF é a identidade central do atleta: normalizado para 11 dígitos, validado
+por dígito verificador e **único por organização** — é a constraint que impede
+o mesmo atleta virar dois perfis. É tratado como dado restrito (ver
+[Segurança](#segurança)).
+
+---
+
+## Arquitetura
+
+```
+mci-platform/
+├── prisma/
+│   ├── schema.prisma          domínio completo (PostgreSQL)
+│   ├── migrations/            baseline + políticas de RLS
+│   └── seed.js                catálogo oficial de categorias e comunidades
+├── src/
+│   ├── app.js                 montagem do Express
+│   ├── config/                ambiente, Prisma, contexto de RLS
+│   ├── middlewares/           auth, validação, rate limit, upload
+│   ├── routes/index.js        superfície HTTP
+│   ├── controllers/index.js   extração de entrada e resposta
+│   ├── services/              regra de negócio
+│   └── utils/                 CPF, permissões, estados, apuração, adapter
+├── scripts/                   provisionamento e execução da suíte
+├── tests/                     unidade, E2E, segurança, RLS, ausência financeira
+└── frontend/                  React + Vite
+```
+
+**Controllers são finos por decisão**: extraem entrada, chamam o service e
+devolvem a resposta. Nenhuma regra de negócio mora neles, de modo que a regra
+possa ser testada sem HTTP e não exista uma segunda cópia dela.
+
+---
+
+## Começando
+
+Pré-requisitos: **Node 22+** e **PostgreSQL 16+**. SQLite não serve — o RLS da
+plataforma depende do PostgreSQL, e o validador de produção recusa outro banco.
+
+```bash
+# 1. dependências
+npm install
+cd frontend && npm install && cd ..
+
+# 2. ambiente
+cp .env.example .env
+# ajuste DATABASE_URL e gere um JWT_SECRET:
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+
+# 3. banco
+npm run db:migrate
+npm run db:seed
+
+# 4. API (porta 3000)
+npm run dev
+
+# 5. interface (porta 5173)
+cd frontend && npm run dev
+```
+
+O primeiro usuário se cadastra pela interface. Papéis privilegiados não são
+autoatribuíveis: promova o primeiro administrador direto no banco e faça o
+resto pela tela de Configurações.
+
+```sql
+UPDATE "User" SET role = 'SUPER_ADMIN' WHERE email = 'voce@exemplo.com';
+```
+
+---
+
+## Banco de dados e RLS
+
+### Migrations
+
+| Migration | Conteúdo |
 | --- | --- |
-| `GET /health` | O processo está vivo. Não toca em dependência — um orquestrador não deve reiniciar o contêiner por lentidão do banco. |
-| `GET /ready` | Banco, armazenamento e configuração respondem. É esta sonda que decide se a instância recebe tráfego. |
+| `20260906120000_mci_dominio_esportivo` | domínio completo: organizações, atletas, eventos, inscrições, operação, julgamento, resultados, ranking, MuscleWar, social, messenger, comunidades, auditoria |
+| `20260906130000_rls` | funções auxiliares e políticas de Row Level Security |
 
-Nenhuma das duas devolve segredo, URL de banco ou caminho de disco: informam o **tipo** da dependência e o estado, nunca o endereço.
+### Row Level Security
 
-### Segurança
+As políticas cobrem mensagens privadas, publicações restritas, stories,
+documentos de atleta, o próprio cadastro de atleta (isolamento entre
+organizações), resultados não publicados, lotes de importação, auditoria e
+notificações.
 
-- **Helmet** e `x-powered-by` desligado.
-- **CORS** por lista explícita de origens; sem curinga em produção.
-- **Rate limiting** em memória, ligado por padrão em produção: 10 tentativas por 15 min em login, registro e troca de senha; 30/min em upload; 120/min no webhook; 180/min na superfície pública; teto global de 600/min.
-- **Erros** nunca devolvem stack trace ao cliente; o rastro vai para o log estruturado.
-- **Logs** em JSON com redação obrigatória de senha, token, segredo, CVV e número de cartão, em qualquer profundidade.
-- **Encerramento ordenado**: `SIGTERM`/`SIGINT` param de aceitar conexões, deixam as em curso terminarem e fecham o banco.
+O ator corrente é lido de `current_setting('mci.user_id')`, definido **por
+transação** com `SET LOCAL` — `src/config/rlsSession.js` faz isso. Com pool de
+conexões, definir a variável fora da transação a aplicaria a uma conexão
+qualquer e poderia vazar para a requisição seguinte. **Sem ator definido, as
+políticas negam**: falhar fechado é o comportamento correto.
 
-**Limitação assumida:** o limitador guarda estado no processo. Com mais de uma instância, cada uma conta as próprias tentativas — a proteção real nesse cenário exige contador compartilhado (Redis) ou o limitador da borda (CDN/proxy).
+O papel de aplicação é provisionado uma vez, por um usuário com `CREATEROLE`
+(não o usuário das migrations):
 
-### Armazenamento
+```bash
+psql -d mci -v senha="'$MCI_APP_PASSWORD'" -f scripts/provision-app-role.sql
+```
 
-`storageService` é uma fachada sobre um contrato `StorageProvider`. Hoje só o provedor `local` está registrado; um provedor de nuvem implementa a mesma superfície (`saveBuffer`, `saveStream`, `createReadStream`, `exists`, `remove`, `stat`, `healthCheck`), registra-se com `storageService.registerProvider` e passa a ser selecionável por `STORAGE_DRIVER` — sem que nenhum service de negócio mude.
+`tests/rls.test.mjs` conecta como `mci_app` — papel sem `BYPASSRLS` — e
+consulta as tabelas **direto**, sem passar pela API. É a única forma de provar
+que a barreira é do banco, e não apenas do service. O teste falha alto se o
+papel usado tiver `BYPASSRLS`.
 
-### Backup
+---
 
-**Não existe backup automático configurado neste repositório.** O que está documentado é a estratégia a executar na infraestrutura escolhida:
+## Segurança
 
-- **Banco** — `pg_dump` diário com retenção de 30 dias e um teste de restauração mensal. Backup que nunca foi restaurado não é backup, é esperança.
-- **Storage** — replicação do bucket ou sincronização diária do diretório, com versionamento de objeto ligado.
-- **Segredos** — guardados no cofre do provedor, nunca em backup de banco ou de código.
+### RBAC granular
 
-### CI
+68 permissões nomeadas e 21 papéis, em `src/utils/permissions.js`. Rotas e
+services perguntam por **permissão**, nunca por papel:
 
-`.github/workflows/ci.yml` roda em todo push e PR: instala, valida o schema, gera o client, confere a sintaxe de todo `src/`, aplica migrations, executa a suíte do backend, testa e builda o frontend, e confere higiene do repositório (nenhum segredo real, nenhum `.env`, nenhum `console.log`/`TODO` esquecido).
+```js
+assertCan(actor, 'results.publish', event.organizationId);
+```
 
-**A pipeline não faz deploy.** Publicação é decisão manual.
+A permissão efetiva é a união do papel global (`User.role`) com os papéis do
+usuário **naquela organização** (`OrganizationMember.role`). Não existe herança
+por nível: um `JUDGE` não é um `ADMIN` pequeno — é outro conjunto. Um juiz
+pontua; encerrar sessão, apurar e publicar são permissões distintas.
 
-### Deploy
+### Multi-tenancy
 
-Nada aqui publica automaticamente, altera DNS ou usa credencial real. Antes de um deploy:
+`assertCan` confere organização **e** permissão na mesma chamada. Separá-las é
+justamente o que produz o furo em que o papel de uma organização autoriza
+operar em outra. A barreira existe na rota, no service e no banco.
 
-1. Definir as variáveis do `.env.example` no cofre do provedor.
-2. `npx prisma migrate deploy` contra o banco de produção.
-3. Subir com `NODE_ENV=production` — a validação de partida barra configuração incompleta.
-4. Apontar as sondas do orquestrador para `/health` (liveness) e `/ready` (readiness).
+### Classificação dos dados
+
+| Nível | Exemplos |
+| --- | --- |
+| Público | nome, nome esportivo, cidade/UF, categoria, títulos, resultados publicados, ranking, conteúdo social público |
+| Privado | documentos, mensagens, publicações restritas |
+| Restrito | **CPF**, telefone, e-mail pessoal, resultados não publicados |
+| Administrativo | auditoria, papéis, importações |
+
+**CPF nunca sai em rota pública nem em resultado de busca** — nem mascarado.
+Serve como termo de consulta apenas para quem tem `search.sensitive`, e a
+resposta devolve `[CPF]` no eco do termo: repetir o número no payload seria
+reintroduzi-lo em log de acesso e histórico logo depois de tê-lo protegido.
+Consultar um CPF deixa rastro na auditoria.
+
+### Outras decisões
+
+- Resposta **404** (não 403) para conversa, publicação ou perfil que o usuário
+  não pode ver: confirmar a existência já é vazamento.
+- Login compara a senha contra um hash descartável mesmo sem usuário, para que
+  o tempo de resposta não revele quais e-mails existem.
+- Papel privilegiado não é autoatribuível no cadastro aberto; só `SUPER_ADMIN`
+  concede. Ninguém altera o próprio papel ou situação.
+- Erro nunca carrega stack trace na resposta. O log estruturado redige senha,
+  token e segredo por nome de chave, em qualquer profundidade.
+- Upload: a chave de armazenamento é sempre gerada pelo servidor; o nome
+  original fica só como metadado. Lista fechada de tipos, separada entre
+  documento e mídia.
+
+---
+
+## Motor de apuração
+
+`src/utils/tabulation.js` — determinístico, reproduzível e auditável.
+
+- **Entrada**: a colocação que cada juiz deu a cada atleta da classe.
+- **Saída**: colocação final, soma considerada, soma bruta e o *countback*
+  completo de cada atleta.
+- **Checksum**: os votos são ordenados antes do hash, de modo que a ordem em
+  que vieram do banco não mude o resultado. Mesma entrada, mesmo checksum.
+
+**O método e os desempates são configuração do organizador**
+(`ScoringRuleSet`), nunca regra embutida:
+
+| Opção | Padrão | Observação |
+| --- | --- | --- |
+| `method` | `RELATIVE_PLACEMENT_SUM` | soma de colocações |
+| `dropHighLow` | `false` | descarte da maior e da menor é decisão de regulamento |
+| `dropHighLowMinJudges` | `7` | painel mínimo para o descarte valer |
+| `tieBreakers` | `[]` | ordem explícita: `HEAD_JUDGE_PLACING`, `COUNT_BACK`, `SUM_WITHOUT_DROP` |
+
+Se nenhum critério configurado resolver o empate, os atletas saem como
+`TIE_UNRESOLVED` e a publicação é bloqueada até a organização decidir.
+**Nunca se desempata por id, ordem de cadastro, timestamp ou nome.**
+
+### Resultados versionados
+
+Toda mudança de estado do resultado — apuração, reapuração, publicação,
+correção — incrementa `Result.version` e grava uma linha em `ResultVersion`
+com motivo, autor, momento e o retrato completo das entradas. Nenhuma versão é
+sobrescrita. É o que torna a correção de um resultado publicado auditável em
+vez de silenciosa.
+
+---
+
+## Importação MuscleWar
+
+O MCI **não replica** o MuscleWar: recebe dele o necessário para reconhecer o
+atleta, identificar o recorte de competição e trazer resultado e pontuação para
+o histórico e o ranking.
+
+```
+ARQUIVO → ADAPTER → ANÁLISE LINHA A LINHA → PRÉ-VISUALIZAÇÃO
+                                                  ↓
+                              revisão humana das pendências
+                                                  ↓
+                                            APLICAÇÃO → RANKING
+```
+
+- **Adapter** (`src/utils/musclewar/adapter.js`): CSV (detecta separador,
+  respeita aspas, entende cabeçalho acentuado e data `dd/mm/aaaa`), JSON e API.
+  O contrato definitivo do MuscleWar ainda não existe — **nada aqui inventa
+  campos obrigatórios do lado deles**. Um formato diferente é atendido passando
+  `fieldMap`, sem tocar no código.
+- **Reconhecimento**: CPF é a primeira chave; a filiação confirma o vínculo
+  quando informada. Divergência vira `CONFLICT` para revisão, não descarte.
+- **Atleta não encontrado nunca é criado em silêncio**: vai para
+  `MATCH_PENDING` e espera vinculação manual por usuário autorizado.
+- **Idempotência**: `ExternalResult(source, externalId)` é único. Reimportar o
+  mesmo resultado não gera segunda pontuação — nem entre lotes, nem dentro do
+  mesmo arquivo.
+- **Pré-visualização** antes de aplicar: total, reconhecidos, pendentes,
+  conflitos, duplicados e rejeitados.
+- **Auditoria**: quem importou, quem revisou, quem aplicou, com que arquivo,
+  quantos entraram e quantos foram ignorados. Histórico de importação não é
+  apagado em silêncio.
+
+Cada ponto de ranking carrega a origem (`source = MUSCLEWAR`) e aponta para o
+resultado externo que o gerou.
+
+---
+
+## MCI Social e Messenger
+
+**Social**: perfis (atleta, coach, academia, equipe, marca, patrocinador, fã,
+imprensa), feed real paginado por cursor, publicações com visibilidade
+`PUBLIC` / `FOLLOWERS` / `PRIVATE`, mídia, comentários em thread, curtidas,
+compartilhamentos, salvos, seguidores, stories com expiração, bloqueio
+simétrico, denúncia e moderação.
+
+A visibilidade é decidida **no servidor**, consultando seguidores e bloqueios.
+A interface nunca é a autoridade sobre quem vê o quê.
+
+**Messenger**: conversa individual e em grupo, mídia, resposta, reação,
+marcação de lida e contador de não lidas. A chave canônica `directKey` impede
+duas conversas 1:1 entre as mesmas pessoas. Quem não participa recebe 404 — em
+toda leitura e em toda escrita, e também no banco, pela política de RLS.
+
+**Comunidades**: espaços por categoria, papel e campeonato. Comunidade privada
+não aparece na listagem de quem não é membro e não aceita entrada por conta
+própria — a entrada é por convite de administrador.
+
+---
+
+## API
+
+Prefixo `/api/v1`. Sondas de infraestrutura ficam fora dele: `GET /health`
+(processo de pé) e `GET /ready` (banco alcançável e armazenamento gravável).
+
+| Núcleo | Rotas principais |
+| --- | --- |
+| Autenticação | `POST /auth/register`, `POST /auth/login`, `GET /auth/me` |
+| Organizações | `GET|POST /organizations`, `POST /organizations/:id/members` |
+| Filiação | `GET|POST /affiliations` |
+| Atletas | `GET|POST /athletes`, `POST /athletes/lookup`, `POST /athletes/:id/pro-status` |
+| Eventos | `GET|POST /events`, `POST /events/:id/transition`, `POST /events/:id/categories` |
+| Inscrições | `GET|POST /events/:id/registrations`, `POST /registrations/:id/cancel` |
+| Operação | `POST /registrations/:id/checkin`, `POST /registrations/:id/weighins`, `POST /events/:id/credentials/scan`, `PUT /batches/:id/order` |
+| Julgamento | `POST /judging-sessions`, `GET /judging-sessions/:id/sheet`, `POST /judging-sessions/:id/scores`, `POST /judging-sessions/:id/close` |
+| Resultados | `POST /classes/:id/result/calculate`, `.../publish`, `.../override`, `GET .../versions` |
+| Ranking | `GET /ranking`, `GET|POST /seasons`, `PUT /seasons/:id/points-rules` |
+| MuscleWar | `GET|POST /musclewar/imports`, `POST /musclewar/items/:id/link`, `POST /musclewar/imports/:id/apply` |
+| Social | `GET /social/feed`, `POST /social/posts`, `POST /social/posts/:id/like`, `GET /social/profiles/:handle` |
+| Messenger | `GET|POST /messenger/conversations`, `GET|POST /messenger/conversations/:id/messages` |
+| Comunidades | `GET /communities`, `POST /communities/:slug/join` |
+| Busca | `GET /search` |
+| Auditoria | `GET /audit` |
+| Vitrine | `GET /public/summary`, `/public/events/:slug`, `/public/athletes/:id` |
+
+---
 
 ## Testes
 
-Backend, a partir da raiz:
-
 ```bash
-npm test
+npm test                 # prepara o banco, popula o catálogo e roda a suíte
+cd frontend && npm test  # interface
 ```
 
-O escopo é declarado em `vitest.config.mjs` (`tests/**/*.test.mjs`), com execução serial e banco próprio (`prisma/test.db`). O banco de desenvolvimento não é tocado. Diretórios de ferramentas do ambiente (`.agents/`, `.claude/`) são explicitamente excluídos da coleta.
+`npm test` exige PostgreSQL. Aponte `TEST_DATABASE_URL` para um banco de teste
+— a suíte trunca tabelas entre arquivos.
 
-São 11 suítes, 207 casos:
+| Arquivo | Cobertura |
+| --- | --- |
+| `unidade-dominio` | CPF, estados do evento, RBAC, motor de apuração, adapter MuscleWar |
+| `e2e-campeonato` | cadastro → inscrição → check-in → pesagem → credencial → palco → julgamento → resultado → ranking → auditoria; empate não resolvido e correção versionada |
+| `e2e-musclewar` | pré-visualização, matching, vinculação manual, aplicação, idempotência, auditoria, permissões |
+| `e2e-social-messenger` | feed, interações, visibilidade, bloqueio, conversas, grupos, moderação, comunidades |
+| `seguranca` | autenticação, escalada de papel, cross-tenant, proteção do CPF, juiz não escalado, resultado não publicado, transições inválidas |
+| `rls` | políticas executadas como papel sem `BYPASSRLS`, direto no banco |
+| `financeiro-ausente` | schema, banco real, arquivos, rotas e variáveis: nenhum resquício financeiro |
 
-| Suíte | Casos | Cobre |
-| --- | --- | --- |
-| `api.test.mjs` | 5 | núcleo do domínio |
-| `auth.test.mjs` | 3 | autenticação e controle de acesso |
-| `fase3.test.mjs` | 1 | fumaça dos módulos operacionais |
-| `fase3-operacional.test.mjs` | 32 | módulos operacionais em profundidade |
-| `fase4-operacional.test.mjs` | 29 | Athlete Center, Admin Center, perfil, documentos |
-| `fase4-fechamento.test.mjs` | 16 | vitrine pública, Organizer Center, painéis por perfil |
-| `fase5-financeiro.test.mjs` | 37 | pedido, cupom, pagamento, webhook, reembolso, patrocínio |
-| `fase6-producao.test.mjs` | 25 | configuração, health, rate limiting, log, storage |
-| `seguranca.test.mjs` | 20 | matriz de acesso cruzado entre perfis |
-| `e2e-fluxo-operacional.test.mjs` | 20 | ciclo esportivo completo, banco real, sem mocks |
-| `e2e-financeiro.test.mjs` | 19 | ciclo financeiro completo, banco real, sem mocks |
+---
 
-Frontend:
+## Variáveis de ambiente
 
-```bash
-cd frontend
-npm test -- --run
-```
+Ver `.env.example`. Em produção o processo **se recusa a subir** com
+configuração incompleta — falhar no deploy é melhor do que servir tráfego real
+com segredo de desenvolvimento:
 
-## Build
+- `JWT_SECRET` ausente, placeholder ou com menos de 32 caracteres;
+- `DATABASE_URL` ausente ou apontando para banco que não seja PostgreSQL;
+- `CORS_ORIGINS` ausente ou liberando todas as origens;
+- `BCRYPT_ROUNDS` abaixo de 10.
 
-```bash
-cd frontend
-npm run build     # gera dist/
-npm run preview   # serve o build
-```
+Não existe variável financeira, e o teste de ausência confere isso.
 
-## Estrutura
+---
 
-```text
-src/
-  app.js              Express, CORS, Helmet, rotas, 404, error handler
-  config/prisma.js    Instância única do Prisma Client
-  routes/             Definição de rotas, middlewares de auth e validação
-  controllers/        Adaptam requisição/resposta, sem regra de negócio
-  services/           Regra de negócio, autorização e posse
-  repositories/       Único ponto de acesso ao Prisma
-  middlewares/        auth, validate, errorHandler
-  utils/              schemas, auth, roles, errors, visibility, ownership,
-                      money, pricing, financialStates, logger, asyncHandler
-prisma/
-  schema.prisma
-  migrations/
-tests/
-frontend/
-  src/
-    App.jsx           Shell, rotas por hash e telas
-    AuthContext.jsx   Sessão, login, registro, logout
-    services/api.js   Cliente único da API, token e header Authorization
-    styles.css        Design System MCI
-design/referencias/   Referências visuais oficiais
-```
+## Decisões e limites conhecidos
 
-O fluxo é `routes → controllers → services → repositories → Prisma`. Rotas não contêm regra de negócio e controllers não acessam o Prisma quando existe service.
+**Regras esportivas não são presumidas.** O sistema não decide método de
+apuração, descarte, desempate nem tabela de pontos: tudo é configuração do
+organizador. Sem tabela de pontos cadastrada, nenhum resultado pontua — e a
+interface avisa em vez de inventar um valor.
 
-## Limitações conhecidas
+**Conferência de peso é informativa.** A pesagem registra o valor e aponta as
+classes fora da faixa; quem reclassifica é a organização, com base no
+regulamento.
 
-- **Nenhum gateway de pagamento real está integrado.** O provedor incluído é de
-  desenvolvimento e não opera em produção. Ligar um gateway exige implementar o
-  contrato `PaymentProvider` e configurar credenciais.
-- **Armazenamento é local.** Os arquivos ficam no disco da aplicação. A migração para storage externo (com abstração `StorageProvider`) está prevista para a fase de infraestrutura.
-- **Não há antivírus nem inspeção de conteúdo no upload.** A validação é de tipo declarado, tamanho e nome; o conteúdo em si não é analisado.
-- **Partidas não podem ser excluídas.** O encerramento acontece por status (`CANCELLED`), não por exclusão.
-- **Não há transferência de posse de campeonato.** Um evento criado por um `ADMIN` permanece com ele; não existe endpoint para passar a posse a um `ORGANIZER`.
-- **SQLite em desenvolvimento.** Adequado para uso local; produção exige migração para um banco servidor.
+**RLS é barreira de banco, não a única.** A autorização primária é a camada de
+service, coberta por teste. As políticas foram criadas, aplicadas, executadas e
+testadas contra o banco real com um papel sem `BYPASSRLS`. Para que a API rode
+sob RLS ponta a ponta, cada consulta precisa passar por `withUserContext`
+(`src/config/rlsSession.js`) — hoje isso está disponível e testado, mas o
+processo da API conecta como dono do schema e a autorização efetiva em runtime
+é a da camada de service.
+
+**Realtime ainda não está ligado.** Mensagens e notificações são carregadas sob
+demanda, com paginação por cursor; não há polling em intervalo curto. A troca
+por um canal de tempo real é aditiva e não muda o modelo de dados.
+
+**Stories expiram por consulta.** Um story vencido nunca aparece, porque a
+expiração é aplicada na cláusula da busca. Não há rotina de limpeza agendada; o
+registro permanece no banco até que uma seja adicionada.
