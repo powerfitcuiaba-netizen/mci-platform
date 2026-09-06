@@ -31,6 +31,21 @@ model User {
   createdCoupons Coupon[] @relation("CouponCreatedBy")
   auditLogs  AuditLog[] @relation("AuditLogActor")
 
+  // --- Domínio competitivo MCI ---
+  organizationMemberships OrganizationMember[] @relation("OrganizationMemberUser")
+  athlete            Athlete?           @relation("UserAthlete")
+  coachProfiles      Coach[]            @relation("CoachUser")
+  proStatusChanges   ProStatusChange[]  @relation("ProStatusActor")
+  weighInsOperated   WeighIn[]          @relation("WeighInOperator")
+  credentialsHeld    Credential[]       @relation("CredentialHolder")
+  credentialsIssued  Credential[]       @relation("CredentialIssuer")
+  scansOperated      CredentialScan[]   @relation("ScanOperator")
+  headedPanels       JudgePanel[]       @relation("PanelHeadJudge")
+  panelMemberships   JudgePanelMember[] @relation("PanelMemberJudge")
+  judgingScores      JudgingScore[]     @relation("ScoreJudge")
+  approvedResults    CompetitionResult[] @relation("ResultApprover")
+  publishedResults   CompetitionResult[] @relation("ResultPublisher")
+
   @@index([role])
 }
 
@@ -46,7 +61,16 @@ model Tournament {
   createdById String?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
+
+  // Multi-tenancy (seção 10). Opcional no schema apenas para a migração das
+  // linhas já existentes; depois do backfill vira obrigatório.
+  organizationId String?
+  // Slug estável para a página pública do evento (seção 76).
+  slug        String?      @unique
+  isDemo      Boolean      @default(false)
+
   createdBy   User?        @relation("TournamentCreatedBy", fields: [createdById], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   enrollments Enrollment[]
   matches     Match[]
   standings   Standing[]
@@ -56,7 +80,13 @@ model Tournament {
   coupons   Coupon[]
   sponsorships Sponsorship[]
 
+  // --- Domínio competitivo MCI ---
+  eventCategories EventCategory[]
+  judgePanels     JudgePanel[]
+  credentials     Credential[]
+
   @@index([status])
+  @@index([organizationId, status])
 }
 
 model Participant {
@@ -97,16 +127,38 @@ model Enrollment {
   cancelledById String?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @default(now()) @updatedAt
+  // Dimensões competitivas. A inscrição de fisiculturismo não é "atleta no
+  // evento": é atleta em UMA categoria/classe específica do evento. O mesmo
+  // atleta pode se inscrever em mais de uma (crossover).
+  //
+  // Nulos por ora para não invalidar as linhas já gravadas; o backfill os torna
+  // obrigatórios. Estender Enrollment em vez de criar uma tabela nova preserva
+  // todo o vínculo financeiro já existente (OrderItem → Enrollment) e mantém
+  // uma única fonte de verdade para inscrição (seção 8).
+  eventCategoryId String?
+  athleteId       String?
+  registrationNumber String?
+
   tournament    Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  eventCategory EventCategory? @relation(fields: [eventCategoryId], references: [id], onDelete: Cascade)
+  athlete       Athlete?    @relation(fields: [athleteId], references: [id], onDelete: Cascade)
   checkIns      CheckIn[]
   orderItems    OrderItem[]
+  weighIns      WeighIn[]
+  judgingScores JudgingScore[]
+  placements    AthletePlacement[]
 
   cancelledBy   User?       @relation("EnrollmentCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
 
   @@unique([tournamentId, participantId])
+  // Um atleta não se inscreve duas vezes na mesma categoria do mesmo evento
+  // (seção 64: inscrição duplicada).
+  @@unique([eventCategoryId, athleteId])
   @@index([participantId])
   @@index([tournamentId, status])
+  @@index([athleteId, status])
+  @@index([eventCategoryId, status])
 }
 
 model Match {
@@ -431,4 +483,627 @@ model Sponsorship {
 
   @@unique([sponsorId, tournamentId])
   @@index([tournamentId, status])
+}
+
+// ############################################################################
+// DOMÍNIO COMPETITIVO MCI
+//
+// A modelagem anterior (Match / Result / Standing) descreve confronto direto:
+// dois participantes, um placar de cada lado, vitórias e derrotas. Fisiculturismo
+// não funciona assim. Numa bateria, um painel de juízes ordena TODOS os atletas
+// da categoria e a colocação sai da soma dessas ordens.
+//
+// Estes modelos implementam o domínio real. Match/Result/Standing seguem no
+// schema por enquanto porque controllers e testes ainda dependem deles; a
+// remoção é migration própria, depois que os dependentes migrarem (seção 16).
+// ############################################################################
+
+// ---------------------------------------------------------------------------
+// MULTI-TENANCY (seção 10)
+// ---------------------------------------------------------------------------
+
+model Organization {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  document     String?  @unique
+  country      String   @default("BR")
+  state        String?
+  city         String?
+  active       Boolean  @default(true)
+  // Marca dado de demonstração para que possa ser removido sem tocar em
+  // produção (seção 70).
+  isDemo       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  members      OrganizationMember[]
+  tournaments  Tournament[]
+  athletes     Athlete[]
+  divisions    Division[]
+  classes      CompetitionClass[]
+  scoringRules ScoringRule[]
+  teams        Team[]
+  coaches      Coach[]
+  gyms         Gym[]
+  seasons      Season[]
+  athleteNumbers AthleteNumber[]
+
+  @@index([active])
+}
+
+// O vínculo usuário↔organização é o que carrega o papel. Um mesmo usuário pode
+// ser juiz numa organização e promotor em outra, com permissões distintas.
+model OrganizationMember {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  role           String
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation("OrganizationMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId, active])
+  @@index([organizationId, role])
+}
+
+// ---------------------------------------------------------------------------
+// ATLETAS (seções 21 a 24)
+// ---------------------------------------------------------------------------
+
+model Athlete {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String?   @unique
+  fullName       String
+  stageName      String?
+  // Documento pessoal. NUNCA sai em rota pública: só com athletes.read.sensitive
+  // (seções 21 e 47).
+  documentNumber String?
+  birthDate      DateTime?
+  gender         String?
+  nationality    String    @default("BR")
+  country        String    @default("BR")
+  state          String?
+  city           String?
+  phone          String?
+  whatsapp       String?
+  email          String?
+  instagram      String?
+  // Chave no storage privado, não URL pública (seção 44).
+  photoKey       String?
+  // Estável e independente do nome: o atleta pode mudar de nome artístico sem
+  // quebrar o link público já divulgado (seção 76).
+  slug           String    @unique
+  status         String    @default("ATIVO")
+
+  proStatus      String    @default("NAO_PRO")
+  proSince       DateTime?
+  proSourceEventId String?
+
+  teamId         String?
+  coachId        String?
+  gymId          String?
+
+  isDemo         Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  // Soft delete: histórico competitivo não desaparece porque um cadastro foi
+  // apagado (seção 80).
+  deletedAt      DateTime?
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User?        @relation("UserAthlete", fields: [userId], references: [id], onDelete: SetNull)
+  team           Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  coach          Coach?       @relation(fields: [coachId], references: [id], onDelete: SetNull)
+  gym            Gym?         @relation(fields: [gymId], references: [id], onDelete: SetNull)
+
+  numbers        AthleteNumber[]
+  enrollments    Enrollment[]
+  placements     AthletePlacement[]
+  proHistory     ProStatusChange[]
+  rankingEntries RankingEntry[]
+  rankingPoints  RankingPoint[]
+  credentials    Credential[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, proStatus])
+  @@index([fullName])
+  @@index([state, city])
+  @@index([teamId])
+  @@index([coachId])
+  @@index([deletedAt])
+}
+
+// Número do atleta (seção 22). Histórico preservado: o número anterior fica na
+// tabela com active=false em vez de ser sobrescrito.
+model AthleteNumber {
+  id             String    @id @default(cuid())
+  organizationId String
+  athleteId      String
+  number         String
+  active         Boolean   @default(true)
+  issuedAt       DateTime  @default(now())
+  revokedAt      DateTime?
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  athlete        Athlete      @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+
+  // Unicidade por organização, não global: duas federações podem ter o número 42.
+  @@unique([organizationId, number])
+  @@index([athleteId, active])
+}
+
+// Toda mudança de status PRO é operação auditável (seção 24).
+model ProStatusChange {
+  id             String   @id @default(cuid())
+  athleteId      String
+  previousStatus String
+  newStatus      String
+  reason         String?
+  sourceEventId  String?
+  actorUserId    String?
+  createdAt      DateTime @default(now())
+
+  athlete        Athlete  @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  actor          User?    @relation("ProStatusActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([athleteId, createdAt])
+}
+
+model Team {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  slug           String
+  city           String?
+  state          String?
+  active         Boolean  @default(true)
+  isDemo         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  athletes       Athlete[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId, active])
+}
+
+model Coach {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String?
+  name           String
+  email          String?
+  phone          String?
+  active         Boolean  @default(true)
+  isDemo         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User?        @relation("CoachUser", fields: [userId], references: [id], onDelete: SetNull)
+  athletes       Athlete[]
+
+  @@index([organizationId, active])
+  @@index([userId])
+}
+
+model Gym {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  city           String?
+  state          String?
+  active         Boolean  @default(true)
+  isDemo         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  athletes       Athlete[]
+
+  @@index([organizationId, active])
+}
+
+// ---------------------------------------------------------------------------
+// ESTRUTURA COMPETITIVA (seções 19, 20, 71)
+//
+// Categoria e classe são DADO, não código. Nenhum componente da interface pode
+// trazer a lista fixa: a organização habilita o que compete em cada evento.
+// ---------------------------------------------------------------------------
+
+model Division {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  code           String
+  gender         String?
+  displayOrder   Int      @default(0)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  categories     Category[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, active])
+}
+
+model Category {
+  id             String   @id @default(cuid())
+  divisionId     String
+  name           String
+  code           String
+  displayOrder   Int      @default(0)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  division       Division @relation(fields: [divisionId], references: [id], onDelete: Cascade)
+  eventCategories EventCategory[]
+  rankingEntries RankingEntry[]
+
+  @@unique([divisionId, code])
+  @@index([divisionId, active])
+}
+
+// JUNIOR, OPEN, MASTER, NOVICE e o que a federação criar depois.
+model CompetitionClass {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  code           String
+  minAge         Int?
+  maxAge         Int?
+  displayOrder   Int      @default(0)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  eventCategories EventCategory[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, active])
+}
+
+// Regra de pontuação configurável. Os parâmetros alimentam o motor de apuração;
+// o motor não decide nenhum deles por conta própria (seção 72).
+model ScoringRule {
+  id                 String   @id @default(cuid())
+  organizationId     String
+  name               String
+  dropHighest        Int      @default(0)
+  dropLowest         Int      @default(0)
+  // Cadeia de desempate, na ordem em que é aplicada.
+  tiebreakers        String[] @default(["SOMA_COMPLETA", "CONFRONTO_DIRETO"])
+  requireFullPanel   Boolean  @default(true)
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  eventCategories    EventCategory[]
+  judgingSessions    JudgingSession[]
+
+  @@unique([organizationId, name])
+}
+
+// O que efetivamente compete num evento: categoria × classe, com vaga, preço e
+// regra próprios.
+model EventCategory {
+  id             String   @id @default(cuid())
+  tournamentId   String
+  categoryId     String
+  classId        String?
+  scoringRuleId  String?
+  name           String
+  maxAthletes    Int?
+  feeCents       Int      @default(0)
+  displayOrder   Int      @default(0)
+  status         String   @default("ABERTA")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tournament     Tournament        @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  category       Category          @relation(fields: [categoryId], references: [id])
+  competitionClass CompetitionClass? @relation(fields: [classId], references: [id])
+  scoringRule    ScoringRule?      @relation(fields: [scoringRuleId], references: [id], onDelete: SetNull)
+
+  enrollments    Enrollment[]
+  judgingSessions JudgingSession[]
+  results        CompetitionResult[]
+  stageSlots     StageSlot[]
+
+  // A mesma categoria/classe não pode ser aberta duas vezes no mesmo evento.
+  @@unique([tournamentId, categoryId, classId])
+  @@index([tournamentId, status])
+}
+
+// ---------------------------------------------------------------------------
+// OPERAÇÃO DE EVENTO (seções 30 a 33)
+// ---------------------------------------------------------------------------
+
+model WeighIn {
+  id             String   @id @default(cuid())
+  enrollmentId   String
+  weightGrams    Int
+  heightMm       Int?
+  measuredAt     DateTime @default(now())
+  operatorUserId String?
+  notes          String?
+  // Pesagem corrigida não sobrescreve a anterior: entra linha nova e a antiga
+  // fica com supersededAt preenchido (seção 80).
+  supersededAt   DateTime?
+  createdAt      DateTime @default(now())
+
+  enrollment     Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  operator       User?      @relation("WeighInOperator", fields: [operatorUserId], references: [id], onDelete: SetNull)
+
+  @@index([enrollmentId, supersededAt])
+  @@index([measuredAt])
+}
+
+model Credential {
+  id             String    @id @default(cuid())
+  tournamentId   String
+  type           String
+  personName     String
+  athleteId      String?
+  userId         String?
+  qrCode         String    @unique
+  issuedAt       DateTime  @default(now())
+  revokedAt      DateTime?
+  issuedByUserId String?
+
+  tournament     Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  athlete        Athlete?   @relation(fields: [athleteId], references: [id], onDelete: SetNull)
+  user           User?      @relation("CredentialHolder", fields: [userId], references: [id], onDelete: SetNull)
+  issuedBy       User?      @relation("CredentialIssuer", fields: [issuedByUserId], references: [id], onDelete: SetNull)
+  scans          CredentialScan[]
+
+  @@index([tournamentId, type])
+  @@index([athleteId])
+}
+
+model CredentialScan {
+  id             String   @id @default(cuid())
+  credentialId   String
+  gate           String?
+  accepted       Boolean  @default(true)
+  reason         String?
+  operatorUserId String?
+  scannedAt      DateTime @default(now())
+
+  credential     Credential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+  operator       User?      @relation("ScanOperator", fields: [operatorUserId], references: [id], onDelete: SetNull)
+
+  @@index([credentialId, scannedAt])
+}
+
+// Ordem de palco (seção 33).
+model StageSlot {
+  id              String   @id @default(cuid())
+  eventCategoryId String
+  heatNumber      Int      @default(1)
+  displayOrder    Int
+  status          String   @default("AGUARDANDO")
+  calledAt        DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  eventCategory   EventCategory @relation(fields: [eventCategoryId], references: [id], onDelete: Cascade)
+
+  @@unique([eventCategoryId, heatNumber, displayOrder])
+  @@index([eventCategoryId, status])
+}
+
+// ---------------------------------------------------------------------------
+// JULGAMENTO (seções 34, 35)
+// ---------------------------------------------------------------------------
+
+model JudgePanel {
+  id             String   @id @default(cuid())
+  tournamentId   String
+  name           String
+  headJudgeId    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tournament     Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  headJudge      User?      @relation("PanelHeadJudge", fields: [headJudgeId], references: [id], onDelete: SetNull)
+  members        JudgePanelMember[]
+  sessions       JudgingSession[]
+
+  @@unique([tournamentId, name])
+}
+
+model JudgePanelMember {
+  id          String   @id @default(cuid())
+  panelId     String
+  judgeUserId String
+  createdAt   DateTime @default(now())
+
+  panel       JudgePanel @relation(fields: [panelId], references: [id], onDelete: Cascade)
+  judge       User       @relation("PanelMemberJudge", fields: [judgeUserId], references: [id], onDelete: Cascade)
+
+  @@unique([panelId, judgeUserId])
+  @@index([judgeUserId])
+}
+
+// A bateria. É a unidade que o motor de apuração recebe.
+model JudgingSession {
+  id              String    @id @default(cuid())
+  eventCategoryId String
+  panelId         String
+  scoringRuleId   String?
+  round           String    @default("FINAL")
+  status          String    @default("ABERTA")
+  startedAt       DateTime?
+  closedAt        DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  eventCategory   EventCategory @relation(fields: [eventCategoryId], references: [id], onDelete: Cascade)
+  panel           JudgePanel    @relation(fields: [panelId], references: [id])
+  scoringRule     ScoringRule?  @relation(fields: [scoringRuleId], references: [id], onDelete: SetNull)
+  scores          JudgingScore[]
+  results         CompetitionResult[]
+
+  @@unique([eventCategoryId, round])
+  @@index([panelId, status])
+}
+
+// A nota. É uma COLOCAÇÃO ordinal (1º, 2º, 3º...), não um placar.
+model JudgingScore {
+  id            String   @id @default(cuid())
+  sessionId     String
+  judgeUserId   String
+  enrollmentId  String
+  placing       Int
+  // Chave de idempotência: reenvio da mesma nota pela rede instável do ginásio
+  // não pode virar duas notas (seções 28 e 36).
+  clientRef     String?
+  submittedAt   DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  session       JudgingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  judge         User           @relation("ScoreJudge", fields: [judgeUserId], references: [id], onDelete: Cascade)
+  enrollment    Enrollment     @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  // Um juiz dá uma nota por atleta por bateria. A constraint é o que garante.
+  @@unique([sessionId, judgeUserId, enrollmentId])
+  @@unique([sessionId, judgeUserId, clientRef])
+  // Um juiz não repete colocação na mesma bateria: ordenação é estrita.
+  @@unique([sessionId, judgeUserId, placing])
+  @@index([sessionId])
+  @@index([judgeUserId])
+}
+
+// ---------------------------------------------------------------------------
+// RESULTADOS (seções 37 a 39, 79)
+// ---------------------------------------------------------------------------
+
+model CompetitionResult {
+  id              String    @id @default(cuid())
+  eventCategoryId String
+  sessionId       String?
+  status          String    @default("RASCUNHO")
+  // Impressão digital das notas e da regra que produziram este resultado. É o
+  // que permite provar depois que o pódio publicado veio daquelas notas.
+  signature       String?
+  // Cópia congelada do resultado no momento da publicação. Mudança posterior em
+  // dado operacional não reescreve história (seção 79).
+  snapshot        Json?
+  calculatedAt    DateTime?
+  approvedAt      DateTime?
+  approvedByUserId String?
+  publishedAt     DateTime?
+  publishedByUserId String?
+  overrideReason  String?
+  version         Int       @default(1)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  eventCategory   EventCategory   @relation(fields: [eventCategoryId], references: [id], onDelete: Cascade)
+  session         JudgingSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  approvedBy      User?           @relation("ResultApprover", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  publishedBy     User?           @relation("ResultPublisher", fields: [publishedByUserId], references: [id], onDelete: SetNull)
+  placements      AthletePlacement[]
+  rankingPoints   RankingPoint[]
+
+  @@index([eventCategoryId, status])
+  @@index([status, publishedAt])
+}
+
+model AthletePlacement {
+  id           String   @id @default(cuid())
+  resultId     String
+  enrollmentId String
+  athleteId    String
+  placing      Int
+  score        Int
+  fullScore    Int
+  tied         Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  result       CompetitionResult @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  enrollment   Enrollment        @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  athlete      Athlete           @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+
+  @@unique([resultId, enrollmentId])
+  @@index([athleteId])
+  @@index([resultId, placing])
+}
+
+// ---------------------------------------------------------------------------
+// RANKING E TEMPORADAS (seções 40, 41)
+// ---------------------------------------------------------------------------
+
+model Season {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  year           Int
+  startsAt       DateTime?
+  endsAt         DateTime?
+  active         Boolean  @default(true)
+  // Tabela de pontos por colocação. Configurável: a regra de ranking não é
+  // hardcoded (seção 40).
+  pointsTable    Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entries        RankingEntry[]
+  points         RankingPoint[]
+
+  @@unique([organizationId, year, name])
+  @@index([organizationId, active])
+}
+
+model RankingEntry {
+  id          String   @id @default(cuid())
+  seasonId    String
+  athleteId   String
+  categoryId  String?
+  totalPoints Int      @default(0)
+  eventsCount Int      @default(0)
+  bestPlacing Int?
+  updatedAt   DateTime @updatedAt
+
+  season      Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  athlete     Athlete  @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@unique([seasonId, athleteId, categoryId])
+  @@index([seasonId, totalPoints])
+}
+
+// Cada ponto lançado guarda de qual resultado veio: ranking é rastreável até a
+// bateria de origem, nunca um número solto (seção 40).
+model RankingPoint {
+  id        String   @id @default(cuid())
+  seasonId  String
+  athleteId String
+  resultId  String
+  placing   Int
+  points    Int
+  createdAt DateTime @default(now())
+
+  season    Season            @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  athlete   Athlete           @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  result    CompetitionResult @relation(fields: [resultId], references: [id], onDelete: Cascade)
+
+  // Idempotência: reprocessar a publicação de um resultado não lança ponto duas
+  // vezes (seção 28).
+  @@unique([seasonId, athleteId, resultId])
+  @@index([athleteId, seasonId])
 }
