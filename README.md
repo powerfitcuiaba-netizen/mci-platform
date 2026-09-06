@@ -85,8 +85,9 @@ EMPRESA (Company) → EQUIPE (Team) → ATLETA (Athlete)
 Isso é distinto de **patrocínio**: `Sponsor` e `Brand` são relação comercial,
 não competitiva — não vinculam atleta nem geram ponto.
 
-**Um atleta tem no máximo um vínculo ativo de equipe.** A trava é de banco, não
-de tela: `AthleteTeamMembership.activeAthleteId` é único enquanto o vínculo
+**Um atleta tem no máximo um vínculo ativo de equipe.** A trava atravessa as
+quatro camadas — tela (`Configurações → Vínculo de equipe`), API, service e
+banco —, e a que decide é a última, não a primeira: `AthleteTeamMembership.activeAthleteId` é único enquanto o vínculo
 estiver ativo, e fica NULL depois de encerrado — a história acumula sem
 enfraquecer a trava. Uma segunda tentativa recebe `409 ATHLETE_ALREADY_LINKED`
 com a equipe atual nomeada na mensagem; duas requisições simultâneas produzem

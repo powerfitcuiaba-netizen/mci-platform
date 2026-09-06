@@ -556,7 +556,7 @@ export function AdminConfiguracoes({ notificar }) {
       <PageHead eyebrow="Administração" title="Configurações" description="Organizações, filiações, catálogo de categorias, parceiros e usuários." />
 
       <div className="chips" style={{ marginBottom: 18 }}>
-        {[['organizacoes', 'Organizações'], ['filiacoes', 'Filiações'], ['categorias', 'Categorias'], ['parceiros', 'Parceiros'], ['usuarios', 'Usuários']].map(([chave, rotulo]) => (
+        {[['organizacoes', 'Organizações'], ['filiacoes', 'Filiações'], ['categorias', 'Categorias'], ['parceiros', 'Parceiros'], ['vinculos', 'Vínculo de equipe'], ['usuarios', 'Usuários']].map(([chave, rotulo]) => (
           <button key={chave} type="button" className={`chip${aba === chave ? ' is-on' : ''}`} onClick={() => setAba(chave)}>{rotulo}</button>
         ))}
       </div>
@@ -565,6 +565,7 @@ export function AdminConfiguracoes({ notificar }) {
       {aba === 'filiacoes' && <Filiacoes notificar={notificar} />}
       {aba === 'categorias' && <Categorias notificar={notificar} />}
       {aba === 'parceiros' && <Parceiros notificar={notificar} />}
+      {aba === 'vinculos' && <VinculoDeEquipe notificar={notificar} />}
       {aba === 'usuarios' && <Usuarios notificar={notificar} />}
     </div>
   );
@@ -865,6 +866,7 @@ function NovaCategoria({ notificar, onClose, onSalvo }) {
 function Parceiros({ notificar }) {
   const organizacoes = useFetch(() => api.organizations.list(), []);
   const [organizationId, setOrganizationId] = useState('');
+  const empresas = useFetch(() => api.partners.companies({ organizationId: organizationId || undefined }), [organizationId]);
   const equipes = useFetch(() => api.partners.teams({ organizationId: organizationId || undefined }), [organizationId]);
   const academias = useFetch(() => api.partners.gyms({ organizationId: organizationId || undefined }), [organizationId]);
   const marcas = useFetch(() => api.partners.brands({ organizationId: organizationId || undefined }), [organizationId]);
@@ -872,6 +874,9 @@ function Parceiros({ notificar }) {
   const [criando, setCriando] = useState(null);
 
   const secoes = [
+    // Empresa vem antes da equipe porque é o que ela é no domínio: a empresa
+    // se cadastra e entra na competição COM as suas equipes.
+    { chave: 'company', titulo: 'Empresas', estado: empresas },
     { chave: 'team', titulo: 'Equipes', estado: equipes },
     { chave: 'gym', titulo: 'Academias', estado: academias },
     { chave: 'brand', titulo: 'Marcas', estado: marcas },
@@ -915,11 +920,12 @@ function Parceiros({ notificar }) {
         <NovoParceiro
           tipo={criando}
           organizacoes={organizacoes.data?.items || []}
+          empresas={empresas.data?.items || []}
           notificar={notificar}
           onClose={() => setCriando(null)}
           onSalvo={() => {
             setCriando(null);
-            equipes.reload(); academias.reload(); marcas.reload(); patrocinadores.reload();
+            empresas.reload(); equipes.reload(); academias.reload(); marcas.reload(); patrocinadores.reload();
           }}
         />
       )}
@@ -927,18 +933,22 @@ function Parceiros({ notificar }) {
   );
 }
 
-function NovoParceiro({ tipo, organizacoes, notificar, onClose, onSalvo }) {
-  const [form, setForm] = useState({ organizationId: '', name: '', slug: '', city: '', state: '' });
+function NovoParceiro({ tipo, organizacoes, empresas = [], notificar, onClose, onSalvo }) {
+  const [form, setForm] = useState({ organizationId: '', name: '', slug: '', city: '', state: '', companyId: '' });
   const [salvando, setSalvando] = useState(false);
 
-  const titulos = { team: 'Nova equipe', gym: 'Nova academia', brand: 'Nova marca', sponsor: 'Novo patrocinador' };
+  const titulos = {
+    company: 'Nova empresa', team: 'Nova equipe', gym: 'Nova academia',
+    brand: 'Nova marca', sponsor: 'Novo patrocinador'
+  };
 
   const salvar = async evento => {
     evento.preventDefault();
     setSalvando(true);
     try {
       const base = { organizationId: form.organizationId, name: form.name };
-      if (tipo === 'team') await api.partners.createTeam({ ...base, city: form.city || null, state: form.state || null });
+      if (tipo === 'company') await api.partners.createCompany({ ...base, city: form.city || null, state: form.state || null });
+      if (tipo === 'team') await api.partners.createTeam({ ...base, city: form.city || null, state: form.state || null, companyId: form.companyId || null });
       if (tipo === 'gym') await api.partners.createGym({ ...base, city: form.city || null, state: form.state || null });
       if (tipo === 'brand') await api.partners.createBrand({ ...base, slug: form.slug });
       if (tipo === 'sponsor') await api.partners.createSponsor(base);
@@ -951,7 +961,17 @@ function NovoParceiro({ tipo, organizacoes, notificar, onClose, onSalvo }) {
   };
 
   return (
-    <Modal title={titulos[tipo]} description={tipo === 'sponsor' || tipo === 'brand' ? 'Relação esportiva e institucional. Nenhum valor financeiro é armazenado.' : undefined} onClose={onClose}>
+    <Modal
+      title={titulos[tipo]}
+      description={
+        tipo === 'sponsor' || tipo === 'brand'
+          ? 'Relação COMERCIAL: não vincula atleta e não pontua. Nenhum valor financeiro é armazenado.'
+          : tipo === 'company'
+            ? 'Empresa competidora: entra no campeonato com as suas equipes e pontua pela mesma tabela.'
+            : undefined
+      }
+      onClose={onClose}
+    >
       <form onSubmit={salvar}>
         <Field label="Organização" required>
           <select value={form.organizationId} onChange={evt => setForm({ ...form, organizationId: evt.target.value })} required>
@@ -965,13 +985,192 @@ function NovoParceiro({ tipo, organizacoes, notificar, onClose, onSalvo }) {
             <input value={form.slug} onChange={evt => setForm({ ...form, slug: evt.target.value.toLowerCase() })} required pattern="[a-z0-9-]{2,60}" />
           </Field>
         )}
-        {(tipo === 'team' || tipo === 'gym') && (
+        {tipo === 'team' && (
+          <Field label="Empresa" hint="Opcional. A equipe pode competir sozinha; vinculada, os pontos dos seus atletas também contam para a empresa.">
+            <select value={form.companyId} onChange={evt => setForm({ ...form, companyId: evt.target.value })}>
+              <option value="">Sem empresa</option>
+              {empresas.map(empresa => <option key={empresa.id} value={empresa.id}>{empresa.name}</option>)}
+            </select>
+          </Field>
+        )}
+        {(tipo === 'company' || tipo === 'team' || tipo === 'gym') && (
           <div className="field-row">
             <Field label="Cidade"><input value={form.city} onChange={evt => setForm({ ...form, city: evt.target.value })} maxLength={90} /></Field>
             <Field label="UF"><input value={form.state} onChange={evt => setForm({ ...form, state: evt.target.value.toUpperCase().slice(0, 2) })} maxLength={2} /></Field>
           </div>
         )}
         <ModalActions onClose={onClose} saving={salvando} confirmLabel="Criar" />
+      </form>
+    </Modal>
+  );
+}
+
+// ==================================================== VÍNCULO DE EQUIPE
+// A ponta de tela da trava antifraude. Ela NÃO é a trava: a recusa vem do
+// backend e, no limite, do índice único do banco. O que a tela faz é mostrar o
+// vínculo atual antes de qualquer ação e repetir, sem reescrever, a mensagem
+// que o servidor devolveu — inclusive o nome da equipe atual.
+function VinculoDeEquipe({ notificar }) {
+  const organizacoes = useFetch(() => api.organizations.list(), []);
+  const [organizationId, setOrganizationId] = useState('');
+  const [busca, setBusca] = useState('');
+  const [atleta, setAtleta] = useState(null);
+  const [acao, setAcao] = useState(null);
+
+  const resultados = useFetch(
+    () => (organizationId ? api.athletes.list({ organizationId, search: busca || undefined, limit: 20 }) : Promise.resolve({ items: [] })),
+    [busca, organizationId]
+  );
+  const historico = useFetch(
+    () => (atleta ? api.athletes.teamHistory(atleta.id) : Promise.resolve({ items: [] })),
+    [atleta?.id]
+  );
+
+  const linhas = historico.data?.items || [];
+  const ativo = linhas.find(linha => !linha.endedAt) || null;
+
+  return (
+    <>
+      <div className="toolbar">
+        <select className="select-control" value={organizationId} onChange={evento => { setOrganizationId(evento.target.value); setAtleta(null); }} aria-label="Organização">
+          <option value="">Selecione a organização…</option>
+          {(organizacoes.data?.items || []).map(organizacao => <option key={organizacao.id} value={organizacao.id}>{organizacao.name}</option>)}
+        </select>
+        <input className="select-control" style={{ flex: "1 1 240px" }} value={busca} onChange={evento => setBusca(evento.target.value)} placeholder="Buscar atleta…" disabled={!organizationId} />
+      </div>
+
+      <div className="grid grid-2">
+        <section className="panel">
+          <div className="panel-head"><h2>Atletas</h2></div>
+          {!organizationId
+            ? <p style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>Selecione a organização para buscar.</p>
+            : (
+              <AsyncSection state={resultados} linhas={3}>
+                {dados => (dados.items.length
+                  ? dados.items.map(item => (
+                    <button
+                      type="button" key={item.id} className="list-row"
+                      style={{ width: '100%', textAlign: 'left', background: atleta?.id === item.id ? 'var(--linha)' : 'transparent', border: 0, cursor: 'pointer' }}
+                      onClick={() => setAtleta(item)}
+                    >
+                      <Avatar name={item.fullName} size="avatar-sm" />
+                      <span className="info">
+                        <strong>{item.fullName}</strong>
+                        <small>{item.team?.name || 'Sem equipe'}</small>
+                      </span>
+                    </button>
+                  ))
+                  : <p style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>Nenhum atleta encontrado.</p>
+                )}
+              </AsyncSection>
+            )}
+        </section>
+
+        <section className="panel">
+          <div className="panel-head"><h2>Vínculo</h2></div>
+          {!atleta
+            ? <EmptyState title="Nenhum atleta selecionado" description="Escolha um atleta para ver o vínculo atual e o histórico." />
+            : (
+              <>
+                <div className="metric" style={{ marginBottom: 14 }}>
+                  <span>Equipe atual</span>
+                  <strong style={{ fontSize: 16 }}>{ativo?.team?.name || 'Sem equipe'}</strong>
+                  {ativo?.team?.company?.name && <small>Empresa: {ativo.team.company.name}</small>}
+                </div>
+
+                <div className="chips" style={{ marginBottom: 16 }}>
+                  {!ativo && <button type="button" className="button button-sm" onClick={() => setAcao('link')}>Vincular</button>}
+                  {ativo && <button type="button" className="button button-sm" onClick={() => setAcao('transfer')}>Transferir</button>}
+                  {ativo && <button type="button" className="button button-secondary button-sm" onClick={() => setAcao('unlink')}>Encerrar vínculo</button>}
+                </div>
+
+                <p style={{ fontSize: 11, color: 'var(--cinza-fraco)', marginBottom: 12 }}>
+                  Transferir e encerrar são atos do operador da Muscle Contest, exigem motivo e ficam na auditoria.
+                  O vínculo anterior não é apagado.
+                </p>
+
+                <AsyncSection state={historico} linhas={2}>
+                  {() => (linhas.length
+                    ? linhas.map(linha => (
+                      <div className="list-row" key={linha.id}>
+                        <span className="info">
+                          <strong>{linha.team?.name || '—'}</strong>
+                          <small>
+                            {formatarDataHora(linha.startedAt)} → {linha.endedAt ? formatarDataHora(linha.endedAt) : 'ativo'}
+                            {linha.reason ? ` · ${linha.reason}` : ''}
+                          </small>
+                        </span>
+                        {!linha.endedAt && <Badge tom="ok">ativo</Badge>}
+                      </div>
+                    ))
+                    : <p style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>Sem histórico de vínculo.</p>
+                  )}
+                </AsyncSection>
+              </>
+            )}
+        </section>
+      </div>
+
+      {acao && atleta && (
+        <AcaoDeVinculo
+          acao={acao} atleta={atleta} organizationId={organizationId} atual={ativo}
+          notificar={notificar}
+          onClose={() => setAcao(null)}
+          onSalvo={() => { setAcao(null); historico.reload(); resultados.reload(); }}
+        />
+      )}
+    </>
+  );
+}
+
+function AcaoDeVinculo({ acao, atleta, organizationId, atual, notificar, onClose, onSalvo }) {
+  const [teamId, setTeamId] = useState('');
+  const [reason, setReason] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  const equipes = useFetch(() => api.partners.teams({ organizationId }), [organizationId]);
+
+  const titulos = { link: 'Vincular à equipe', transfer: 'Transferir de equipe', unlink: 'Encerrar vínculo' };
+  const precisaEquipe = acao !== 'unlink';
+  const precisaMotivo = acao !== 'link';
+
+  const salvar = async evento => {
+    evento.preventDefault();
+    setSalvando(true);
+    try {
+      if (acao === 'link') await api.athletes.linkTeam(atleta.id, { teamId, reason: reason || null });
+      if (acao === 'transfer') await api.athletes.transferTeam(atleta.id, { teamId, reason });
+      if (acao === 'unlink') await api.athletes.unlinkTeam(atleta.id, { reason });
+      notificar('Vínculo atualizado.');
+      onSalvo();
+    } catch (erro) {
+      // A mensagem do servidor já nomeia a equipe atual e a quem recorrer.
+      // Reescrevê-la aqui só apagaria a informação que o treinador precisa.
+      notificar(erro.message, 'erro');
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <Modal
+      title={titulos[acao]}
+      description={`${atleta.fullName}${atual?.team?.name ? ` · atualmente em ${atual.team.name}` : ' · sem equipe'}`}
+      onClose={onClose}
+    >
+      <form onSubmit={salvar}>
+        {precisaEquipe && (
+          <Field label="Equipe" required>
+            <select value={teamId} onChange={evt => setTeamId(evt.target.value)} required>
+              <option value="">Selecione…</option>
+              {(equipes.data?.items || [])
+                .filter(equipe => equipe.id !== atual?.teamId)
+                .map(equipe => <option key={equipe.id} value={equipe.id}>{equipe.name}</option>)}
+            </select>
+          </Field>
+        )}
+        <Field label="Motivo" required={precisaMotivo} hint={precisaMotivo ? 'Fica registrado na auditoria junto com quem autorizou.' : undefined}>
+          <input value={reason} onChange={evt => setReason(evt.target.value)} required={precisaMotivo} minLength={precisaMotivo ? 3 : 0} maxLength={200} />
+        </Field>
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Confirmar" disabled={precisaEquipe && !teamId} />
       </form>
     </Modal>
   );

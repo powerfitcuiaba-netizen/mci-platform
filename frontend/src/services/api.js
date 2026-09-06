@@ -135,6 +135,12 @@ export const api = {
     listPro: params => get('/athletes/pro', params),
     setProStatus: (id, dados) => post(`/athletes/${id}/pro-status`, dados),
     rankingPoints: (id, params) => get(`/athletes/${id}/ranking-points`, params),
+    // Vínculo com equipe. `linkTeam` só vincula atleta livre; tirar de outra
+    // equipe é `transferTeam`, ato do operador da Muscle Contest.
+    linkTeam: (id, dados) => post(`/athletes/${id}/team`, dados),
+    transferTeam: (id, dados) => post(`/athletes/${id}/team/transfer`, dados),
+    unlinkTeam: (id, dados) => post(`/athletes/${id}/team/unlink`, dados),
+    teamHistory: id => get(`/athletes/${id}/team-history`),
     documents: id => get(`/athletes/${id}/documents`),
     uploadDocument: (id, arquivo, campos) => upload(`/athletes/${id}/documents`, arquivo, campos)
   },
@@ -227,6 +233,10 @@ export const api = {
   },
 
   partners: {
+    // Empresa entra na competição com as suas equipes — fica acima da equipe.
+    // Patrocinador NÃO: é relação comercial, e por isso vive noutro bloco.
+    companies: params => get('/companies', params),
+    createCompany: dados => post('/companies', dados),
     teams: params => get('/teams', params),
     createTeam: dados => post('/teams', dados),
     gyms: params => get('/gyms', params),

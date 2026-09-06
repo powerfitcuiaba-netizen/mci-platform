@@ -350,7 +350,7 @@ const teamCreate = z.object({
   organizationId: id, name: texto(2, 120),
   // Empresa que inscreve a equipe. Opcional: equipe sem empresa compete
   // normalmente, apenas não pontua para nenhuma.
-  companyId: id.optional(),
+  companyId: opcional(id),
   city: opcional(texto(2, 90)), state: opcional(texto(2, 2))
 });
 const companyCreate = z.object({ organizationId: id, name: texto(2, 120), city: opcional(texto(2, 90)), state: opcional(texto(2, 2)) });

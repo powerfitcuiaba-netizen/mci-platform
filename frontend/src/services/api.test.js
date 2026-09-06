@@ -86,6 +86,61 @@ describe('cliente de API', () => {
     expect(getAuthToken()).toBeNull();
   });
 
+  it('vincular, transferir e encerrar são endpoints DIFERENTES', async () => {
+    // A separação não é cosmética: cada um exige permissão distinta no
+    // servidor. Se a tela mandasse tudo para o mesmo lugar, o treinador
+    // transferiria atleta de outra equipe com a permissão de vincular.
+    global.fetch.mockResolvedValue(responder({ id: 'v1' }));
+
+    await api.athletes.linkTeam('atleta-1', { teamId: 'equipe-1' });
+    await api.athletes.transferTeam('atleta-1', { teamId: 'equipe-2', reason: 'acordo' });
+    await api.athletes.unlinkTeam('atleta-1', { reason: 'saiu' });
+
+    const caminhos = global.fetch.mock.calls.map(([url]) => new URL(url, 'http://x').pathname);
+    expect(caminhos[0]).toMatch(/\/athletes\/atleta-1\/team$/);
+    expect(caminhos[1]).toMatch(/\/athletes\/atleta-1\/team\/transfer$/);
+    expect(caminhos[2]).toMatch(/\/athletes\/atleta-1\/team\/unlink$/);
+    expect(new Set(caminhos).size).toBe(3);
+  });
+
+  it('a mensagem de vínculo recusado chega inteira à tela', async () => {
+    // O 409 nomeia a equipe atual. Se o cliente trocasse por um texto
+    // genérico, o treinador ficaria sem saber a quem recorrer — que é
+    // justamente a informação que a regra manda dar.
+    global.fetch.mockResolvedValue(responder(
+      {
+        error: {
+          code: 'ATHLETE_ALREADY_LINKED',
+          message: 'Não é possível vincular este atleta. Ele está atualmente vinculado a Team Alpha (Empresa X). '
+            + 'Para mudar de equipe, solicite a alteração ao operador da Muscle Contest.'
+        }
+      },
+      false,
+      409
+    ));
+
+    await expect(api.athletes.linkTeam('atleta-1', { teamId: 'equipe-2' })).rejects.toMatchObject({
+      code: 'ATHLETE_ALREADY_LINKED',
+      status: 409
+    });
+
+    await expect(api.athletes.linkTeam('atleta-1', { teamId: 'equipe-2' }))
+      .rejects.toThrow(/Team Alpha.*operador da Muscle Contest/s);
+  });
+
+  it('empresa competidora e patrocinador são superfícies separadas', async () => {
+    // Patrocínio é relação comercial: não vincula atleta e não pontua. Se
+    // ambos caíssem na mesma rota, a separação existiria só no discurso.
+    global.fetch.mockResolvedValue(responder({ items: [] }));
+
+    await api.partners.companies({ organizationId: 'org-1' });
+    await api.partners.sponsors({ organizationId: 'org-1' });
+
+    const caminhos = global.fetch.mock.calls.map(([url]) => new URL(url, 'http://x').pathname);
+    expect(caminhos[0]).toMatch(/\/companies$/);
+    expect(caminhos[1]).toMatch(/\/sponsors$/);
+  });
+
   it('não expõe nenhuma rota financeira', () => {
     // Nomes exatos: 'order' como substring casaria com 'stageOrder', que é
     // ordem de palco — um falso positivo que ensinaria a ignorar este teste.
