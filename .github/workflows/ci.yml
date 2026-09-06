@@ -74,8 +74,13 @@ jobs:
           $PSQL -c "ALTER SCHEMA public OWNER TO mci_owner"
           # Falha alto se o papel sair superusuário: sem isto, a suíte inteira
           # rodaria sem RLS e mesmo assim ficaria verde.
-          PGPASSWORD=mci_owner_ci psql -h localhost -U mci_owner -d mci_test -v ON_ERROR_STOP=1 -tAc \
-            "SELECT CASE WHEN current_setting('is_superuser') = 'on' THEN 1/0 ELSE 1 END"
+          #
+          # Bloco DO, e não CASE ... THEN 1/0: o PostgreSQL dobra subexpressão
+          # constante em tempo de planejamento, então a divisão estoura mesmo
+          # no ramo que não é tomado. A primeira versão desta guarda reprovava
+          # sempre — inclusive num ambiente correto.
+          PGPASSWORD=mci_owner_ci psql -h localhost -U mci_owner -d mci_test -v ON_ERROR_STOP=1 -qc \
+            "DO \$\$ BEGIN IF current_setting('is_superuser') = 'on' THEN RAISE EXCEPTION 'papel da aplicacao e superusuario: o RLS nao teria efeito nenhum'; END IF; END \$\$"
           echo "mci_owner criado sem superusuário."
 
 
