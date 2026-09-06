@@ -230,7 +230,7 @@ export function Post({ post, notificar, onMudou, navegar }) {
 
   // Toda interação confirma no servidor antes de mudar a tela: contador que
   // sobe sozinho e depois volta é pior do que meio segundo de espera.
-  const alternar = async (acao, campo, chave) => {
+  const alternar = async acao => {
     setOcupado(true);
     try {
       await acao();

@@ -26,7 +26,7 @@ const limiteBusca = rateLimit({ windowMs: 60_000, max: 120, nome: 'search' });
 const limiteImportacao = rateLimit({ windowMs: 60_000, max: 10, nome: 'import' });
 
 const uploadDocumento = singleFileUpload('file');
-const uploadMidia = singleFileUpload('file', { maxBytes: storage.MAX_MEDIA_BYTES });
+const uploadMidia = singleFileUpload('file', { maxBytes: storage.MAX_MEDIA_BYTES, tipo: 'midia' });
 
 // ============================================================ AUTENTICAÇÃO
 router.post('/auth/register', limiteAutenticacao, validate(s.authRegister), wrap(c.auth.register));
