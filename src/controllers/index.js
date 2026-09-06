@@ -146,7 +146,10 @@ module.exports = {
     createSeason: async (req, res) => res.status(201).json(await ranking.createSeason(req.body, req.user)),
     setPointsRules: async (req, res) => res.json({ items: await ranking.setPointsRules(req.params.id, req.body, req.user) }),
     recompute: async (req, res) => res.json(await ranking.recompute(req.params.id, req.user)),
-    athletePoints: async (req, res) => res.json({ items: await ranking.athletePoints(req.params.id, req.query.seasonId, req.user) })
+    athletePoints: async (req, res) => res.json({ items: await ranking.athletePoints(req.params.id, req.query.seasonId, req.user) }),
+    teams: async (req, res) => res.json(await ranking.teamRanking(req.query.seasonId, { categoryId: req.query.categoryId ?? null })),
+    declareOverall: async (req, res) => res.status(201).json(await ranking.declareOverall(req.params.id, req.body, req.user)),
+    listOverall: async (req, res) => res.json({ items: await ranking.listOverall(req.params.id) })
   },
 
   muscleWar: {

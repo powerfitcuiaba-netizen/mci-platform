@@ -1,15 +1,12 @@
 # Homologação esportiva — o que o comitê técnico precisa ratificar
 
-**Situação: NÃO HOMOLOGADO.** A plataforma está tecnicamente pronta para
-operar uma prova, mas nenhuma prova oficial deve ser apurada por ela antes que
-as decisões deste documento sejam ratificadas pelo comitê técnico do
-Campeonato Brasileiro Muscle Contest.
+**Situação: PARCIALMENTE HOMOLOGADO.** A regra de pontuação, o bônus Overall e
+a hierarquia de desempate foram definidos pelo organizador na fase 11.1 e estão
+implementados. As decisões de *apuração* (método, descarte, desempate dentro da
+classe) e a determinação do campeão Overall seguem pendentes.
 
-Este documento não propõe regulamento. Ele existe porque o motor de apuração é
-deliberadamente **configurável**: o código não sabe — e não deve saber — qual é
-a regra do Muscle Contest. O que ele faz é obedecer a uma configuração e
-registrar qual configuração aplicou. As perguntas abaixo são o que falta para
-essa configuração existir com autoridade.
+Este documento separa, sem ambiguidade, o que é **REGRA HOMOLOGADA** do que é
+**PENDING HOMOLOGATION**. Nada pendente é apresentado como oficial.
 
 Cada decisão está acompanhada da demonstração do seu efeito concreto no pódio,
 em `tests/homologacao-tabulacao.test.mjs`. Os casos são executáveis: rodam com
@@ -19,6 +16,139 @@ números, quem ganha o título sob cada opção. Ratificar é ler esses casos e
 apontar qual comportamento é o do regulamento.
 
 ---
+
+# PARTE I — REGRA HOMOLOGADA (fase 11.1)
+
+Definida pelo organizador e implementada. Conferível em
+`tests/pontuacao-oficial.test.mjs` (aritmética) e `tests/ranking-oficial.test.mjs`
+(comportamento na plataforma).
+
+## Pontuação por colocação
+
+| Colocação | Pontos |
+|---|---|
+| 1º | **5** |
+| 2º | **4** |
+| 3º | **3** |
+| 4º | **2** |
+| 5º | **1** |
+
+Somente de 1º a 5º pontuam pela tabela padrão.
+
+> A tabela é **dado**, não constante de código: vive em `RankingPointsRule`, por
+> temporada. Uma temporada nova já nasce com estes valores, e a tabela oficial
+> definitiva (PDF/planilha) os substitui por configuração, sem alterar programa.
+
+## Overall
+
+**Campeão Overall = +10 pontos**, **somados** aos pontos da colocação — não os
+substituem.
+
+```
+Atleta em 1º lugar             →  5 pontos
+   e também campeã Overall     → +10 pontos
+                                 ──────────
+                          TOTAL   15 pontos
+```
+
+Se o campeão Overall vier de outra colocação, o bônus acompanha essa colocação:
+2º lugar + Overall = 4 + 10 = **14**.
+
+## Equipes
+
+**A mesma tabela e o mesmo desempate.** Sem peso, multiplicador ou bônus
+próprio de equipe. A pontuação da equipe é a soma dos pontos dos seus atletas, e
+cada parcela continua apontando para o resultado que a originou.
+
+## Desempate — hierarquia oficial
+
+Aplicada nesta ordem exata; o primeiro critério que separar encerra a questão:
+
+1. Mais títulos **Overall**
+2. Mais **1º** lugares
+3. Mais **2º** lugares
+4. Mais **3º** lugares
+5. Mais **4º** lugares
+6. Mais **5º** lugares
+7. **`TIE_UNRESOLVED`**
+
+Esgotada a hierarquia, o empate **não é quebrado**. Nada de id, nome, data,
+ordem de inserção ou alfabética: os empatados ficam **sem colocação**, sinalizados
+como `tieUnresolved`, e a decisão volta para quem tem competência de tomá-la.
+
+### Exemplo numérico — cinco atletas
+
+| Atleta | Colocação | Pontos da colocação | Bônus Overall | Total |
+|---|---|---|---|---|
+| A | 1º | 5 | +10 | **15** |
+| B | 1º (outra classe) | 5 | 0 | **5** |
+| C | 2º | 4 | 0 | **4** |
+| D | 3º | 3 | 0 | **3** |
+| E | 5º | 1 | 0 | **1** |
+
+### Exemplo numérico — desempate por Overall
+
+Duas atletas terminam a temporada com **15 pontos**:
+
+| | Total | Overall | 1º | Resultado |
+|---|---|---|---|---|
+| **A** | 15 | **1** | 1 | **1ª** — o Overall é consultado primeiro |
+| **B** | 15 | 0 | **3** | 2ª — mais primeiros lugares não supera um Overall |
+
+B tem o triplo de primeiros lugares e perde assim mesmo, porque a ordem dos
+critérios *é* a regra.
+
+### Exemplo numérico — equipe
+
+| Equipe | Atleta | Colocação | Pontos |
+|---|---|---|---|
+| **Alfa** | ALFA1 | 1º + Overall | 5 + 10 = 15 |
+| **Alfa** | ALFA2 | 3º | 3 |
+| | | **Total Alfa** | **18** |
+| **Beta** | BETA1 | 2º | 4 |
+| **Beta** | BETA2 | 4º | 2 |
+| | | **Total Beta** | **6** |
+
+---
+
+# PARTE II — PENDING HOMOLOGATION
+
+Não implementado por ausência de regra, e **não presumido**.
+
+## P1. Como se determina o campeão Overall
+
+**A regra do bônus está homologada; o critério de determinação, não.** Não foi
+definido entre quais classes o Overall é disputado, se há um por categoria ou um
+por evento, nem se resulta de apuração ou de decisão do painel.
+
+Enquanto isso, o título é **registrado** pela organização
+(`POST /events/:id/overall`), com autor e data em auditoria — nunca calculado.
+Aplicar +10 a partir de um critério que ninguém homologou seria inventar
+regulamento.
+
+## P2. Quais resultados de atleta são "elegíveis" para a equipe
+
+Sem regra de descarte, de teto de atletas pontuando ou de mínimo por equipe,
+**todos** os resultados pontuados do atleta contam para a equipe. Qualquer corte
+seria presunção.
+
+## P3. Pontuação do 6º lugar em diante
+
+A tabela homologada vai até o 5º. Colocações a partir do 6º recebem **zero**, e
+não um valor extrapolado.
+
+## P4. Decisões de apuração dentro da classe
+
+Método, descarte da maior/menor colocação, painel mínimo para o descarte e
+ordem dos desempates *dentro da classe* seguem pendentes — são a Parte III
+abaixo, e não se confundem com o desempate de **ranking** homologado na Parte I.
+
+---
+
+# PARTE III — DECISÕES DE APURAÇÃO AINDA PENDENTES
+
+Estas são as decisões de como se apura **dentro de uma classe** — distintas do
+desempate de **ranking**, homologado na Parte I.
 
 ## O que já é fato, não decisão
 
@@ -41,7 +171,7 @@ resolver, com registro.
 
 ---
 
-## DECISÃO 1 — Descarte da maior e da menor colocação
+## DECISÃO A — Descarte da maior e da menor colocação
 
 **Pergunta:** o regulamento do Muscle Contest descarta a melhor e a pior
 colocação que um atleta recebeu antes de somar?
@@ -67,7 +197,7 @@ diferentes**. Não existe resposta técnica para qual está certo — é regulam
 
 ---
 
-## DECISÃO 2 — Tamanho mínimo de painel para o descarte valer
+## DECISÃO B — Tamanho mínimo de painel para o descarte valer
 
 **Pergunta:** a partir de quantos juízes o descarte se aplica?
 
@@ -87,7 +217,7 @@ decisão de regulamento, e o código apenas a obedece.
 
 ---
 
-## DECISÃO 3 — Critérios de desempate e a ORDEM entre eles
+## DECISÃO C — Critérios de desempate e a ORDEM entre eles
 
 **Pergunta:** quais critérios de desempate o regulamento prevê, e em que ordem
 são aplicados?
@@ -132,7 +262,7 @@ chefe. O comitê precisa confirmar que essa é a conduta desejada.
 
 ---
 
-## DECISÃO 4 — Empate que nenhum critério resolve
+## DECISÃO D — Empate que nenhum critério resolve
 
 **Pergunta:** qual é o procedimento oficial quando os critérios configurados
 não resolvem o empate?
@@ -155,7 +285,7 @@ informarem; ele não pode escolher qual desfecho é legítimo.
 
 ---
 
-## DECISÃO 5 — Método de apuração
+## DECISÃO E — Método de apuração
 
 **Pergunta:** `RELATIVE_PLACEMENT_SUM` — soma das colocações dadas pelos
 juízes, menor soma vence — é o método do regulamento?
@@ -174,7 +304,7 @@ implementação.
 
 ---
 
-## DECISÃO 6 — Catálogo oficial de categorias e classes
+## DECISÃO F — Catálogo oficial de categorias e classes
 
 **Estado atual, carregado pelo seed** — 11 categorias, com
 `WOMEN'S BODYBUILDING` e `FITMODEL` entre as obrigatórias:
@@ -194,17 +324,12 @@ sistema, porque presumir seria inventar regra esportiva.
 
 ---
 
-## DECISÃO 7 — Pontuação de ranking
+## DECISÃO G — Pontuação de ranking
 
-**Pergunta:** quantos pontos de ranking cada colocação vale, e quais eventos
-pontuam para qual temporada?
-
-**Estado atual:** a estrutura existe (`RankingSeason`, `RankingPoint`, com
-unicidade por `[seasonId, athleteId, resultId]`, que impede pontuação dobrada
-para o mesmo resultado). **A tabela de pontos por colocação é configuração e
-não foi preenchida com valores oficiais** — nenhum valor foi inventado.
-
----
+✅ **HOMOLOGADA na fase 11.1.** Ver Parte I. A estrutura já existia
+(`RankingSeason`, `RankingPoint` com unicidade por `[seasonId, athleteId, resultId]`,
+que impede pontuação dobrada); o que faltava era a tabela, e ela agora existe
+como dado da temporada.
 
 ## Como ratificar
 
@@ -217,7 +342,9 @@ não foi preenchida com valores oficiais** — nenhum valor foi inventado.
    reapuração sob regra diferente é detectável, porque a assinatura cobre a
    configuração e não só os votos.
 
-Enquanto essas decisões não existirem formalmente, a plataforma pode ser usada
-em **teste e ensaio**, não em prova oficial. Não é limitação técnica: é que uma
+As decisões da Parte I estão homologadas e implementadas. As da Parte III —
+apuração dentro da classe — continuam pendentes, e enquanto elas não existirem
+formalmente a plataforma pode ser usada em **teste e ensaio**, não em prova
+oficial. Não é limitação técnica: é que uma
 apuração só é legítima quando a regra que ela aplicou foi decidida por quem
 tem competência para decidi-la.

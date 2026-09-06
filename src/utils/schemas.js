@@ -287,6 +287,18 @@ const pointsRuleSet = z.object({
   })).min(1).max(200)
 });
 
+const overallDeclare = z.object({
+  athleteId: id,
+  categoryId: id.optional(),
+  note: opcional(texto(1, 300))
+});
+
+const teamRankingQuery = z.object({
+  seasonId: id.optional(),
+  categoryId: id.optional(),
+  organizationId: id.optional()
+});
+
 const rankingQuery = paginacao.extend({
   seasonId: id.optional(),
   categoryId: id.optional(),
@@ -511,7 +523,7 @@ module.exports = {
   batchCreate, batchStatusUpdate, stageOrderSet,
   panelCreate, panelJudgeAdd, sessionCreate, scoreSubmit,
   resultPublish, resultOverride, scoringRuleSetCreate,
-  seasonCreate, pointsRuleSet, rankingQuery,
+  seasonCreate, pointsRuleSet, rankingQuery, overallDeclare, teamRankingQuery,
   muscleWarImportCreate, muscleWarLink,
   teamCreate, coachCreate, gymCreate, brandCreate, sponsorCreate, sponsorshipCreate,
   partnershipCreate, partnershipStatus,

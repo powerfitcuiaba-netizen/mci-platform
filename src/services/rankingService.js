@@ -2,6 +2,9 @@ const prisma = require('../config/prisma');
 const { AppError } = require('../utils/errors');
 const { assertCan, organizationFilter, assertPermission } = require('../utils/tenant');
 const audit = require('./auditService');
+const {
+  TABELA_OFICIAL_COLOCACAO, BONUS_OVERALL, pontuarResultado, contadores, classificar
+} = require('../utils/rankingScoring');
 
 // Ranking e temporadas.
 //
@@ -14,16 +17,30 @@ async function createSeason(data, actor) {
   assertCan(actor, 'ranking.manage', data.organizationId);
 
   try {
-    return await prisma.rankingSeason.create({
+    // A temporada nasce com a tabela homologada já cadastrada — como DADO, na
+    // mesma tabela que `setPointsRules` reescreve. Sem isso, uma temporada nova
+    // não pontuaria nada até alguém lembrar de configurá-la; e como o valor
+    // vive em RankingPointsRule, substituí-lo pela tabela oficial definitiva
+    // não exige tocar em código.
+    const temporada = await prisma.rankingSeason.create({
       data: {
         organizationId: data.organizationId,
         name: data.name,
         year: data.year,
         startDate: data.startDate ?? null,
         endDate: data.endDate ?? null,
-        scoringRuleSetId: data.scoringRuleSetId ?? null
+        scoringRuleSetId: data.scoringRuleSetId ?? null,
+        pointsRules: { create: TABELA_OFICIAL_COLOCACAO.map(regra => ({ ...regra })) }
       }
     });
+
+    await audit.record({
+      actor, action: 'RANKING_RULES_SET', entity: 'RankingSeason', entityId: temporada.id,
+      organizationId: data.organizationId,
+      metadata: { origem: 'tabela homologada', rules: TABELA_OFICIAL_COLOCACAO.length }
+    });
+
+    return temporada;
   } catch (error) {
     if (error.code === 'P2002') throw new AppError(409, 'SEASON_EXISTS', 'Já existe temporada com este nome na organização');
     throw error;
@@ -89,13 +106,38 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
 
   const classificados = result.entries.filter(entry => entry.status === 'RANKED' && entry.placing != null);
 
+  const tabela = await prisma.rankingPointsRule.findMany({
+    where: { seasonId }, select: { placing: true, points: true }
+  });
+
+  // Títulos Overall declarados para este evento — o do recorte da categoria e o
+  // do evento inteiro. O critério de determinação não é do sistema: o título é
+  // registrado pela organização (ver EventOverallTitle).
+  const titulos = await prisma.eventOverallTitle.findMany({
+    where: { eventId: result.eventId, OR: [{ categoryId }, { categoryId: null }] },
+    select: { athleteId: true }
+  });
+  const campeoesOverall = new Set(titulos.map(titulo => titulo.athleteId));
+
+  // Equipe registrada no momento da atribuição: uma troca posterior não deve
+  // reescrever a história do ranking.
+  const equipes = new Map(
+    (await prisma.athlete.findMany({
+      where: { id: { in: classificados.map(entry => entry.athleteId) } },
+      select: { id: true, teamId: true }
+    })).map(atleta => [atleta.id, atleta.teamId])
+  );
+
   const atribuidos = await prisma.$transaction(async tx => {
     if (recompute) await tx.rankingPoint.deleteMany({ where: { seasonId, resultId } });
 
     let total = 0;
     for (const entry of classificados) {
-      const regra = await tx.rankingPointsRule.findUnique({ where: { seasonId_placing: { seasonId, placing: entry.placing } } });
-      const points = regra?.points ?? 0;
+      const ehCampeaoOverall = campeoesOverall.has(entry.athleteId);
+      const { placementPoints, overallBonus, points } = pontuarResultado(entry.placing, tabela, ehCampeaoOverall);
+
+      // Colocação sem pontuação na tabela e sem Overall não gera linha: ponto
+      // zero no histórico só faria ruído.
       if (!points) continue;
 
       try {
@@ -103,7 +145,13 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
           data: {
             seasonId, athleteId: entry.athleteId, categoryId,
             source: 'EVENT', eventId: result.eventId, resultId,
-            placing: entry.placing, points
+            classId: result.classId,
+            teamId: equipes.get(entry.athleteId) ?? null,
+            placing: entry.placing,
+            placementPoints, overallBonus, isOverallChampion: ehCampeaoOverall,
+            points,
+            resultVersion: result.version,
+            awardedById: actor?.id ?? null
           }
         });
         total += 1;
@@ -127,40 +175,55 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
 
 // Recalcula o agregado a partir dos pontos. Sempre derivado: se `RankingPoint`
 // mudar, `Ranking` reflete; se divergirem, a fonte é sempre a linha de ponto.
+//
+// A ordenação usa a hierarquia oficial de desempate (src/utils/rankingScoring.js),
+// e não apenas o total de pontos. Os contadores ficam materializados para que o
+// ranking seja auditável sem reabrir cada lançamento.
 async function recompute_(seasonId) {
   const pontos = await prisma.rankingPoint.findMany({
     where: { seasonId },
-    select: { athleteId: true, categoryId: true, points: true, eventId: true, externalResultId: true }
+    select: {
+      athleteId: true, categoryId: true, points: true, placing: true,
+      isOverallChampion: true, eventId: true, externalResultId: true
+    }
   });
 
   const acumulado = new Map();
   for (const ponto of pontos) {
     const chave = `${ponto.athleteId}::${ponto.categoryId ?? ''}`;
     if (!acumulado.has(chave)) {
-      acumulado.set(chave, { athleteId: ponto.athleteId, categoryId: ponto.categoryId, totalPoints: 0, fontes: new Set() });
+      acumulado.set(chave, { athleteId: ponto.athleteId, categoryId: ponto.categoryId, totalPoints: 0, fontes: new Set(), pontos: [] });
     }
     const linha = acumulado.get(chave);
     linha.totalPoints += ponto.points;
     linha.fontes.add(ponto.eventId || ponto.externalResultId || 'externo');
+    linha.pontos.push(ponto);
   }
 
   const athleteIds = [...new Set([...acumulado.values()].map(linha => linha.athleteId))];
   const atletas = await prisma.athlete.findMany({ where: { id: { in: athleteIds } }, select: { id: true, state: true, country: true } });
   const porAtleta = new Map(atletas.map(atleta => [atleta.id, atleta]));
 
-  const linhas = [...acumulado.values()].sort((a, b) => b.totalPoints - a.totalPoints);
+  const comContadores = [...acumulado.values()].map(linha => ({
+    ...linha,
+    ...contadores(linha.pontos)
+  }));
 
-  // Posição por categoria: cada recorte tem a sua numeração.
-  const posicaoPorCategoria = new Map();
+  // A numeração é por categoria: cada recorte tem a sua disputa, e o desempate
+  // vale dentro dele.
+  const porCategoria = new Map();
+  for (const linha of comContadores) {
+    const chave = linha.categoryId ?? '__geral__';
+    if (!porCategoria.has(chave)) porCategoria.set(chave, []);
+    porCategoria.get(chave).push(linha);
+  }
+
+  const classificadas = [...porCategoria.values()].flatMap(linhas => classificar(linhas));
 
   await prisma.$transaction(async tx => {
     await tx.ranking.deleteMany({ where: { seasonId } });
 
-    for (const linha of linhas) {
-      const chaveCategoria = linha.categoryId ?? '__geral__';
-      const proxima = (posicaoPorCategoria.get(chaveCategoria) ?? 0) + 1;
-      posicaoPorCategoria.set(chaveCategoria, proxima);
-
+    for (const linha of classificadas) {
       const atleta = porAtleta.get(linha.athleteId);
       await tx.ranking.create({
         data: {
@@ -169,7 +232,14 @@ async function recompute_(seasonId) {
           categoryId: linha.categoryId,
           totalPoints: linha.totalPoints,
           eventCount: linha.fontes.size,
-          position: proxima,
+          overallWins: linha.overallWins,
+          firstPlaceCount: linha.firstPlaceCount,
+          secondPlaceCount: linha.secondPlaceCount,
+          thirdPlaceCount: linha.thirdPlaceCount,
+          fourthPlaceCount: linha.fourthPlaceCount,
+          fifthPlaceCount: linha.fifthPlaceCount,
+          tieUnresolved: linha.tieUnresolved,
+          position: linha.position,
           state: atleta?.state ?? null,
           country: atleta?.country ?? null
         }
@@ -177,7 +247,136 @@ async function recompute_(seasonId) {
     }
   });
 
-  return { rows: linhas.length };
+  return {
+    rows: classificadas.length,
+    tieUnresolved: classificadas.filter(linha => linha.tieUnresolved).length
+  };
+}
+
+/**
+ * Ranking de equipes.
+ *
+ * REGRA HOMOLOGADA: a equipe usa exatamente a mesma tabela de pontos e o mesmo
+ * desempate do atleta. Não há peso, multiplicador nem bônus próprio de equipe.
+ *
+ * Derivado, e não materializado: a pontuação da equipe é a soma dos pontos dos
+ * seus atletas, e cada linha continua apontando para o resultado que a
+ * originou. Guardar um agregado próprio criaria uma segunda verdade para
+ * manter sincronizada sem necessidade.
+ *
+ * PENDING HOMOLOGATION: quais resultados de atleta são "elegíveis" para a
+ * equipe. Sem regra de descarte, de teto de atletas pontuando ou de mínimo por
+ * equipe, TODOS os resultados pontuados contam — presumir qualquer corte seria
+ * inventar regulamento.
+ */
+async function teamRanking(seasonId, { categoryId = null } = {}) {
+  const pontos = await prisma.rankingPoint.findMany({
+    where: { seasonId, teamId: { not: null }, ...(categoryId ? { categoryId } : {}) },
+    select: {
+      teamId: true, athleteId: true, points: true, placing: true, isOverallChampion: true,
+      eventId: true, externalResultId: true,
+      team: { select: { id: true, name: true, city: true, state: true } }
+    }
+  });
+
+  const acumulado = new Map();
+  for (const ponto of pontos) {
+    if (!acumulado.has(ponto.teamId)) {
+      acumulado.set(ponto.teamId, {
+        teamId: ponto.teamId, team: ponto.team,
+        totalPoints: 0, atletas: new Set(), fontes: new Set(), pontos: []
+      });
+    }
+    const linha = acumulado.get(ponto.teamId);
+    linha.totalPoints += ponto.points;
+    linha.atletas.add(ponto.athleteId);
+    linha.fontes.add(ponto.eventId || ponto.externalResultId || 'externo');
+    linha.pontos.push(ponto);
+  }
+
+  const linhas = [...acumulado.values()].map(linha => ({ ...linha, ...contadores(linha.pontos) }));
+
+  return classificar(linhas).map(linha => ({
+    position: linha.position,
+    tieUnresolved: linha.tieUnresolved,
+    team: linha.team,
+    totalPoints: linha.totalPoints,
+    athleteCount: linha.atletas.size,
+    eventCount: linha.fontes.size,
+    overallWins: linha.overallWins,
+    firstPlaceCount: linha.firstPlaceCount,
+    secondPlaceCount: linha.secondPlaceCount,
+    thirdPlaceCount: linha.thirdPlaceCount,
+    fourthPlaceCount: linha.fourthPlaceCount,
+    fifthPlaceCount: linha.fifthPlaceCount
+  }));
+}
+
+/**
+ * Registra o campeão Overall de um evento.
+ *
+ * REGRA HOMOLOGADA: o título vale +10 pontos, somados aos da colocação, e conta
+ * como primeiro critério de desempate.
+ *
+ * PENDING HOMOLOGATION: o critério de determinação do campeão. Por isso aqui o
+ * título é DECLARADO por quem opera o evento, com autoria e data registradas —
+ * calculá-lo exigiria uma regra que ninguém definiu.
+ */
+async function declareOverall(eventId, { athleteId, categoryId = null, note = null }, actor) {
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { id: true, organizationId: true, seasonId: true }
+  });
+  if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Evento não encontrado');
+  assertCan(actor, 'ranking.manage', event.organizationId);
+
+  const athlete = await prisma.athlete.findUnique({ where: { id: athleteId }, select: { id: true, organizationId: true } });
+  if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
+  if (athlete.organizationId !== event.organizationId) {
+    throw new AppError(422, 'ATHLETE_OTHER_ORGANIZATION', 'Atleta de outra organização');
+  }
+
+  // `upsert` não serve aqui: o Prisma não aceita valor nulo dentro de chave
+  // única composta, e o recorte nulo é justamente o Overall do evento inteiro.
+  const existente = await prisma.eventOverallTitle.findFirst({ where: { eventId, categoryId } });
+
+  const titulo = existente
+    ? await prisma.eventOverallTitle.update({
+      where: { id: existente.id },
+      data: { athleteId, note, declaredById: actor?.id ?? null, declaredAt: new Date() }
+    })
+    : await prisma.eventOverallTitle.create({
+      data: { eventId, athleteId, categoryId, note, declaredById: actor?.id ?? null }
+    });
+
+  await audit.record({
+    actor, action: 'OVERALL_DECLARE', entity: 'Event', entityId: eventId,
+    organizationId: event.organizationId,
+    metadata: { athleteId, categoryId, bonus: BONUS_OVERALL }
+  });
+
+  // O bônus só entra no ranking depois que os resultados publicados do evento
+  // forem repontuados: declarar o título é um fato novo sobre resultados que
+  // já existiam.
+  const publicados = await prisma.result.findMany({
+    where: { eventId, status: 'PUBLISHED' }, select: { id: true }
+  });
+  for (const resultado of publicados) {
+    await awardForResult(resultado.id, actor, { recompute: true });
+  }
+
+  return titulo;
+}
+
+async function listOverall(eventId) {
+  return prisma.eventOverallTitle.findMany({
+    where: { eventId },
+    include: {
+      athlete: { select: { id: true, fullName: true, stageName: true } },
+      category: { select: { id: true, code: true, name: true } }
+    },
+    orderBy: { declaredAt: 'desc' }
+  });
 }
 
 async function recompute(seasonId, actor) {
@@ -216,7 +415,9 @@ async function list(filtros, actor) {
       category: { select: { id: true, code: true, name: true } },
       season: { select: { id: true, name: true, year: true } }
     },
-    orderBy: [{ totalPoints: 'desc' }, { position: 'asc' }],
+    // A posição já carrega o desempate oficial; o total entra só como
+    // critério secundário de leitura.
+    orderBy: [{ position: 'asc' }, { totalPoints: 'desc' }],
     take: filtros.limit,
     ...(filtros.cursor ? { cursor: { id: filtros.cursor }, skip: 1 } : {})
   });
@@ -244,4 +445,9 @@ async function athletePoints(athleteId, seasonId, actor) {
   });
 }
 
-module.exports = { createSeason, listSeasons, setPointsRules, pointsForPlacing, awardForResult, recompute, recompute_, list, athletePoints };
+module.exports = {
+  createSeason, listSeasons, setPointsRules, pointsForPlacing, awardForResult,
+  recompute, recompute_, list, athletePoints, teamRanking,
+  declareOverall, listOverall,
+  TABELA_OFICIAL_COLOCACAO, BONUS_OVERALL
+};

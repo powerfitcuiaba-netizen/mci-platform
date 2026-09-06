@@ -135,6 +135,8 @@ model User {
 
   @@index([role])
   @@index([status])
+  rankingPointsAwarded RankingPoint[]      @relation("RankingPointAwardedBy")
+  overallTitlesDeclared EventOverallTitle[] @relation("OverallDeclaredBy")
 }
 
 // ============================================================================
@@ -241,6 +243,7 @@ model Athlete {
   @@index([affiliationId])
   @@index([teamId])
   @@index([coachId])
+  overallTitles EventOverallTitle[]
 }
 
 enum DocumentKind {
@@ -334,6 +337,7 @@ model Team {
   sponsorships  Sponsorship[]
 
   @@unique([organizationId, name])
+  rankingPoints RankingPoint[]
 }
 
 model Coach {
@@ -424,6 +428,7 @@ model Event {
 
   @@index([organizationId, status])
   @@index([startDate])
+  overallTitles EventOverallTitle[]
 }
 
 model EventDocument {
@@ -462,6 +467,7 @@ model Category {
   rankings        Ranking[]
 
   @@index([active, sortOrder])
+  overallTitles EventOverallTitle[]
 }
 
 model EventCategory {
@@ -522,6 +528,7 @@ model CompetitionClass {
 
   @@unique([divisionId, code])
   @@index([divisionId])
+  rankingPoints RankingPoint[]
 }
 
 model CategoryRule {
@@ -1053,7 +1060,22 @@ model RankingPoint {
   resultId         String?
   externalResultId String?     @unique
   placing          Int?
+  // Decomposição obrigatória para auditoria: o total precisa ser reconstituível
+  // a partir das parcelas, não apenas conferido no agregado.
+  //   points = placementPoints + overallBonus
+  placementPoints  Int         @default(0)
+  overallBonus     Int         @default(0)
+  isOverallChampion Boolean    @default(false)
   points           Int
+  // Equipe do atleta no momento da atribuição. Guardada aqui, e não lida do
+  // cadastro na hora da consulta, para que uma troca de equipe depois do
+  // evento não reescreva a história do ranking.
+  teamId           String?
+  classId          String?
+  // Versão do resultado que originou o ponto: permite conferir que o ranking
+  // reflete a versão válida, e não uma anterior.
+  resultVersion    Int?
+  awardedById      String?
   awardedAt        DateTime    @default(now())
   createdAt        DateTime    @default(now())
 
@@ -1063,15 +1085,53 @@ model RankingPoint {
   event          Event?          @relation(fields: [eventId], references: [id], onDelete: SetNull)
   result         Result?         @relation(fields: [resultId], references: [id], onDelete: SetNull)
   externalResult ExternalResult? @relation(fields: [externalResultId], references: [id], onDelete: SetNull)
+  team           Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  competitionClass CompetitionClass? @relation(fields: [classId], references: [id], onDelete: SetNull)
+  awardedBy      User?             @relation("RankingPointAwardedBy", fields: [awardedById], references: [id], onDelete: SetNull)
 
   // Um mesmo resultado de evento não pontua duas vezes para o mesmo atleta na
   // mesma temporada.
   @@unique([seasonId, athleteId, resultId])
   @@index([seasonId, athleteId])
+  @@index([seasonId, teamId])
   @@index([source])
 }
 
 // Agregado materializado, recalculado a partir de RankingPoint.
+/// Título Overall de um evento.
+///
+/// REGRA HOMOLOGADA: o campeão Overall recebe +10 pontos, somados aos pontos da
+/// colocação (não os substituem), e o número de títulos Overall é o primeiro
+/// critério de desempate do ranking.
+///
+/// PENDING HOMOLOGATION: COMO o campeão Overall é determinado — entre quais
+/// classes ele é disputado, se há um Overall por categoria ou um por evento, e
+/// se resulta de apuração ou de decisão do painel — não foi definido. Por isso
+/// o título é REGISTRADO pela organização, e não calculado: aplicar o bônus a
+/// partir de um critério que ninguém homologou seria inventar regulamento.
+model EventOverallTitle {
+  id          String   @id @default(cuid())
+  eventId     String
+  athleteId   String
+  /// Recorte do título. Nulo = Overall do evento inteiro. Enquanto o critério
+  /// não é homologado, o campo apenas registra o que a organização declarou.
+  categoryId  String?
+  note        String?
+  declaredById String?
+  declaredAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  event      Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  athlete    Athlete   @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  declaredBy User?     @relation("OverallDeclaredBy", fields: [declaredById], references: [id], onDelete: SetNull)
+
+  /// Um título por recorte: declarar de novo substitui, não acumula.
+  @@unique([eventId, categoryId])
+  @@index([athleteId])
+}
+
 model Ranking {
   id          String   @id @default(cuid())
   seasonId    String
@@ -1079,6 +1139,18 @@ model Ranking {
   categoryId  String?
   totalPoints Int      @default(0)
   eventCount  Int      @default(0)
+  // Contadores de desempate. Ficam materializados porque a ordenação depende
+  // deles: guardar só o total tornaria o ranking impossível de auditar e de
+  // reordenar sem reabrir cada ponto.
+  overallWins      Int @default(0)
+  firstPlaceCount  Int @default(0)
+  secondPlaceCount Int @default(0)
+  thirdPlaceCount  Int @default(0)
+  fourthPlaceCount Int @default(0)
+  fifthPlaceCount  Int @default(0)
+  // Empate que a hierarquia oficial não resolveu: os empatados ficam sem
+  // posição, como manda a regra, em vez de receberem uma ordem arbitrária.
+  tieUnresolved    Boolean @default(false)
   position    Int?
   state       String?
   country     String?

@@ -390,6 +390,8 @@ As validações estáticas que a CI executa, e que reprovam o job, são
 | `financeiro-ausente` | schema, banco real, arquivos, rotas e variáveis: nenhum resquício financeiro |
 | `producao` | barreira de configuração da partida: segredo, banco, CORS, hash e armazenamento |
 | `homologacao-tabulacao` | efeito de cada opção de apuração no pódio — documentação executável para o comitê técnico |
+| `pontuacao-oficial` | tabela homologada (1º=5…5º=1), bônus Overall +10 e a hierarquia de desempate, com os números abertos |
+| `ranking-oficial` | a regra oficial no caminho real: Overall, equipes, versionamento, idempotência, concorrência e permissão |
 
 ---
 
@@ -419,11 +421,13 @@ Não existe variável financeira, e o teste de ausência confere isso.
 - **[`docs/DEPLOY.md`](docs/DEPLOY.md)** — runbook: ordem do primeiro deploy,
   provisionamento do papel `mci_app`, sondas, rollback e checklist. Declara o
   que foi verificado e o que não foi (a imagem Docker **nunca foi construída**).
-- **[`docs/HOMOLOGACAO-ESPORTIVA.md`](docs/HOMOLOGACAO-ESPORTIVA.md)** — as 7
-  decisões que o comitê técnico do Muscle Contest precisa ratificar antes de
-  uma prova oficial, cada uma com a demonstração numérica do seu efeito no
-  pódio. **A plataforma não está homologada**: a regra `Padrão MCI` criada pelo
-  seed é ponto de partida de desenvolvimento, não regulamento.
+- **[`docs/HOMOLOGACAO-ESPORTIVA.md`](docs/HOMOLOGACAO-ESPORTIVA.md)** —
+  separa o que é **REGRA HOMOLOGADA** do que é **PENDING HOMOLOGATION**.
+  Homologado na fase 11.1: pontuação 1º=5 · 2º=4 · 3º=3 · 4º=2 · 5º=1, bônus
+  Overall de +10 somado à colocação, mesma regra para equipes, e o desempate
+  por Overall → 1º → 2º → 3º → 4º → 5º → `TIE_UNRESOLVED`. **Ainda pendente**:
+  como se determina o campeão Overall, e as decisões de apuração dentro da
+  classe.
 
 ---
 
@@ -442,7 +446,7 @@ regulamento.
 primária continua sendo a camada de service, coberta por teste; o banco é a
 segunda barreira — e, desde a fase 10.2, uma barreira efetiva. Todo handler
 autenticado passa por `withUserContext` (`src/config/rlsSession.js`), que
-define o ator com `SET LOCAL` dentro da transação da requisição; as 17 tabelas
+define o ator com `SET LOCAL` dentro da transação da requisição; as 18 tabelas
 protegidas têm `FORCE ROW LEVEL SECURITY`, de modo que nem o dono do schema é
 isento. O ator vem sempre do token, nunca do corpo da requisição.
 

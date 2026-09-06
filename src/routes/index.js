@@ -154,6 +154,15 @@ router.route('/seasons')
   .post(requireAuth, perm('ranking.manage', orgDoCorpo), validate(s.seasonCreate), wrap(c.ranking.createSeason));
 router.put('/seasons/:id/points-rules', requireAuth, validate(s.paramsWithId, 'params'), validate(s.pointsRuleSet), wrap(c.ranking.setPointsRules));
 router.post('/seasons/:id/recompute', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.ranking.recompute));
+// Ranking de equipes: mesma tabela de pontos e mesmo desempate do atleta.
+router.get('/ranking/teams', optionalAuth, validate(s.teamRankingQuery, 'query'), wrap(c.ranking.teams));
+
+// Título Overall. É declarado pela organização, não calculado: o critério de
+// determinação do campeão não foi homologado (ver docs/HOMOLOGACAO-ESPORTIVA.md).
+router.route('/events/:id/overall')
+  .get(optionalAuth, validate(s.paramsWithId, 'params'), wrap(c.ranking.listOverall))
+  .post(requireAuth, validate(s.paramsWithId, 'params'), validate(s.overallDeclare), wrap(c.ranking.declareOverall));
+
 router.get('/athletes/:id/ranking-points', requireAuth, validate(s.paramsWithId, 'params'), validate(s.rankingPointsQuery, 'query'), wrap(c.ranking.athletePoints));
 
 // ================================================================= MUSCLEWAR
