@@ -1,0 +1,27 @@
+# O contexto de build carrega só o que a imagem precisa. Tudo o que entra aqui
+# por descuido vira camada — ou, no caso do .env, vaza segredo para dentro da
+# imagem.
+
+.git
+.github
+node_modules
+frontend
+docs
+design
+tests
+uploads
+uploads-test
+
+# Segredo nunca entra na imagem: em produção as variáveis vêm do ambiente.
+.env
+.env.*
+!.env.example
+
+*.log
+logs
+coverage
+.vscode
+.idea
+.DS_Store
+Dockerfile
+.dockerignore

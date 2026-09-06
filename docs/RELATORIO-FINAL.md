@@ -173,10 +173,17 @@ Security      28
 RLS           12
 Rotas          5  (173 endpoints percorridos)
 Financeiro     8  (ausência verificada em schema, banco, arquivos e rotas)
+Produção      15  (barreira de configuração da partida)
+Homologação   23  (efeito de cada opção de apuração no pódio)
 ─────────────────
-Backend      133  em 9 arquivos — todos passando
+Backend      171  em 11 arquivos — todos passando
 Frontend      25  em 3 arquivos — todos passando
 ```
+
+Os 23 testes de homologação são documentação executável para o comitê técnico:
+cada um monta um painel completo — todo juiz classifica toda a classe — e
+mostra com números quem leva o título sob cada configuração de apuração. Ver
+`docs/HOMOLOGACAO-ESPORTIVA.md`.
 
 ---
 
@@ -250,6 +257,11 @@ Todos corrigidos, cada um com o teste que o teria pego.
 - **Publicações do evento não têm tela.** A rota pública passou a devolvê-las
   (a consulta existia e o resultado era descartado), mas a página do
   campeonato ainda não tem aba para exibi-las.
+- **Imagem Docker nunca construída.** O `Dockerfile` e o `.dockerignore` estão
+  escritos e comentados, mas o ambiente não tem daemon Docker: `docker build`
+  não foi executado e a imagem não foi verificada. O comando do `HEALTHCHECK`
+  esse sim foi testado contra um servidor real. Tratar o primeiro build como
+  parte do trabalho de deploy, não como formalidade.
 
 ---
 
@@ -293,7 +305,7 @@ verificadas em ambiente equivalente ao de produção. O que foi de fato
 executado e comprovado nesta sessão:
 
 - build do frontend, sintaxe do backend e migrations aplicadas: **sim**;
-- 132 testes de backend e 25 de frontend passando contra PostgreSQL real:
+- 171 testes de backend e 25 de frontend passando contra PostgreSQL real:
   **sim**;
 - RLS criado, aplicado, executado e testado: **sim**;
 - segurança e testes negativos: **sim**;
@@ -308,11 +320,29 @@ O que falta para a declaração:
    as políticas de RLS executadas por um papel sem `BYPASSRLS`.
 2. **Deploy em ambiente de produção real** — PostgreSQL gerenciado, storage de
    objetos no lugar do disco local, papel `mci_app` provisionado — com as
-   migrations aplicadas ali.
-3. **Homologação da regra esportiva** pela comissão técnica: método de
-   apuração, uso ou não de descarte, ordem dos desempates e tabela de pontos
-   por temporada. O sistema não presume nenhum deles, e sem essa configuração
-   um campeonato real não pode ser apurado.
+   migrations aplicadas ali. **Não executado:** depende de destino de
+   hospedagem e de credenciais, que não são pedidas por chat.
 
-Nenhum desses três é defeito de código. São etapas que dependem de acesso e de
-decisão de regulamento, e o sistema está pronto para recebê-las.
+   O que foi possível fazer sem o destino, foi feito: o runbook completo está
+   em `docs/DEPLOY.md`, o `Dockerfile` está escrito (mas **não construído**), e
+   a partida em produção deixou de aceitar disco efêmero em silêncio — hoje
+   `STORAGE_DRIVER=local` exige assunção explícita do risco, sob pena de o
+   processo recusar-se a subir.
+
+3. **Homologação da regra esportiva** pela comissão técnica: método de
+   apuração, uso ou não de descarte, painel mínimo para o descarte, ordem dos
+   desempates, procedimento para empate irresoluto e tabela de pontos por
+   temporada. O sistema não presume nenhum deles. **Não executado:** é decisão
+   do comitê técnico do Muscle Contest, e inventar regra esportiva seria pior
+   do que não ter nenhuma.
+
+   O que foi possível fazer sem o comitê, foi feito: `docs/HOMOLOGACAO-ESPORTIVA.md`
+   enumera as 7 decisões pendentes, e cada uma vem com a demonstração numérica
+   do seu efeito — inclusive dois casos em que a mesma prova, com os mesmos
+   votos dos mesmos juízes, entrega campeãs diferentes conforme a configuração.
+   Ratificar passa a ser ler os casos e apontar qual comportamento é o do
+   regulamento.
+
+Nenhum desses dois é defeito de código. São etapas que dependem de acesso e de
+decisão de regulamento; o que cabia ao software para recebê-las está pronto e
+verificado.
