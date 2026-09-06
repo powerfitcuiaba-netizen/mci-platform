@@ -73,7 +73,7 @@ class SandboxPaymentProvider {
     let corpo;
     try {
       corpo = JSON.parse(rawBody);
-    } catch (error) {
+    } catch (_error) {
       throw new AppError(400, 'INVALID_WEBHOOK', 'Corpo do webhook não é JSON válido');
     }
 

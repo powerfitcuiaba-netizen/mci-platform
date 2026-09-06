@@ -14,7 +14,10 @@
     "prisma:validate": "prisma validate",
     "db:up": "docker compose up -d postgres",
     "db:migrate": "prisma migrate deploy",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:migrate": "prisma migrate dev",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test:unit": "vitest run --config vitest.unit.config.mjs"
   },
   "keywords": [],
   "author": "",
@@ -31,7 +34,10 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "cross-env": "^10.1.0",
+    "eslint": "^9.39.5",
+    "globals": "^16.5.0",
     "prisma": "^6.16.0",
     "supertest": "^7.2.2",
     "vitest": "^4.1.11"

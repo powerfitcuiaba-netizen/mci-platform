@@ -66,7 +66,7 @@ class LocalStorageProvider {
     try {
       await fsp.access(this.resolveKey(key));
       return true;
-    } catch (error) {
+    } catch (_error) {
       return false;
     }
   }
@@ -86,7 +86,7 @@ class LocalStorageProvider {
     try {
       const info = await fsp.stat(this.resolveKey(key));
       return { sizeBytes: info.size, modifiedAt: info.mtime };
-    } catch (error) {
+    } catch (_error) {
       return null;
     }
   }
@@ -97,7 +97,7 @@ class LocalStorageProvider {
       await fsp.mkdir(this.root, { recursive: true });
       await fsp.access(this.root, fs.constants.W_OK);
       return true;
-    } catch (error) {
+    } catch (_error) {
       return false;
     }
   }

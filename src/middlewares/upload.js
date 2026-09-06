@@ -20,7 +20,7 @@ function singleFileUpload(fieldName = 'file') {
     let busboy;
     try {
       busboy = Busboy({ headers: req.headers, limits: { files: 1, fileSize: storage.MAX_BYTES, fields: 20 } });
-    } catch (error) {
+    } catch (_error) {
       return next(new AppError(400, 'INVALID_UPLOAD', 'Envio malformado'));
     }
 

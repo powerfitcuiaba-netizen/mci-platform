@@ -4,7 +4,9 @@ const { config } = require('../config/environment');
 // A resposta de erro nunca carrega stack trace: em produção isso é entrega de
 // mapa da aplicação. O rastro vai para o log estruturado, que já redige senha,
 // token e segredo.
-function errorHandler(err, req, res, next) { // eslint-disable-line no-unused-vars
+// `next` nao e usado, mas o Express so reconhece um handler de erro
+// com quatro parametros: remover mudaria o significado da funcao.
+function errorHandler(err, req, res, next) {
   const status = err.status || 500;
   const code = err.code || (status === 500 ? 'INTERNAL_ERROR' : 'ERROR');
 

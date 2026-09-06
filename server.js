@@ -10,6 +10,10 @@ try {
   assertPronto();
 } catch (erro) {
   logger.error('inicialização abortada', { motivo: erro.message });
+  // Aborto de inicializacao precisa chegar ao stderr mesmo com o logger
+  // silencioso (LOG_LEVEL=silent) ou emitindo JSON: o operador tem de ver o
+  // motivo da recusa.
+  // eslint-disable-next-line no-console
   console.error(erro.message);
   process.exit(1);
 }

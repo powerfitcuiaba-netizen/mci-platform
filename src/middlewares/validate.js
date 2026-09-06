@@ -13,7 +13,7 @@ function validate(schema, source = 'body') {
     try {
       req[source] = result.data;
       if (req[source] !== result.data) throw new Error('read-only');
-    } catch (error) {
+    } catch (_error) {
       Object.defineProperty(req, source, { value: result.data, writable: true, configurable: true, enumerable: true });
     }
     next();

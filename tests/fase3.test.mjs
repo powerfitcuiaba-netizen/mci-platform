@@ -31,7 +31,7 @@ describe('Fase 3 operational modules', () => {
     const teamA = await request(app).post('/api/v1/equipes').set('Authorization', `Bearer ${organizer.body.token}`).send({ name: 'Equipe A', identification: 'FASE-A' });
     const teamB = await request(app).post('/api/v1/equipes').set('Authorization', `Bearer ${organizer.body.token}`).send({ name: 'Equipe B', identification: 'FASE-B' });
     const enrollmentA = await request(app).post(`/api/v1/campeonatos/${tournament.body.id}/participantes`).set('Authorization', `Bearer ${organizer.body.token}`).send({ participantId: teamA.body.id });
-    const enrollmentB = await request(app).post(`/api/v1/campeonatos/${tournament.body.id}/participantes`).set('Authorization', `Bearer ${organizer.body.token}`).send({ participantId: teamB.body.id });
+    await request(app).post(`/api/v1/campeonatos/${tournament.body.id}/participantes`).set('Authorization', `Bearer ${organizer.body.token}`).send({ participantId: teamB.body.id });
     const match = await request(app).post('/api/v1/partidas').set('Authorization', `Bearer ${organizer.body.token}`).send({ tournamentId: tournament.body.id, participantAId: teamA.body.id, participantBId: teamB.body.id, status: 'IN_PROGRESS' });
 
     await request(app).post('/api/v1/judge/assignments').set('Authorization', `Bearer ${admin.body.token}`).send({ tournamentId: tournament.body.id, judgeId: judge.body.user.id });

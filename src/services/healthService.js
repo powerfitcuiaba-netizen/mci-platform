@@ -20,13 +20,13 @@ async function readiness() {
   try {
     await prisma.$queryRawUnsafe('SELECT 1');
     checks.database = { status: 'ok', kind: config.databaseKind };
-  } catch (error) {
+  } catch (_error) {
     checks.database = { status: 'error', kind: config.databaseKind };
   }
 
   try {
     checks.storage = { status: (await storage.healthCheck()) ? 'ok' : 'error', driver: storage.driver() };
-  } catch (error) {
+  } catch (_error) {
     checks.storage = { status: 'error', driver: config.storageDriver };
   }
 
