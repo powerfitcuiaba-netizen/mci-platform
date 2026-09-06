@@ -212,6 +212,25 @@ describe('não há contorno pela API', () => {
     // O campo é ignorado ou recusado — o que não pode é trocar a equipe.
     const ativo = await comoAtor(diretor, tx => tx.athleteTeamMembership.findFirst({ where: { athleteId: atleta.id, endedAt: null } }));
     expect(ativo.teamId, `PATCH não pode trocar a equipe (HTTP ${contorno.status})`).toBe(alpha.id);
+
+    // E o espelho não pode divergir do vínculo: se `Athlete.teamId` mudasse
+    // sozinho, o ranking atribuiria os pontos à equipe errada mesmo com o
+    // histórico intacto.
+    const perfil = await comoAtor(diretor, tx => tx.athlete.findUnique({ where: { id: atleta.id }, select: { teamId: true } }));
+    expect(perfil.teamId).toBe(alpha.id);
+  });
+
+  it('a recusa do PATCH aponta a rota certa, em vez de só negar', async () => {
+    // A trava não pode depender de uma única linha de schema: o service
+    // recusa por conta própria, e diz por onde a troca se faz.
+    const atleta = await criarAtletaLivre('Joao Silva');
+    await api().post(`/api/v1/athletes/${atleta.id}/team`).set(diretor.auth()).send({ teamId: alpha.id });
+
+    const contorno = await api().patch(`/api/v1/athletes/${atleta.id}`).set(diretor.auth())
+      .send({ teamId: beta.id });
+
+    expect([400, 422]).toContain(contorno.status);
+    expect(JSON.stringify(contorno.body)).toMatch(/team\/transfer|teamId/);
   });
 
   it('atleta de outra organização não é vinculado a equipe daqui', async () => {

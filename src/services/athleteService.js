@@ -152,6 +152,17 @@ async function update(id, data, actor) {
   const ehODono = athlete.userId && athlete.userId === actor?.id;
   if (!ehODono) assertCan(actor, 'athletes.update', athlete.organizationId);
 
+  // A equipe NÃO se troca por edição de perfil. `athleteUpdate` já não aceita
+  // `teamId`, mas a regra não pode depender de uma única linha de schema: se
+  // esta porta reabrisse, a troca aconteceria sem vínculo, sem histórico e sem
+  // a permissão de transferência.
+  if (data.teamId !== undefined) {
+    throw new AppError(422, 'TEAM_CHANGE_NOT_ALLOWED_HERE',
+      'A equipe do atleta não muda por edição de perfil. '
+      + 'Use POST /athletes/:id/team para vincular um atleta sem equipe, '
+      + 'ou POST /athletes/:id/team/transfer — que exige o operador da Muscle Contest.');
+  }
+
   await validarVinculos(data, athlete.organizationId);
 
   // Vínculo esportivo e número de atleta não são autoedição: mudam a

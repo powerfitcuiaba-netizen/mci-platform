@@ -88,7 +88,16 @@ const athleteCreate = z.object({
 // `teamId` NÃO entra aqui de propósito. O vínculo com equipe tem trava de
 // unicidade e histórico, e é governado por /athletes/:id/team — deixá-lo no
 // update genérico seria o contorno mais óbvio da trava.
-const athleteUpdate = athleteCreate.partial().omit({ organizationId: true, cpf: true, teamId: true });
+// `teamId` é recusado com mensagem, não descartado em silêncio: quem tentar
+// trocar a equipe por aqui precisa saber que a operação existe noutro lugar e
+// exige outra permissão. Omitir o campo faria a requisição responder 200 sem
+// ter mudado nada — a pior resposta possível para uma trava.
+const athleteUpdate = athleteCreate.partial().omit({ organizationId: true, cpf: true, teamId: true }).extend({
+  teamId: z.never({
+    error: 'A equipe do atleta não muda por edição de perfil. Use POST /athletes/:id/team para vincular '
+      + 'um atleta sem equipe, ou POST /athletes/:id/team/transfer, que exige o operador da Muscle Contest.'
+  }).optional()
+});
 
 const athleteTeamLink = z.object({ teamId: id, reason: opcional(texto(3, 300)) });
 const athleteTeamTransfer = z.object({ teamId: id, reason: texto(3, 300) });
