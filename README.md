@@ -422,6 +422,8 @@ As validações estáticas que a CI executa, e que reprovam o job, são
 | `producao` | barreira de configuração da partida: segredo, banco, CORS, hash e armazenamento |
 | `homologacao-tabulacao` | efeito de cada opção de apuração no pódio — documentação executável para o comitê técnico |
 | `pontuacao-oficial` | tabela homologada (1º=5…5º=1), bônus Overall +10 e a hierarquia de desempate, com os números abertos |
+| `pontuacao-11-3` | as DUAS métricas caso a caso: pontos do campeonato × elegíveis ao Super Overall, por classe e com Overall |
+| `regulamento-11-4` | o regulamento inteiro como matriz: 1º ao 10º em todas as classes, os quatro degraus do desempate, a prova de que 4º e 5º não separam, e a mesma regra aplicada a equipes |
 | `ranking-oficial` | a regra oficial no caminho real: Overall, equipes, versionamento, idempotência, concorrência e permissão |
 | `vinculo-equipe` | vínculo único atleta → equipe: recusa nomeando a equipe atual, corrida entre requisições simultâneas, transferência só pelo operador, histórico e gravação direta no banco, e a importação como porta dos fundos: arquivo com equipe divergente, inclusive datado no passado |
 
@@ -453,16 +455,19 @@ Não existe variável financeira, e o teste de ausência confere isso.
 - **[`docs/DEPLOY.md`](docs/DEPLOY.md)** — runbook: ordem do primeiro deploy,
   provisionamento do papel `mci_app`, sondas, rollback e checklist. Declara o
   que foi verificado e o que não foi (a imagem Docker **nunca foi construída**).
-- **[`docs/HOMOLOGACAO-ESPORTIVA.md`](docs/HOMOLOGACAO-ESPORTIVA.md)** —
-  separa o que é **REGRA HOMOLOGADA** do que é **PENDING HOMOLOGATION**.
-  Homologado na fase 11.1: pontuação 1º=5 · 2º=4 · 3º=3 · 4º=2 · 5º=1, bônus
-  Overall de +10 somado à colocação, mesma regra para equipes, e o desempate
-  por Overall → 1º → 2º → 3º → `TIE_UNRESOLVED`. Homologado na 11.2: as classes
-  Estreante, Novice, Open e Master **todas pontuam**, mas **só a OPEN alimenta o
-  ranking classificatório do Super Overall anual** — e essa marca é atributo da
-  classe, gerenciável pelo operador, nunca um código escrito no motor. **Ainda
-  pendente**: qual entidade representa "empresa" como competidora, e as decisões
-  de apuração dentro da classe.
+- **[`docs/phase-11.4-regulamento-ranking.md`](docs/phase-11.4-regulamento-ranking.md)**
+  — **o regulamento do ranking**, consolidado e sem nada provisório: classes
+  Estreante/Novice/Open/Master, pontuação 5/4/3/2/1 e **0 do 6º em diante**,
+  Overall +10 como **fato declarado**, **só a OPEN** alimentando o Super Overall
+  anual, e o desempate Overall → 1º → 2º → 3º → `TIE_UNRESOLVED` — com 4º e 5º
+  pontuando e **não** desempatando. A mesma regra vale para equipes e empresas.
+- **[`docs/phase-11.3-ranking-super-overall.md`](docs/phase-11.3-ranking-super-overall.md)**
+  — as duas métricas separadas (`points` × `superOverallPoints`), a conferência
+  da pontuação importada e a rastreabilidade de cada ponto.
+- **[`docs/HOMOLOGACAO-ESPORTIVA.md`](docs/HOMOLOGACAO-ESPORTIVA.md)** — o
+  histórico da homologação e o que **ainda** depende do comitê técnico: as
+  decisões de apuração *dentro da classe* (método, descarte, painel mínimo), que
+  não se confundem com o desempate de ranking, já homologado.
 
 ---
 
