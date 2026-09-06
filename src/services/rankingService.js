@@ -1,6 +1,6 @@
 const prisma = require('../config/prisma');
 const { AppError } = require('../utils/errors');
-const { assertCan, organizationFilter, assertPermission } = require('../utils/tenant');
+const { assertCan, organizationFilter } = require('../utils/tenant');
 const audit = require('./auditService');
 const {
   TABELA_OFICIAL_COLOCACAO, BONUS_OVERALL, pontuarResultado, contadores, classificar
@@ -615,7 +615,16 @@ async function list(filtros, actor) {
 
 // Detalhamento dos pontos de um atleta: cada linha aponta de onde veio.
 async function athletePoints(athleteId, seasonId, actor) {
-  assertPermission(actor, 'ranking.read');
+  // Escopo de TENANT, não só permissão. `assertPermission` sozinho respondia
+  // 200 para o gerente de ranking de uma organização consultando atleta de
+  // OUTRA: a permissão existia, e ninguém perguntava de quem era o atleta.
+  // Todo o resto deste service usa `assertCan`, que exige as duas condições.
+  const athlete = await prisma.athlete.findUnique({
+    where: { id: athleteId }, select: { organizationId: true }
+  });
+  if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
+
+  assertCan(actor, 'ranking.read', athlete.organizationId);
 
   return prisma.rankingPoint.findMany({
     where: { athleteId, ...(seasonId ? { seasonId } : {}) },

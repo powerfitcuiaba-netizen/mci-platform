@@ -386,3 +386,58 @@ describe('respostas de erro', () => {
     expect(resposta.body.error.details.length).toBeGreaterThan(0);
   });
 });
+
+describe('cross-tenant no detalhamento de pontos', () => {
+  // Achado de auditoria: `athletePoints` checava a PERMISSÃO e não o TENANT.
+  // O gerente de ranking de uma organização recebia 200 consultando atleta de
+  // outra — a permissão existia, e ninguém perguntava de quem era o atleta.
+  // Todo o resto do service usa `assertCan`, que exige as duas condições.
+  it('gerente de ranking de outra organização não lê os pontos do atleta', async () => {
+    const admin = await criarUsuario({ role: 'SUPER_ADMIN', name: 'Administrador' });
+
+    const orgA = await criarOrganizacao(admin, { name: `Federação A ${Date.now()}` });
+    const orgB = await criarOrganizacao(admin, { name: `Federação B ${Date.now()}` });
+
+    const diretorA = await criarUsuario({ name: 'Diretora A' });
+    await vincular(orgA.id, diretorA, 'EVENT_DIRECTOR');
+
+    const intruso = await criarUsuario({ name: 'Gerente B' });
+    await vincular(orgB.id, intruso, 'RANKING_MANAGER');
+
+    const atletaDaA = await criarAtleta(diretorA, orgA.id, {
+      fullName: 'ATLETA DA ORG A', cpf: gerarCpf(818282828)
+    });
+
+    const tentativa = await api().get(`/api/v1/athletes/${atletaDaA.id}/ranking-points`)
+      .set(intruso.auth());
+
+    expect([403, 404], `vazou com HTTP ${tentativa.status}`).toContain(tentativa.status);
+  });
+
+  it('quem é da organização do atleta continua lendo normalmente', async () => {
+    // A correção não pode fechar a porta para quem tem o direito de passar.
+    const admin = await criarUsuario({ role: 'SUPER_ADMIN', name: 'Administrador' });
+    const org = await criarOrganizacao(admin, { name: `Federação ${Date.now()}` });
+
+    const diretor = await criarUsuario({ name: 'Diretora' });
+    await vincular(org.id, diretor, 'EVENT_DIRECTOR');
+    await vincular(org.id, diretor, 'RANKING_MANAGER');
+
+    const atleta = await criarAtleta(diretor, org.id, {
+      fullName: 'ATLETA DA CASA', cpf: gerarCpf(838383838)
+    });
+
+    const leitura = await api().get(`/api/v1/athletes/${atleta.id}/ranking-points`).set(diretor.auth());
+
+    expect(leitura.status).toBe(200);
+    expect(leitura.body.items).toEqual([]);
+  });
+
+  it('atleta inexistente responde 404, não lista vazia', async () => {
+    const admin = await criarUsuario({ role: 'SUPER_ADMIN', name: 'Administrador' });
+    const resposta = await api().get('/api/v1/athletes/clnaoexiste000000000000/ranking-points')
+      .set(admin.auth());
+
+    expect(resposta.status).toBe(404);
+  });
+});
