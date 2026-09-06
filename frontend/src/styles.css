@@ -156,6 +156,12 @@ h1, h2, h3 { margin: 0; }
 .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
 .search-box { display: flex; align-items: center; gap: 8px; background: var(--superficie); border: 1px solid var(--linha); border-radius: var(--raio); padding: 0 11px; min-height: 38px; flex: 1 1 260px; max-width: 420px; color: var(--cinza-fraco); }
 .search-box input { border: 0; background: transparent; outline: 0; width: 100%; font-size: 13px; }
+/* Nome que abre o detalhe: age como link, mas é <button> — quem navega por
+   teclado precisa do papel certo, e o alvo não é uma URL. */
+.link-button { background: none; border: 0; padding: 0; font: inherit; color: var(--vermelho-claro); cursor: pointer; text-align: left; }
+.link-button:hover { text-decoration: underline; }
+.link-button:focus-visible { outline: 2px solid var(--vermelho-claro); outline-offset: 2px; }
+
 .select-control { background: var(--superficie); border: 1px solid var(--linha); border-radius: var(--raio); min-height: 38px; padding: 0 10px; font-size: 12px; }
 
 .table { width: 100%; border-collapse: collapse; font-size: 12.5px; }

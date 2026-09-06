@@ -138,6 +138,7 @@ export function AdminRanking({ notificar }) {
 function ConferirPontuacao({ temporada, onClose }) {
   const campeonato = useFetch(() => api.ranking.list({ seasonId: temporada.id }), [temporada.id]);
   const anual = useFetch(() => api.ranking.superOverall({ seasonId: temporada.id }), [temporada.id]);
+  const [detalhando, setDetalhando] = useState(null);
 
   const doAnual = new Map((anual.data || []).map(linha => [linha.athlete?.id, linha.totalPoints]));
 
@@ -183,7 +184,16 @@ function ConferirPontuacao({ temporada, onClose }) {
                         <tr key={linha.athlete?.id || linha.position}>
                           <td className="num">{linha.position ?? '—'}</td>
                           <td>
-                            {linha.athlete?.fullName || '—'}
+                            {/* "Por que este atleta tem 15 pontos?" — a resposta
+                                está a um clique, e não só na API. */}
+                            <button
+                              type="button"
+                              className="link-button"
+                              onClick={() => setDetalhando(linha.athlete)}
+                              title="Ver a origem de cada ponto"
+                            >
+                              {linha.athlete?.fullName || '—'}
+                            </button>
                             {linha.tieUnresolved && <Badge tom="alerta">empate não resolvido</Badge>}
                           </td>
                           <td className="num"><strong>{linha.totalPoints}</strong></td>
@@ -206,10 +216,115 @@ function ConferirPontuacao({ temporada, onClose }) {
               <p style={{ fontSize: 11, color: 'var(--cinza-fraco)', marginTop: 10 }}>
                 Desempate oficial, nesta ordem: Overall → 1º → 2º → 3º. Persistindo o empate,
                 ninguém recebe a colocação — 4º e 5º pontuam, mas não desempatam.
+                Clique no nome para ver de onde veio cada ponto.
               </p>
             </>
           )
           : <EmptyState title="Nenhuma pontuação" description="Publique resultados para que a temporada pontue." />
+        )}
+      </AsyncSection>
+
+      {detalhando && (
+        <OrigemDosPontos atleta={detalhando} temporada={temporada} onClose={() => setDetalhando(null)} />
+      )}
+    </Modal>
+  );
+}
+
+// ===================================================== ORIGEM DE CADA PONTO
+// A pergunta que a auditoria precisa responder: "por que este atleta tem 15
+// pontos?". A resposta é a linha inteira — evento, classe, colocação, e as
+// PARCELAS separadas, porque o total tem de ser reconstituível a partir delas
+// e não apenas conferido no agregado.
+function OrigemDosPontos({ atleta, temporada, onClose }) {
+  const estado = useFetch(
+    () => api.ranking.athletePoints(atleta.id, { seasonId: temporada.id }),
+    [atleta.id, temporada.id]
+  );
+
+  return (
+    <Modal
+      title={`Origem dos pontos — ${atleta.fullName}`}
+      description={`${temporada.name} · cada linha aponta para o resultado ou a importação que a gerou.`}
+      wide
+      onClose={onClose}
+    >
+      <AsyncSection state={estado} linhas={3}>
+        {dados => (dados.items.length
+          ? (
+            <>
+              <div className="table-wrap" style={{ maxHeight: 340, overflowY: 'auto' }}>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Evento</th>
+                      <th>Categoria</th>
+                      <th>Classe</th>
+                      <th className="num">Col.</th>
+                      <th className="num">Pts colocação</th>
+                      <th className="num">Bônus Overall</th>
+                      <th className="num">Campeonato</th>
+                      <th className="num">Super Overall</th>
+                      <th>Origem</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dados.items.map(ponto => (
+                      <tr key={ponto.id}>
+                        <td>{ponto.event?.name || ponto.externalResult?.eventName || '—'}</td>
+                        <td>{ponto.category?.name || '—'}</td>
+                        <td>
+                          {ponto.competitionClass?.code || ponto.competitionClass?.name || '—'}
+                          {!ponto.superOverallEligible && (
+                            <small style={{ display: 'block', color: 'var(--cinza-fraco)', fontSize: 10 }}>
+                              não elegível
+                            </small>
+                          )}
+                        </td>
+                        <td className="num">{ponto.placing ?? '—'}</td>
+                        <td className="num">{ponto.placementPoints}</td>
+                        <td className="num">
+                          {ponto.overallBonus > 0
+                            ? <strong>+{ponto.overallBonus}</strong>
+                            : <span style={{ color: 'var(--cinza-fraco)' }}>0</span>}
+                        </td>
+                        <td className="num"><strong>{ponto.points}</strong></td>
+                        <td className="num">
+                          {ponto.superOverallPoints > 0
+                            ? <strong>{ponto.superOverallPoints}</strong>
+                            : <span style={{ color: 'var(--cinza-fraco)' }}>0</span>}
+                        </td>
+                        <td>
+                          <Badge tom={ponto.source === 'EVENT' ? 'ok' : 'info'}>
+                            {ponto.source === 'EVENT' ? 'evento' : 'importação'}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: 'right' }}><strong>Totais</strong></td>
+                      <td className="num">
+                        <strong>{dados.items.reduce((soma, p) => soma + p.points, 0)}</strong>
+                      </td>
+                      <td className="num">
+                        <strong>{dados.items.reduce((soma, p) => soma + p.superOverallPoints, 0)}</strong>
+                      </td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              <p style={{ fontSize: 11, color: 'var(--cinza-fraco)', marginTop: 10 }}>
+                Pontos da colocação + bônus Overall = pontos do campeonato. Os pontos elegíveis
+                ao Super Overall só existem onde a classe é elegível — o bônus segue a
+                elegibilidade da participação que o originou.
+              </p>
+            </>
+          )
+          : <EmptyState title="Sem pontos nesta temporada" description="Nenhum resultado publicado ou importado gerou pontuação." />
         )}
       </AsyncSection>
     </Modal>

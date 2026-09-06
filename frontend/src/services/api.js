@@ -134,7 +134,6 @@ export const api = {
     lookup: dados => post('/athletes/lookup', dados),
     listPro: params => get('/athletes/pro', params),
     setProStatus: (id, dados) => post(`/athletes/${id}/pro-status`, dados),
-    rankingPoints: (id, params) => get(`/athletes/${id}/ranking-points`, params),
     // Vínculo com equipe. `linkTeam` só vincula atleta livre; tirar de outra
     // equipe é `transferTeam`, ato do operador da Muscle Contest.
     linkTeam: (id, dados) => post(`/athletes/${id}/team`, dados),
