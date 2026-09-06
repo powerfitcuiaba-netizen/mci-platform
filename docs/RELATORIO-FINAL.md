@@ -166,15 +166,15 @@ inválida, conta suspensa, autopromoção de papel.
 ## 9. Testes
 
 ```
-Unit          38  (CPF, estados, RBAC, apuração, adapter MuscleWar)
+Unit          39  (CPF, estados, RBAC, apuração, adapter MuscleWar, BOM)
 Integration   +   (todos os E2E rodam contra PostgreSQL real)
-E2E           39  (campeonato 2, MuscleWar 10, social/messenger 21, mídia 8… )
+E2E           41  (campeonato 2, MuscleWar 10, social/messenger 21, mídia 8)
 Security      28
 RLS           12
 Rotas          5  (173 endpoints percorridos)
 Financeiro     8  (ausência verificada em schema, banco, arquivos e rotas)
 ─────────────────
-Backend      132  em 9 arquivos — todos passando (32 s)
+Backend      133  em 9 arquivos — todos passando
 Frontend      25  em 3 arquivos — todos passando
 ```
 
@@ -183,9 +183,11 @@ Frontend      25  em 3 arquivos — todos passando
 ## 10. Build
 
 ```
-Lint:       não há linter configurado no projeto; a CI usa `node --check`
-            em todo arquivo de src/, prisma/ e scripts/ — passou
-Typecheck:  não aplicável (projeto em JavaScript, sem TypeScript)
+Lint:       ESLint como gate real na CI, sem problema em backend, scripts,
+            testes e frontend — passou
+Typecheck:  N/A — JavaScript-only. Não há tipos para checar; converter a base
+            só para preencher o item seria trocar risco real por selo. As
+            validações estáticas que reprovam o job são `node --check` e ESLint
 Build:      backend não tem etapa de bundling; frontend `vite build` — passou
 Migrations: `prisma migrate deploy` + `migrate status` — sem pendência
 ```
@@ -239,21 +241,22 @@ Todos corrigidos, cada um com o teste que o teria pego.
   rotina de limpeza seja adicionada.
 - **Analytics esportivo** limita-se aos painéis administrativo, operacional e
   do atleta. Não há relatório exportável.
-- **Linter.** O projeto não tem ESLint configurado; a CI verifica sintaxe com
-  `node --check`.
+- **`deepmerge-ts@7.1.5`** carrega advisory de esgotamento de pilha e chega por
+  `@prisma/config`, que a fixa em versão exata. Nenhum release 6.x do Prisma a
+  atualiza. Forçar por override mexeria por dentro do CLI de migration para
+  mitigar um caminho que só roda em desenvolvimento, sobre configuração nossa,
+  sem entrada de terceiros. Não alcança o runtime nem dado de usuário. Revisar
+  quando o Prisma 7 for avaliado.
+- **Publicações do evento não têm tela.** A rota pública passou a devolvê-las
+  (a consulta existia e o resultado era descartado), mas a página do
+  campeonato ainda não tem aba para exibi-las.
 
 ---
 
 ## 13. Blockers
 
-**Push bloqueado.** O commit está feito localmente, mas o envio para
-`powerfitcuiaba-netizen/mci-platform` é recusado com 403: *"Claude doesn't have
-GitHub access to powerfitcuiaba-netizen/mci-platform for your organization"*.
-
-Resolução: um administrador da organização instala o Claude GitHub App em
-<https://github.com/apps/claude/installations/select_target>, ou o titular
-reconecta o GitHub em claude.ai → Configurações → Conectores. Feito isso, o
-push segue sem alteração no código.
+**Nenhum.** O bloqueio anterior — acesso do Claude ao repositório no GitHub —
+foi resolvido pelo titular. O push foi feito e a CI rodou verde.
 
 Nenhum outro bloqueio. PostgreSQL foi encontrado no ambiente, iniciado e usado
 de verdade: migrations aplicadas, RLS executado e testado, suíte inteira rodando
@@ -300,9 +303,9 @@ executado e comprovado nesta sessão:
 
 O que falta para a declaração:
 
-1. **Push e CI verde no repositório.** O código não chegou ao GitHub (item 13),
-   então a pipeline nunca rodou. Declarar produção com base apenas em execução
-   local seria declarar o que não foi observado.
+1. ~~Push e CI verde no repositório.~~ **Concluído.** O código está no GitHub e
+   a pipeline rodou verde contra PostgreSQL 16.15 real, com ESLint como gate e
+   as políticas de RLS executadas por um papel sem `BYPASSRLS`.
 2. **Deploy em ambiente de produção real** — PostgreSQL gerenciado, storage de
    objetos no lugar do disco local, papel `mci_app` provisionado — com as
    migrations aplicadas ali.
