@@ -64,6 +64,16 @@ const config = Object.freeze({
   defaultTimezone: process.env.DEFAULT_TIMEZONE || 'America/Sao_Paulo',
 
   storageDriver: process.env.STORAGE_DRIVER || 'local',
+  // Provedor de objetos. Só é lido quando STORAGE_DRIVER=s3; nenhuma
+  // credencial tem valor padrão, de propósito.
+  s3: {
+    endpoint: process.env.S3_ENDPOINT || '',
+    region: process.env.S3_REGION || 'us-east-1',
+    bucket: process.env.S3_BUCKET || '',
+    accessKeyId: process.env.S3_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || '',
+    forcePathStyle: bool(process.env.S3_FORCE_PATH_STYLE, true)
+  },
   // Armazenamento em disco do próprio contêiner é adequado apenas quando há
   // volume persistente montado. Sem isso, todo upload — documento de atleta,
   // foto, mídia de mensagem — desaparece no primeiro redeploy. Em produção a
@@ -110,6 +120,14 @@ function validar(ambiente = config) {
   // Comparação afirmativa de propósito: `undefined < 10` é falso, e a checagem
   // escrita ao contrário deixaria passar justamente o ambiente sem a variável.
   if (!(ambiente.bcryptRounds >= 10)) problemas.push('BCRYPT_ROUNDS abaixo de 10 é fraco demais para produção');
+
+  if (ambiente.storageDriver === 's3') {
+    const faltando = ['endpoint', 'bucket', 'accessKeyId', 'secretAccessKey']
+      .filter(campo => !ambiente.s3?.[campo]);
+    if (faltando.length) {
+      problemas.push(`STORAGE_DRIVER=s3 exige ${faltando.map(c => `S3_${c.replace(/([A-Z])/g, '_$1').toUpperCase()}`).join(', ')}`);
+    }
+  }
 
   // Falha fechada: subir com disco efêmero perde arquivo de atleta em
   // silêncio, e a perda só aparece quando alguém vai buscar o documento.

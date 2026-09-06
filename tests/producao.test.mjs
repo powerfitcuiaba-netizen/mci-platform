@@ -25,6 +25,7 @@ const producaoValida = (sobrescritas = {}) => ({
   bcryptRounds: 12,
   storageDriver: 's3',
   allowLocalStorage: false,
+  s3: { endpoint: 'https://s3.exemplo.com', bucket: 'mci', accessKeyId: 'AKIA', secretAccessKey: 'segredo' },
 
   ...sobrescritas
 });
@@ -87,6 +88,36 @@ describe('validação de produção', () => {
     expect(problemas.join(' ')).toMatch(/ALLOW_LOCAL_STORAGE/);
   });
 
+  it('recusa STORAGE_DRIVER=s3 sem as credenciais do provedor', () => {
+    const problemas = validar(producaoValida({ storageDriver: 's3', s3: { endpoint: '', bucket: '', accessKeyId: '', secretAccessKey: '' } }));
+
+    const texto = problemas.join(' ');
+    expect(texto).toMatch(/S3_ENDPOINT/);
+    expect(texto).toMatch(/S3_BUCKET/);
+    expect(texto).toMatch(/S3_ACCESS_KEY_ID/);
+    expect(texto).toMatch(/S3_SECRET_ACCESS_KEY/);
+  });
+
+  it('aponta exatamente qual credencial do S3 falta, não um erro genérico', () => {
+    const problemas = validar(producaoValida({
+      storageDriver: 's3',
+      s3: { endpoint: 'https://s3.exemplo.com', bucket: 'mci', accessKeyId: 'AKIA', secretAccessKey: '' }
+    }));
+
+    expect(problemas.join(' ')).toMatch(/S3_SECRET_ACCESS_KEY/);
+    expect(problemas.join(' ')).not.toMatch(/S3_BUCKET/);
+  });
+
+  it('aprova S3 completamente configurado, sem exigir ALLOW_LOCAL_STORAGE', () => {
+    // Provedor de objetos é justamente a saída para o risco do disco efêmero:
+    // configurado, a assunção de risco deixa de ser necessária.
+    expect(validar(producaoValida({
+      storageDriver: 's3',
+      allowLocalStorage: false,
+      s3: { endpoint: 'https://s3.exemplo.com', bucket: 'mci', accessKeyId: 'AKIA', secretAccessKey: 'segredo' }
+    }))).toEqual([]);
+  });
+
   it('aceita disco local quando o operador assume o risco — há volume persistente', () => {
     expect(validar(producaoValida({ storageDriver: 'local', allowLocalStorage: true }))).toEqual([]);
   });
@@ -126,7 +157,7 @@ describe('validação de produção', () => {
     // em produção enquanto a suíte continua verde.
     for (const campo of [
       'isProduction', 'jwtSecret', 'jwtSecretDefinido', 'databaseUrl', 'databaseKind',
-      'corsOrigins', 'corsOriginsDefinido', 'bcryptRounds', 'storageDriver', 'allowLocalStorage'
+      'corsOrigins', 'corsOriginsDefinido', 'bcryptRounds', 'storageDriver', 'allowLocalStorage', 's3'
     ]) {
       expect(config, `config não expõe ${campo}`).toHaveProperty(campo);
     }

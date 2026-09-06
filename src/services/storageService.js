@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const { AppError } = require('../utils/errors');
 const { config } = require('../config/environment');
 const { LocalStorageProvider } = require('./storage/localStorageProvider');
+const { S3StorageProvider } = require('./storage/s3StorageProvider');
 
 // Fachada de armazenamento. O domínio conversa só com este módulo; qual
 // provedor está por baixo — disco local hoje, objeto em nuvem depois — é
@@ -37,6 +38,13 @@ const ALLOWED_MEDIA = Object.freeze({
 });
 
 const provedores = new Map([['local', new LocalStorageProvider({ root: ROOT })]]);
+
+// O provedor de objetos só é construído quando escolhido: sem credencial no
+// ambiente, instanciá-lo lançaria — e um deploy que usa disco local não tem
+// por que falhar por causa de configuração que não usa.
+if (config.storageDriver === 's3') {
+  provedores.set('s3', new S3StorageProvider(config.s3));
+}
 
 function resolverProvedor() {
   const escolhido = config.storageDriver || 'local';

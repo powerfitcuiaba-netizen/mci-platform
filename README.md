@@ -384,6 +384,7 @@ As validações estáticas que a CI executa, e que reprovam o job, são
 | `seguranca` | autenticação, escalada de papel, cross-tenant, proteção do CPF, juiz não escalado, resultado não publicado, transições inválidas |
 | `rls` | políticas executadas como papel sem `BYPASSRLS`, direto no banco |
 | `rls-runtime` | o RLS no caminho real da requisição: o dono também é filtrado, contexto por ator, concorrência e ausência de bypass |
+| `armazenamento-objetos` | assinatura SigV4 contra o vetor oficial da AWS e o contrato do provedor contra um servidor que recusa assinatura errada |
 | `midia` | upload, limites de tamanho, tipos aceitos, entrega com cabeçalho seguro |
 | `rotas` | auditoria dos endpoints registrados, percorridos um a um |
 | `financeiro-ausente` | schema, banco real, arquivos, rotas e variáveis: nenhum resquício financeiro |

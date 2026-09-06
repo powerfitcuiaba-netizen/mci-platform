@@ -18,6 +18,7 @@ Honestidade sobre o que foi e o que não foi executado:
 | Barreira de configuração de produção | ✅ executado (15 testes) |
 | `/health` e `/ready` respondendo em processo real | ✅ executado |
 | Encerramento ordenado em SIGTERM | ✅ executado |
+| Provedor de objetos (assinatura e contrato completo) | ✅ executado (10 testes, contra servidor que valida a assinatura) |
 | **`docker build` da imagem** | ❌ **NUNCA EXECUTADO** — sem daemon Docker no ambiente onde o Dockerfile foi escrito |
 | **Deploy em host real** | ❌ **NUNCA EXECUTADO** — depende de destino e credenciais que não me cabem |
 
@@ -100,17 +101,29 @@ superusuária, para que o cenário não volte despercebido.
 
 ### 1.3 Armazenamento de arquivos
 
-`STORAGE_DRIVER=local` grava no disco do próprio contêiner. Sem volume
-persistente, **todo upload — documento de atleta, foto, mídia de mensagem —
-desaparece no primeiro redeploy**, e a perda só aparece quando alguém vai
-buscar o arquivo.
+Duas opções, e a escolha precisa ser explícita — o servidor recusa subir sem
+ela.
 
-O servidor **se recusa a subir** nessa combinação. Para prosseguir é preciso
-uma escolha explícita:
+**Recomendado: provedor de objetos.** `STORAGE_DRIVER=s3` com `S3_ENDPOINT`,
+`S3_BUCKET`, `S3_ACCESS_KEY_ID` e `S3_SECRET_ACCESS_KEY`. Nenhuma tem padrão, e
+faltando qualquer uma o processo aborta dizendo qual. Serve S3, MinIO,
+Cloudflare R2, DigitalOcean Spaces e Backblaze B2 — todos falam o mesmo
+protocolo; `S3_FORCE_PATH_STYLE=false` troca para virtual-hosted, que é o
+padrão do S3 moderno.
 
-- configurar um provedor de objetos, ou
-- montar volume persistente de verdade e assumir o risco com
-  `ALLOW_LOCAL_STORAGE=true`.
+A assinatura é SigV4 implementada na casa (`src/services/storage/awsSignature.js`),
+sem o SDK da AWS: são quatro verbos HTTP, e o SDK acrescentaria dezenas de
+megabytes à imagem para assinar quatro requisições. A implementação é conferida
+contra o vetor oficial da suíte de testes da AWS, e o provedor é exercitado
+contra um servidor que valida a assinatura e responde 403 a quem assina errado
+(`tests/armazenamento-objetos.test.mjs`).
+
+**Alternativa: disco local.** `STORAGE_DRIVER=local` grava no disco do próprio
+contêiner. Sem volume persistente, **todo upload — documento de atleta, foto,
+mídia de mensagem — desaparece no primeiro redeploy**, e a perda só aparece
+quando alguém vai buscar o arquivo. Por isso exige `ALLOW_LOCAL_STORAGE=true`:
+é assunção explícita de risco, e só faz sentido com volume persistente de
+verdade montado.
 
 Não existe caminho silencioso entre as duas.
 
@@ -139,7 +152,7 @@ que servir tráfego real com segredo de desenvolvimento.
 | `JWT_SECRET` | 32+ caracteres e **não pode ser** valor de exemplo da lista de placeholders |
 | `CORS_ORIGINS` (ou `FRONTEND_URL`) | explícito; **curinga `*` é recusado** |
 | `BCRYPT_ROUNDS` | ≥ 10 |
-| `STORAGE_DRIVER` | se `local`, exige `ALLOW_LOCAL_STORAGE=true` |
+| `STORAGE_DRIVER` | se `local`, exige `ALLOW_LOCAL_STORAGE=true`; se `s3`, exige as quatro variáveis do provedor |
 
 Gerar o segredo:
 
@@ -320,7 +333,7 @@ API, ou o navegador bloqueia as chamadas.
 - [ ] `JWT_SECRET` com 32+ caracteres, gerado aleatoriamente, **fora do repositório**
 - [ ] `CORS_ORIGINS` com as origens reais, sem curinga
 - [ ] `BCRYPT_ROUNDS` ≥ 10
-- [ ] Decisão de armazenamento tomada (§1.3) — provedor de objetos ou volume persistente
+- [ ] Decisão de armazenamento tomada (§1.3) — `STORAGE_DRIVER=s3` com as quatro variáveis, ou volume persistente com `ALLOW_LOCAL_STORAGE=true`
 - [ ] `readinessProbe` em `/ready`, `livenessProbe` em `/health`
 - [ ] TLS terminando antes da API; `trust proxy` já ligado em produção
 - [ ] Backup do PostgreSQL configurado e **restauração testada**
