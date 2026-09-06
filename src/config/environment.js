@@ -47,18 +47,28 @@ const config = Object.freeze({
   databaseKind: String(process.env.DATABASE_URL || '').startsWith('postgres') ? 'postgresql' : 'desconhecido',
 
   jwtSecret: process.env.JWT_SECRET || 'development-secret-change-me',
+  // Sem isto não dá para distinguir "JWT_SECRET ausente" de "JWT_SECRET com o
+  // valor de exemplo": os dois chegam aqui como o mesmo texto, e o operador
+  // recebe o diagnóstico errado.
+  jwtSecretDefinido: Boolean(process.env.JWT_SECRET),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '12h',
   // Custo do bcrypt. Alto por padrão; a suíte de teste reduz para que a
   // verificação de milhares de hashes não domine o tempo de execução.
   bcryptRounds: inteiro(process.env.BCRYPT_ROUNDS, isTest ? 4 : 12),
 
   corsOrigins: origensPermitidas(),
+  corsOriginsDefinido: Boolean(process.env.CORS_ORIGINS || process.env.FRONTEND_URL),
 
   // Fuso padrão de novas organizações e eventos. Nenhum cálculo do domínio
   // assume fuso fixo: cada evento carrega o seu.
   defaultTimezone: process.env.DEFAULT_TIMEZONE || 'America/Sao_Paulo',
 
   storageDriver: process.env.STORAGE_DRIVER || 'local',
+  // Armazenamento em disco do próprio contêiner é adequado apenas quando há
+  // volume persistente montado. Sem isso, todo upload — documento de atleta,
+  // foto, mídia de mensagem — desaparece no primeiro redeploy. Em produção a
+  // escolha precisa ser deliberada, não herdada do padrão de desenvolvimento.
+  allowLocalStorage: bool(process.env.ALLOW_LOCAL_STORAGE, false),
   storageDir: process.env.STORAGE_DIR || null,
   uploadMaxBytes: inteiro(process.env.UPLOAD_MAX_BYTES, 10 * 1024 * 1024),
   mediaMaxBytes: inteiro(process.env.MEDIA_MAX_BYTES, 50 * 1024 * 1024),
@@ -72,24 +82,43 @@ const config = Object.freeze({
 
 // Devolve os problemas em vez de lançar no primeiro, para que o operador veja
 // tudo o que falta de uma vez.
+//
+// Depende exclusivamente do objeto recebido. Ler process.env aqui dentro faria
+// a função julgar um ambiente diferente do que lhe foi entregue — e, quando os
+// dois discordassem, ela lançaria TypeError no meio da checagem em vez de
+// listar o que está errado. Uma barreira que quebra a caminho do diagnóstico
+// não é barreira.
 function validar(ambiente = config) {
   const problemas = [];
 
   if (!ambiente.isProduction) return problemas;
 
-  if (!process.env.JWT_SECRET) problemas.push('JWT_SECRET não está definido');
-  else if (PLACEHOLDERS.includes(ambiente.jwtSecret)) problemas.push('JWT_SECRET ainda usa o valor de desenvolvimento');
-  else if (ambiente.jwtSecret.length < 32) problemas.push('JWT_SECRET deve ter ao menos 32 caracteres');
+  const jwtSecret = ambiente.jwtSecret || '';
+  if (!ambiente.jwtSecretDefinido || !jwtSecret) problemas.push('JWT_SECRET não está definido');
+  else if (PLACEHOLDERS.includes(jwtSecret)) problemas.push('JWT_SECRET ainda usa o valor de desenvolvimento');
+  else if (jwtSecret.length < 32) problemas.push('JWT_SECRET deve ter ao menos 32 caracteres');
 
-  if (!process.env.DATABASE_URL) problemas.push('DATABASE_URL não está definido');
+  if (!ambiente.databaseUrl) problemas.push('DATABASE_URL não está definido');
   else if (ambiente.databaseKind !== 'postgresql') problemas.push('DATABASE_URL precisa apontar para PostgreSQL');
 
-  if (!process.env.CORS_ORIGINS && !process.env.FRONTEND_URL) {
+  const corsOrigins = ambiente.corsOrigins || [];
+  if (!ambiente.corsOriginsDefinido) {
     problemas.push('CORS_ORIGINS não está definido: a origem do frontend precisa ser explícita');
   }
-  if (ambiente.corsOrigins.includes('*')) problemas.push('CORS não pode liberar todas as origens em produção');
+  if (corsOrigins.includes('*')) problemas.push('CORS não pode liberar todas as origens em produção');
 
-  if (ambiente.bcryptRounds < 10) problemas.push('BCRYPT_ROUNDS abaixo de 10 é fraco demais para produção');
+  // Comparação afirmativa de propósito: `undefined < 10` é falso, e a checagem
+  // escrita ao contrário deixaria passar justamente o ambiente sem a variável.
+  if (!(ambiente.bcryptRounds >= 10)) problemas.push('BCRYPT_ROUNDS abaixo de 10 é fraco demais para produção');
+
+  // Falha fechada: subir com disco efêmero perde arquivo de atleta em
+  // silêncio, e a perda só aparece quando alguém vai buscar o documento.
+  if (ambiente.storageDriver === 'local' && !ambiente.allowLocalStorage) {
+    problemas.push(
+      'STORAGE_DRIVER=local grava no disco do contêiner: sem volume persistente, todo upload se perde no redeploy. '
+      + 'Configure um provedor de objetos ou assuma o risco com ALLOW_LOCAL_STORAGE=true'
+    );
+  }
 
   return problemas;
 }
