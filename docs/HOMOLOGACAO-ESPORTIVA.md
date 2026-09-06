@@ -107,8 +107,9 @@ mas porque a segunda gravação é impossível. O caso concorrente está em
 **O treinador não transfere sozinho.** Vincular um atleta livre
 (`athletes.update`) e tirá-lo de outra equipe (`athletes.transfer`) são atos
 distintos, com permissões distintas: a transferência exige o operador da Muscle
-Contest. `teamId` foi removido do payload de edição do atleta, para que a troca
-não aconteça por uma via lateral.
+Contest. `teamId` é **recusado com mensagem** no payload de edição do atleta —
+não descartado em silêncio, que responderia 200 sem ter mudado nada — e a
+recusa aponta as duas rotas próprias.
 
 **A história é preservada.** Encerrar um vínculo não apaga a linha: ela guarda
 início, fim, quem autorizou e o motivo (`GET /athletes/:id/team-history`), e
