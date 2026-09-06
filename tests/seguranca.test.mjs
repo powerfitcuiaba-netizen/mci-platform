@@ -441,3 +441,54 @@ describe('cross-tenant no detalhamento de pontos', () => {
     expect(resposta.status).toBe(404);
   });
 });
+
+describe('cross-tenant na administração de contas', () => {
+  // Segundo achado da mesma auditoria: `users.read` é permissão de
+  // EVENT_DIRECTOR, e a listagem não tinha escopo. O diretor de uma federação
+  // enumerava TODOS os usuários da plataforma, e-mail incluído.
+  //
+  // Usuário não tem organizationId — participa de várias —, então o escopo é
+  // por membresia compartilhada, como manda a convenção de tenant.js.
+  const cenario = async () => {
+    const admin = await criarUsuario({ role: 'SUPER_ADMIN', name: 'Administrador' });
+    const orgA = await criarOrganizacao(admin, { name: `Federação A ${Date.now()}` });
+    const orgB = await criarOrganizacao(admin, { name: `Federação B ${Date.now()}` });
+
+    const diretorA = await criarUsuario({ name: 'Diretora A' });
+    await vincular(orgA.id, diretorA, 'EVENT_DIRECTOR');
+
+    const soDaB = await criarUsuario({ name: 'Somente da B' });
+    await vincular(orgB.id, soDaB, 'REGISTRATION_OPERATOR');
+
+    return { admin, orgA, diretorA, soDaB };
+  };
+
+  it('diretor de uma federação não enumera usuários da outra', async () => {
+    const { diretorA, soDaB } = await cenario();
+
+    const lista = await api().get('/api/v1/admin/users').set(diretorA.auth());
+    expect(lista.status).toBe(200);
+
+    const emails = lista.body.items.map(item => item.email);
+    expect(emails, 'usuário exclusivo da outra federação não pode aparecer').not.toContain(soDaB.email);
+    expect(emails, 'e ele continua se vendo').toContain(diretorA.email);
+  });
+
+  it('nem alcança o usuário da outra federação pelo id', async () => {
+    const { diretorA, soDaB } = await cenario();
+
+    const resposta = await api().get(`/api/v1/admin/users/${soDaB.id}`).set(diretorA.auth());
+
+    // 404, e não 403: distinguir "não existe" de "existe noutra federação"
+    // transformaria a rota numa sonda de ids válidos.
+    expect(resposta.status).toBe(404);
+  });
+
+  it('SUPER_ADMIN continua vendo a plataforma inteira', async () => {
+    const { admin, soDaB } = await cenario();
+
+    const lista = await api().get('/api/v1/admin/users').set(admin.auth());
+
+    expect(lista.body.items.map(item => item.email)).toContain(soDaB.email);
+  });
+});

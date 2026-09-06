@@ -3,14 +3,32 @@ const { AppError } = require('../utils/errors');
 const { assertPermission } = require('../utils/tenant');
 const { sanitizeUser } = require('../utils/visibility');
 const { isPrivileged } = require('../utils/roles');
+const { isCrossTenant, organizationIdsOf } = require('../utils/permissions');
 const audit = require('./auditService');
 
 // Administração de contas: leitura, mudança de papel e de situação.
 
+// Usuário não tem `organizationId` — pertence à plataforma, e pode participar de
+// várias organizações. O escopo, então, é por MEMBRESIA COMPARTILHADA: quem não
+// é cross-tenant enxerga apenas quem divide alguma organização consigo.
+//
+// É a mesma convenção que `organizationFilter` aplica ao resto do sistema
+// ("quem é cross-tenant vê tudo; os demais veem apenas as organizações de que
+// participam"), e que aqui faltava: `users.read` é permissão de EVENT_DIRECTOR
+// também, então sem escopo o diretor de uma federação enumerava todos os
+// usuários da plataforma, e-mail incluído.
+function escopoDeUsuarios(actor) {
+  if (isCrossTenant(actor)) return {};
+
+  const ids = organizationIdsOf(actor);
+  // Sem vínculo nenhum a listagem é vazia, não irrestrita.
+  return { memberships: { some: { organizationId: { in: ids.length ? ids : ['__sem-organizacao__'] } } } };
+}
+
 async function listUsers(filtros, actor) {
   assertPermission(actor, 'users.read');
 
-  const where = {};
+  const where = { ...escopoDeUsuarios(actor) };
   if (filtros.role) where.role = filtros.role;
   if (filtros.status) where.status = filtros.status;
   if (filtros.search) {
@@ -38,8 +56,12 @@ async function listUsers(filtros, actor) {
 async function findUser(id, actor) {
   assertPermission(actor, 'users.read');
 
-  const user = await prisma.user.findUnique({
-    where: { id },
+  const user = await prisma.user.findFirst({
+    // `findFirst` com o escopo no where, e não `findUnique` seguido de
+    // conferência: quem não pode ver simplesmente não encontra, e a resposta é
+    // a mesma de um id inexistente — não dá para distinguir "não existe" de
+    // "existe noutra federação".
+    where: { id, ...escopoDeUsuarios(actor) },
     include: {
       memberships: { include: { organization: { select: { id: true, name: true, slug: true } } } },
       athlete: { select: { id: true, fullName: true, organizationId: true } },
