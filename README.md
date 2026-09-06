@@ -421,7 +421,7 @@ As validações estáticas que a CI executa, e que reprovam o job, são
 | `homologacao-tabulacao` | efeito de cada opção de apuração no pódio — documentação executável para o comitê técnico |
 | `pontuacao-oficial` | tabela homologada (1º=5…5º=1), bônus Overall +10 e a hierarquia de desempate, com os números abertos |
 | `ranking-oficial` | a regra oficial no caminho real: Overall, equipes, versionamento, idempotência, concorrência e permissão |
-| `vinculo-equipe` | vínculo único atleta → equipe: recusa nomeando a equipe atual, corrida entre requisições simultâneas, transferência só pelo operador, histórico e gravação direta no banco |
+| `vinculo-equipe` | vínculo único atleta → equipe: recusa nomeando a equipe atual, corrida entre requisições simultâneas, transferência só pelo operador, histórico e gravação direta no banco, e a importação como porta dos fundos: arquivo com equipe divergente, inclusive datado no passado |
 
 ---
 

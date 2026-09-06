@@ -348,6 +348,7 @@ async function apply(importId, actor) {
   const seasonId = lote.seasonId;
   let aplicados = 0;
   let ignorados = 0;
+  let divergentes = 0;
 
   // Tabela da temporada e catálogo de classes carregados uma vez: a regra é a
   // mesma para o lote inteiro, e consultá-la por linha só somaria idas ao banco.
@@ -376,7 +377,58 @@ async function apply(importId, actor) {
     })).map(empresa => [empresa.name.trim().toUpperCase(), empresa.id])
   );
 
+  // Vínculos de equipe dos atletas do lote. A trava de vínculo único não pode
+  // parar na tela e na API: sem isto, bastaria um arquivo nomeando outra equipe
+  // para que ela acumulasse os pontos de um atleta que não é dela — a regra
+  // seria contornada justamente pela porta que o operador usa em massa.
+  const vinculos = new Map();
+  for (const linha of await prisma.athleteTeamMembership.findMany({
+    where: { athleteId: { in: aplicaveis.map(item => item.athleteId) } },
+    select: { athleteId: true, teamId: true, startedAt: true, endedAt: true, team: { select: { name: true, companyId: true } } }
+  })) {
+    if (!vinculos.has(linha.athleteId)) vinculos.set(linha.athleteId, []);
+    vinculos.get(linha.athleteId).push(linha);
+  }
+
+  // Qual vínculo responde por este resultado.
+  //
+  // 1. O que valia NA DATA DO EVENTO, se houver: um resultado antigo pertence à
+  //    equipe de então, e o histórico guarda exatamente isso.
+  // 2. Na falta dele — linha sem data, ou data anterior a qualquer vínculo —, o
+  //    vínculo ATIVO. Cair no arquivo aqui seria abrir a porta de volta:
+  //    bastaria datar a linha antes do vínculo para atribuí-la a quem quisesse.
+  // 3. Atleta que nunca teve vínculo: não há fato registrado a contradizer, e o
+  //    arquivo segue sendo a única fonte.
+  const vinculoDoResultado = (athleteId, data) => {
+    const linhas = vinculos.get(athleteId) || [];
+    const daEpoca = data
+      ? linhas.find(linha => linha.startedAt <= data && (!linha.endedAt || linha.endedAt >= data))
+      : null;
+    return daEpoca ?? linhas.find(linha => !linha.endedAt) ?? null;
+  };
+
   for (const item of aplicaveis) {
+    // A equipe declarada no arquivo não pode contradizer o vínculo registrado.
+    // Divergência não é corrigida em silêncio nem aceita: a linha fica em
+    // CONFLICT para o operador resolver — ou o arquivo está errado, ou o
+    // atleta mudou de equipe e a transferência não foi feita pela via própria.
+    const equipeDeclarada = item.teamName ? equipes.get(item.teamName.trim().toUpperCase()) : null;
+    const vinculo = vinculoDoResultado(item.athleteId, item.eventDate);
+
+    if (equipeDeclarada && vinculo && vinculo.teamId !== equipeDeclarada.id) {
+      await prisma.muscleWarImportItem.update({
+        where: { id: item.id },
+        data: {
+          matchStatus: 'CONFLICT',
+          reason: `Equipe divergente: o arquivo indica ${equipeDeclarada.name}, `
+            + `mas o atleta estava vinculado a ${vinculo.team?.name ?? 'outra equipe'}. `
+            + 'Corrija o arquivo ou registre a transferência antes de aplicar.'
+        }
+      });
+      divergentes += 1;
+      continue;
+    }
+
     // Cada linha em sua própria transação: uma colisão de idempotência no meio
     // do lote não desfaz o que já entrou legitimamente.
     try {
@@ -417,7 +469,10 @@ async function apply(importId, actor) {
             item.className && catalogo.get(item.className.trim().toUpperCase())
           );
 
-          const equipeDoItem = item.teamName ? equipes.get(item.teamName.trim().toUpperCase()) : null;
+          // Na ausência de equipe no arquivo, o vínculo registrado responde —
+          // é o mesmo fato, vindo da fonte que a plataforma controla.
+          const equipeDoItem = equipeDeclarada
+            ?? (vinculo ? { id: vinculo.teamId, companyId: vinculo.team?.companyId ?? null } : null);
 
           await tx.rankingPoint.create({
             data: {
@@ -477,7 +532,10 @@ async function apply(importId, actor) {
   await audit.record({
     actor, action: audit.ACTIONS.MUSCLEWAR_APPLY, entity: 'MuscleWarImport', entityId: importId,
     organizationId: lote.organizationId,
-    metadata: { applied: aplicados, skippedAsDuplicate: ignorados, seasonId, version: atualizado.version, sourceRef: lote.sourceRef }
+    metadata: {
+      applied: aplicados, skippedAsDuplicate: ignorados, teamMismatch: divergentes,
+      seasonId, version: atualizado.version, sourceRef: lote.sourceRef
+    }
   });
 
   const atletas = await prisma.athlete.findMany({
@@ -493,7 +551,10 @@ async function apply(importId, actor) {
     entityType: 'MuscleWarImport', entityId: importId, actorId: actor.id
   });
 
-  return { applied: aplicados, skippedAsDuplicate: ignorados, preview: await preview(importId, actor) };
+  return {
+    applied: aplicados, skippedAsDuplicate: ignorados, teamMismatch: divergentes,
+    preview: await preview(importId, actor)
+  };
 }
 
 async function reject(importId, { reason }, actor) {

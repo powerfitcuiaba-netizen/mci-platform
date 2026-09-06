@@ -115,6 +115,25 @@ início, fim, quem autorizou e o motivo (`GET /athletes/:id/team-history`), e
 toda transferência gera auditoria (`ATHLETE_TEAM_LINK`, `ATHLETE_TEAM_TRANSFER`,
 `ATHLETE_TEAM_UNLINK`).
 
+**A importação não é a porta dos fundos.** O arquivo é redigido fora da
+plataforma; se a equipe declarada nele fosse aceita sem conferência, bastaria um
+CSV para uma equipe acumular pontos de atleta que não é dela. A equipe do
+resultado é resolvida assim:
+
+| Situação da linha | Equipe do ponto |
+|---|---|
+| Data cai dentro de um vínculo registrado | a equipe **daquele** vínculo |
+| Sem data, ou data anterior a qualquer vínculo | a equipe do **vínculo ativo** |
+| Atleta nunca teve vínculo | a equipe **declarada no arquivo** |
+
+Se o arquivo declarar equipe diferente da que responde pelo resultado, a linha
+**não é aplicada**: fica em `CONFLICT`, nomeando as duas equipes, para o
+operador corrigir o arquivo ou registrar a transferência pela via própria. Um
+resultado antigo continua pertencendo à equipe de então — transferir de equipe
+não reescreve o passado —, mas **datar a linha no passado não atribui o
+resultado a quem se queira**: sem vínculo cobrindo a data, quem responde é o
+vínculo ativo.
+
 ## Desempate — hierarquia oficial
 
 Aplicada nesta ordem exata; o primeiro critério que separar encerra a questão:

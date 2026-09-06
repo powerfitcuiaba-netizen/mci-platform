@@ -272,6 +272,125 @@ describe('vínculo esportivo e relação comercial são coisas diferentes', () =
   });
 });
 
+describe('a importação não é a porta dos fundos da trava', () => {
+  // O arquivo é redigido fora da plataforma. Se a equipe declarada nele fosse
+  // aceita sem conferência, bastaria um CSV para uma equipe acumular pontos de
+  // atleta que não é dela — a trava valeria só para quem usa a tela.
+  const cabecalho = 'external_result_id,cpf,atleta,filiacao,categoria,classe,colocacao,pontos,evento,equipe,data';
+
+  let seasonId;
+  let gerente;
+
+  const importarEAplicar = async linha => {
+    const lote = await api().post('/api/v1/musclewar/imports').set(gerente.auth()).send({
+      organizationId: orgId, seasonId, sourceType: 'CSV',
+      sourceRef: unico('arquivo') + '.csv', content: [cabecalho, linha].join('\n')
+    });
+    return api().post(`/api/v1/musclewar/imports/${lote.body.import.id}/apply`).set(gerente.auth());
+  };
+
+  beforeEach(async () => {
+    gerente = await criarUsuario({ name: 'Gerente de Ranking' });
+    await vincular(orgId, gerente, 'RANKING_MANAGER');
+    await vincular(orgId, gerente, 'REGISTRATION_OPERATOR');
+
+    const temporada = await api().post('/api/v1/seasons').set(admin.auth())
+      .send({ organizationId: orgId, name: unico('Temporada'), year: 2026 });
+    seasonId = temporada.body.id;
+    await api().put(`/api/v1/seasons/${seasonId}/points-rules`).set(admin.auth())
+      .send({ rules: [{ placing: 1, points: 5 }, { placing: 2, points: 4 }, { placing: 3, points: 3 }] });
+  });
+
+  it('arquivo que declara equipe diferente do vínculo não é aplicado', async () => {
+    // Inclusive datado no passado: recuar a data da linha não pode virar a
+    // brecha que a trava fechou na tela e na API.
+    const cpf = cpfSeq();
+    const atleta = await criarAtleta(diretor, orgId, { fullName: 'Joana Ferreira', cpf });
+    await api().post(`/api/v1/athletes/${atleta.id}/team`).set(diretor.auth()).send({ teamId: alpha.id });
+
+    // O arquivo diz Beta. O vínculo diz Alpha.
+    const aplicacao = await importarEAplicar(
+      `MWX-1,${cpf},Joana Ferreira,,BIKINI,OPEN,1,5,Etapa,${beta.name},2026-05-10`
+    );
+
+    expect(aplicacao.body.teamMismatch, 'a linha divergente é contada').toBe(1);
+    expect(aplicacao.body.applied, 'e não entra no ranking').toBe(0);
+
+    const pontos = await comoAtor(diretor, tx => tx.rankingPoint.findMany({ where: { seasonId } }));
+    expect(pontos, 'nenhum ponto criado para a equipe que o arquivo reivindicou').toHaveLength(0);
+  });
+
+  it('a recusa diz as duas equipes, para o operador saber o que corrigir', async () => {
+    const cpf = cpfSeq();
+    const atleta = await criarAtleta(diretor, orgId, { fullName: 'Joana Ferreira', cpf });
+    await api().post(`/api/v1/athletes/${atleta.id}/team`).set(diretor.auth()).send({ teamId: alpha.id });
+
+    await importarEAplicar(`MWX-2,${cpf},Joana Ferreira,,BIKINI,OPEN,1,5,Etapa,${beta.name},2026-05-10`);
+
+    const item = await comoAtor(diretor, tx => tx.muscleWarImportItem.findFirst({
+      where: { externalResultId: 'MWX-2' }, select: { matchStatus: true, reason: true }
+    }));
+
+    expect(item.matchStatus).toBe('CONFLICT');
+    expect(item.reason).toContain(beta.name);
+    expect(item.reason).toContain(alpha.name);
+  });
+
+  it('arquivo coerente com o vínculo é aplicado normalmente', async () => {
+    const cpf = cpfSeq();
+    const atleta = await criarAtleta(diretor, orgId, { fullName: 'Joana Ferreira', cpf });
+    await api().post(`/api/v1/athletes/${atleta.id}/team`).set(diretor.auth()).send({ teamId: alpha.id });
+
+    const aplicacao = await importarEAplicar(
+      `MWX-3,${cpf},Joana Ferreira,,BIKINI,OPEN,1,5,Etapa,${alpha.name},2026-05-10`
+    );
+
+    expect(aplicacao.body.applied).toBe(1);
+    expect(aplicacao.body.teamMismatch).toBe(0);
+
+    const [ponto] = await comoAtor(diretor, tx => tx.rankingPoint.findMany({ where: { seasonId } }));
+    expect(ponto.teamId).toBe(alpha.id);
+  });
+
+  it('resultado ANTIGO pertence à equipe de então, não à de hoje', async () => {
+    // Sem isto, transferir de equipe reescreveria o passado: um resultado
+    // conquistado na Alpha passaria a contar para a Beta.
+    const cpf = cpfSeq();
+    const atleta = await criarAtleta(diretor, orgId, { fullName: 'Joana Ferreira', cpf });
+    await api().post(`/api/v1/athletes/${atleta.id}/team`).set(diretor.auth()).send({ teamId: alpha.id });
+
+    // O vínculo com a Alpha é recuado no tempo para que o caso seja real: ela
+    // esteve na Alpha em maio e só depois foi transferida.
+    await comoAtor(admin, tx => tx.athleteTeamMembership.updateMany({
+      where: { athleteId: atleta.id }, data: { startedAt: new Date('2026-01-15T00:00:00Z') }
+    }));
+
+    await api().post(`/api/v1/athletes/${atleta.id}/team/transfer`).set(diretor.auth())
+      .send({ teamId: beta.id, reason: 'Mudança de equipe homologada' });
+
+    const aplicacao = await importarEAplicar(
+      `MWX-4,${cpf},Joana Ferreira,,BIKINI,OPEN,1,5,Etapa antiga,${alpha.name},2026-05-10`
+    );
+
+    expect(aplicacao.body.applied, 'a equipe da época é aceita').toBe(1);
+    const [ponto] = await comoAtor(diretor, tx => tx.rankingPoint.findMany({ where: { seasonId } }));
+    expect(ponto.teamId, 'o ponto fica com a equipe de então').toBe(alpha.id);
+  });
+
+  it('atleta sem vínculo nenhum: o arquivo continua sendo a única fonte', async () => {
+    const cpf = cpfSeq();
+    await criarAtleta(diretor, orgId, { fullName: 'Joana Ferreira', cpf });
+
+    const aplicacao = await importarEAplicar(
+      `MWX-5,${cpf},Joana Ferreira,,BIKINI,OPEN,1,5,Etapa,${beta.name},2026-05-10`
+    );
+
+    expect(aplicacao.body.applied).toBe(1);
+    const [ponto] = await comoAtor(diretor, tx => tx.rankingPoint.findMany({ where: { seasonId } }));
+    expect(ponto.teamId).toBe(beta.id);
+  });
+});
+
 describe('CPF continua protegido', () => {
   it('o histórico de vínculo não expõe CPF', async () => {
     const cpf = gerarCpf(818181818);
