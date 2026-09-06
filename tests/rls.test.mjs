@@ -234,3 +234,89 @@ describe('RLS — dados restritos do campeonato', () => {
     expect(await comoUsuario(diretorB.id, tx => tx.muscleWarImport.findMany())).toHaveLength(0);
   });
 });
+
+describe('RLS — o CPF é protegido pela linha, não pela projeção', () => {
+  let admin;
+  let diretorA;
+  let orgA;
+  let diretorB;
+  let orgB;
+
+  beforeEach(async () => {
+    admin = await criarUsuario({ role: 'SUPER_ADMIN', name: 'Administrador' });
+
+    diretorA = await criarUsuario({ name: 'Diretor A' });
+    orgA = await criarOrganizacao(admin, { name: 'Federação A' });
+    await vincular(orgA.id, diretorA, 'EVENT_DIRECTOR');
+
+    diretorB = await criarUsuario({ name: 'Diretor B' });
+    orgB = await criarOrganizacao(admin, { name: 'Federação B' });
+    await vincular(orgB.id, diretorB, 'EVENT_DIRECTOR');
+  });
+
+  // O CPF vive em "AthleteIdentity" justamente porque o RLS é barreira de
+  // linha e não de coluna. Enquanto morava em "Athlete" — cuja política
+  // precisa liberar leitura anônima para o diretório público funcionar — o
+  // número ficava ao alcance de qualquer visitante no nível do banco, e o que
+  // o mantinha fora das respostas era a projeção do service. Estes testes
+  // consultam o banco DIRETO, sem passar pela API, que é a única forma de
+  // provar que a barreira mudou de lugar.
+
+  it('visitante anônimo enxerga o atleta e não enxerga o CPF', async () => {
+    const cpf = gerarCpf(919191911);
+    await criarAtleta(diretorA, orgA.id, { fullName: 'Exposta', cpf });
+
+    const atletas = await comoUsuario(null, tx => tx.athlete.findMany());
+    expect(atletas.length, 'o diretório público de atletas precisa continuar funcionando').toBeGreaterThanOrEqual(1);
+
+    // A prova: nem um SELECT sem projeção nenhuma traz CPF, porque a LINHA
+    // não vem. Não há como um serializador descuidado vazá-lo.
+    const identidades = await comoUsuario(null, tx => tx.athleteIdentity.findMany());
+    expect(identidades).toHaveLength(0);
+    expect(JSON.stringify(atletas)).not.toContain(cpf);
+  });
+
+  it('operador da organização lê o CPF dos seus atletas', async () => {
+    const cpf = gerarCpf(929292922);
+    await criarAtleta(diretorA, orgA.id, { fullName: 'Da casa', cpf });
+
+    const identidades = await comoUsuario(diretorA.id, tx => tx.athleteIdentity.findMany());
+    expect(identidades).toHaveLength(1);
+    expect(identidades[0].cpf).toBe(cpf);
+  });
+
+  it('operador de outra organização não lê o CPF — nem conhecendo o atleta', async () => {
+    const cpf = gerarCpf(939393933);
+    const atleta = await criarAtleta(diretorA, orgA.id, { fullName: 'Da federação A', cpf });
+
+    expect(await comoUsuario(diretorB.id, tx => tx.athleteIdentity.findMany())).toHaveLength(0);
+    expect(await comoUsuario(diretorB.id, tx => tx.athleteIdentity.findUnique({ where: { athleteId: atleta.id } }))).toBeNull();
+  });
+
+  it('o próprio atleta lê o próprio CPF, e não o de outro', async () => {
+    const usuarioAtleta = await criarUsuario({ name: 'Atleta dona do CPF' });
+    const cpfDela = gerarCpf(949494944);
+    const dela = await criarAtleta(diretorA, orgA.id, { fullName: 'Dona', cpf: cpfDela });
+    await comoAtor(diretorA, tx => tx.athlete.update({ where: { id: dela.id }, data: { userId: usuarioAtleta.id } }));
+
+    await criarAtleta(diretorA, orgA.id, { fullName: 'Outra', cpf: gerarCpf(959595955) });
+
+    const visiveis = await comoUsuario(usuarioAtleta.id, tx => tx.athleteIdentity.findMany());
+    expect(visiveis).toHaveLength(1);
+    expect(visiveis[0].cpf).toBe(cpfDela);
+  });
+
+  it('terceiro autenticado sem vínculo não lê CPF nenhum', async () => {
+    await criarAtleta(diretorA, orgA.id, { fullName: 'Protegida', cpf: gerarCpf(969696966) });
+    expect(await comoUsuario(bruno.id, tx => tx.athleteIdentity.findMany())).toHaveLength(0);
+  });
+
+  it('a rota pública do atleta continua respondendo, e sem o CPF', async () => {
+    const cpf = gerarCpf(979797977);
+    const atleta = await criarAtleta(diretorA, orgA.id, { fullName: 'Pública', cpf });
+
+    const pagina = await api().get(`/api/v1/public/athletes/${atleta.id}`);
+    expect(pagina.status).toBe(200);
+    expect(JSON.stringify(pagina.body)).not.toContain(cpf);
+  });
+});

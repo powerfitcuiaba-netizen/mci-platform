@@ -68,9 +68,13 @@ async function create(eventId, data, actor) {
 
   // Reconhecimento do atleta pelo CPF. Não existindo, o perfil é criado com o
   // que veio na inscrição — nunca em silêncio com dados incompletos.
-  let athlete = await prisma.athlete.findUnique({
-    where: { organizationId_cpf: { organizationId: event.organizationId, cpf } }
+  const identidade = await prisma.athleteIdentity.findUnique({
+    where: { organizationId_cpf: { organizationId: event.organizationId, cpf } },
+    select: { athleteId: true }
   });
+  let athlete = identidade
+    ? await prisma.athlete.findUnique({ where: { id: identidade.athleteId } })
+    : null;
 
   let atletaCriado = false;
   if (!athlete) {
@@ -87,7 +91,7 @@ async function create(eventId, data, actor) {
     athlete = await prisma.athlete.create({
       data: {
         organizationId: event.organizationId,
-        cpf,
+        identity: { create: { organizationId: event.organizationId, cpf } },
         fullName: perfil.fullName,
         stageName: perfil.stageName ?? null,
         sex: perfil.sex,

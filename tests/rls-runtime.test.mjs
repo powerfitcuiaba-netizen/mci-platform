@@ -5,6 +5,7 @@ import {
 } from './helpers.mjs';
 import { withUserContext, currentContext } from '../src/config/rlsSession.js';
 import { contextoAtual } from '../src/config/rlsContext.js';
+import { inspecionar, assertRlsEfetivo } from '../src/config/rlsGuard.js';
 
 // ============================================================================
 // RLS no CAMINHO REAL da aplicação.
@@ -42,14 +43,16 @@ beforeEach(async () => {
 });
 
 describe('FORCE ROW LEVEL SECURITY — o dono da tabela também é filtrado', () => {
-  it('as 16 tabelas protegidas estão com FORCE ligado', async () => {
+  it('as 17 tabelas protegidas estão com FORCE ligado', async () => {
     const linhas = await prisma.$queryRaw`
       SELECT c.relname::text AS tabela, c.relforcerowsecurity AS forcado
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE n.nspname = 'public' AND c.relrowsecurity
     `;
 
-    expect(linhas.length).toBe(16);
+    // O número é conferido de propósito: tabela protegida nova precisa ser
+    // decisão consciente, e tabela que sai da lista, idem.
+    expect(linhas.length).toBe(17);
     const semForce = linhas.filter(linha => !linha.forcado).map(linha => linha.tabela);
     expect(semForce, 'tabela com RLS mas sem FORCE volta a isentar o dono').toEqual([]);
   });
@@ -98,6 +101,62 @@ describe('FORCE ROW LEVEL SECURITY — o dono da tabela também é filtrado', ()
   });
 });
 
+describe('a plataforma se recusa a operar sem RLS efetivo', () => {
+  it('inspecionar aprova a configuração corrente e diz sob qual papel', async () => {
+    const estado = await inspecionar();
+
+    expect(estado.ok, `RLS sem efeito: ${estado.problemas.join(' | ')}`).toBe(true);
+    expect(estado.superusuario).toBe(false);
+    expect(estado.tabelasSemForce).toEqual([]);
+    expect(estado.papel).toBeTruthy();
+  });
+
+  it('assertRlsEfetivo não lança quando a configuração está correta', async () => {
+    await expect(assertRlsEfetivo()).resolves.toMatchObject({ ok: true });
+  });
+
+  it('detecta tabela com RLS habilitado mas sem FORCE', async () => {
+    // A garantia precisa valer tabela a tabela: uma única esquecida devolve ao
+    // dono a isenção sobre ela, e é o suficiente para vazar o que ela guarda.
+    await prisma.$executeRawUnsafe('ALTER TABLE "Notification" NO FORCE ROW LEVEL SECURITY');
+
+    try {
+      const estado = await inspecionar();
+
+      expect(estado.ok).toBe(false);
+      expect(estado.tabelasSemForce).toContain('Notification');
+      expect(estado.problemas.join(' ')).toMatch(/sem FORCE/);
+      await expect(assertRlsEfetivo()).rejects.toThrow(/RLS não tem efeito/);
+    } finally {
+      await prisma.$executeRawUnsafe('ALTER TABLE "Notification" FORCE ROW LEVEL SECURITY');
+    }
+
+    // E volta a aprovar assim que a tabela é corrigida.
+    expect((await inspecionar()).ok).toBe(true);
+  });
+
+  it('a sonda de prontidão reprova quando o RLS perde efeito', async () => {
+    expect((await api().get('/ready')).body.checks.rls).toBe(true);
+
+    await prisma.$executeRawUnsafe('ALTER TABLE "Notification" NO FORCE ROW LEVEL SECURITY');
+
+    try {
+      const resposta = await api().get('/ready');
+
+      // 503 e não 200: uma instância que deixou de aplicar o RLS não deve
+      // receber tráfego, ainda que o banco e o disco estejam de pé.
+      expect(resposta.status).toBe(503);
+      expect(resposta.body.checks.rls).toBe(false);
+      expect(resposta.body.checks.database).toBe(true);
+      expect(JSON.stringify(resposta.body.rls)).toMatch(/Notification/);
+    } finally {
+      await prisma.$executeRawUnsafe('ALTER TABLE "Notification" FORCE ROW LEVEL SECURITY');
+    }
+
+    expect((await api().get('/ready')).body.checks.rls).toBe(true);
+  });
+});
+
 describe('withUserContext — o helper real', () => {
   it('define o ator para a transação e o devolve em currentContext', async () => {
     const dentro = await withUserContext(diretorA.id, () => currentContext());
@@ -140,7 +199,8 @@ describe('withUserContext — o helper real', () => {
       await tx.athlete.create({
         data: {
           organizationId: orgA.id, fullName: 'Não deve sobrar',
-          cpf: gerarCpf(141414141), sex: 'FEMALE', birthDate: new Date('1995-01-01')
+          sex: 'FEMALE', birthDate: new Date('1995-01-01'),
+          identity: { create: { organizationId: orgA.id, cpf: gerarCpf(141414141) } }
         }
       });
       throw new Error('falha proposital depois da escrita');

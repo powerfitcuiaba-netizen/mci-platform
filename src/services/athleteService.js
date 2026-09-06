@@ -7,11 +7,16 @@ const { athleteFor, athletePublic } = require('../utils/visibility');
 const audit = require('./auditService');
 const notifications = require('./notificationService');
 
+// `identity` traz o CPF, que vive em tabela própria com política restrita. Se
+// o ator não puder lê-la, o RLS simplesmente não devolve a linha e o
+// serializador recebe `identity: null` — o CPF some sozinho, sem depender de
+// ninguém lembrar de removê-lo da projeção.
 const INCLUDE_PERFIL = Object.freeze({
   team: { select: { id: true, name: true } },
   coach: { select: { id: true, name: true } },
   gym: { select: { id: true, name: true } },
-  affiliation: { select: { id: true, name: true, code: true } }
+  affiliation: { select: { id: true, name: true, code: true } },
+  identity: { select: { cpf: true } }
 });
 
 // Localiza o atleta pelo CPF dentro de uma organização. É o coração do
@@ -19,8 +24,15 @@ const INCLUDE_PERFIL = Object.freeze({
 // impede o mesmo atleta virar dois perfis.
 async function findByCpf(organizationId, cpfBruto) {
   const cpf = normalizeCpf(cpfBruto);
-  return prisma.athlete.findUnique({
+
+  const identidade = await prisma.athleteIdentity.findUnique({
     where: { organizationId_cpf: { organizationId, cpf } },
+    select: { athleteId: true }
+  });
+  if (!identidade) return null;
+
+  return prisma.athlete.findUnique({
+    where: { id: identidade.athleteId },
     include: INCLUDE_PERFIL
   });
 }
@@ -46,7 +58,7 @@ async function create(data, actor) {
 
   const cpf = normalizeCpf(data.cpf);
 
-  const existente = await prisma.athlete.findUnique({
+  const existente = await prisma.athleteIdentity.findUnique({
     where: { organizationId_cpf: { organizationId: data.organizationId, cpf } }
   });
   if (existente) throw new AppError(409, 'ATHLETE_CPF_EXISTS', 'Já existe um atleta com este CPF nesta organização');
@@ -60,7 +72,7 @@ async function create(data, actor) {
         userId: data.userId ?? null,
         fullName: data.fullName,
         stageName: data.stageName ?? null,
-        cpf,
+        identity: { create: { organizationId: data.organizationId, cpf } },
         birthDate: data.birthDate ?? null,
         sex: data.sex,
         country: data.country || 'BR',
@@ -162,7 +174,7 @@ async function list(filtros, actor) {
     // como igualdade exata, nunca como prefixo que permita varredura.
     const digitos = somenteDigitos(termo);
     if (digitos.length === 11 && can(actor, 'search.sensitive', filtros.organizationId || null)) {
-      or.push({ cpf: digitos });
+      or.push({ identity: { cpf: digitos } });
     }
     where.OR = or;
   }

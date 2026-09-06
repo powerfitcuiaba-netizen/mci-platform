@@ -36,7 +36,7 @@ async function search({ q, types, limit }, actor) {
       const atletas = await prisma.athlete.findMany({
         where: {
           ...escopo,
-          OR: buscaPorCpf ? [{ cpf: digitos }] : [{ fullName: contem }, { stageName: contem }, { athleteNumber: contem }]
+          OR: buscaPorCpf ? [{ identity: { cpf: digitos } }] : [{ fullName: contem }, { stageName: contem }, { athleteNumber: contem }]
         },
         include: { team: { select: { id: true, name: true } }, gym: { select: { id: true, name: true } }, coach: { select: { id: true, name: true } }, affiliation: { select: { id: true, name: true, code: true } } },
         take: limit

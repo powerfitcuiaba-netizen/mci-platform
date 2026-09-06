@@ -16,6 +16,10 @@ const { can } = require('./permissions');
 // deixa rastro na auditoria de quem o consultou.
 // ============================================================================
 
+// O CPF pode não vir: a política de "AthleteIdentity" só o entrega a operador
+// da organização ou ao próprio atleta. Ausência é resposta legítima, não erro.
+const cpfDe = (athlete, formatar) => (athlete?.identity?.cpf ? formatar(athlete.identity.cpf) : null);
+
 function athletePublic(athlete) {
   if (!athlete) return null;
   return {
@@ -56,10 +60,12 @@ function athleteFor(athlete, viewer, organizationId = null) {
     birthDate: athlete.birthDate ?? null,
     phone: athlete.phone ?? null,
     email: athlete.email ?? null,
-    // O dono do perfil vê o próprio CPF por inteiro; um operador vê mascarado
-    // salvo se tiver permissão explícita de dado sensível.
-    cpf: ehODono || podeVerCpfIntegral ? formatCpf(athlete.cpf) : maskCpf(athlete.cpf),
-    cpfMasked: maskCpf(athlete.cpf)
+    // O CPF vem de "AthleteIdentity", tabela com política própria: quem não
+    // pode lê-lo recebe `identity` nulo do banco e o campo sai como null aqui.
+    // A camada de aplicação continua decidindo entre inteiro e mascarado, mas
+    // deixou de ser a única coisa entre o número e a resposta.
+    cpf: cpfDe(athlete, ehODono || podeVerCpfIntegral ? formatCpf : maskCpf),
+    cpfMasked: cpfDe(athlete, maskCpf)
   };
 }
 

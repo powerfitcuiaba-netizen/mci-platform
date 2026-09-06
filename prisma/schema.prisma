@@ -43,6 +43,7 @@ model Organization {
   muscleWarImports MuscleWarImport[]
 
   @@index([active])
+  athleteIdentities AthleteIdentity[]
 }
 
 model OrganizationMember {
@@ -194,10 +195,6 @@ model Athlete {
   userId         String?   @unique
   fullName       String
   stageName      String?
-  // CPF normalizado (11 dígitos). Dado restrito: nunca sai em serializador
-  // público nem em busca pública, e o índice único é o que impede atleta
-  // duplicado. A proteção é de aplicação + RLS, não de ofuscação.
-  cpf            String
   birthDate      DateTime?
   sex            Sex
   country        String    @default("BR")
@@ -236,8 +233,8 @@ model Athlete {
   socialProfile     SocialProfile?
   sponsorships      Sponsorship[]
   brandPartnerships AthleteBrandPartnership[]
+  identity          AthleteIdentity?
 
-  @@unique([organizationId, cpf])
   @@unique([organizationId, athleteNumber])
   @@index([organizationId, fullName])
   @@index([organizationId, proStatus])
@@ -252,6 +249,34 @@ enum DocumentKind {
   TERM
   AFFILIATION_PROOF
   OTHER
+}
+
+/// CPF do atleta, em tabela própria.
+///
+/// O RLS do PostgreSQL é barreira de LINHA, não de coluna: onde a política
+/// libera a linha, libera todas as colunas dela. Enquanto o CPF morava em
+/// "Athlete" — cuja política precisa liberar leitura anônima para o diretório
+/// público de atletas, o ranking e a página pública de evento funcionarem —
+/// quem impedia o número de sair era a projeção do service, e só ela.
+///
+/// Separando o dado sensível em uma linha própria, a barreira de linha passa a
+/// protegê-lo de verdade: a política desta tabela não tem predicado anônimo e
+/// exige operador da organização ou o próprio atleta. Um SELECT * feito por
+/// engano numa rota pública não tem como trazer CPF, porque a linha não vem.
+model AthleteIdentity {
+  athleteId      String   @id
+  organizationId String
+  /// CPF normalizado (11 dígitos). A unicidade por organização é o que impede
+  /// o mesmo atleta virar dois cadastros.
+  cpf            String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  athlete      Athlete      @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, cpf])
+  @@index([cpf])
 }
 
 model AthleteDocument {

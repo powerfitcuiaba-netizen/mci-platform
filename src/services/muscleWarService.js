@@ -47,8 +47,13 @@ async function analisarLinha(registro, organizationId, seasonId) {
     return { matchStatus: 'DUPLICATE', reason: 'Resultado já importado anteriormente', athleteId: jaAplicado.athleteId };
   }
 
-  const athlete = await prisma.athlete.findUnique({
+  const identidade = await prisma.athleteIdentity.findUnique({
     where: { organizationId_cpf: { organizationId, cpf: registro.cpf } },
+    select: { athleteId: true }
+  });
+
+  const athlete = identidade && await prisma.athlete.findUnique({
+    where: { id: identidade.athleteId },
     include: { affiliation: { select: { id: true, code: true, active: true } } }
   });
 
@@ -261,7 +266,11 @@ async function linkItem(itemId, { athleteId }, actor) {
 
   // Vincular a um CPF diferente do que veio da origem é decisão consciente do
   // operador e fica registrada como tal.
-  const cpfDivergente = Boolean(item.cpf) && item.cpf !== athlete.cpf;
+  const cadastrado = await prisma.athleteIdentity.findUnique({
+    where: { athleteId },
+    select: { cpf: true }
+  });
+  const cpfDivergente = Boolean(item.cpf) && Boolean(cadastrado) && item.cpf !== cadastrado.cpf;
 
   const atualizado = await prisma.muscleWarImportItem.update({
     where: { id: itemId },

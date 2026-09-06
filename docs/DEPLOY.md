@@ -42,7 +42,7 @@ HTTP → autenticação (req.user) → asyncHandler → withUserContext
      → SET LOCAL mci.user_id (mesma transação) → Prisma → política → dado
 ```
 
-- `FORCE ROW LEVEL SECURITY` nas 16 tabelas protegidas: o dono também é
+- `FORCE ROW LEVEL SECURITY` nas 17 tabelas protegidas: o dono também é
   filtrado.
 - O ator vem sempre de `req.user`, preenchido a partir do token. Nunca do
   corpo, da query ou de parâmetro de rota.
@@ -53,21 +53,30 @@ HTTP → autenticação (req.user) → asyncHandler → withUserContext
 - `tests/rls-runtime.test.mjs` cobre isso com 14 testes, incluindo o caso do
   dono, concorrência entre atores e ausência de contexto residual.
 
-**Ponto de atenção que continua valendo:** o RLS é barreira de LINHA, não de
-coluna. Onde a política libera a linha, ela libera todas as colunas. Duas
-consequências práticas, ambas com o service como responsável e com teste
-cobrindo:
+**O RLS é barreira de LINHA, não de coluna.** Onde a política libera a linha,
+libera todas as colunas dela. Isso tem duas consequências, e elas foram
+tratadas de formas diferentes:
 
-- o CPF sai das respostas públicas pela projeção do service, não pelo banco;
-- a edição de texto de publicação alheia é impedida pelo service; a política de
-  UPDATE precisa ser permissiva o bastante para os contadores de curtida e
-  comentário, que outros usuários incrementam.
-
-Restringir por coluna no banco é possível com `GRANT` de coluna, mas só tem
-efeito quando a aplicação conecta como `mci_app` — que **não** é o modo padrão
-hoje. Ver §1.4.
+- **CPF: resolvido no banco.** O número não mora mais em `Athlete` — cuja
+  política precisa liberar leitura anônima para a superfície pública funcionar
+  — e sim em `AthleteIdentity`, tabela própria com política que exige operador
+  da organização ou o próprio atleta. Um `SELECT` sem projeção, feito por
+  engano numa rota pública, não traz CPF porque a linha não vem. Coberto por
+  `tests/rls.test.mjs`, que consulta o banco direto como `mci_app`.
+- **Texto de publicação alheia: continua com o service.** A política de UPDATE
+  de `Post` precisa ser permissiva o bastante para os contadores de curtida e
+  comentário, que outros usuários incrementam; quem impede a edição de conteúdo
+  de terceiro é a checagem de autoria no service, com teste. Restringir por
+  coluna no banco exigiria `GRANT` de coluna, que só tem efeito conectando como
+  `mci_app` (§1.4).
 
 ### 1.2 A conexão da aplicação NÃO pode ser superusuário
+
+✅ **Verificado pelo próprio processo desde a fase 10.3.** A aplicação inspeciona
+a conexão na partida (`src/config/rlsGuard.js`): papel superusuário ou tabela
+com RLS sem `FORCE` **abortam a subida em produção** e reprovam `/ready` com
+503. Deixou de depender de o operador conferir — o item de checklist abaixo é
+confirmação, não a barreira.
 
 ⚠️ **Superusuário do PostgreSQL ignora RLS incondicionalmente.** Não importa
 política, `FORCE` ou contexto: para um superusuário nada disso existe. Um banco
@@ -315,6 +324,6 @@ API, ou o navegador bloqueia as chamadas.
 - [ ] `readinessProbe` em `/ready`, `livenessProbe` em `/health`
 - [ ] TLS terminando antes da API; `trust proxy` já ligado em produção
 - [ ] Backup do PostgreSQL configurado e **restauração testada**
-- [ ] `FORCE ROW LEVEL SECURITY` confirmado nas 16 tabelas (§1.1)
+- [ ] `FORCE ROW LEVEL SECURITY` confirmado nas 17 tabelas (§1.1)
 - [ ] **`current_setting('is_superuser')` = `off` na conexão da aplicação (§1.2)** — superusuário anula o RLS inteiro
 - [ ] [`HOMOLOGACAO-ESPORTIVA.md`](HOMOLOGACAO-ESPORTIVA.md) ratificado antes de apurar prova oficial

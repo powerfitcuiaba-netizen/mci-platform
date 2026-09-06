@@ -169,10 +169,12 @@ describe('importação MuscleWar', () => {
     const pendente = lote.body.items[0];
     expect(pendente.matchStatus).toBe('MATCH_PENDING');
 
-    const atleta = await prisma.athlete.findFirst({ where: { cpf: CPF_A } });
+    // O CPF vive em AthleteIdentity, cuja política exige operador da
+    // organização — daí o cenário ser montado em nome do gerente.
+    const atleta = await comoAtor(gerente, tx => tx.athleteIdentity.findFirst({ where: { cpf: CPF_A } }));
 
     const vinculo = await api().post(`/api/v1/musclewar/items/${pendente.id}/link`).set(gerente.auth())
-      .send({ athleteId: atleta.id });
+      .send({ athleteId: atleta.athleteId });
     expect(vinculo.status, JSON.stringify(vinculo.body)).toBe(200);
     expect(vinculo.body.matchStatus).toBe('MATCHED');
     expect(vinculo.body.reason).toMatch(/CPF da origem difere/);
@@ -181,7 +183,7 @@ describe('importação MuscleWar', () => {
     expect(aplicacao.body.applied).toBe(1);
 
     const ponto = await prisma.rankingPoint.findFirst();
-    expect(ponto.athleteId).toBe(atleta.id);
+    expect(ponto.athleteId).toBe(atleta.athleteId);
   });
 
   it('registra na auditoria quem importou, quem revisou e quem aplicou', async () => {

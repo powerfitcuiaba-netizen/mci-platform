@@ -441,7 +441,7 @@ regulamento.
 primária continua sendo a camada de service, coberta por teste; o banco é a
 segunda barreira — e, desde a fase 10.2, uma barreira efetiva. Todo handler
 autenticado passa por `withUserContext` (`src/config/rlsSession.js`), que
-define o ator com `SET LOCAL` dentro da transação da requisição; as 16 tabelas
+define o ator com `SET LOCAL` dentro da transação da requisição; as 17 tabelas
 protegidas têm `FORCE ROW LEVEL SECURITY`, de modo que nem o dono do schema é
 isento. O ator vem sempre do token, nunca do corpo da requisição.
 
@@ -450,9 +450,18 @@ tabela das políticas salvo `FORCE`, e a aplicação conecta como dono — a
 política negava e o dono lia assim mesmo. `tests/rls-runtime.test.mjs` guarda
 justamente esse caso.
 
-O que o RLS **não** faz é barreira de coluna: onde a política libera a linha,
-libera todas as colunas. Manter o CPF fora das respostas públicas é papel da
-projeção do service, com teste cobrindo.
+O RLS é barreira de **linha**, não de coluna: onde a política libera a linha,
+libera todas as colunas dela. Por isso o CPF não mora em `Athlete` — cuja
+política precisa liberar leitura anônima para o diretório público, o ranking e
+a página pública de evento funcionarem — e sim em `AthleteIdentity`, tabela
+própria cuja política exige operador da organização ou o próprio atleta. Um
+`SELECT` sem projeção nenhuma, feito por engano numa rota pública, não tem como
+trazer CPF: a linha não vem.
+
+A partida também confere se o RLS vale para a conexão em uso
+(`src/config/rlsGuard.js`). Papel superusuário ou tabela com RLS sem `FORCE`
+derrubam o processo em produção e reprovam `/ready` — a proteção deixou de
+depender de quem provisiona o banco acertar.
 
 **Realtime ainda não está ligado.** Mensagens e notificações são carregadas sob
 demanda, com paginação por cursor; não há polling em intervalo curto. A troca

@@ -14,7 +14,7 @@ async function carregarInscricao(registrationId) {
     where: { id: registrationId },
     include: {
       event: true,
-      athlete: { select: { id: true, fullName: true, cpf: true, userId: true, athleteNumber: true } },
+      athlete: { select: { id: true, fullName: true, userId: true, athleteNumber: true, identity: { select: { cpf: true } } } },
       items: { include: { competitionClass: { select: { id: true, name: true, minWeightGrams: true, maxWeightGrams: true } } } }
     }
   });
