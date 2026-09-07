@@ -53,7 +53,6 @@ async function create(data, actor) {
       city: data.city ?? null,
       state: data.state ?? null,
       seasonId: data.seasonId ?? null,
-      scoringRuleSetId: data.scoringRuleSetId ?? null,
       createdById: actor.id
     }
   });

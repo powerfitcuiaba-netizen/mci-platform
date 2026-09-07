@@ -164,9 +164,6 @@ describe('RLS — dados restritos do campeonato', () => {
   });
 
   it('resultado não publicado só é lido por operador da organização do evento', async () => {
-    const juiz = await criarUsuario({ name: 'Juiz' });
-    await vincular(orgA.id, juiz, 'JUDGE');
-
     const { event, competitionClass } = await criarEventoCompleto(diretorA, orgA.id);
     await transicionar(diretorA, event.id, ['PLANNED', 'REGISTRATIONS_OPEN']);
 
@@ -177,17 +174,9 @@ describe('RLS — dados restritos do campeonato', () => {
     await api().post(`/api/v1/registrations/${inscricao.body.registration.id}/checkin`).set(diretorA.auth()).send({});
     await transicionar(diretorA, event.id, ['IN_JUDGING']);
 
-    const painel = await api().post(`/api/v1/events/${event.id}/panels`).set(diretorA.auth()).send({ name: 'Painel' });
-    await api().post(`/api/v1/panels/${painel.body.id}/judges`).set(diretorA.auth()).send({ judgeId: juiz.id, seat: 1, role: 'HEAD' });
-
-    const sessao = await api().post('/api/v1/judging-sessions').set(diretorA.auth())
-      .send({ classId: competitionClass.id, panelId: painel.body.id, round: 'FINALS' });
-    const item = await prisma.registrationItem.findFirst({ where: { classId: competitionClass.id } });
-
-    await api().post(`/api/v1/judging-sessions/${sessao.body.id}/scores`).set(juiz.auth())
-      .send({ placings: [{ registrationItemId: item.id, placing: 1 }] });
-    await api().post(`/api/v1/judging-sessions/${sessao.body.id}/close`).set(diretorA.auth());
-    await api().post(`/api/v1/classes/${competitionClass.id}/result/calculate`).set(diretorA.auth());
+    // O resultado oficial chega de fora, já decidido: a plataforma o recebe.
+    await api().post(`/api/v1/classes/${competitionClass.id}/result`).set(diretorA.auth())
+      .send({ entries: [{ athleteId: inscricao.body.registration.athlete.id, placing: 1 }] });
 
     expect(await comoUsuario(diretorA.id, tx => tx.result.findMany())).toHaveLength(1);
     expect(await comoUsuario(diretorB.id, tx => tx.result.findMany())).toHaveLength(0);

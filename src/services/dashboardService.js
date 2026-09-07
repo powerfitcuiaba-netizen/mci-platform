@@ -12,7 +12,7 @@ async function adminOverview(filtros, actor) {
 
   const [
     eventosAtivos, eventosTotais, atletas, atletasPro, inscricoes, checkins,
-    pesagens, baterias, sessoesAbertas, resultadosPublicados, importacoes, alertasEmpate, pendenciasImport
+    pesagens, baterias, resultadosPublicados, importacoes, alertasEmpate, pendenciasImport
   ] = await Promise.all([
     prisma.event.count({ where: { ...escopo, status: { in: ['REGISTRATIONS_OPEN', 'REGISTRATIONS_CLOSED', 'IN_OPERATION', 'IN_JUDGING', 'RESULTS_IN_REVIEW'] } } }),
     prisma.event.count({ where: escopo }),
@@ -22,7 +22,6 @@ async function adminOverview(filtros, actor) {
     prisma.checkIn.count({ where: { status: 'CHECKED_IN', registration: eventoNoEscopo } }),
     prisma.weighIn.count({ where: { registration: eventoNoEscopo } }),
     prisma.stageBatch.count({ where: escopo.organizationId ? { event: escopo } : {} }),
-    prisma.judgingSession.count({ where: { status: { in: ['OPEN', 'SCORING'] } } }),
     prisma.result.count({ where: { ...(escopo.organizationId ? { event: escopo } : {}), status: 'PUBLISHED' } }),
     prisma.muscleWarImport.count({ where: escopo }),
     prisma.result.count({ where: { ...(escopo.organizationId ? { event: escopo } : {}), hasUnresolvedTie: true } }),
@@ -40,7 +39,6 @@ async function adminOverview(filtros, actor) {
     checkIns: checkins,
     weighIns: pesagens,
     batches: baterias,
-    openJudgingSessions: sessoesAbertas,
     publishedResults: resultadosPublicados,
     muscleWarImports: importacoes,
     alerts: alertas
@@ -133,13 +131,12 @@ async function eventOperations(eventId, actor) {
   if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Evento não encontrado');
   if (!can(actor, 'analytics.read', event.organizationId)) throw new AppError(403, 'FORBIDDEN', 'Sem permissão para o painel operacional');
 
-  const [inscritos, comCheckIn, pesados, credenciais, baterias, sessoes, resultados] = await Promise.all([
+  const [inscritos, comCheckIn, pesados, credenciais, baterias, resultados] = await Promise.all([
     prisma.registration.count({ where: { eventId, status: 'CONFIRMED' } }),
     prisma.checkIn.count({ where: { status: 'CHECKED_IN', registration: { eventId } } }),
     prisma.weighIn.findMany({ where: { registration: { eventId } }, select: { registrationId: true }, distinct: ['registrationId'] }),
     prisma.credential.count({ where: { eventId, status: 'ACTIVE' } }),
     prisma.stageBatch.groupBy({ by: ['status'], where: { eventId }, _count: { _all: true } }),
-    prisma.judgingSession.groupBy({ by: ['status'], where: { panel: { eventId } }, _count: { _all: true } }),
     prisma.result.groupBy({ by: ['status'], where: { eventId }, _count: { _all: true } })
   ]);
 
@@ -153,7 +150,6 @@ async function eventOperations(eventId, actor) {
     weighedIn: pesados.length,
     credentials: credenciais,
     batches: paraMapa(baterias),
-    judgingSessions: paraMapa(sessoes),
     results: paraMapa(resultados)
   };
 }

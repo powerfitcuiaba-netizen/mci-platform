@@ -1,11 +1,15 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
   api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao, vincular,
-  criarEventoCompleto, transicionar, gerarCpf, unico
+  criarEventoCompleto, transicionar, gerarCpf
 } from './helpers.mjs';
 
 // Fluxo completo do campeonato:
-// cadastro → inscrição → check-in → pesagem → julgamento → resultado → ranking.
+// cadastro → inscrição → check-in → pesagem → RECEPÇÃO do resultado → ranking.
+//
+// O julgamento não aparece aqui porque não acontece aqui: ele é externo. O que
+// a plataforma faz é receber a colocação já decidida, versionar, publicar e
+// pontuar.
 
 let admin;
 let diretor;
@@ -14,18 +18,6 @@ let juizA;
 let juizB;
 let juizC;
 let organizationId;
-
-async function montarPainel(eventId, juizes) {
-  const painel = await api().post(`/api/v1/events/${eventId}/panels`).set(diretor.auth()).send({ name: unico('painel') });
-  expect(painel.status).toBe(201);
-
-  for (const [indice, juiz] of juizes.entries()) {
-    const resposta = await api().post(`/api/v1/panels/${painel.body.id}/judges`).set(diretor.auth())
-      .send({ judgeId: juiz.id, seat: indice + 1, role: indice === 0 ? 'HEAD' : 'JUDGE' });
-    expect(resposta.status, JSON.stringify(resposta.body)).toBe(201);
-  }
-  return painel.body;
-}
 
 beforeAll(() => garantirCatalogo());
 
@@ -128,46 +120,35 @@ describe('fluxo completo do campeonato', () => {
     expect(ordem.status).toBe(200);
     expect(ordem.body.orders).toHaveLength(3);
 
-    // ----------------------------------------------------------- julgamento
+    // ------------------------------------------- recepção do resultado
     await transicionar(diretor, event.id, ['IN_JUDGING']);
-    const painel = await montarPainel(event.id, [juizA, juizB, juizC]);
 
-    const sessao = await api().post('/api/v1/judging-sessions').set(diretor.auth())
-      .send({ classId: competitionClass.id, panelId: painel.id, round: 'FINALS' });
-    expect(sessao.status, JSON.stringify(sessao.body)).toBe(201);
-
-    const ficha = await api().get(`/api/v1/judging-sessions/${sessao.body.id}/sheet`).set(juizA.auth());
-    expect(ficha.body.competitors).toHaveLength(3);
-
-    // Três juízes concordam na ordem 1, 2, 3 — sem empate.
-    for (const juiz of [juizA, juizB, juizC]) {
-      const envio = await api().post(`/api/v1/judging-sessions/${sessao.body.id}/scores`).set(juiz.auth()).send({
-        placings: itens.map((item, indice) => ({ registrationItemId: item.id, placing: indice + 1 }))
-      });
-      expect(envio.status, JSON.stringify(envio.body)).toBe(200);
+    const atletasEmOrdem = [];
+    for (const item of itens) {
+      const inscricao = await prisma.registration.findUnique({ where: { id: item.registrationId } });
+      atletasEmOrdem.push(inscricao.athleteId);
     }
 
-    const fechamento = await api().post(`/api/v1/judging-sessions/${sessao.body.id}/close`).set(diretor.auth());
-    expect(fechamento.status, JSON.stringify(fechamento.body)).toBe(200);
+    const recebido = await api().post(`/api/v1/classes/${competitionClass.id}/result`).set(diretor.auth())
+      .send({ entries: atletasEmOrdem.map((athleteId, indice) => ({ athleteId, placing: indice + 1 })) });
+    expect(recebido.status, JSON.stringify(recebido.body)).toBe(200);
+    expect(recebido.body.status).toBe('DRAFT');
+    expect(recebido.body.hasUnresolvedTie).toBe(false);
+    // A colocação recebida é a colocação registrada: nada foi recalculado.
+    expect(recebido.body.entries.map(e => e.placing)).toEqual([1, 2, 3]);
 
-    // ------------------------------------------------------------ resultado
-    const apuracao = await api().post(`/api/v1/classes/${competitionClass.id}/result/calculate`).set(diretor.auth());
-    expect(apuracao.status, JSON.stringify(apuracao.body)).toBe(200);
-    expect(apuracao.body.status).toBe('DRAFT');
-    expect(apuracao.body.hasUnresolvedTie).toBe(false);
-    expect(apuracao.body.entries.map(e => e.placing)).toEqual([1, 2, 3]);
-    expect(apuracao.body.entries[0].score).toBe(3);
-
-    // Recalcular com a mesma entrada produz o mesmo checksum.
-    const recalculo = await api().post(`/api/v1/classes/${competitionClass.id}/result/calculate`).set(diretor.auth());
-    expect(recalculo.body.checksum).toBe(apuracao.body.checksum);
+    // Reenviar o MESMO resultado dá o mesmo checksum — é assinatura do dado
+    // recebido, não prova de apuração.
+    const reenvio = await api().post(`/api/v1/classes/${competitionClass.id}/result`).set(diretor.auth())
+      .send({ entries: atletasEmOrdem.map((athleteId, indice) => ({ athleteId, placing: indice + 1 })) });
+    expect(reenvio.body.checksum).toBe(recebido.body.checksum);
 
     // Antes de publicar, o resultado é restrito.
     const espiada = await api().get(`/api/v1/classes/${competitionClass.id}/result`);
     expect(espiada.status).toBe(404);
 
     const publicacao = await api().post(`/api/v1/classes/${competitionClass.id}/result/publish`).set(diretor.auth())
-      .send({ reason: 'Apuração conferida pela comissão' });
+      .send({ reason: 'Resultado oficial conferido pela comissão' });
     expect(publicacao.status, JSON.stringify(publicacao.body)).toBe(200);
     expect(publicacao.body.result.status).toBe('PUBLISHED');
     expect(publicacao.body.ranking.awarded).toBe(3);
@@ -196,7 +177,7 @@ describe('fluxo completo do campeonato', () => {
     // ------------------------------------------------------------ auditoria
     const trilha = await api().get('/api/v1/audit').set(admin.auth()).query({ limit: 200 });
     const acoes = new Set(trilha.body.items.map(item => item.action));
-    for (const esperada of ['EVENT_CREATE', 'EVENT_TRANSITION', 'REGISTRATION_CREATE', 'CHECKIN', 'WEIGHIN', 'JUDGING_SCORE', 'JUDGING_CLOSE', 'RESULT_CALCULATION', 'RESULT_PUBLICATION', 'RANKING_UPDATE']) {
+    for (const esperada of ['EVENT_CREATE', 'EVENT_TRANSITION', 'REGISTRATION_CREATE', 'CHECKIN', 'WEIGHIN', 'RESULT_RECEIVED', 'RESULT_PUBLICATION', 'RANKING_UPDATE']) {
       expect(acoes.has(esperada), `auditoria sem ${esperada}`).toBe(true);
     }
   });
@@ -221,28 +202,23 @@ describe('fluxo completo do campeonato', () => {
     }
     await transicionar(diretor, event.id, ['IN_JUDGING']);
 
-    // Painel sem juiz-chefe e evento sem regra de desempate: o empate persiste.
-    const painel = await api().post(`/api/v1/events/${event.id}/panels`).set(diretor.auth()).send({ name: 'Painel' });
-    for (const [indice, juiz] of [juizA, juizB].entries()) {
-      await api().post(`/api/v1/panels/${painel.body.id}/judges`).set(diretor.auth()).send({ judgeId: juiz.id, seat: indice + 1 });
+    const itens = await prisma.registrationItem.findMany({ where: { classId: competitionClass.id }, orderBy: { createdAt: 'asc' } });
+    const atletas = [];
+    for (const item of itens) {
+      const inscricao = await prisma.registration.findUnique({ where: { id: item.registrationId } });
+      atletas.push(inscricao.athleteId);
     }
 
-    const sessao = await api().post('/api/v1/judging-sessions').set(diretor.auth())
-      .send({ classId: competitionClass.id, panelId: painel.body.id, round: 'FINALS' });
-
-    const itens = await prisma.registrationItem.findMany({ where: { classId: competitionClass.id }, orderBy: { createdAt: 'asc' } });
-
-    await api().post(`/api/v1/judging-sessions/${sessao.body.id}/scores`).set(juizA.auth())
-      .send({ placings: [{ registrationItemId: itens[0].id, placing: 1 }, { registrationItemId: itens[1].id, placing: 2 }] });
-    await api().post(`/api/v1/judging-sessions/${sessao.body.id}/scores`).set(juizB.auth())
-      .send({ placings: [{ registrationItemId: itens[0].id, placing: 2 }, { registrationItemId: itens[1].id, placing: 1 }] });
-
-    await api().post(`/api/v1/judging-sessions/${sessao.body.id}/close`).set(diretor.auth());
-
-    const apuracao = await api().post(`/api/v1/classes/${competitionClass.id}/result/calculate`).set(diretor.auth());
-    expect(apuracao.body.hasUnresolvedTie).toBe(true);
-    expect(apuracao.body.entries.every(e => e.status === 'TIE_UNRESOLVED')).toBe(true);
-    expect(apuracao.body.entries.every(e => e.placing === null)).toBe(true);
+    // O resultado externo chega EMPATADO e sem colocação definida. A
+    // plataforma registra o empate como empate: desempatar por ordem de
+    // chegada, id ou nome seria julgar, e é justamente o que o regulamento
+    // proíbe.
+    const recebido = await api().post(`/api/v1/classes/${competitionClass.id}/result`).set(diretor.auth())
+      .send({ entries: atletas.map(athleteId => ({ athleteId, status: 'TIE_UNRESOLVED' })) });
+    expect(recebido.status, JSON.stringify(recebido.body)).toBe(200);
+    expect(recebido.body.hasUnresolvedTie).toBe(true);
+    expect(recebido.body.entries.every(e => e.status === 'TIE_UNRESOLVED')).toBe(true);
+    expect(recebido.body.entries.every(e => e.placing === null)).toBe(true);
 
     const publicacaoRecusada = await api().post(`/api/v1/classes/${competitionClass.id}/result/publish`).set(diretor.auth()).send({});
     expect(publicacaoRecusada.status).toBe(422);

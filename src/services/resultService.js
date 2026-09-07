@@ -1,13 +1,23 @@
 const prisma = require('../config/prisma');
 const { AppError } = require('../utils/errors');
 const { assertCan } = require('../utils/tenant');
-const { tabulate, REGRA_PADRAO } = require('../utils/tabulation');
+const crypto = require('node:crypto');
 const { resultFor } = require('../utils/visibility');
 const audit = require('./auditService');
 const notifications = require('./notificationService');
 const ranking = require('./rankingService');
 
-// Apuração, publicação e versionamento de resultados.
+// Recepção, publicação e versionamento de resultados.
+//
+// O MCI NÃO julga. O julgamento, a apuração e a definição da colocação
+// acontecem fora daqui; esta camada RECEBE o resultado oficial já decidido e
+// cuida do que é responsabilidade da plataforma: registrar, versionar,
+// publicar, auditar e pontuar o ranking.
+//
+// Por isso não existe aqui — e a ausência é deliberada — algoritmo de
+// julgamento, ficha de juiz, descarte de notas, painel ou critério de apuração
+// dentro da classe. A colocação recebida é a colocação final: não é conferida,
+// não é recalculada, não é substituída por cálculo próprio.
 //
 // O resultado publicado é protegido: qualquer alteração posterior cria uma
 // nova versão, guarda a anterior íntegra e registra motivo, autor e momento.
@@ -43,73 +53,79 @@ async function carregarClasse(classId) {
   const competitionClass = await prisma.competitionClass.findUnique({
     where: { id: classId },
     include: {
-      division: { include: { eventCategory: { include: { category: true, event: { include: { scoringRuleSet: true, season: { include: { scoringRuleSet: true } } } } } } } }
+      division: { include: { eventCategory: { include: { category: true, event: { include: { season: true } } } } } }
     }
   });
   if (!competitionClass) throw new AppError(404, 'CLASS_NOT_FOUND', 'Classe não encontrada');
   return competitionClass;
 }
 
-// Regra de apuração vigente: a do evento, senão a da temporada, senão o padrão
-// conservador (soma de colocações, sem descarte, sem desempate automático).
-function regraVigente(event) {
-  const regra = event.scoringRuleSet || event.season?.scoringRuleSet;
-  if (!regra) return { ...REGRA_PADRAO };
-  return {
-    method: regra.method,
-    dropHighLow: regra.dropHighLow,
-    dropHighLowMinJudges: regra.dropHighLowMinJudges,
-    tieBreakers: regra.tieBreakers || []
-  };
+// Assinatura do que foi RECEBIDO. Não é prova de apuração — não houve
+// apuração aqui —, é impressão digital do dado externo: se o mesmo resultado
+// for reenviado, o checksum bate; se alguém trocar uma colocação no caminho,
+// não bate.
+function checksumDoRecebido(entradas) {
+  const canonico = entradas
+    .map(entrada => `${entrada.athleteId}:${entrada.placing ?? ''}:${entrada.status}`)
+    .sort()
+    .join('|');
+  return crypto.createHash('sha256').update(canonico).digest('hex');
 }
 
 /**
- * Calcula (ou recalcula) o resultado de uma classe a partir das fichas
- * encerradas. Determinístico: mesma entrada, mesmo checksum, mesma saída.
+ * RECEBE o resultado oficial de uma classe, decidido fora do MCI.
+ *
+ * A colocação que chega é a colocação que fica. A plataforma confere apenas o
+ * que é dela: que os atletas pertencem a esta classe e que não vieram duas
+ * colocações iguais — validação de integridade do lançamento, não de mérito
+ * esportivo. Reenviar gera uma NOVA versão, nunca uma sobrescrita.
  */
-async function calculate(classId, actor) {
+async function receive(classId, { entries, reason, source = 'EXTERNAL' }, actor) {
   const competitionClass = await carregarClasse(classId);
   const event = competitionClass.division.eventCategory.event;
 
-  assertCan(actor, 'results.calculate', event.organizationId);
-
-  // A rodada que vale é a final, se existir; senão a pré-julgamento. Comparação
-  // isolada não decide colocação sozinha.
-  const sessoes = await prisma.judgingSession.findMany({
-    where: { classId, status: 'CLOSED' },
-    include: { panel: { include: { judges: true } } },
-    orderBy: { createdAt: 'asc' }
-  });
-
-  if (!sessoes.length) throw new AppError(422, 'NO_CLOSED_SESSION', 'Nenhuma sessão de julgamento encerrada para esta classe');
-
-  const sessao = sessoes.find(item => item.round === 'FINALS') || sessoes.find(item => item.round === 'PREJUDGING') || sessoes[0];
-
-  const chefes = new Set(sessao.panel.judges.filter(judge => judge.role === 'HEAD').map(judge => judge.judgeId));
-
-  const votos = await prisma.judgingScore.findMany({
-    where: { sessionId: sessao.id },
-    select: { judgeId: true, registrationItemId: true, placing: true }
-  });
-
-  if (!votos.length) throw new AppError(422, 'NO_SCORES', 'Sessão encerrada sem fichas registradas');
-
-  const regra = regraVigente(event);
-  const apuracao = tabulate(votos.map(voto => ({ ...voto, isHeadJudge: chefes.has(voto.judgeId) })), regra);
+  assertCan(actor, 'results.receive', event.organizationId);
 
   const itens = await prisma.registrationItem.findMany({
-    where: { id: { in: apuracao.entries.map(entry => entry.registrationItemId) } },
+    where: { classId },
     select: { id: true, registration: { select: { athleteId: true } } }
   });
-  const athletePorItem = new Map(itens.map(item => [item.id, item.registration.athleteId]));
+  if (!itens.length) throw new AppError(422, 'NO_REGISTRATIONS', 'Nenhum inscrito nesta classe');
+
+  const itemPorAtleta = new Map(itens.map(item => [item.registration.athleteId, item.id]));
+
+  const forasteiros = entries.filter(entrada => !itemPorAtleta.has(entrada.athleteId));
+  if (forasteiros.length) {
+    throw new AppError(422, 'ATHLETE_NOT_IN_CLASS', 'Há atleta fora desta classe no resultado recebido');
+  }
+
+  const colocacoes = entries.map(entrada => entrada.placing).filter(valor => valor != null);
+  if (new Set(colocacoes).size !== colocacoes.length) {
+    throw new AppError(422, 'DUPLICATE_PLACING', 'Duas colocações iguais no resultado recebido');
+  }
 
   const existente = await prisma.result.findUnique({ where: { eventId_classId: { eventId: event.id, classId } } });
 
-  // Resultado já publicado não é recalculado por esta porta: correção é
-  // override versionado.
+  // Resultado já publicado não é reaberto por esta porta: correção é override
+  // versionado, com motivo.
   if (existente?.status === 'PUBLISHED') {
     throw new AppError(422, 'RESULT_PUBLISHED', 'Resultado publicado: use a correção versionada');
   }
+
+  const entradas = entries.map(entrada => ({
+    registrationItemId: itemPorAtleta.get(entrada.athleteId),
+    athleteId: entrada.athleteId,
+    placing: entrada.placing ?? null,
+    status: entrada.status || (entrada.placing == null ? 'ABSENT' : 'RANKED')
+  }));
+
+  // Se o resultado externo chega EMPATADO, o empate é registrado como empate.
+  // A plataforma não desempata: fazer isso seria julgar, e o desempate por
+  // ordem de chegada, id ou nome é exatamente o que o regulamento proíbe. O
+  // empate trava a publicação até a comissão decidir, com motivo e autor.
+  const temEmpate = entradas.some(entrada => entrada.status === 'TIE_UNRESOLVED');
+
+  const checksum = checksumDoRecebido(entradas);
 
   const result = await prisma.$transaction(async tx => {
     const base = existente
@@ -117,58 +133,51 @@ async function calculate(classId, actor) {
         where: { id: existente.id },
         data: {
           status: 'DRAFT',
-          // Reapuração é uma nova versão, não uma sobrescrita da anterior.
           version: existente.version + 1,
-          checksum: apuracao.checksum,
-          hasUnresolvedTie: apuracao.hasUnresolvedTie,
+          checksum,
+          hasUnresolvedTie: temEmpate,
           computedAt: new Date()
         }
       })
       : await tx.result.create({
-        data: { eventId: event.id, classId, status: 'DRAFT', checksum: apuracao.checksum, hasUnresolvedTie: apuracao.hasUnresolvedTie }
+        data: { eventId: event.id, classId, status: 'DRAFT', checksum, hasUnresolvedTie: temEmpate }
       });
 
     await tx.resultEntry.deleteMany({ where: { resultId: base.id } });
 
-    const entradas = apuracao.entries.map(entry => ({
+    const linhas = entradas.map(entrada => ({
       resultId: base.id,
-      registrationItemId: entry.registrationItemId,
-      athleteId: athletePorItem.get(entry.registrationItemId),
-      placing: entry.placing,
-      status: entry.status,
-      score: entry.score,
-      rawScore: entry.rawScore,
-      breakdown: {
-        placings: entry.placings,
-        countback: entry.countback,
-        judgeVotes: entry.judgeVotes,
-        dropped: entry.dropped,
-        headJudgePlacing: entry.headJudgePlacing
-      }
+      registrationItemId: entrada.registrationItemId,
+      athleteId: entrada.athleteId,
+      placing: entrada.placing,
+      status: entrada.status,
+      // `score` e `rawScore` existiam para guardar a soma de colocações da
+      // apuração interna. Sem apuração, não há soma que guardar: a colocação
+      // recebida é o dado, e inventar um número aqui seria fingir cálculo.
+      score: 0,
+      rawScore: 0,
+      breakdown: { source, receivedPlacing: entrada.placing }
     }));
 
-    await tx.resultEntry.createMany({ data: entradas });
+    await tx.resultEntry.createMany({ data: linhas });
 
     await registrarVersao(tx, {
       resultId: base.id,
       version: base.version,
       status: base.status,
       checksum: base.checksum,
-      reason: existente ? 'Reapuração a partir das fichas encerradas' : 'Apuração inicial',
+      reason: reason || (existente ? 'Novo recebimento do resultado oficial' : 'Recebimento do resultado oficial'),
       createdById: actor.id,
-      entries: entradas
+      entries: linhas
     });
 
     return base;
   });
 
   await audit.record({
-    actor, action: audit.ACTIONS.RESULT_CALCULATION, entity: 'Result', entityId: result.id,
+    actor, action: audit.ACTIONS.RESULT_RECEIVED, entity: 'Result', entityId: result.id,
     organizationId: event.organizationId,
-    metadata: {
-      classId, sessionId: sessao.id, round: sessao.round, checksum: apuracao.checksum,
-      judgeCount: apuracao.judgeCount, hasUnresolvedTie: apuracao.hasUnresolvedTie, ruleSet: apuracao.ruleSet
-    }
+    metadata: { classId, source, checksum, entryCount: entradas.length, version: result.version }
   });
 
   return findByClass(classId, actor);
@@ -360,4 +369,4 @@ async function listByEvent(eventId, actor) {
   });
 }
 
-module.exports = { calculate, findByClass, publish, override, versions, listByEvent, regraVigente };
+module.exports = { receive, findByClass, publish, override, versions, listByEvent };

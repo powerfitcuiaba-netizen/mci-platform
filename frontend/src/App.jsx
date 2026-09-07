@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Bell, ClipboardCheck, Gavel, Home, LayoutDashboard, LogOut, Menu, MessageSquare,
+  Bell, ClipboardCheck, Home, LayoutDashboard, LogOut, Menu, MessageSquare,
   QrCode, Scale, Search, Settings, ShieldCheck, Trophy, Upload, UserCircle, Users, Users2, Zap
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './AuthContext';
@@ -12,7 +12,7 @@ import { AtletaDetalhe, Atletas, CampeonatoDetalhe, Campeonatos, Inicio, Ranking
 import { ComunidadeDetalhe, Comunidades, Feed, MeuPerfilSocial, Notificacoes, Perfil, Salvos } from './pages/socialPages';
 import Messenger from './pages/messengerPage';
 import { AdminCheckin, AdminCredenciamento, AdminEventoDetalhe, AdminEventos, AdminInscricoes, AdminPalco, AdminPesagem } from './pages/adminEvent';
-import { AdminJulgamento, AdminResultados } from './pages/adminJudging';
+import { AdminResultados } from './pages/adminResults';
 import { AdminAuditoria, AdminConfiguracoes, AdminMuscleWar, AdminPainel, AdminRanking } from './pages/adminPlatform';
 import { MeuPainel, MinhaConta } from './pages/mePages';
 
@@ -40,7 +40,6 @@ const NAVEGACAO_ADMIN = [
   { rota: 'admin/pesagem', rotulo: 'Pesagem', icone: Scale, permissao: 'weighin.operate' },
   { rota: 'admin/credenciamento', rotulo: 'Credenciamento', icone: QrCode, permissao: 'credentials.read' },
   { rota: 'admin/palco', rotulo: 'Palco', icone: Users2, permissao: 'stage.read' },
-  { rota: 'admin/julgamento', rotulo: 'Julgamento', icone: Gavel, permissao: 'judging.read' },
   { rota: 'admin/resultados', rotulo: 'Resultados', icone: ShieldCheck, permissao: 'results.read_unpublished' },
   { rota: 'admin/ranking', rotulo: 'Ranking', icone: Zap, permissao: 'ranking.manage' },
   { rota: 'admin/musclewar', rotulo: 'MuscleWar', icone: Upload, permissao: 'musclewar.review' },
@@ -53,15 +52,15 @@ const NAVEGACAO_ADMIN = [
 const PERMISSOES_POR_PAPEL = {
   SUPER_ADMIN: ['*'],
   ADMIN: ['*'],
-  EVENT_DIRECTOR: ['analytics.read', 'events.update', 'registrations.read', 'checkin.operate', 'weighin.operate', 'credentials.read', 'stage.read', 'judging.read', 'results.read_unpublished', 'ranking.manage', 'musclewar.review', 'users.read'],
-  EVENT_COORDINATOR: ['analytics.read', 'events.update', 'registrations.read', 'checkin.operate', 'weighin.operate', 'credentials.read', 'stage.read', 'judging.read', 'results.read_unpublished'],
-  JUDGE_COORDINATOR: ['judging.read', 'stage.read', 'results.read_unpublished'],
-  JUDGE: ['judging.read', 'stage.read', 'registrations.read'],
+  EVENT_DIRECTOR: ['analytics.read', 'events.update', 'registrations.read', 'checkin.operate', 'weighin.operate', 'credentials.read', 'stage.read', 'results.read_unpublished', 'ranking.manage', 'musclewar.review', 'users.read'],
+  EVENT_COORDINATOR: ['analytics.read', 'events.update', 'registrations.read', 'checkin.operate', 'weighin.operate', 'credentials.read', 'stage.read', 'results.read_unpublished'],
+  JUDGE_COORDINATOR: ['stage.read', 'results.read_unpublished'],
+  JUDGE: ['stage.read', 'registrations.read'],
   STAFF: ['registrations.read', 'stage.read', 'checkin.read'],
   REGISTRATION_OPERATOR: ['registrations.read'],
   CHECKIN_OPERATOR: ['registrations.read', 'checkin.operate'],
   WEIGHIN_OPERATOR: ['registrations.read', 'weighin.operate'],
-  RESULTS_OPERATOR: ['results.read_unpublished', 'judging.read', 'stage.read'],
+  RESULTS_OPERATOR: ['results.read_unpublished', 'stage.read'],
   RANKING_MANAGER: ['ranking.manage', 'results.read_unpublished', 'musclewar.review'],
   SOCIAL_ADMIN: [],
   MODERATOR: [],
@@ -204,7 +203,6 @@ function Shell() {
         if (segundo === 'pesagem') return <AdminPesagem notificar={notificar} />;
         if (segundo === 'credenciamento') return <AdminCredenciamento notificar={notificar} />;
         if (segundo === 'palco') return <AdminPalco notificar={notificar} />;
-        if (segundo === 'julgamento') return <AdminJulgamento notificar={notificar} />;
         if (segundo === 'resultados') return <AdminResultados notificar={notificar} />;
         if (segundo === 'ranking') return <AdminRanking notificar={notificar} />;
         if (segundo === 'musclewar') return <AdminMuscleWar notificar={notificar} />;

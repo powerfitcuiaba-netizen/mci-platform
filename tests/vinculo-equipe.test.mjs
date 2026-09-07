@@ -180,7 +180,7 @@ describe('a trava é do banco, não da tela', () => {
     const recusados = respostas.filter(r => r.status === 409);
 
     expect(criados, 'exatamente um vínculo pode ser criado').toHaveLength(1);
-    expect(recusados).toHaveLength(1);
+    expect(recusados, `status=${JSON.stringify(respostas.map(r => [r.status, r.body?.error?.code]))}`).toHaveLength(1);
     expect(recusados[0].body.error.code).toBe('ATHLETE_ALREADY_LINKED');
 
     const ativos = await comoAtor(diretor, tx => tx.athleteTeamMembership.findMany({ where: { athleteId: atleta.id, endedAt: null } }));

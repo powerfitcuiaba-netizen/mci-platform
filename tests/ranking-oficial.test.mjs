@@ -17,7 +17,6 @@ let admin;
 let diretor;
 let orgId;
 let seasonId;
-let juizes;
 
 const cpfSeq = (() => { let n = 400000000; return () => gerarCpf(n += 7717); })();
 
@@ -66,25 +65,13 @@ async function eventoPontuado({ colocacoes, teams = {}, overall = null, publicar
   }
   await transicionar(diretor, event.id, ['IN_JUDGING']);
 
-  const painel = await api().post(`/api/v1/events/${event.id}/panels`).set(diretor.auth()).send({ name: unico('painel') });
-  for (const [indice, juiz] of juizes.entries()) {
-    await api().post(`/api/v1/panels/${painel.body.id}/judges`).set(diretor.auth())
-      .send({ judgeId: juiz.id, seat: indice + 1, role: indice === 0 ? 'HEAD' : 'JUDGE' });
-  }
-
-  const sessao = await api().post('/api/v1/judging-sessions').set(diretor.auth())
-    .send({ classId: competitionClass.id, panelId: painel.body.id, round: 'FINALS' });
-
-  const ficha = await api().get(`/api/v1/judging-sessions/${sessao.body.id}/sheet`).set(juizes[0].auth());
-  const ordenados = colocacoes.map(nome =>
-    ficha.body.competitors.find(item => item.athlete.fullName === nome));
-
-  for (const juiz of juizes) {
-    await api().post(`/api/v1/judging-sessions/${sessao.body.id}/scores`).set(juiz.auth())
-      .send({ placings: ordenados.map((item, indice) => ({ registrationItemId: item.registrationItemId, placing: indice + 1 })) });
-  }
-  await api().post(`/api/v1/judging-sessions/${sessao.body.id}/close`).set(diretor.auth());
-  await api().post(`/api/v1/classes/${competitionClass.id}/result/calculate`).set(diretor.auth()).send({});
+  // O MCI NÃO julga: o resultado oficial chega de fora, já decidido, e é
+  // RECEBIDO com atleta e colocação. Nada aqui apura nem confere mérito.
+  const recebido = await api().post(`/api/v1/classes/${competitionClass.id}/result`).set(diretor.auth())
+    .send({
+      entries: inscritos.map((inscrito, indice) => ({ athleteId: inscrito.athleteId, placing: indice + 1 }))
+    });
+  expect(recebido.status, JSON.stringify(recebido.body)).toBe(200);
 
   if (overall) {
     const campeao = inscritos.find(item => item.nome === overall);
@@ -118,13 +105,6 @@ beforeEach(async () => {
   orgId = org.id;
   await vincular(orgId, diretor, 'EVENT_DIRECTOR');
   await vincular(orgId, diretor, 'RANKING_MANAGER');
-
-  juizes = [];
-  for (const nome of ['Juiz A', 'Juiz B', 'Juiz C']) {
-    const juiz = await criarUsuario({ name: nome });
-    await vincular(orgId, juiz, 'JUDGE');
-    juizes.push(juiz);
-  }
 
   const temporada = await api().post('/api/v1/seasons').set(diretor.auth())
     .send({ organizationId: orgId, name: unico('Temporada'), year: 2026 });

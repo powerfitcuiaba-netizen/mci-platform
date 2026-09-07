@@ -29,7 +29,6 @@ async function createSeason(data, actor) {
         year: data.year,
         startDate: data.startDate ?? null,
         endDate: data.endDate ?? null,
-        scoringRuleSetId: data.scoringRuleSetId ?? null,
         pointsRules: { create: TABELA_OFICIAL_COLOCACAO.map(regra => ({ ...regra })) }
       }
     });

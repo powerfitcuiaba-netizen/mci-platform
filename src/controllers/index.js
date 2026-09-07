@@ -9,7 +9,6 @@ const athletes = require('../services/athleteService');
 const events = require('../services/eventService');
 const registrations = require('../services/registrationService');
 const operations = require('../services/operationsService');
-const judging = require('../services/judgingService');
 const results = require('../services/resultService');
 const ranking = require('../services/rankingService');
 const muscleWar = require('../services/muscleWarService');
@@ -24,7 +23,6 @@ const documents = require('../services/documentService');
 const notifications = require('../services/notificationService');
 const auditService = require('../services/auditService');
 const admin = require('../services/adminService');
-const scoring = require('../services/scoringService');
 const health = require('../services/healthService');
 const memberships = require('../services/membershipService');
 
@@ -124,20 +122,8 @@ module.exports = {
     updateBatchStatus: async (req, res) => res.json(await operations.updateBatchStatus(req.params.id, req.body, req.user))
   },
 
-  judging: {
-    createPanel: async (req, res) => res.status(201).json(await judging.createPanel(req.params.id, req.body, req.user)),
-    listPanels: async (req, res) => res.json({ items: await judging.listPanels(req.params.id, req.user) }),
-    addJudge: async (req, res) => res.status(201).json(await judging.addJudge(req.params.id, req.body, req.user)),
-    removeJudge: async (req, res) => res.json(await judging.removeJudge(req.params.id, req.params.judgeId, req.user)),
-    openSession: async (req, res) => res.status(201).json(await judging.openSession(req.body, req.user)),
-    listSessions: async (req, res) => res.json({ items: await judging.listSessions(req.params.id, req.user) }),
-    sheet: async (req, res) => res.json(await judging.sessionSheet(req.params.id, req.user)),
-    submit: async (req, res) => res.json(await judging.submitScores(req.params.id, req.body, req.user)),
-    close: async (req, res) => res.json(await judging.closeSession(req.params.id, req.user))
-  },
-
   results: {
-    calculate: async (req, res) => res.json(await results.calculate(req.params.id, req.user)),
+    receive: async (req, res) => res.json(await results.receive(req.params.id, req.body, req.user)),
     findByClass: async (req, res) => res.json(await results.findByClass(req.params.id, req.user)),
     publish: async (req, res) => res.json(await results.publish(req.params.id, req.body, req.user)),
     override: async (req, res) => res.json(await results.override(req.params.id, req.body, req.user)),
@@ -314,10 +300,5 @@ module.exports = {
     listUsers: async (req, res) => res.json(await admin.listUsers(req.query, req.user)),
     findUser: async (req, res) => res.json(await admin.findUser(req.params.id, req.user)),
     updateUser: async (req, res) => res.json(await admin.updateUser(req.params.id, req.body, req.user))
-  },
-
-  scoring: {
-    list: async (req, res) => res.json({ items: await scoring.list() }),
-    create: async (req, res) => res.status(201).json(await scoring.create(req.body, req.user))
   }
 };

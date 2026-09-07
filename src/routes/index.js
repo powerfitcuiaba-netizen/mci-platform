@@ -123,29 +123,15 @@ router.route('/batches/:id/order')
 router.post('/batches/:id/status', requireAuth, validate(s.paramsWithId, 'params'), validate(s.batchStatusUpdate), wrap(c.operations.updateBatchStatus));
 
 // ================================================================ JULGAMENTO
-router.route('/events/:id/panels')
-  .get(requireAuth, validate(s.paramsWithId, 'params'), wrap(c.judging.listPanels))
-  .post(requireAuth, validate(s.paramsWithId, 'params'), validate(s.panelCreate), wrap(c.judging.createPanel));
-router.post('/panels/:id/judges', requireAuth, validate(s.paramsWithId, 'params'), validate(s.panelJudgeAdd), wrap(c.judging.addJudge));
-router.delete('/panels/:id/judges/:judgeId', requireAuth, wrap(c.judging.removeJudge));
-
-router.get('/events/:id/judging-sessions', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.judging.listSessions));
-router.post('/judging-sessions', requireAuth, validate(s.sessionCreate), wrap(c.judging.openSession));
-router.get('/judging-sessions/:id/sheet', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.judging.sheet));
-router.post('/judging-sessions/:id/scores', requireAuth, perm('judging.score'), validate(s.paramsWithId, 'params'), validate(s.scoreSubmit), wrap(c.judging.submit));
-router.post('/judging-sessions/:id/close', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.judging.close));
-
 // ================================================================ RESULTADOS
 router.get('/events/:id/results', optionalAuth, validate(s.paramsWithId, 'params'), wrap(c.results.listByEvent));
 router.get('/classes/:id/result', optionalAuth, validate(s.paramsWithId, 'params'), wrap(c.results.findByClass));
-router.post('/classes/:id/result/calculate', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.results.calculate));
+// O MCI NÃO julga: esta porta RECEBE o resultado oficial decidido fora, com
+// atleta e colocação. Não há apuração, ficha de juiz nem recálculo.
+router.post('/classes/:id/result', requireAuth, perm('results.receive'), validate(s.paramsWithId, 'params'), validate(s.resultReceive), wrap(c.results.receive));
 router.post('/classes/:id/result/publish', requireAuth, validate(s.paramsWithId, 'params'), validate(s.resultPublish), wrap(c.results.publish));
 router.post('/classes/:id/result/override', requireAuth, validate(s.paramsWithId, 'params'), validate(s.resultOverride), wrap(c.results.override));
 router.get('/classes/:id/result/versions', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.results.versions));
-
-router.route('/scoring-rule-sets')
-  .get(requireAuth, wrap(c.scoring.list))
-  .post(requireAuth, perm('results.calculate'), validate(s.scoringRuleSetCreate), wrap(c.scoring.create));
 
 // ===================================================== RANKING E TEMPORADAS
 router.get('/ranking', optionalAuth, validate(s.rankingQuery, 'query'), wrap(c.ranking.list));

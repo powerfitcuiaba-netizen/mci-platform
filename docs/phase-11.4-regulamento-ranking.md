@@ -35,16 +35,17 @@ Consequências práticas, todas verificáveis em `tests/ranking-oficial.test.mjs
   números e a diferença à vista.
 - Cada ponto guarda **quem importou, quando, e o lote de origem**.
 
-> **Descompasso registrado (fase 11.4b).** O repositório contém um motor de
-> julgamento interno — `src/services/judgingService.js`, `src/utils/tabulation.js`
-> e as rotas `/judging-sessions`, `/panels` —, construído na fase 5 a pedido do
-> organizador, com painel de juízes e apuração por colocação relativa. Ele **não
-> foi removido** nesta fase: remover subsistema testado e em uso é decisão do
-> organizador, não de quem audita. Enquanto essa decisão não vier, valem os dois
-> caminhos: eventos operados pelo próprio MCI podem ser apurados internamente, e
-> a **entrada oficial externa é a via primária** — nenhum dos dois sobrescreve o
-> outro, porque cada resultado carrega a sua origem (`source: EVENT` ou
-> `MUSCLEWAR`).
+> **Descompasso resolvido (fase 11.5).** A fase 11.4b registrou que o
+> repositório ainda continha um motor de julgamento interno — `judgingService.js`,
+> `tabulation.js` e as rotas `/judging-sessions` e `/panels` —, construído na
+> fase 5, em contradição com esta arquitetura. O organizador decidiu: **o
+> julgamento externo é a arquitetura, e o motor interno foi removido.**
+>
+> No lugar dele entrou `POST /classes/:id/result`, que RECEBE a colocação
+> oficial decidida fora. As tabelas de julgamento continuam no banco (remover
+> exigiria migration destrutiva, o que o projeto proíbe), mas nenhum código as
+> alcança, e uma trava em `tests/rotas.test.mjs` recusa a volta de qualquer rota
+> de julgamento.
 
 Conferível sem subir nada, lendo `tests/pontuacao-11-3.test.mjs` e
 `tests/regulamento-11-4.test.mjs`; na plataforma real, `tests/ranking-oficial.test.mjs`.

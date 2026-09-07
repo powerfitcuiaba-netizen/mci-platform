@@ -30,8 +30,7 @@ const PERMISSIONS = Object.freeze([
   'weighin.read', 'weighin.operate',
   'credentials.read', 'credentials.manage', 'credentials.scan',
   'stage.read', 'stage.manage',
-  'judging.read', 'judging.manage', 'judging.score', 'judging.close',
-  'results.read', 'results.read_unpublished', 'results.calculate', 'results.publish', 'results.override',
+  'results.read', 'results.read_unpublished', 'results.receive', 'results.publish', 'results.override',
   'ranking.read', 'ranking.manage',
   'pro.read', 'pro.manage',
   'musclewar.import', 'musclewar.review', 'musclewar.apply',
@@ -78,8 +77,7 @@ const ROLE_PERMISSIONS = Object.freeze({
     'checkin.read', 'checkin.operate', 'weighin.read', 'weighin.operate',
     'credentials.read', 'credentials.manage', 'credentials.scan',
     'stage.read', 'stage.manage',
-    'judging.read', 'judging.manage', 'judging.close',
-    'results.read_unpublished', 'results.calculate', 'results.publish',
+    'results.read_unpublished', 'results.receive', 'results.publish',
     'ranking.manage', 'pro.manage',
     'musclewar.import', 'musclewar.review', 'musclewar.apply',
     'teams.manage', 'companies.manage', 'coaches.manage', 'gyms.manage', 'brands.manage', 'sponsors.manage',
@@ -93,18 +91,20 @@ const ROLE_PERMISSIONS = Object.freeze({
     'checkin.read', 'checkin.operate', 'weighin.read', 'weighin.operate',
     'credentials.read', 'credentials.manage', 'credentials.scan',
     'stage.read', 'stage.manage',
-    'judging.read', 'judging.manage',
     'results.read_unpublished',
     'analytics.read'
   ),
 
+  // O julgamento acontece FORA do MCI. Estes dois papéis continuam existindo
+  // porque são valores do enum `UserRole` no banco e apagá-los exigiria uma
+  // migration destrutiva; o que mudou é o que eles concedem. Nenhum dos dois
+  // julga aqui: o coordenador lança o resultado oficial recebido, e o juiz só
+  // acompanha a operação de palco.
   JUDGE_COORDINATOR: operacional(
-    'judging.read', 'judging.manage', 'judging.close',
-    'stage.read', 'results.read_unpublished', 'results.calculate'
+    'stage.read', 'results.read_unpublished', 'results.receive'
   ),
 
-  // Um juiz pontua. Não fecha sessão, não calcula, não publica.
-  JUDGE: operacional('judging.read', 'judging.score', 'stage.read', 'registrations.read'),
+  JUDGE: operacional('stage.read', 'registrations.read'),
 
   STAFF: operacional('registrations.read', 'stage.read', 'credentials.scan', 'checkin.read'),
 
@@ -118,7 +118,7 @@ const ROLE_PERMISSIONS = Object.freeze({
 
   WEIGHIN_OPERATOR: operacional('registrations.read', 'weighin.read', 'weighin.operate', 'athletes.read_sensitive', 'search.sensitive'),
 
-  RESULTS_OPERATOR: operacional('results.read_unpublished', 'results.calculate', 'results.publish', 'judging.read', 'stage.read'),
+  RESULTS_OPERATOR: operacional('results.read_unpublished', 'results.receive', 'results.publish', 'stage.read'),
 
   RANKING_MANAGER: operacional('ranking.manage', 'results.read_unpublished', 'musclewar.import', 'musclewar.review', 'musclewar.apply', 'pro.manage'),
 

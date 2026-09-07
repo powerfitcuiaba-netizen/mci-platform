@@ -83,20 +83,23 @@ describe('estrutura da aplicação', () => {
     const navegacao = await screen.findByRole('navigation', { name: /navegação principal/i });
 
     expect(within(navegacao).getByText(/Administração/i)).toBeInTheDocument();
-    for (const rotulo of ['Eventos', 'Inscrições', 'Check-in', 'Pesagem', 'Julgamento', 'Resultados', 'MuscleWar']) {
+    for (const rotulo of ['Eventos', 'Inscrições', 'Check-in', 'Pesagem', 'Resultados', 'MuscleWar']) {
       expect(within(navegacao).getByRole('button', { name: new RegExp(rotulo, 'i') }), rotulo).toBeInTheDocument();
     }
     // Auditoria é permissão de administrador da plataforma.
     expect(within(navegacao).queryByRole('button', { name: /^Auditoria$/i })).not.toBeInTheDocument();
   });
 
-  it('dá ao juiz apenas o que ele opera', async () => {
+  // O julgamento é EXTERNO: não existe tela de julgamento no MCI, e o juiz não
+  // alcança resultado nem importação.
+  it('dá ao juiz apenas o que ele opera, e julgamento não é uma tela daqui', async () => {
     montarComo(JUIZ);
     const navegacao = await screen.findByRole('navigation', { name: /navegação principal/i });
 
-    expect(within(navegacao).getByRole('button', { name: /Julgamento/i })).toBeInTheDocument();
+    expect(within(navegacao).queryByRole('button', { name: /Julgamento/i })).not.toBeInTheDocument();
     expect(within(navegacao).queryByRole('button', { name: /^Resultados$/i })).not.toBeInTheDocument();
     expect(within(navegacao).queryByRole('button', { name: /MuscleWar/i })).not.toBeInTheDocument();
+    expect(within(navegacao).getByRole('button', { name: /Inscrições/i })).toBeInTheDocument();
   });
 
   it('mostra os contadores de não lidas vindos da API', async () => {

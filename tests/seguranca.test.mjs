@@ -234,70 +234,56 @@ describe('julgamento e resultados', () => {
     await transicionar(diretorA, evento.event.id, ['IN_JUDGING']);
   });
 
-  it('juiz não escalado no painel não pontua', async () => {
-    const painel = await api().post(`/api/v1/events/${evento.event.id}/panels`).set(diretorA.auth()).send({ name: 'Painel' });
-    await api().post(`/api/v1/panels/${painel.body.id}/judges`).set(diretorA.auth()).send({ judgeId: juiz.id, seat: 1, role: 'HEAD' });
-
-    const sessao = await api().post('/api/v1/judging-sessions').set(diretorA.auth())
-      .send({ classId: evento.competitionClass.id, panelId: painel.body.id, round: 'FINALS' });
-
+  it('quem não tem permissão não lança o resultado oficial nem publica', async () => {
     const item = await prisma.registrationItem.findFirst({ where: { classId: evento.competitionClass.id } });
+    const inscrita = await prisma.registration.findUnique({ where: { id: item.registrationId } });
 
-    const resposta = await api().post(`/api/v1/judging-sessions/${sessao.body.id}/scores`).set(intruso.auth())
-      .send({ placings: [{ registrationItemId: item.id, placing: 1 }] });
+    const lancamento = await api().post(`/api/v1/classes/${evento.competitionClass.id}/result`).set(juiz.auth())
+      .send({ entries: [{ athleteId: inscrita.athleteId, placing: 1 }] });
+    expect(lancamento.status).toBe(403);
 
-    expect(resposta.status).toBe(403);
-    expect(resposta.body.error.code).toBe('JUDGE_NOT_ASSIGNED');
+    const publicacao = await api().post(`/api/v1/classes/${evento.competitionClass.id}/result/publish`).set(juiz.auth()).send({});
+    expect(publicacao.status).toBe(403);
   });
 
-  it('juiz não fecha sessão, não apura e não publica', async () => {
-    const painel = await api().post(`/api/v1/events/${evento.event.id}/panels`).set(diretorA.auth()).send({ name: 'Painel' });
-    await api().post(`/api/v1/panels/${painel.body.id}/judges`).set(diretorA.auth()).send({ judgeId: juiz.id, seat: 1, role: 'HEAD' });
+  it('duas colocações iguais no resultado recebido são recusadas', async () => {
+    // Evento próprio: a classe do cenário tem uma inscrita só, e sem duas
+    // atletas não existe colocação repetida para recusar.
+    const outro = await criarEventoCompleto(diretorA, orgA.id);
+    await transicionar(diretorA, outro.event.id, ['PLANNED', 'REGISTRATIONS_OPEN']);
 
-    const sessao = await api().post('/api/v1/judging-sessions').set(diretorA.auth())
-      .send({ classId: evento.competitionClass.id, panelId: painel.body.id, round: 'FINALS' });
+    const atletas = [];
+    for (const semente of [717171717, 727272727]) {
+      const inscricao = await api().post(`/api/v1/events/${outro.event.id}/registrations`).set(diretorA.auth())
+        .send({ cpf: gerarCpf(semente), athlete: { fullName: `Dupla ${semente}`, sex: 'FEMALE' }, classIds: [outro.competitionClass.id] });
+      expect(inscricao.status, JSON.stringify(inscricao.body)).toBe(201);
+      atletas.push(inscricao.body.registration.athlete.id);
+    }
 
-    expect((await api().post(`/api/v1/judging-sessions/${sessao.body.id}/close`).set(juiz.auth())).status).toBe(403);
-    expect((await api().post(`/api/v1/classes/${evento.competitionClass.id}/result/calculate`).set(juiz.auth())).status).toBe(403);
-    expect((await api().post(`/api/v1/classes/${evento.competitionClass.id}/result/publish`).set(juiz.auth()).send({})).status).toBe(403);
+    const resposta = await api().post(`/api/v1/classes/${outro.competitionClass.id}/result`).set(diretorA.auth())
+      .send({ entries: atletas.map(athleteId => ({ athleteId, placing: 1 })) });
+
+    expect(resposta.status).toBe(422);
+    expect(resposta.body.error.code).toBe('DUPLICATE_PLACING');
   });
 
-  it('a mesma colocação não vai para dois atletas na ficha do mesmo juiz', async () => {
-    const segunda = await api().post(`/api/v1/events/${evento.event.id}/registrations`).set(diretorA.auth())
-      .send({ cpf: gerarCpf(525252525), athlete: { fullName: 'Segunda', sex: 'FEMALE' }, classIds: [evento.competitionClass.id] });
-    // Evento já está em julgamento: a inscrição extra precisa ser criada antes.
-    expect(segunda.status).toBe(422);
-  });
+  it('atleta de fora da classe não entra no resultado recebido', async () => {
+    const estranha = await criarAtleta(diretorA, orgA.id, { cpf: gerarCpf(818181818) });
 
-  it('sessão com ficha incompleta não fecha', async () => {
-    const painel = await api().post(`/api/v1/events/${evento.event.id}/panels`).set(diretorA.auth()).send({ name: 'Painel' });
-    await api().post(`/api/v1/panels/${painel.body.id}/judges`).set(diretorA.auth()).send({ judgeId: juiz.id, seat: 1, role: 'HEAD' });
-    await api().post(`/api/v1/panels/${painel.body.id}/judges`).set(diretorA.auth()).send({ judgeId: intruso.id, seat: 2 });
+    const resposta = await api().post(`/api/v1/classes/${evento.competitionClass.id}/result`).set(diretorA.auth())
+      .send({ entries: [{ athleteId: estranha.id, placing: 1 }] });
 
-    const sessao = await api().post('/api/v1/judging-sessions').set(diretorA.auth())
-      .send({ classId: evento.competitionClass.id, panelId: painel.body.id, round: 'FINALS' });
-
-    const item = await prisma.registrationItem.findFirst({ where: { classId: evento.competitionClass.id } });
-    await api().post(`/api/v1/judging-sessions/${sessao.body.id}/scores`).set(juiz.auth())
-      .send({ placings: [{ registrationItemId: item.id, placing: 1 }] });
-
-    const fechamento = await api().post(`/api/v1/judging-sessions/${sessao.body.id}/close`).set(diretorA.auth());
-    expect(fechamento.status).toBe(422);
-    expect(fechamento.body.error.code).toBe('INCOMPLETE_SCORES');
+    expect(resposta.status).toBe(422);
+    expect(resposta.body.error.code).toBe('ATHLETE_NOT_IN_CLASS');
   });
 
   it('resultado não publicado não vaza para visitante nem para atleta', async () => {
-    const painel = await api().post(`/api/v1/events/${evento.event.id}/panels`).set(diretorA.auth()).send({ name: 'Painel' });
-    await api().post(`/api/v1/panels/${painel.body.id}/judges`).set(diretorA.auth()).send({ judgeId: juiz.id, seat: 1, role: 'HEAD' });
-
-    const sessao = await api().post('/api/v1/judging-sessions').set(diretorA.auth())
-      .send({ classId: evento.competitionClass.id, panelId: painel.body.id, round: 'FINALS' });
     const item = await prisma.registrationItem.findFirst({ where: { classId: evento.competitionClass.id } });
+    const inscrita = await prisma.registration.findUnique({ where: { id: item.registrationId } });
 
-    await api().post(`/api/v1/judging-sessions/${sessao.body.id}/scores`).set(juiz.auth())
-      .send({ placings: [{ registrationItemId: item.id, placing: 1 }] });
-    await api().post(`/api/v1/judging-sessions/${sessao.body.id}/close`).set(diretorA.auth());
-    await api().post(`/api/v1/classes/${evento.competitionClass.id}/result/calculate`).set(diretorA.auth());
+    const recebido = await api().post(`/api/v1/classes/${evento.competitionClass.id}/result`).set(diretorA.auth())
+      .send({ entries: [{ athleteId: inscrita.athleteId, placing: 1 }] });
+    expect(recebido.status, JSON.stringify(recebido.body)).toBe(200);
 
     const atleta = await criarUsuario({ name: 'Atleta curiosa' });
     expect((await api().get(`/api/v1/classes/${evento.competitionClass.id}/result`)).status).toBe(404);

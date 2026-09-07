@@ -188,30 +188,14 @@ export const api = {
     setBatchStatus: (batchId, dados) => post(`/batches/${batchId}/status`, dados)
   },
 
-  judging: {
-    panels: eventId => get(`/events/${eventId}/panels`),
-    createPanel: (eventId, dados) => post(`/events/${eventId}/panels`, dados),
-    addJudge: (panelId, dados) => post(`/panels/${panelId}/judges`, dados),
-    removeJudge: (panelId, judgeId) => remove(`/panels/${panelId}/judges/${judgeId}`),
-    sessions: eventId => get(`/events/${eventId}/judging-sessions`),
-    openSession: dados => post('/judging-sessions', dados),
-    sheet: sessionId => get(`/judging-sessions/${sessionId}/sheet`),
-    submit: (sessionId, dados) => post(`/judging-sessions/${sessionId}/scores`, dados),
-    close: sessionId => post(`/judging-sessions/${sessionId}/close`)
-  },
-
   results: {
     listByEvent: eventId => get(`/events/${eventId}/results`),
     findByClass: classId => get(`/classes/${classId}/result`),
-    calculate: classId => post(`/classes/${classId}/result/calculate`),
+    // O MCI NÃO julga: lança o resultado oficial recebido de fora.
+    receive: (classId, dados) => post(`/classes/${classId}/result`, dados),
     publish: (classId, dados) => post(`/classes/${classId}/result/publish`, dados),
     override: (classId, dados) => post(`/classes/${classId}/result/override`, dados),
     versions: classId => get(`/classes/${classId}/result/versions`)
-  },
-
-  scoring: {
-    list: () => get('/scoring-rule-sets'),
-    create: dados => post('/scoring-rule-sets', dados)
   },
 
   ranking: {

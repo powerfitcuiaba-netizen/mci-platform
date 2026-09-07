@@ -1,7 +1,7 @@
 # MCI Platform — Campeonato Brasileiro Muscle Contest
 
 Plataforma esportiva do Campeonato Brasileiro Muscle Contest: gestão de
-competição de fisiculturismo e fitness, julgamento, resultados, ranking,
+competição de fisiculturismo e fitness, resultados, ranking,
 Atletas PRO, importação de resultados do MuscleWar e a rede social da
 comunidade — feed, mensagens e comunidades.
 
@@ -21,7 +21,7 @@ comunidade — feed, mensagens e comunidades.
 - [Começando](#começando)
 - [Banco de dados e RLS](#banco-de-dados-e-rls)
 - [Segurança](#segurança)
-- [Motor de apuração](#motor-de-apuração)
+- [Recepção do resultado oficial](#recepção-do-resultado-oficial)
 - [Importação MuscleWar](#importação-musclewar)
 - [MCI Social e Messenger](#mci-social-e-messenger)
 - [API](#api)
@@ -48,10 +48,11 @@ A classe é a unidade em que se compete e em que se apura resultado.
 > recalculada**. Ver
 > [`docs/phase-11.4-regulamento-ranking.md`](docs/phase-11.4-regulamento-ranking.md).
 >
-> O repositório mantém, da fase 5, um motor de julgamento interno (painel de
-> juízes, colocação relativa) para eventos operados pelo próprio MCI. Os dois
-> caminhos convivem sem se sobrescrever: cada ponto carrega a sua origem
-> (`source: EVENT` ou `MUSCLEWAR`).
+> O motor de julgamento interno que existia desde a fase 5 (painel de juízes,
+> apuração por colocação relativa, descarte de notas) foi **removido na fase
+> 11.5**, por decisão do organizador: ele contradizia esta arquitetura. Uma
+> trava em `tests/rotas.test.mjs` recusa a volta de qualquer rota de
+> julgamento.
 
 ### Categorias oficiais
 
@@ -136,7 +137,7 @@ mci-platform/
 │   ├── routes/index.js        superfície HTTP
 │   ├── controllers/index.js   extração de entrada e resposta
 │   ├── services/              regra de negócio
-│   └── utils/                 CPF, permissões, estados, apuração, adapter
+│   └── utils/                 CPF, permissões, estados, pontuação, adapter
 ├── scripts/                   provisionamento e execução da suíte
 ├── tests/                     unidade, E2E, segurança, RLS, ausência financeira
 └── frontend/                  React + Vite
@@ -273,33 +274,31 @@ Consultar um CPF deixa rastro na auditoria.
 
 ---
 
-## Motor de apuração
+## Recepção do resultado oficial
 
-`src/utils/tabulation.js` — determinístico, reproduzível e auditável.
+O MCI **não julga**. Não há aqui algoritmo de apuração, ficha de juiz, descarte
+de notas, painel nem critério de desempate dentro da classe — a ausência é
+deliberada, não uma lacuna.
 
-- **Entrada**: a colocação que cada juiz deu a cada atleta da classe.
-- **Saída**: colocação final, soma considerada, soma bruta e o *countback*
-  completo de cada atleta.
-- **Checksum**: os votos são ordenados antes do hash, de modo que a ordem em
-  que vieram do banco não mude o resultado. Mesma entrada, mesmo checksum.
+`POST /classes/:id/result` recebe o resultado já decidido fora:
 
-**O método e os desempates são configuração do organizador**
-(`ScoringRuleSet`), nunca regra embutida:
+- **Entrada**: atleta e colocação, mais o estado da linha (`RANKED`,
+  `TIE_UNRESOLVED`, `DISQUALIFIED`, `ABSENT`).
+- **O que é conferido**: apenas integridade do lançamento — que o atleta está
+  inscrito naquela classe e que não vieram duas colocações iguais. Mérito
+  esportivo não é conferido, porque conferir mérito é julgar.
+- **Checksum**: assinatura do que foi recebido, não prova de apuração. Reenviar
+  o mesmo resultado dá o mesmo checksum; trocar uma colocação no caminho, não.
+- **Reenvio gera nova versão**, nunca sobrescrita.
 
-| Opção | Padrão | Observação |
-| --- | --- | --- |
-| `method` | `RELATIVE_PLACEMENT_SUM` | soma de colocações |
-| `dropHighLow` | `false` | descarte da maior e da menor é decisão de regulamento |
-| `dropHighLowMinJudges` | `7` | painel mínimo para o descarte valer |
-| `tieBreakers` | `[]` | ordem explícita: `HEAD_JUDGE_PLACING`, `COUNT_BACK`, `SUM_WITHOUT_DROP` |
-
-Se nenhum critério configurado resolver o empate, os atletas saem como
-`TIE_UNRESOLVED` e a publicação é bloqueada até a organização decidir.
-**Nunca se desempata por id, ordem de cadastro, timestamp ou nome.**
+Se o resultado chega **empatado**, o empate é gravado como empate e a
+publicação fica bloqueada até a comissão decidir, com motivo e autor.
+**Nunca se desempata por id, ordem de cadastro, timestamp ou nome** — fazer isso
+seria julgar.
 
 ### Resultados versionados
 
-Toda mudança de estado do resultado — apuração, reapuração, publicação,
+Toda mudança de estado do resultado — recebimento, novo recebimento, publicação,
 correção — incrementa `Result.version` e grava uma linha em `ResultVersion`
 com motivo, autor, momento e o retrato completo das entradas. Nenhuma versão é
 sobrescrita. É o que torna a correção de um resultado publicado auditável em
@@ -380,7 +379,6 @@ Prefixo `/api/v1`. Sondas de infraestrutura ficam fora dele: `GET /health`
 | Eventos | `GET|POST /events`, `POST /events/:id/transition`, `POST /events/:id/categories` |
 | Inscrições | `GET|POST /events/:id/registrations`, `POST /registrations/:id/cancel` |
 | Operação | `POST /registrations/:id/checkin`, `POST /registrations/:id/weighins`, `POST /events/:id/credentials/scan`, `PUT /batches/:id/order` |
-| Julgamento | `POST /judging-sessions`, `GET /judging-sessions/:id/sheet`, `POST /judging-sessions/:id/scores`, `POST /judging-sessions/:id/close` |
 | Resultados | `POST /classes/:id/result/calculate`, `.../publish`, `.../override`, `GET .../versions` |
 | Ranking | `GET /ranking` (campeonato), `GET /ranking/super-overall` (anual, só Open), `GET /ranking/teams`, `GET /ranking/companies` — os quatro públicos, `GET|POST /seasons`, `PUT /seasons/:id/points-rules` |
 | Recortes | `GET /ranking/by?classId=` · `?eventId=` · `?divisionId=` — mesmo motor, exatamente um recorte por consulta |
@@ -419,11 +417,11 @@ As validações estáticas que a CI executa, e que reprovam o job, são
 
 | Arquivo | Cobertura |
 | --- | --- |
-| `unidade-dominio` | CPF, estados do evento, RBAC, motor de apuração, adapter MuscleWar |
-| `e2e-campeonato` | cadastro → inscrição → check-in → pesagem → credencial → palco → julgamento → resultado → ranking → auditoria; empate não resolvido e correção versionada |
+| `unidade-dominio` | CPF, estados do evento, RBAC, adapter MuscleWar |
+| `e2e-campeonato` | cadastro → inscrição → check-in → pesagem → credencial → palco → recepção do resultado → ranking → auditoria; empate recebido e correção versionada |
 | `e2e-musclewar` | pré-visualização, matching, vinculação manual, aplicação, idempotência, auditoria, permissões |
 | `e2e-social-messenger` | feed, interações, visibilidade, bloqueio, conversas, grupos, moderação, comunidades |
-| `seguranca` | autenticação, escalada de papel, cross-tenant, proteção do CPF, juiz não escalado, resultado não publicado, transições inválidas |
+| `seguranca` | autenticação, escalada de papel, cross-tenant, proteção do CPF, documento privado de evento, resultado não publicado, transições inválidas |
 | `seguranca-social` | os caminhos negativos de Social e Messenger que faltavam: mídia de conversa privada por id, operações de conversa por quem não participa, portas laterais da publicação restrita e fila de denúncias |
 | `rls` | políticas executadas como papel sem `BYPASSRLS`, direto no banco |
 | `rls-runtime` | o RLS no caminho real da requisição: o dono também é filtrado, contexto por ator, concorrência e ausência de bypass |
@@ -432,7 +430,6 @@ As validações estáticas que a CI executa, e que reprovam o job, são
 | `rotas` | auditoria dos endpoints registrados, percorridos um a um |
 | `financeiro-ausente` | schema, banco real, arquivos, rotas e variáveis: nenhum resquício financeiro |
 | `producao` | barreira de configuração da partida: segredo, banco, CORS, hash e armazenamento |
-| `homologacao-tabulacao` | efeito de cada opção de apuração no pódio — documentação executável para o comitê técnico |
 | `pontuacao-oficial` | tabela homologada (1º=5…5º=1), bônus Overall +10 e a hierarquia de desempate, com os números abertos |
 | `pontuacao-11-3` | as DUAS métricas caso a caso: pontos do campeonato × elegíveis ao Super Overall, por classe e com Overall |
 | `regulamento-11-4` | o regulamento inteiro como matriz: 1º ao 10º em todas as classes, os quatro degraus do desempate, a prova de que 4º e 5º não separam, e a mesma regra aplicada a equipes |
@@ -477,18 +474,19 @@ Não existe variável financeira, e o teste de ausência confere isso.
   — as duas métricas separadas (`points` × `superOverallPoints`), a conferência
   da pontuação importada e a rastreabilidade de cada ponto.
 - **[`docs/HOMOLOGACAO-ESPORTIVA.md`](docs/HOMOLOGACAO-ESPORTIVA.md)** — o
-  histórico da homologação e o que **ainda** depende do comitê técnico: as
-  decisões de apuração *dentro da classe* (método, descarte, painel mínimo), que
-  não se confundem com o desempate de ranking, já homologado.
+  histórico da homologação e o que ainda depende do comitê técnico. As decisões
+  de apuração *dentro da classe* saíram da lista na fase 11.5: pertencem a quem
+  julga, e o julgamento é externo.
 
 ---
 
 ## Decisões e limites conhecidos
 
-**Regras esportivas não são presumidas.** O sistema não decide método de
-apuração, descarte, desempate nem tabela de pontos: tudo é configuração do
-organizador. Sem tabela de pontos cadastrada, nenhum resultado pontua — e a
-interface avisa em vez de inventar um valor.
+**O MCI não julga, e regras esportivas não são presumidas.** Método de
+apuração, descarte e desempate dentro da classe não existem aqui: são do
+julgamento externo. A tabela de pontos do ranking é configuração do
+organizador — sem tabela cadastrada, nenhum resultado pontua, e a interface
+avisa em vez de inventar um valor.
 
 **Conferência de peso é informativa.** A pesagem registra o valor e aponta as
 classes fora da faixa; quem reclassifica é a organização, com base no

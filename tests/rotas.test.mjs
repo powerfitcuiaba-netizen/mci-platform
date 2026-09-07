@@ -79,7 +79,7 @@ describe('auditoria de rotas', () => {
       'GET /ready',
       'POST /api/v1/auth/login',
       'POST /api/v1/events/:id/registrations',
-      'POST /api/v1/judging-sessions/:id/scores',
+      'POST /api/v1/classes/:id/result',
       'POST /api/v1/classes/:id/result/publish',
       'POST /api/v1/musclewar/imports',
       'GET /api/v1/social/feed',
@@ -88,6 +88,13 @@ describe('auditoria de rotas', () => {
     ]) {
       expect(caminhos, esperada).toContain(esperada);
     }
+  });
+
+  // O MCI NÃO julga. Esta trava existe para que reintroduzir apuração interna
+  // por descuido quebre a suíte, e não passe despercebido.
+  it('nenhuma rota de julgamento está registrada', () => {
+    const julgamento = rotas.filter(rota => /\/(judging-sessions|panels|scoring-rule-sets)\b|result\/calculate/i.test(rota.caminho));
+    expect(julgamento).toHaveLength(0);
   });
 
   it('nenhuma rota financeira está registrada', () => {

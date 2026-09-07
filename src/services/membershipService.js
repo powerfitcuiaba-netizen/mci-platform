@@ -31,6 +31,11 @@ async function vinculoAtivo(athleteId) {
   });
 }
 
+// Erros que, sob concorrência, significam "outra transação chegou primeiro".
+// P2002 é a violação do índice único; os demais são o Postgres desistindo de
+// uma das transações em conflito.
+const ERROS_DE_CORRIDA = new Set(['P2002', 'P2034', '40001', '40P01']);
+
 function recusaPorVinculoExistente(atual) {
   const equipe = atual.team?.name ?? 'outra equipe';
   const empresa = atual.team?.company?.name;
@@ -125,10 +130,19 @@ async function criarVinculo(athlete, team, { reason, actor, anterior = null, aca
   } catch (error) {
     // Corrida perdida: outro vínculo entrou entre a checagem e a escrita. É a
     // trava do banco fazendo o que nenhuma checagem em service faria.
-    if (error.code === 'P2002') {
+    //
+    // Sob disputa o Postgres nem sempre acusa violação de unicidade (P2002):
+    // duas transações simultâneas podem se enroscar e uma morrer por deadlock
+    // ou conflito de escrita (P2034, 40P01, 40001). O sintoma difere, a
+    // situação é a mesma — e quem decide não é o código do erro, é a
+    // realidade: se há vínculo ativo agora, a recusa é 409, com o nome da
+    // equipe atual. Só o que não se explica assim continua subindo.
+    if (ERROS_DE_CORRIDA.has(error.code)) {
       const atual = await vinculoAtivo(athlete.id);
       if (atual) recusaPorVinculoExistente(atual);
-      throw new AppError(409, 'ATHLETE_ALREADY_LINKED', 'Este atleta já possui vínculo ativo com uma equipe');
+      if (error.code === 'P2002') {
+        throw new AppError(409, 'ATHLETE_ALREADY_LINKED', 'Este atleta já possui vínculo ativo com uma equipe');
+      }
     }
     throw error;
   }

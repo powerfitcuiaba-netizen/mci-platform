@@ -1,14 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { tabulate, checksumOf, REGRA_PADRAO } from '../src/utils/tabulation.js';
 import { isValidCpf, normalizeCpf, maskCpf, formatCpf } from '../src/utils/cpf.js';
 import { canTransition, assertTransition, acceptsRegistration } from '../src/utils/eventStates.js';
 import { can, effectivePermissions, permissionsForRole, PERMISSIONS, ROLE_PERMISSIONS } from '../src/utils/permissions.js';
 import { USER_ROLES, isSelfServiceRole } from '../src/utils/roles.js';
 import { parse } from '../src/utils/musclewar/adapter.js';
-
-// Ficha completa de um juiz: uma colocação por atleta, sem repetição.
-const ficha = (judgeId, ordem, isHeadJudge = false) =>
-  ordem.map((registrationItemId, indice) => ({ judgeId, registrationItemId, placing: indice + 1, isHeadJudge }));
 
 describe('CPF', () => {
   it('valida dígito verificador', () => {
@@ -91,12 +86,17 @@ describe('RBAC', () => {
     expect(permissionsForRole('SUPER_ADMIN').size).toBe(PERMISSIONS.length);
   });
 
-  it('juiz pontua mas não encerra, não apura e não publica', () => {
+  // O julgamento é EXTERNO: não existe permissão de julgar no MCI, e o papel
+  // JUDGE — que segue no enum do banco — não lança nem publica resultado.
+  it('nenhuma permissão de julgamento existe na matriz', () => {
+    expect(PERMISSIONS.filter(permissao => permissao.startsWith('judging.'))).toEqual([]);
+  });
+
+  it('o papel JUDGE não lança o resultado oficial nem publica', () => {
     const juiz = usuario('JUDGE');
-    expect(can(juiz, 'judging.score')).toBe(true);
-    expect(can(juiz, 'judging.close')).toBe(false);
-    expect(can(juiz, 'results.calculate')).toBe(false);
+    expect(can(juiz, 'results.receive')).toBe(false);
     expect(can(juiz, 'results.publish')).toBe(false);
+    expect(can(juiz, 'results.override')).toBe(false);
   });
 
   it('atleta não enxerga dado sensível nem audita', () => {
@@ -138,107 +138,6 @@ describe('RBAC', () => {
     expect(isSelfServiceRole('ATHLETE')).toBe(true);
     expect(isSelfServiceRole('ADMIN')).toBe(false);
     expect(isSelfServiceRole('JUDGE')).toBe(false);
-  });
-});
-
-describe('motor de apuração', () => {
-  it('ordena pela menor soma de colocações', () => {
-    const votos = [
-      ...ficha('j1', ['a', 'b', 'c']),
-      ...ficha('j2', ['a', 'c', 'b']),
-      ...ficha('j3', ['b', 'a', 'c'])
-    ];
-    const { entries, hasUnresolvedTie } = tabulate(votos, REGRA_PADRAO);
-
-    expect(hasUnresolvedTie).toBe(false);
-    expect(entries.map(e => e.registrationItemId)).toEqual(['a', 'b', 'c']);
-    expect(entries.map(e => e.placing)).toEqual([1, 2, 3]);
-    expect(entries[0].score).toBe(4);
-  });
-
-  it('é determinístico: a ordem em que os votos chegam não muda o resultado', () => {
-    const votos = [...ficha('j1', ['a', 'b', 'c']), ...ficha('j2', ['b', 'a', 'c'])];
-    const invertidos = [...votos].reverse();
-
-    const primeiro = tabulate(votos, REGRA_PADRAO);
-    const segundo = tabulate(invertidos, REGRA_PADRAO);
-
-    expect(segundo.checksum).toBe(primeiro.checksum);
-    expect(segundo.entries.map(e => [e.registrationItemId, e.placing, e.status]))
-      .toEqual(primeiro.entries.map(e => [e.registrationItemId, e.placing, e.status]));
-  });
-
-  it('empate sem critério configurado sai como TIE_UNRESOLVED, sem vencedor arbitrário', () => {
-    const votos = [...ficha('j1', ['a', 'b']), ...ficha('j2', ['b', 'a'])];
-    const { entries, hasUnresolvedTie } = tabulate(votos, REGRA_PADRAO);
-
-    expect(hasUnresolvedTie).toBe(true);
-    expect(entries.every(e => e.status === 'TIE_UNRESOLVED')).toBe(true);
-    expect(entries.every(e => e.placing === null)).toBe(true);
-  });
-
-  it('não desempata por id, ordem de cadastro nem nome', () => {
-    const votos = [...ficha('j1', ['zzz', 'aaa']), ...ficha('j2', ['aaa', 'zzz'])];
-    const { entries } = tabulate(votos, REGRA_PADRAO);
-    // Se houvesse desempate por nome ou id, 'aaa' teria recebido o 1º lugar.
-    expect(entries.every(e => e.placing === null)).toBe(true);
-  });
-
-  it('desempata por colocação do juiz-chefe quando configurado', () => {
-    const votos = [...ficha('j1', ['a', 'b'], true), ...ficha('j2', ['b', 'a'])];
-    const { entries, hasUnresolvedTie } = tabulate(votos, { tieBreakers: ['HEAD_JUDGE_PLACING'] });
-
-    expect(hasUnresolvedTie).toBe(false);
-    expect(entries.find(e => e.registrationItemId === 'a').placing).toBe(1);
-  });
-
-  it('critério de juiz-chefe não se aplica sem chefe declarado: o empate permanece', () => {
-    const votos = [...ficha('j1', ['a', 'b']), ...ficha('j2', ['b', 'a'])];
-    const { hasUnresolvedTie } = tabulate(votos, { tieBreakers: ['HEAD_JUDGE_PLACING'] });
-    expect(hasUnresolvedTie).toBe(true);
-  });
-
-  it('desempata por countback: mais colocações melhores vence', () => {
-    // a: 1,1,3 (soma 5) — b: 2,2,1 (soma 5)
-    const votos = [
-      { judgeId: 'j1', registrationItemId: 'a', placing: 1 }, { judgeId: 'j1', registrationItemId: 'b', placing: 2 },
-      { judgeId: 'j2', registrationItemId: 'a', placing: 1 }, { judgeId: 'j2', registrationItemId: 'b', placing: 2 },
-      { judgeId: 'j3', registrationItemId: 'a', placing: 3 }, { judgeId: 'j3', registrationItemId: 'b', placing: 1 }
-    ];
-    const { entries, hasUnresolvedTie } = tabulate(votos, { tieBreakers: ['COUNT_BACK'] });
-
-    expect(hasUnresolvedTie).toBe(false);
-    expect(entries.find(e => e.registrationItemId === 'a').placing).toBe(1);
-  });
-
-  it('descarte só entra com painel do tamanho configurado', () => {
-    const votos = [...ficha('j1', ['a', 'b']), ...ficha('j2', ['a', 'b']), ...ficha('j3', ['b', 'a'])];
-
-    const semDescarte = tabulate(votos, { dropHighLow: true, dropHighLowMinJudges: 7 });
-    expect(semDescarte.entries.find(e => e.registrationItemId === 'a').dropped).toBe(false);
-
-    const comDescarte = tabulate(votos, { dropHighLow: true, dropHighLowMinJudges: 3 });
-    expect(comDescarte.entries.find(e => e.registrationItemId === 'a').dropped).toBe(true);
-    // Soma bruta preservada para auditoria mesmo com descarte aplicado.
-    expect(comDescarte.entries.find(e => e.registrationItemId === 'a').rawScore).toBe(4);
-  });
-
-  it('guarda o countback de cada atleta para tornar a apuração reproduzível', () => {
-    const votos = [...ficha('j1', ['a', 'b']), ...ficha('j2', ['a', 'b'])];
-    const { entries } = tabulate(votos, REGRA_PADRAO);
-    expect(entries.find(e => e.registrationItemId === 'a').countback).toEqual([2, 0]);
-  });
-
-  it('sem votos, devolve apuração vazia em vez de quebrar', () => {
-    const vazio = tabulate([], REGRA_PADRAO);
-    expect(vazio.entries).toEqual([]);
-    expect(vazio.hasUnresolvedTie).toBe(false);
-  });
-
-  it('o checksum muda quando a regra muda, mesmo com os mesmos votos', () => {
-    const votos = ficha('j1', ['a', 'b']);
-    expect(checksumOf(votos, { ...REGRA_PADRAO, tieBreakers: [] }))
-      .not.toBe(checksumOf(votos, { ...REGRA_PADRAO, tieBreakers: ['COUNT_BACK'] }));
   });
 });
 

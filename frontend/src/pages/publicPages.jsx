@@ -18,7 +18,7 @@ export function Inicio({ navegar }) {
         <span className="eyebrow">Muscle Contest</span>
         <h1>Campeonato Brasileiro Muscle Contest</h1>
         <p>
-          Gestão de competição, julgamento, ranking e a comunidade do
+          Gestão de competição, resultados, ranking e a comunidade do
           fisiculturismo brasileiro em uma única plataforma.
         </p>
         <div className="hero-meta">

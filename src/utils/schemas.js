@@ -1,7 +1,6 @@
 const { z } = require('zod');
 const { USER_ROLES, PAPEIS_DE_CADASTRO_ABERTO } = require('./roles');
 const { EVENT_STATES } = require('./eventStates');
-const { TIE_BREAKERS, METHODS } = require('./tabulation');
 
 // Validação de entrada. Tudo o que entra na API passa por aqui antes de chegar
 // a um service: o service confia no formato e cuida da regra de negócio.
@@ -149,7 +148,6 @@ const eventCreate = z.object({
   city: opcional(texto(2, 90)),
   state: opcional(texto(2, 2)),
   seasonId: opcional(id),
-  scoringRuleSetId: opcional(id)
 }).refine(data => !data.startDate || !data.endDate || data.endDate >= data.startDate, {
   message: 'A data final não pode ser anterior à inicial', path: ['endDate']
 });
@@ -164,7 +162,6 @@ const eventUpdate = z.object({
   city: opcional(texto(2, 90)),
   state: opcional(texto(2, 2)),
   seasonId: opcional(id),
-  scoringRuleSetId: opcional(id)
 });
 
 const eventTransition = z.object({ status: z.enum(EVENT_STATES), reason: opcional(texto(3, 300)) });
@@ -256,32 +253,21 @@ const stageOrderSet = z.object({
   items: z.array(z.object({ registrationItemId: id, position: z.coerce.number().int().min(1).max(999) })).min(1).max(200)
 });
 
-// -------------------------------------------------------------- julgamento
-const panelCreate = z.object({ name: texto(1, 90) });
-
-const panelJudgeAdd = z.object({
-  judgeId: id,
-  seat: z.coerce.number().int().min(1).max(20),
-  role: z.enum(['HEAD', 'JUDGE']).optional()
+// --------------------------------------------------------------- resultados
+//
+// O MCI recebe o resultado oficial decidido fora: atleta e colocação. Não há
+// ficha de juiz, nota nem critério de apuração para validar aqui — validar
+// mérito esportivo seria julgar, e o MCI não julga.
+const resultReceive = z.object({
+  entries: z.array(z.object({
+    athleteId: id,
+    placing: opcional(z.coerce.number().int().min(1).max(999)),
+    status: z.enum(['RANKED', 'TIE_UNRESOLVED', 'DISQUALIFIED', 'ABSENT']).optional()
+  })).min(1).max(300),
+  reason: opcional(texto(2, 300)),
+  source: z.enum(['EXTERNAL', 'MUSCLEWAR']).optional()
 });
 
-const sessionCreate = z.object({
-  classId: id,
-  panelId: id,
-  batchId: opcional(id),
-  round: z.enum(['PREJUDGING', 'COMPARISON', 'FINALS']).optional()
-});
-
-const scoreSubmit = z.object({
-  placings: z.array(z.object({
-    registrationItemId: id,
-    placing: z.coerce.number().int().min(1).max(200),
-    notes: opcional(texto(1, 300)),
-    criteria: z.array(z.object({ criterionId: id, value: z.coerce.number().int().min(0).max(100) })).max(20).optional()
-  })).min(1).max(200)
-});
-
-// -------------------------------------------------------------- resultados
 const resultPublish = z.object({ reason: opcional(texto(3, 300)) });
 
 const resultOverride = z.object({
@@ -293,14 +279,6 @@ const resultOverride = z.object({
   })).min(1).max(200)
 });
 
-const scoringRuleSetCreate = z.object({
-  name: texto(2, 90),
-  method: z.enum(METHODS).optional(),
-  dropHighLow: z.boolean().optional(),
-  dropHighLowMinJudges: z.coerce.number().int().min(3).max(20).optional(),
-  tieBreakers: z.array(z.enum(TIE_BREAKERS)).max(TIE_BREAKERS.length).optional()
-});
-
 // ---------------------------------------------------------------- temporadas
 const seasonCreate = z.object({
   organizationId: id,
@@ -308,7 +286,6 @@ const seasonCreate = z.object({
   year: z.coerce.number().int().min(2000).max(2100),
   startDate: opcional(dataIso),
   endDate: opcional(dataIso),
-  scoringRuleSetId: opcional(id)
 });
 
 const pointsRuleSet = z.object({
@@ -589,8 +566,7 @@ module.exports = {
   registrationCreate, registrationCancel, registrationQuery,
   checkInCreate, weighInCreate, credentialCreate, credentialScan,
   batchCreate, batchStatusUpdate, stageOrderSet,
-  panelCreate, panelJudgeAdd, sessionCreate, scoreSubmit,
-  resultPublish, resultOverride, scoringRuleSetCreate,
+  resultReceive, resultPublish, resultOverride,
   seasonCreate, pointsRuleSet, rankingQuery, rankingCutQuery, overallDeclare, teamRankingQuery,
   classCatalogUpsert, superOverallQuery,
   muscleWarImportCreate, muscleWarLink,
