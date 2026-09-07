@@ -194,11 +194,19 @@ async function createPartnership(data, actor) {
 }
 
 async function setPartnershipStatus(id, { status }, actor) {
-  const parceria = await prisma.athleteBrandPartnership.findUnique({ where: { id }, include: { athlete: true } });
+  const parceria = await prisma.athleteBrandPartnership.findUnique({ where: { id } });
   if (!parceria) throw new AppError(404, 'PARTNERSHIP_NOT_FOUND', 'Parceria não encontrada');
 
-  const ehODono = parceria.athlete.userId && parceria.athlete.userId === actor?.id;
-  if (!ehODono) assertCan(actor, 'brands.manage', parceria.athlete.organizationId);
+  // O atleta é lido à parte, e não por `include`. A parceria não tem RLS — ela
+  // é vitrine pública —, mas o atleta tem: pedir a relação obrigatória de
+  // dentro de outra federação fazia o Prisma estourar 500 em cima de uma
+  // negativa que já era correta. Mesma forma de `createPartnership`.
+  const athlete = await prisma.athlete.findUnique({ where: { id: parceria.athleteId } });
+  // 404, e não 403: o atleta invisível não vira sonda de ids válidos.
+  if (!athlete) throw new AppError(404, 'PARTNERSHIP_NOT_FOUND', 'Parceria não encontrada');
+
+  const ehODono = athlete.userId && athlete.userId === actor?.id;
+  if (!ehODono) assertCan(actor, 'brands.manage', athlete.organizationId);
 
   return prisma.athleteBrandPartnership.update({
     where: { id },

@@ -561,3 +561,57 @@ describe('documento privado de evento', () => {
     expect(resposta.status).toBe(200);
   });
 });
+
+// ===========================================================================
+// Parceria atleta ↔ marca, mudança de status por outra federação.
+//
+// Achado por sondagem (fase 11.5): devolvia 500. A parceria é vitrine pública
+// e não tem RLS; o atleta tem. Pedir o atleta por `include` obrigatório de
+// dentro de outra federação fazia o Prisma estourar em cima de uma negativa
+// que já estava correta — a escrita nunca chegou a acontecer, mas um 500
+// esconde a resposta certa e entrega ruído a quem sonda.
+// ===========================================================================
+describe('status de parceria entre federações', () => {
+  async function parceria() {
+    const marca = await api().post('/api/v1/brands').set(diretorA.auth())
+      .send({ organizationId: orgA.id, name: 'Marca A', slug: 'marca-a' });
+    const atleta = await criarAtleta(diretorA, orgA.id, { cpf: gerarCpf() });
+
+    const criada = await api().post('/api/v1/partnerships').set(diretorA.auth())
+      .send({ athleteId: atleta.id, brandId: marca.body.id });
+
+    expect(criada.status, JSON.stringify(criada.body)).toBe(201);
+    return criada.body;
+  }
+
+  it('responde 404, e não 500, para quem é de outra federação', async () => {
+    const criada = await parceria();
+
+    const resposta = await api().post(`/api/v1/partnerships/${criada.id}/status`)
+      .set(diretorB.auth()).send({ status: 'ACTIVE' });
+
+    expect(resposta.status).toBe(404);
+    expect(resposta.body.error.code).toBe('PARTNERSHIP_NOT_FOUND');
+  });
+
+  it('e o status continua o que era: a recusa não escreve nada', async () => {
+    const criada = await parceria();
+
+    await api().post(`/api/v1/partnerships/${criada.id}/status`)
+      .set(diretorB.auth()).send({ status: 'ENDED' });
+
+    const depois = await prisma.athleteBrandPartnership.findUnique({ where: { id: criada.id } });
+    expect(depois.status).toBe('PENDING');
+    expect(depois.endedAt).toBeNull();
+  });
+
+  it('a federação dona muda o status normalmente', async () => {
+    const criada = await parceria();
+
+    const resposta = await api().post(`/api/v1/partnerships/${criada.id}/status`)
+      .set(diretorA.auth()).send({ status: 'ACTIVE' });
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body.status).toBe('ACTIVE');
+  });
+});
