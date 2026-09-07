@@ -473,6 +473,72 @@ async function companyRanking(seasonId, { categoryId = null } = {}) {
  * conjunto de lançamentos considerado. Duas coisas que o modelo mantém
  * separadas de propósito: "pontuou no evento" e "é elegível ao Super Overall".
  */
+/**
+ * Ranking de atletas por RECORTE: classe, evento ou divisão.
+ *
+ * O agregado `Ranking` é chaveado por (temporada, atleta, categoria) e não
+ * expressa esses cortes. Aqui vale o mesmo padrão de equipes, empresas e Super
+ * Overall: DERIVAR de RankingPoint com o MESMO motor — mesma tabela de pontos,
+ * mesmos contadores, mesmo desempate. Nenhuma regra nova.
+ *
+ * A divisão não é coluna de RankingPoint: vem pela classe
+ * (`classId → CompetitionClass.divisionId`). Como consequência, pontos vindos
+ * da IMPORTAÇÃO externa não entram no recorte por divisão nem por classe — a
+ * origem traz a classe como texto, sem vínculo com a classe de um evento do
+ * MCI. É limite do dado recebido, não do motor.
+ */
+async function athleteRankingBy(seasonId, { classId = null, eventId = null, divisionId = null, categoryId = null } = {}) {
+  const where = { seasonId, ...(categoryId ? { categoryId } : {}) };
+
+  if (eventId) where.eventId = eventId;
+  if (classId) where.classId = classId;
+
+  if (divisionId) {
+    const classes = await prisma.competitionClass.findMany({ where: { divisionId }, select: { id: true } });
+    // Divisão sem classe nenhuma não é "todas as classes": é conjunto vazio.
+    where.classId = { in: classes.length ? classes.map(classe => classe.id) : ['__sem-classe__'] };
+  }
+
+  const pontos = await prisma.rankingPoint.findMany({
+    where,
+    select: {
+      athleteId: true, categoryId: true, points: true, superOverallPoints: true, placing: true,
+      isOverallChampion: true, eventId: true, classId: true, externalResultId: true,
+      athlete: { select: { id: true, fullName: true, stageName: true, state: true, team: { select: { id: true, name: true } } } }
+    }
+  });
+
+  const acumulado = new Map();
+  for (const ponto of pontos) {
+    if (!acumulado.has(ponto.athleteId)) {
+      acumulado.set(ponto.athleteId, {
+        athleteId: ponto.athleteId, athlete: ponto.athlete,
+        totalPoints: 0, fontes: new Set(), pontos: []
+      });
+    }
+    const linha = acumulado.get(ponto.athleteId);
+    // Recorte do CAMPEONATO: soma `points`, como o ranking principal. Trocar
+    // por `superOverallPoints` aqui apagaria Estreante, Novice e Master.
+    linha.totalPoints += ponto.points;
+    linha.fontes.add(ponto.eventId || ponto.externalResultId || 'externo');
+    linha.pontos.push(ponto);
+  }
+
+  const linhas = [...acumulado.values()].map(linha => ({ ...linha, ...contadores(linha.pontos) }));
+
+  return classificar(linhas).map(linha => ({
+    position: linha.position,
+    tieUnresolved: linha.tieUnresolved,
+    athlete: linha.athlete,
+    totalPoints: linha.totalPoints,
+    eventCount: linha.fontes.size,
+    overallWins: linha.overallWins,
+    firstPlaceCount: linha.firstPlaceCount,
+    secondPlaceCount: linha.secondPlaceCount,
+    thirdPlaceCount: linha.thirdPlaceCount
+  }));
+}
+
 async function superOverallRanking(seasonId, { categoryId = null } = {}) {
   const pontos = await prisma.rankingPoint.findMany({
     where: { seasonId, superOverallEligible: true, ...(categoryId ? { categoryId } : {}) },
@@ -645,5 +711,6 @@ module.exports = {
   createSeason, listSeasons, setPointsRules, pointsForPlacing, awardForResult,
   recompute, recompute_, list, athletePoints, teamRanking,
   declareOverall, listOverall, superOverallRanking, listClasses, upsertClass, companyRanking,
+  athleteRankingBy,
   TABELA_OFICIAL_COLOCACAO, BONUS_OVERALL
 };

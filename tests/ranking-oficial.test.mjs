@@ -1265,3 +1265,204 @@ describe('11.5) os quatro rankings são públicos e não se misturam', () => {
     expect(linha).not.toHaveProperty('fifthPlaceCount');
   });
 });
+
+// ============================================================================
+// FASE 11.4b — recortes de ranking e a ENTRADA OFICIAL EXTERNA.
+//
+// O julgamento acontece FORA do MCI: a plataforma recebe o resultado oficial
+// (colocação e/ou pontuação) e o usa para registro, auditoria e ranking. Estes
+// casos verificam os dois lados disso — que os recortes que faltavam existem, e
+// que a pontuação recebida de fora é PRESERVADA, nunca sobrescrita em silêncio.
+// ============================================================================
+describe('11.4b) recortes do ranking: classe, evento e divisão', () => {
+  it('recorta por EVENTO sem misturar as etapas', async () => {
+    const primeira = await eventoPontuado({ colocacoes: ['RECORTE UM', 'RECORTE DOIS'], classe: 'OPEN' });
+    await eventoPontuado({ colocacoes: ['RECORTE DOIS', 'RECORTE UM'], classe: 'OPEN' });
+
+    // Na 1ª etapa: UM venceu. No geral, os dois têm 5 + 4 = 9.
+    const geral = await api().get('/api/v1/ranking').query({ seasonId });
+    expect(geral.body.items.find(l => l.athlete.fullName === 'RECORTE UM').totalPoints).toBe(9);
+
+    const daEtapa = await api().get('/api/v1/ranking/by').query({ seasonId, eventId: primeira.event.id });
+    expect(daEtapa.status, JSON.stringify(daEtapa.body)).toBe(200);
+    expect(daEtapa.body.find(l => l.athlete.fullName === 'RECORTE UM').totalPoints).toBe(5);
+    expect(daEtapa.body.find(l => l.athlete.fullName === 'RECORTE DOIS').totalPoints).toBe(4);
+  });
+
+  it('recorta por CLASSE — e a classe não elegível continua no recorte do campeonato', async () => {
+    const daNovice = await eventoPontuado({ colocacoes: ['SO NOVICE', 'OUTRA NOVICE'], classe: 'NOVICE' });
+    await eventoPontuado({ colocacoes: ['SO OPEN', 'OUTRA OPEN'], classe: 'OPEN' });
+
+    const recorte = await api().get('/api/v1/ranking/by')
+      .query({ seasonId, classId: daNovice.competitionClass.id });
+
+    expect(recorte.status).toBe(200);
+    // É recorte do CAMPEONATO: Novice pontua, mesmo não alimentando o anual.
+    expect(recorte.body.find(l => l.athlete.fullName === 'SO NOVICE').totalPoints).toBe(5);
+    expect(recorte.body.some(l => l.athlete.fullName === 'SO OPEN'), 'a outra classe fica de fora').toBe(false);
+  });
+
+  it('recorta por DIVISÃO, somando as classes que ela contém', async () => {
+    const montado = await eventoPontuado({ colocacoes: ['DA DIVISAO', 'OUTRA DIVISAO'], classe: 'OPEN' });
+
+    const recorte = await api().get('/api/v1/ranking/by')
+      .query({ seasonId, divisionId: montado.division.id });
+
+    expect(recorte.status).toBe(200);
+    expect(recorte.body.find(l => l.athlete.fullName === 'DA DIVISAO').totalPoints).toBe(5);
+  });
+
+  it('exige exatamente um recorte — combinar dois é pergunta que ninguém fez', async () => {
+    const montado = await eventoPontuado({ colocacoes: ['UM RECORTE', 'DOIS'], classe: 'OPEN' });
+
+    const nenhum = await api().get('/api/v1/ranking/by').query({ seasonId });
+    const dois = await api().get('/api/v1/ranking/by')
+      .query({ seasonId, eventId: montado.event.id, classId: montado.competitionClass.id });
+
+    expect(nenhum.status).toBe(400);
+    expect(dois.status).toBe(400);
+  });
+
+  it('o recorte usa o MESMO desempate — Overall antes de mais primeiros', async () => {
+    const montado = await eventoPontuado({
+      colocacoes: ['COM OVERALL', 'SEM OVERALL'], classe: 'OPEN', overall: 'COM OVERALL'
+    });
+
+    const recorte = await api().get('/api/v1/ranking/by').query({ seasonId, eventId: montado.event.id });
+
+    const campeao = recorte.body.find(l => l.athlete.fullName === 'COM OVERALL');
+    expect(campeao.totalPoints, '5 + 10').toBe(15);
+    expect(campeao.overallWins).toBe(1);
+    expect(campeao.position).toBe(1);
+  });
+
+  it('resultado NÃO publicado não aparece em recorte nenhum', async () => {
+    const montado = await eventoPontuado({
+      colocacoes: ['NAO PUBLICA RECORTE', 'OUTRA'], classe: 'OPEN', publicar: false
+    });
+
+    const recorte = await api().get('/api/v1/ranking/by').query({ seasonId, eventId: montado.event.id });
+
+    expect(recorte.body).toHaveLength(0);
+  });
+
+  it('o recorte não expõe CPF', async () => {
+    const montado = await eventoPontuado({ colocacoes: ['SEM CPF RECORTE', 'OUTRA'], classe: 'OPEN' });
+
+    const identidade = await comoAtor(diretor, tx => tx.athleteIdentity.findFirst({}));
+    const recorte = await api().get('/api/v1/ranking/by').query({ seasonId, eventId: montado.event.id });
+
+    expect(JSON.stringify(recorte.body)).not.toContain(identidade.cpf);
+    for (const linha of recorte.body) {
+      expect(linha.athlete).not.toHaveProperty('cpf');
+      expect(linha.athlete).not.toHaveProperty('cpfMasked');
+    }
+  });
+});
+
+// ============================================================================
+// FASE 11.4b — a ENTRADA OFICIAL EXTERNA é preservada.
+//
+// O julgamento acontece fora do MCI. O que chega é dado oficial, e a plataforma
+// não pode substituí-lo por cálculo próprio nem descartá-lo. Quando a origem
+// manda COLOCAÇÃO e PONTUAÇÃO, os dois ficam guardados: a colocação porque
+// alimenta o desempate, a pontuação porque é o que o sistema externo decidiu.
+// ============================================================================
+describe('11.4b) entrada oficial externa', () => {
+  const gerenteDeImport = async () => {
+    const gerente = await criarUsuario({ name: unico('Gerente') });
+    await vincular(orgId, gerente, 'RANKING_MANAGER');
+    return gerente;
+  };
+
+  const importarLinha = async (gerente, linha, cabecalho) => {
+    const lote = await api().post('/api/v1/musclewar/imports').set(gerente.auth()).send({
+      organizationId: orgId, seasonId, sourceType: 'CSV',
+      sourceRef: unico('oficial') + '.csv', content: [cabecalho, linha].join('\n')
+    });
+    expect(lote.status, JSON.stringify(lote.body)).toBe(201);
+    return lote.body;
+  };
+
+  it('S — colocação E pontuação externas ficam preservadas lado a lado', async () => {
+    const gerente = await gerenteDeImport();
+    const cpf = gerarCpf(717171717);
+    await api().post('/api/v1/athletes').set(diretor.auth())
+      .send({ organizationId: orgId, fullName: 'OFICIAL EXTERNA', cpf, sex: 'FEMALE' });
+
+    const lote = await importarLinha(
+      gerente,
+      `MW-OFICIAL-1,${cpf},OFICIAL EXTERNA,BIKINI,OPEN,1,5,Etapa Externa`,
+      'external_result_id,cpf,atleta,categoria,classe,colocacao,pontos,evento'
+    );
+    expect(lote.items[0].matchStatus).toBe('MATCHED');
+
+    await api().post(`/api/v1/musclewar/imports/${lote.import.id}/apply`).set(gerente.auth()).send({});
+
+    // O resultado externo guarda os DOIS: o que a origem mandou não se perde.
+    const externo = await comoAtor(diretor, tx => tx.externalResult.findFirst({ where: { externalId: 'MW-OFICIAL-1' } }));
+    expect(externo, 'o resultado oficial precisa ser registrado').toBeTruthy();
+    expect(externo.placing, 'a colocação oficial').toBe(1);
+    expect(externo.points, 'a pontuação oficial recebida').toBe(5);
+    expect(externo.className).toBe('OPEN');
+
+    // E o ponto de ranking aponta de volta para ele — a origem é rastreável.
+    const [ponto] = await pontosDe('OFICIAL EXTERNA');
+    expect(ponto.externalResultId).toBe(externo.id);
+    expect(ponto.source).toBe('MUSCLEWAR');
+    expect(ponto.points).toBe(5);
+  });
+
+  it('S — quem importou e quando fica registrado, com o lote de origem', async () => {
+    const gerente = await gerenteDeImport();
+    const cpf = gerarCpf(727272727);
+    await api().post('/api/v1/athletes').set(diretor.auth())
+      .send({ organizationId: orgId, fullName: 'COM PROCEDENCIA', cpf, sex: 'FEMALE' });
+
+    const lote = await importarLinha(
+      gerente,
+      `MW-OFICIAL-2,${cpf},COM PROCEDENCIA,BIKINI,OPEN,2,4,Etapa Externa`,
+      'external_result_id,cpf,atleta,categoria,classe,colocacao,pontos,evento'
+    );
+    await api().post(`/api/v1/musclewar/imports/${lote.import.id}/apply`).set(gerente.auth()).send({});
+
+    const [ponto] = await pontosDe('COM PROCEDENCIA');
+    expect(ponto.awardedById, 'quem aplicou').toBe(gerente.id);
+    expect(ponto.awardedAt, 'quando').toBeTruthy();
+
+    // O lote continua consultável, e diz quem o criou e quando foi aplicado.
+    const revisao = await api().get(`/api/v1/musclewar/imports/${lote.import.id}`).set(gerente.auth());
+    expect(revisao.body.import.status).toBe('APPLIED');
+    expect(revisao.body.import.appliedBy.id).toBe(gerente.id);
+    expect(revisao.body.items[0].externalResultId).toBe('MW-OFICIAL-2');
+  });
+
+  it('a plataforma NÃO recalcula o resultado esportivo: 1º recebido continua 1º', async () => {
+    // O MCI não julga. A colocação vem decidida de fora e é registrada como
+    // veio — nenhum critério interno a reordena.
+    const gerente = await gerenteDeImport();
+    const cpfs = [gerarCpf(737373737), gerarCpf(747474747)];
+    for (const [indice, cpf] of cpfs.entries()) {
+      await api().post('/api/v1/athletes').set(diretor.auth())
+        .send({ organizationId: orgId, fullName: `RECEBIDA ${indice + 1}`, cpf, sex: 'FEMALE' });
+    }
+
+    const lote = await api().post('/api/v1/musclewar/imports').set(gerente.auth()).send({
+      organizationId: orgId, seasonId, sourceType: 'CSV', sourceRef: unico('ext') + '.csv',
+      content: [
+        'external_result_id,cpf,atleta,categoria,classe,colocacao,pontos,evento',
+        `MW-EXT-A,${cpfs[0]},RECEBIDA 1,BIKINI,OPEN,1,5,Etapa`,
+        `MW-EXT-B,${cpfs[1]},RECEBIDA 2,BIKINI,OPEN,2,4,Etapa`
+      ].join('\n')
+    });
+    await api().post(`/api/v1/musclewar/imports/${lote.body.import.id}/apply`).set(gerente.auth()).send({});
+
+    const [primeira] = await pontosDe('RECEBIDA 1');
+    const [segunda] = await pontosDe('RECEBIDA 2');
+
+    expect(primeira.placing, 'a colocação recebida não é recalculada').toBe(1);
+    expect(segunda.placing).toBe(2);
+    expect(primeira.points).toBe(5);
+    expect(segunda.points).toBe(4);
+  });
+});

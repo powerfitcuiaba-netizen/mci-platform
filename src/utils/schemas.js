@@ -340,6 +340,20 @@ const rankingQuery = paginacao.extend({
   country: z.string().trim().min(2).max(3).optional()
 });
 
+// Recortes derivados de RankingPoint: classe, evento e divisão. Exatamente um
+// deles por consulta — combinar dois responderia a uma pergunta que ninguém
+// fez, e a interseção vazia pareceria "ninguém pontuou".
+const rankingCutQuery = z.object({
+  seasonId: id,
+  categoryId: id.optional(),
+  classId: id.optional(),
+  eventId: id.optional(),
+  divisionId: id.optional()
+}).refine(
+  d => [d.classId, d.eventId, d.divisionId].filter(Boolean).length === 1,
+  { message: 'Informe exatamente um recorte: classId, eventId ou divisionId' }
+);
+
 // ----------------------------------------------------------------- MuscleWar
 const muscleWarImportCreate = z.object({
   organizationId: id,
@@ -564,7 +578,7 @@ module.exports = {
   batchCreate, batchStatusUpdate, stageOrderSet,
   panelCreate, panelJudgeAdd, sessionCreate, scoreSubmit,
   resultPublish, resultOverride, scoringRuleSetCreate,
-  seasonCreate, pointsRuleSet, rankingQuery, overallDeclare, teamRankingQuery,
+  seasonCreate, pointsRuleSet, rankingQuery, rankingCutQuery, overallDeclare, teamRankingQuery,
   classCatalogUpsert, superOverallQuery,
   muscleWarImportCreate, muscleWarLink,
   teamCreate, companyCreate, coachCreate, gymCreate, brandCreate, sponsorCreate, sponsorshipCreate,

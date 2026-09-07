@@ -165,6 +165,10 @@ router.route('/classes-catalog')
   .post(requireAuth, perm('ranking.manage', orgDoCorpo), validate(s.classCatalogUpsert), wrap(c.ranking.upsertClass));
 
 // Ranking de equipes: mesma tabela de pontos e mesmo desempate do atleta.
+// Recortes do ranking do campeonato: por classe, por evento ou por divisão.
+// Mesmo motor do ranking principal — derivado de RankingPoint, sem regra nova.
+router.get('/ranking/by', optionalAuth, validate(s.rankingCutQuery, 'query'), wrap(c.ranking.by));
+
 router.get('/ranking/teams', optionalAuth, validate(s.teamRankingQuery, 'query'), wrap(c.ranking.teams));
 
 // Ranking de empresas: os pontos das equipes que ela inscreveu, pela mesma

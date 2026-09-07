@@ -40,8 +40,18 @@ O campeonato **não** é modelado como confronto direto. A estrutura é:
 EVENTO → CATEGORIA → DIVISÃO → CLASSE → ATLETA
 ```
 
-A classe é a unidade em que se compete e em que se apura resultado. O
-julgamento é de N atletas por N juízes, com colocação relativa.
+A classe é a unidade em que se compete e em que se apura resultado.
+
+> **O julgamento esportivo é realizado externamente.** O MCI recebe os
+> resultados e pontuações oficiais e utiliza esses dados para registro,
+> auditoria, ranking e Super Overall — a colocação recebida **não é
+> recalculada**. Ver
+> [`docs/phase-11.4-regulamento-ranking.md`](docs/phase-11.4-regulamento-ranking.md).
+>
+> O repositório mantém, da fase 5, um motor de julgamento interno (painel de
+> juízes, colocação relativa) para eventos operados pelo próprio MCI. Os dois
+> caminhos convivem sem se sobrescrever: cada ponto carrega a sua origem
+> (`source: EVENT` ou `MUSCLEWAR`).
 
 ### Categorias oficiais
 
@@ -373,6 +383,7 @@ Prefixo `/api/v1`. Sondas de infraestrutura ficam fora dele: `GET /health`
 | Julgamento | `POST /judging-sessions`, `GET /judging-sessions/:id/sheet`, `POST /judging-sessions/:id/scores`, `POST /judging-sessions/:id/close` |
 | Resultados | `POST /classes/:id/result/calculate`, `.../publish`, `.../override`, `GET .../versions` |
 | Ranking | `GET /ranking` (campeonato), `GET /ranking/super-overall` (anual, só Open), `GET /ranking/teams`, `GET /ranking/companies` — os quatro públicos, `GET|POST /seasons`, `PUT /seasons/:id/points-rules` |
+| Recortes | `GET /ranking/by?classId=` · `?eventId=` · `?divisionId=` — mesmo motor, exatamente um recorte por consulta |
 | Classes e Overall | `GET|POST /classes-catalog`, `GET|POST /events/:id/overall` |
 | Empresas e vínculo | `GET|POST /companies`, `POST /athletes/:id/team`, `.../team/transfer`, `.../team/unlink`, `GET /athletes/:id/team-history` |
 | MuscleWar | `GET|POST /musclewar/imports`, `POST /musclewar/items/:id/link`, `POST /musclewar/imports/:id/apply` |

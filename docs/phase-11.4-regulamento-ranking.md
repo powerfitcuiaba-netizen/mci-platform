@@ -6,6 +6,46 @@ Este documento é a referência única do que está **HOMOLOGADO**. Nada aqui é
 provisório, experimental ou sujeito a confirmação. As regras foram definidas
 pelo organizador do campeonato e implementadas.
 
+---
+
+## O julgamento esportivo é EXTERNO
+
+> **O julgamento esportivo é realizado externamente. O MCI recebe os resultados
+> e pontuações oficiais e utiliza esses dados para registro, auditoria, ranking
+> e Super Overall.**
+
+O MCI **não** decide colocação. O que chega de fora é **dado oficial de
+entrada**, e o papel da plataforma é:
+
+```
+ENTRADA OFICIAL → VALIDAR → IDENTIFICAR ATLETA → VALIDAR EVENTO/CATEGORIA/
+DIVISÃO/CLASSE → REGISTRAR RESULTADO → REGISTRAR PONTUAÇÃO → AUDITAR →
+APLICAR A REGRA DE RANKING → GERAR RANKINGS
+```
+
+Consequências práticas, todas verificáveis em `tests/ranking-oficial.test.mjs`:
+
+- A **colocação recebida não é recalculada**. Quem chegou em 1º continua em 1º;
+  nenhum critério interno reordena o resultado esportivo.
+- Quando a origem manda **colocação e pontuação**, os dois são preservados lado
+  a lado em `ExternalResult` — a colocação porque alimenta o desempate, a
+  pontuação porque é o que o sistema externo decidiu.
+- Divergência entre a pontuação recebida e a que a regra da temporada calcula
+  **não é resolvida em silêncio**: vira `CONFLICT` auditável, com os dois
+  números e a diferença à vista.
+- Cada ponto guarda **quem importou, quando, e o lote de origem**.
+
+> **Descompasso registrado (fase 11.4b).** O repositório contém um motor de
+> julgamento interno — `src/services/judgingService.js`, `src/utils/tabulation.js`
+> e as rotas `/judging-sessions`, `/panels` —, construído na fase 5 a pedido do
+> organizador, com painel de juízes e apuração por colocação relativa. Ele **não
+> foi removido** nesta fase: remover subsistema testado e em uso é decisão do
+> organizador, não de quem audita. Enquanto essa decisão não vier, valem os dois
+> caminhos: eventos operados pelo próprio MCI podem ser apurados internamente, e
+> a **entrada oficial externa é a via primária** — nenhum dos dois sobrescreve o
+> outro, porque cada resultado carrega a sua origem (`source: EVENT` ou
+> `MUSCLEWAR`).
+
 Conferível sem subir nada, lendo `tests/pontuacao-11-3.test.mjs` e
 `tests/regulamento-11-4.test.mjs`; na plataforma real, `tests/ranking-oficial.test.mjs`.
 
@@ -123,6 +163,32 @@ EMPRESA (Company) → EQUIPE (Team) → ATLETA (Athlete)
 
 `GET /ranking/teams` e `GET /ranking/companies` somam `points` e ordenam pela
 hierarquia oficial — o mesmo `classificar()` do ranking de atletas.
+
+## Recortes do ranking
+
+| Recorte | Como se consulta | Suporte |
+|---|---|---|
+| Atleta | `GET /ranking` | agregado `Ranking` |
+| Categoria | `GET /ranking?categoryId=` | agregado |
+| Temporada | `GET /ranking?seasonId=` | agregado |
+| Nacional | `GET /ranking` (padrão) | agregado |
+| Estadual | `GET /ranking?state=MT` | agregado |
+| **Classe** | `GET /ranking/by?classId=` | derivado de `RankingPoint` |
+| **Evento** | `GET /ranking/by?eventId=` | derivado |
+| **Divisão** | `GET /ranking/by?divisionId=` | derivado, via classe |
+| Equipes | `GET /ranking/teams` | derivado |
+| Empresas | `GET /ranking/companies` | derivado |
+| Super Overall | `GET /ranking/super-overall` | derivado |
+
+Os recortes derivados usam o **mesmo motor** — mesma tabela, mesmos contadores,
+mesmo desempate. `/ranking/by` exige **exatamente um** recorte: combinar dois
+responderia a uma pergunta que ninguém fez, e a interseção vazia pareceria
+"ninguém pontuou".
+
+> **Limite do dado recebido:** pontos vindos da importação externa não entram
+> nos recortes por classe e por divisão. A origem traz a classe como **texto**,
+> sem vínculo com a classe de um evento do MCI — é limite do que chega, não do
+> motor.
 
 **Super Overall de equipes e empresas:** vale a mesma regra de elegibilidade —
 **somente OPEN**. O modelo já suporta o acumulado **sem tabela nova**: cada

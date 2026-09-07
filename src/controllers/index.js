@@ -152,6 +152,12 @@ module.exports = {
     setPointsRules: async (req, res) => res.json({ items: await ranking.setPointsRules(req.params.id, req.body, req.user) }),
     recompute: async (req, res) => res.json(await ranking.recompute(req.params.id, req.user)),
     athletePoints: async (req, res) => res.json({ items: await ranking.athletePoints(req.params.id, req.query.seasonId, req.user) }),
+    by: async (req, res) => res.json(await ranking.athleteRankingBy(req.query.seasonId, {
+      classId: req.query.classId ?? null,
+      eventId: req.query.eventId ?? null,
+      divisionId: req.query.divisionId ?? null,
+      categoryId: req.query.categoryId ?? null
+    })),
     teams: async (req, res) => res.json(await ranking.teamRanking(req.query.seasonId, { categoryId: req.query.categoryId ?? null })),
     declareOverall: async (req, res) => res.status(201).json(await ranking.declareOverall(req.params.id, req.body, req.user)),
     listOverall: async (req, res) => res.json({ items: await ranking.listOverall(req.params.id) }),
