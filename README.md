@@ -413,6 +413,7 @@ As validações estáticas que a CI executa, e que reprovam o job, são
 | `e2e-musclewar` | pré-visualização, matching, vinculação manual, aplicação, idempotência, auditoria, permissões |
 | `e2e-social-messenger` | feed, interações, visibilidade, bloqueio, conversas, grupos, moderação, comunidades |
 | `seguranca` | autenticação, escalada de papel, cross-tenant, proteção do CPF, juiz não escalado, resultado não publicado, transições inválidas |
+| `seguranca-social` | os caminhos negativos de Social e Messenger que faltavam: mídia de conversa privada por id, operações de conversa por quem não participa, portas laterais da publicação restrita e fila de denúncias |
 | `rls` | políticas executadas como papel sem `BYPASSRLS`, direto no banco |
 | `rls-runtime` | o RLS no caminho real da requisição: o dono também é filtrado, contexto por ator, concorrência e ausência de bypass |
 | `armazenamento-objetos` | assinatura SigV4 contra o vetor oficial da AWS e o contrato do provedor contra um servidor que recusa assinatura errada |
