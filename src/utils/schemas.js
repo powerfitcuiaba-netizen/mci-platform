@@ -11,6 +11,19 @@ const texto = (min, max) => z.string().trim().min(min).max(max);
 const opcional = schema => schema.optional().nullable();
 const dataIso = z.coerce.date();
 
+// Booleano vindo de formulário ou querystring chega como TEXTO, e `z.coerce
+// .boolean()` aplica `Boolean(...)`: a string 'false' vira `true`, e com ela um
+// documento marcado como privado era gravado como público. Aqui a palavra vale
+// o que ela diz — só o texto afirmativo é verdadeiro.
+const NEGATIVOS = new Set(['false', '0', 'no', 'nao', 'não', 'off', '']);
+const booleano = z.preprocess(valor => {
+  if (typeof valor !== 'string') return valor;
+  const limpo = valor.trim().toLowerCase();
+  if (NEGATIVOS.has(limpo)) return false;
+  if (['true', '1', 'yes', 'sim', 'on'].includes(limpo)) return true;
+  return valor;
+}, z.boolean());
+
 const paginacao = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   cursor: z.string().min(1).max(60).optional()
@@ -188,8 +201,8 @@ const classCreate = z.object({
   minHeightCm: opcional(z.coerce.number().int().min(0).max(300)),
   maxHeightCm: opcional(z.coerce.number().int().min(0).max(300)),
   sortOrder: z.coerce.number().int().min(0).max(999).optional(),
-  superOverallEligible: z.coerce.boolean().optional(),
-  active: z.coerce.boolean().optional()
+  superOverallEligible: booleano.optional(),
+  active: booleano.optional()
 }).refine(d => d.minAge == null || d.maxAge == null || d.maxAge >= d.minAge, { message: 'Idade máxima menor que a mínima', path: ['maxAge'] })
   .refine(d => d.minWeightGrams == null || d.maxWeightGrams == null || d.maxWeightGrams >= d.minWeightGrams, { message: 'Peso máximo menor que o mínimo', path: ['maxWeightGrams'] });
 
@@ -310,8 +323,8 @@ const classCatalogUpsert = z.object({
   code: z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]{1,40}$/),
   name: opcional(texto(1, 90)),
   // REGRA HOMOLOGADA: só as classes marcadas alimentam o Super Overall anual.
-  superOverallEligible: z.coerce.boolean().optional(),
-  active: z.coerce.boolean().optional(),
+  superOverallEligible: booleano.optional(),
+  active: booleano.optional(),
   sortOrder: z.coerce.number().int().min(0).max(999).optional()
 });
 
@@ -490,7 +503,7 @@ const searchQuery = z.object({
 
 // ------------------------------------------------------------- notificações
 const notificationQuery = z.object({
-  onlyUnread: z.coerce.boolean().optional(),
+  onlyUnread: booleano.optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50)
 });
 
@@ -512,7 +525,7 @@ const documentUpload = z.object({
 
 const eventDocumentUpload = z.object({
   title: z.string().trim().max(160).optional(),
-  isPublic: z.coerce.boolean().optional()
+  isPublic: booleano.optional()
 });
 
 // --------------------------------------------------------------- usuários

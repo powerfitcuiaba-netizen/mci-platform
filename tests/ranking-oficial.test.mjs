@@ -1466,3 +1466,43 @@ describe('11.4b) entrada oficial externa', () => {
     expect(segunda.points).toBe(4);
   });
 });
+
+// ============================================================================
+// Coerção de booleano na configuração do catálogo.
+//
+// Achado por sondagem (fase 11.5). O mesmo defeito que vazava documento
+// privado de evento atinge aqui a integridade esportiva: com
+// `z.coerce.boolean()`, a string 'false' vira `true` (é `Boolean('false')`), e
+// uma classe marcada como NÃO elegível passaria a alimentar o Super Overall
+// anual — mudando o ranking sem que ninguém tenha pedido.
+// ============================================================================
+describe('elegibilidade ao Super Overall não se inverte por texto', () => {
+  it("superOverallEligible: 'false' mantém a classe FORA do Super Overall", async () => {
+    const resposta = await api().post('/api/v1/classes-catalog').set(diretor.auth())
+      .send({ organizationId: orgId, code: 'ESTREANTE', superOverallEligible: 'false' });
+
+    expect(resposta.status, JSON.stringify(resposta.body)).toBe(201);
+    expect(resposta.body.superOverallEligible).toBe(false);
+
+    const gravada = await comoAtor(diretor, tx => tx.classCatalog.findFirst({
+      where: { organizationId: orgId, code: 'ESTREANTE' }
+    }));
+    expect(gravada.superOverallEligible).toBe(false);
+  });
+
+  it("active: 'false' desativa de verdade, em vez de reativar a classe", async () => {
+    const resposta = await api().post('/api/v1/classes-catalog').set(diretor.auth())
+      .send({ organizationId: orgId, code: 'NOVICE', active: 'false' });
+
+    expect(resposta.status).toBe(201);
+    expect(resposta.body.active).toBe(false);
+  });
+
+  it('texto que não é sim nem não é recusado, em vez de virar `true` calado', async () => {
+    const resposta = await api().post('/api/v1/classes-catalog').set(diretor.auth())
+      .send({ organizationId: orgId, code: 'DUVIDOSA', superOverallEligible: 'talvez' });
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.error.code).toBe('VALIDATION_ERROR');
+  });
+});

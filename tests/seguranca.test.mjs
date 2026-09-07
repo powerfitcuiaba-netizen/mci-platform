@@ -492,3 +492,72 @@ describe('cross-tenant na administração de contas', () => {
     expect(lista.body.items.map(item => item.email)).toContain(soDaB.email);
   });
 });
+
+// ===========================================================================
+// Documento de evento marcado como privado.
+//
+// Achado por sondagem (fase 11.5): `isPublic` usava `z.coerce.boolean()`, que
+// aplica `Boolean(...)`. Campo de multipart chega SEMPRE como texto, e a string
+// 'false' vira `true` — todo documento enviado como privado era gravado como
+// público e ficava baixável por qualquer um, sem autenticação.
+// ===========================================================================
+describe('documento privado de evento', () => {
+  const PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64'
+  );
+
+  async function documentos() {
+    const montagem = await criarEventoCompleto(diretorA, orgA.id);
+
+    const privado = await api().post(`/api/v1/events/${montagem.event.id}/documents`)
+      .set(diretorA.auth())
+      .field('title', 'Ata interna')
+      .field('isPublic', 'false')
+      .attach('file', PNG, 'ata.png');
+
+    const publico = await api().post(`/api/v1/events/${montagem.event.id}/documents`)
+      .set(diretorA.auth())
+      .field('title', 'Regulamento')
+      .field('isPublic', 'true')
+      .attach('file', PNG, 'regulamento.png');
+
+    expect(privado.status).toBe(201);
+    expect(publico.status).toBe(201);
+    return { montagem, privado: privado.body, publico: publico.body };
+  }
+
+  it("'false' no formulário grava privado de verdade, e não o contrário", async () => {
+    const { privado } = await documentos();
+
+    const gravado = await prisma.eventDocument.findUnique({ where: { id: privado.id } });
+    expect(gravado.isPublic).toBe(false);
+  });
+
+  it('não aparece na listagem anônima nem na de outra federação', async () => {
+    const { montagem } = await documentos();
+
+    const anonima = await api().get(`/api/v1/events/${montagem.event.id}/documents`);
+    const deB = await api().get(`/api/v1/events/${montagem.event.id}/documents`).set(diretorB.auth());
+
+    const titulos = resposta => (resposta.body.items ?? resposta.body).map(item => item.title);
+    expect(titulos(anonima)).toEqual(['Regulamento']);
+    expect(titulos(deB)).toEqual(['Regulamento']);
+  });
+
+  it('não é baixável por anônimo nem por outra federação, mas o dono baixa', async () => {
+    const { privado } = await documentos();
+    const url = `/api/v1/documents/event/${privado.id}/download`;
+
+    expect((await api().get(url)).status).toBe(401);
+    expect((await api().get(url).set(diretorB.auth())).status).toBe(403);
+    expect((await api().get(url).set(diretorA.auth())).status).toBe(200);
+  });
+
+  it('o documento público continua público: regulamento abre sem login', async () => {
+    const { publico } = await documentos();
+
+    const resposta = await api().get(`/api/v1/documents/event/${publico.id}/download`);
+    expect(resposta.status).toBe(200);
+  });
+});
