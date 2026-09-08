@@ -601,3 +601,48 @@ describe('status de parceria entre federações', () => {
     expect(resposta.body.status).toBe('ACTIVE');
   });
 });
+
+// ===========================================================================
+// Redação de log — fase 12.1.
+//
+// Conferido antes de mexer: hoje nenhum caminho leva CPF ao log. O corpo da
+// requisição não é registrado em lugar nenhum. A entrada na lista é rede para
+// o código de amanhã, e este teste é o que impede alguém de removê-la sem
+// perceber o que ela guarda.
+// ===========================================================================
+describe('o log não carrega segredo nem CPF', () => {
+  const CPF = '11144477735';
+  const SENHA = 'senha-secreta-de-teste';
+
+  it('redige as chaves sensíveis em qualquer profundidade', async () => {
+    const { redigir } = (await import('../src/utils/logger.js')).default;
+
+    const registro = redigir({
+      rota: 'POST /athletes',
+      atleta: { fullName: 'Marina Duarte', cpf: CPF, documento: { cpf: CPF } },
+      credenciais: { password: SENHA, token: 'jwt.de.teste' },
+      authorization: 'Bearer abc'
+    });
+
+    const texto = JSON.stringify(registro);
+    expect(texto).not.toContain(CPF);
+    expect(texto).not.toContain(SENHA);
+    expect(texto).not.toContain('jwt.de.teste');
+    expect(texto).not.toContain('Bearer abc');
+
+    // O que NÃO é sensível continua legível: log redigido demais não investiga
+    // incidente nenhum.
+    expect(texto).toContain('Marina Duarte');
+    expect(texto).toContain('POST /athletes');
+  });
+
+  it('nenhum serviço passa corpo de requisição para o logger', async () => {
+    const { execSync } = await import('node:child_process');
+    const achados = execSync(
+      "grep -rn 'logger\\.\\(info\\|warn\\|error\\|debug\\)' src/ | grep -E 'req\\.body|\\bbody\\b' || true",
+      { encoding: 'utf8' }
+    ).trim();
+
+    expect(achados, `log recebendo corpo de requisição:\n${achados}`).toBe('');
+  });
+});

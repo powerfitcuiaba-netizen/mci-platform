@@ -25,6 +25,18 @@ const limiteBusca = rateLimit({ windowMs: 60_000, max: 120, nome: 'search' });
 // A importação lê e valida arquivo inteiro: é a rota mais cara da API.
 const limiteImportacao = rateLimit({ windowMs: 60_000, max: 10, nome: 'import' });
 
+// Criação de conteúdo. O teto global de 600/min não protege ninguém aqui: com
+// ele, uma conta despeja centenas de comentários na publicação de outra pessoa
+// em um minuto — assédio por inundação, que num sistema de federação tem nome e
+// consequência. Conferido antes de existir: 120 comentários e 80 publicações
+// seguidas passaram sem nenhuma contenção.
+//
+// Os tetos são folgados para quem está usando de verdade. Ninguém escreve 40
+// comentários por minuto à mão; conversa de mensageiro é naturalmente mais
+// rápida, e por isso tem teto próprio.
+const limiteConteudo = rateLimit({ windowMs: 60_000, max: 40, nome: 'conteudo' });
+const limiteMensagem = rateLimit({ windowMs: 60_000, max: 90, nome: 'mensagem' });
+
 const uploadDocumento = singleFileUpload('file');
 const uploadMidia = singleFileUpload('file', { maxBytes: storage.MAX_MEDIA_BYTES, tipo: 'midia' });
 
@@ -225,7 +237,7 @@ router.get('/social/feed', optionalAuth, validate(s.feedQuery, 'query'), wrap(c.
 router.get('/social/saved', requireAuth, validate(s.paginacao, 'query'), wrap(c.social.listSaved));
 
 router.route('/social/posts')
-  .post(requireAuth, validate(s.postCreate), wrap(c.social.createPost));
+  .post(requireAuth, limiteConteudo, validate(s.postCreate), wrap(c.social.createPost));
 router.route('/social/posts/:id')
   .get(optionalAuth, validate(s.paramsWithId, 'params'), wrap(c.social.getPost))
   .delete(requireAuth, validate(s.paramsWithId, 'params'), wrap(c.social.deletePost));
@@ -234,10 +246,10 @@ router.post('/social/posts/:id/like', requireAuth, validate(s.paramsWithId, 'par
 router.delete('/social/posts/:id/like', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.social.unlike));
 router.post('/social/posts/:id/save', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.social.save));
 router.delete('/social/posts/:id/save', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.social.unsave));
-router.post('/social/posts/:id/share', requireAuth, validate(s.paramsWithId, 'params'), validate(s.shareCreate), wrap(c.social.share));
+router.post('/social/posts/:id/share', requireAuth, limiteConteudo, validate(s.paramsWithId, 'params'), validate(s.shareCreate), wrap(c.social.share));
 router.route('/social/posts/:id/comments')
   .get(optionalAuth, validate(s.paramsWithId, 'params'), validate(s.paginacao, 'query'), wrap(c.social.listComments))
-  .post(requireAuth, validate(s.paramsWithId, 'params'), validate(s.commentCreate), wrap(c.social.comment));
+  .post(requireAuth, limiteConteudo, validate(s.paramsWithId, 'params'), validate(s.commentCreate), wrap(c.social.comment));
 router.delete('/social/comments/:id', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.social.deleteComment));
 
 router.get('/social/profiles/:handle', optionalAuth, wrap(c.social.profile));
@@ -256,7 +268,7 @@ router.post('/social/stories/:id/view', requireAuth, validate(s.paramsWithId, 'p
 router.get('/media/posts/:id', optionalAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.postMedia));
 router.get('/media/stories/:id', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.storyMedia));
 
-router.post('/social/reports', requireAuth, validate(s.reportCreate), wrap(c.social.report));
+router.post('/social/reports', requireAuth, limiteConteudo, validate(s.reportCreate), wrap(c.social.report));
 router.get('/social/reports', requireAuth, perm('social.moderate'), validate(s.reportQuery, 'query'), wrap(c.social.listReports));
 router.post('/social/reports/:id/resolve', requireAuth, perm('social.moderate'), validate(s.paramsWithId, 'params'), validate(s.reportResolve), wrap(c.social.resolveReport));
 
@@ -267,7 +279,7 @@ router.route('/messenger/conversations')
 router.get('/messenger/conversations/:id', requireAuth, perm('messenger.use'), validate(s.paramsWithId, 'params'), wrap(c.messenger.getConversation));
 router.route('/messenger/conversations/:id/messages')
   .get(requireAuth, perm('messenger.use'), validate(s.paramsWithId, 'params'), validate(s.paginacao, 'query'), wrap(c.messenger.listMessages))
-  .post(requireAuth, perm('messenger.use'), validate(s.paramsWithId, 'params'), validate(s.messageCreate), wrap(c.messenger.sendMessage));
+  .post(requireAuth, perm('messenger.use'), limiteMensagem, validate(s.paramsWithId, 'params'), validate(s.messageCreate), wrap(c.messenger.sendMessage));
 router.post('/messenger/conversations/:id/media', requireAuth, perm('messenger.use'), limiteUpload, validate(s.paramsWithId, 'params'), uploadMidia, wrap(c.messenger.sendMedia));
 router.post('/messenger/conversations/:id/read', requireAuth, perm('messenger.use'), validate(s.paramsWithId, 'params'), wrap(c.messenger.markRead));
 router.post('/messenger/conversations/:id/members', requireAuth, perm('messenger.use'), validate(s.paramsWithId, 'params'), validate(s.conversationMembers), wrap(c.messenger.addMembers));

@@ -29,7 +29,18 @@ function agendarLimpeza() {
   if (typeof timer.unref === 'function') timer.unref();
 }
 
+// Quem está autenticado responde pela PRÓPRIA conta, não pelo endereço.
+//
+// Contar criação de conteúdo por IP erra dos dois lados: no wifi do ginásio,
+// onde metade dos atletas sai pelo mesmo endereço, um usuário abusivo derrubaria
+// o limite de todos os outros; e quem abusa de propósito troca de endereço sem
+// esforço. O identificador da conta não tem nenhum dos dois problemas.
+//
+// O prefixo evita que um id de usuário venha a colidir com um IP.
+// Rota sem autenticação — login, rota pública — continua contando por origem,
+// que ali é a única coisa que existe.
 const identificar = req => {
+  if (req.user?.id) return `u:${req.user.id}`;
   const encaminhado = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
   return encaminhado || req.ip || req.socket?.remoteAddress || 'desconhecido';
 };
