@@ -11,6 +11,20 @@
 #
 set -euo pipefail
 
+# As ferramentas do PostgreSQL NÃO estão na imagem da aplicação — ela roda a
+# API, não administra banco, e não deve carregar a credencial de backup. Este
+# script pertence a um job separado, com o cliente do PostgreSQL instalado
+# (a imagem oficial `postgres:16` serve). Conferir aqui transforma um
+# "command not found" no meio da madrugada numa instrução.
+for ferramenta in pg_restore psql; do
+  command -v "$ferramenta" >/dev/null 2>&1 || {
+    echo "FALHA: '$ferramenta' não encontrado." >&2
+    echo "Rode a restauração de um ambiente com o cliente do PostgreSQL instalado —" >&2
+    echo "a imagem da aplicação não o traz de propósito. Ver docs/BACKUP-RESTORE.md." >&2
+    exit 1
+  }
+done
+
 ARQUIVO="${1:?informe o arquivo .dump}"
 : "${TARGET_DATABASE_URL:?TARGET_DATABASE_URL não definida}"
 

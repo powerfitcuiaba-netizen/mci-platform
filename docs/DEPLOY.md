@@ -405,6 +405,77 @@ por conta própria, o override vira inócuo e pode ser removido — confira com
 
 ---
 
+## 7.95. Prontidão de produção — o que foi medido
+
+Implantação completa do zero, com a **imagem**, contra PostgreSQL real
+(fase 12.8/12.9).
+
+### Do banco vazio ao sistema no ar
+
+| Etapa | Medido |
+|---|---|
+| Provisionar o banco | 132 ms |
+| `prisma migrate deploy` **a partir da imagem** | 2 013 ms |
+| `node prisma/seed.js` (catálogo oficial) | 442 ms |
+| `provision-app-role.sql` | 60 ms |
+| Primeiro administrador (`scripts/criar-admin.js`, da imagem) | 1 053 ms |
+| Contêiner de pé até `/ready 200` | 845 ms |
+| **Total, do nada ao pronto** | **4 545 ms** |
+
+Em seguida, o teste de fumaça pelo caminho da federação — login, organização,
+temporada, tabela de pontos, equipe, três atletas, evento, categoria/divisão/
+classe, inscrições, resultado externo recebido e publicado, Overall declarado,
+ranking recalculado — até o **ranking público lido sem token**: 20 verificações,
+**nenhuma falha**, em **951 ms**. A campeã Overall saiu com `5 + 10 = 15`.
+
+> Números de um host só, com base pequena. Servem para provar que o caminho
+> funciona inteiro e que cada passo tem medida; **não** são promessa de
+> desempenho em produção.
+
+### Comportamento sob operação
+
+| Verificação | Resultado |
+|---|---|
+| Reinício do contêiner | ranking **idêntico** antes e depois (mesmo SHA-256) |
+| Banco cai **depois** da partida | `/health` segue **200**; `/ready` vai a **503** com `database:false`; o contêiner **não morre** |
+| Banco volta | `/ready` volta a **200 sozinho**, com **zero** reinícios |
+| Banco inalcançável **na partida** | o processo **não abre a porta** e sai com código 1 — ver abaixo |
+| `docker stop` com requisições em voo | **nenhuma** requisição cortada no meio; saída com código **0** |
+| Limitador de taxa | ativo: 8 tentativas de login e então `429` com `Retry-After` |
+
+**Por que a partida falha rápido em vez de subir "não pronta":** a conferência
+de RLS acontece antes do `listen`. Abrir a porta sem ter confirmado que o RLS
+tem efeito nesta conexão seria aceitar servir dado restrito se o banco
+respondesse depois com um papel errado. O orquestrador reinicia com backoff, e
+a falha aparece no log com o motivo. Depois de no ar, a lógica se inverte — o
+que se quer é continuar vivo e sair do balanceador, e é isso que `/ready` faz.
+
+### Achados de prontidão registrados
+
+**1. As ferramentas de backup NÃO estão na imagem da aplicação.**
+`scripts/backup.sh` e `scripts/restore.sh` são copiados para a imagem (junto
+com `criar-admin.js`, que roda de lá mesmo), mas `pg_dump`, `psql` e
+`pg_restore` **não** estão — conferido dentro da imagem. É proposital: a
+imagem serve a API, não administra o banco, e não deve carregar a credencial
+`BYPASSRLS` do papel de backup.
+
+O backup pertence a um **job separado** com o cliente do PostgreSQL instalado
+(a imagem oficial `postgres:16` serve). Os dois scripts agora conferem as
+ferramentas antes de qualquer coisa e param com a instrução, em vez de morrer
+com `command not found` no meio da madrugada.
+
+**2. O limitador de taxa é por processo.** O estado vive em memória, então com
+N réplicas o teto efetivo vira N × o configurado. Já documentado no código e
+no README; repetido aqui porque é decisão de topologia: com mais de uma
+réplica, use o limitador da borda (ingress, WAF, CDN) ou um contador
+compartilhado.
+
+**3. O frontend não é servido por este processo.** `src/app.js` não serve
+arquivo estático. O bundle do Vite vai para host estático ou CDN, e a origem
+dele precisa estar em `CORS_ORIGINS`.
+
+---
+
 ## 8. Rollback
 
 1. **Código:** reimplantar o release anterior.
