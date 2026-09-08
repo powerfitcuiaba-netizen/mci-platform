@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bell, ClipboardCheck, Home, LayoutDashboard, LogOut, Menu, MessageSquare,
   QrCode, Scale, Search, Settings, ShieldCheck, Trophy, Upload, UserCircle, Users, Users2, Zap
@@ -82,10 +82,41 @@ function permissoesDe(user) {
   return conjunto;
 }
 
+// Qual item do menu deve acender. Vence o mais específico que casa com a rota:
+// sem isso, `admin` casava com `admin/pesagem` pelo prefixo e o índice ficava
+// aceso junto com o item real em toda tela administrativa.
+function rotaAtiva(itens, rota) {
+  let melhor = null;
+  for (const item of itens) {
+    const casa = rota === item.rota || rota.startsWith(`${item.rota}/`);
+    if (casa && (!melhor || item.rota.length > melhor.length)) melhor = item.rota;
+  }
+  return melhor;
+}
+
 function BuscaGlobal({ navegar }) {
   const [termo, setTermo] = useState('');
   const busca = useDebounce(termo, 400);
   const [aberto, setAberto] = useState(false);
+  const campo = useRef(null);
+
+  // Ctrl+K / Cmd+K leva o foco para a busca, e Esc devolve. Operação de piso
+  // é feita com as duas mãos ocupadas: quem já sabe o nome da atleta não
+  // deveria precisar procurar o campo com o mouse.
+  useEffect(() => {
+    const aoTeclar = evento => {
+      if ((evento.ctrlKey || evento.metaKey) && evento.key.toLowerCase() === 'k') {
+        evento.preventDefault();
+        campo.current?.focus();
+        campo.current?.select();
+      } else if (evento.key === 'Escape' && document.activeElement === campo.current) {
+        campo.current.blur();
+        setAberto(false);
+      }
+    };
+    window.addEventListener('keydown', aoTeclar);
+    return () => window.removeEventListener('keydown', aoTeclar);
+  }, []);
 
   const estado = useFetch(
     () => (busca.trim().length >= 2 ? api.search({ q: busca.trim(), limit: 5 }) : Promise.resolve(null)),
@@ -106,7 +137,9 @@ function BuscaGlobal({ navegar }) {
           onBlur={() => setTimeout(() => setAberto(false), 160)}
           placeholder="Buscar atleta, evento, perfil, comunidade…"
           aria-label="Busca global"
+          ref={campo}
         />
+        <kbd className="atalho" aria-hidden="true">Ctrl K</kbd>
       </label>
 
       {aberto && busca.trim().length >= 2 && (
@@ -172,6 +205,8 @@ function Shell() {
   if (!authenticated) return <Auth />;
 
   const itensAdmin = NAVEGACAO_ADMIN.filter(item => pode(item.permissao));
+  const ativoPrincipal = rotaAtiva(NAVEGACAO_PRINCIPAL, rota);
+  const ativoAdmin = rotaAtiva(itensAdmin, rota);
 
   const conteudo = () => {
     const [primeiro, segundo, terceiro] = partes;
@@ -235,7 +270,7 @@ function Shell() {
           <span className="nav-label">Plataforma</span>
           {NAVEGACAO_PRINCIPAL.map(item => {
             const Icone = item.icone;
-            const ativo = rota === item.rota || rota.startsWith(`${item.rota}/`);
+            const ativo = item.rota === ativoPrincipal;
             const contador = item.contador === 'mensagens' ? mensagensNaoLidas : 0;
             return (
               <button key={item.rota} type="button" className={`nav-item${ativo ? ' is-active' : ''}`} onClick={() => navegar(item.rota)}>
@@ -251,7 +286,7 @@ function Shell() {
             <span className="nav-label">Administração</span>
             {itensAdmin.map(item => {
               const Icone = item.icone;
-              const ativo = rota === item.rota || rota.startsWith(`${item.rota}/`);
+              const ativo = item.rota === ativoAdmin;
               return (
                 <button key={item.rota} type="button" className={`nav-item${ativo ? ' is-active' : ''}`} onClick={() => navegar(item.rota)}>
                   <Icone size={16} /> {item.rotulo}
