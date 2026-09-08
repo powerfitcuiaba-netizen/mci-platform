@@ -99,6 +99,29 @@ describe('RBAC', () => {
     expect(can(juiz, 'results.override')).toBe(false);
   });
 
+  // Levantado na homologação operacional (fase 12.5): o diretor do evento
+  // conduz a prova inteira — recebe e publica o resultado — mas NÃO reescreve
+  // resultado já publicado, não cria organização e não lê a auditoria. Não é
+  // lacuna: corrigir prova oficial divulgada exige administrador da
+  // plataforma. O teste existe para que a fronteira não seja afrouxada sem
+  // que alguém decida afrouxá-la.
+  it('o diretor do evento conduz a prova, mas não corrige resultado publicado', () => {
+    const diretor = usuario('EVENT_DIRECTOR');
+    expect(can(diretor, 'results.receive')).toBe(true);
+    expect(can(diretor, 'results.publish')).toBe(true);
+    expect(can(diretor, 'results.override')).toBe(false);
+    expect(can(diretor, 'organizations.manage')).toBe(false);
+    expect(can(diretor, 'audit.read')).toBe(false);
+  });
+
+  it('corrigir resultado publicado é de administrador da plataforma', () => {
+    expect(can(usuario('SUPER_ADMIN'), 'results.override')).toBe(true);
+    expect(can(usuario('ADMIN'), 'results.override')).toBe(true);
+    for (const papel of ['EVENT_DIRECTOR', 'EVENT_COORDINATOR', 'RESULTS_OPERATOR', 'RANKING_MANAGER', 'JUDGE_COORDINATOR']) {
+      expect(can(usuario(papel), 'results.override'), papel).toBe(false);
+    }
+  });
+
   it('atleta não enxerga dado sensível nem audita', () => {
     const atleta = usuario('ATHLETE');
     expect(can(atleta, 'athletes.read_sensitive')).toBe(false);

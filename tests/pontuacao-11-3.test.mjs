@@ -190,6 +190,16 @@ describe('17) pontuação importada é conferida contra a regra oficial', () => 
     expect(conferirPontuacaoImportada(6, TABELA, false, 0)).toBeNull();
   });
 
+  // A armadilha real da planilha, levantada na homologação operacional
+  // (fase 12.5): quem exporta escreve os pontos da COLOCAÇÃO na coluna de
+  // pontos. Numa linha marcada como Overall isso é −10 do que a regra calcula,
+  // e a importação tem de travar com a conta na mão — não aplicar o número do
+  // arquivo, nem sobrescrevê-lo em silêncio.
+  it('5 pontos numa linha de campeã Overall é divergência de −10, não acerto', () => {
+    expect(conferirPontuacaoImportada(1, TABELA, true, 5))
+      .toEqual({ importedPoints: 5, calculatedPoints: 15, difference: -10 });
+  });
+
   it('sem colocação ou sem número informado não há o que conferir', () => {
     // Linha sem colocação: não há regra a aplicar, o arquivo é a única fonte.
     expect(conferirPontuacaoImportada(null, TABELA, false, 7)).toBeNull();

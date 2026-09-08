@@ -327,6 +327,13 @@ ARQUIVO → ADAPTER → ANÁLISE LINHA A LINHA → PRÉ-VISUALIZAÇÃO
   `fieldMap`, sem tocar no código.
 - **Reconhecimento**: CPF é a primeira chave; a filiação confirma o vínculo
   quando informada. Divergência vira `CONFLICT` para revisão, não descarte.
+- **A coluna de pontos é o total FINAL, com o bônus de Overall incluído.** Uma
+  linha marcada como campeã Overall precisa trazer `15` (5 da colocação + 10 do
+  bônus), não `5` — informar só os pontos da colocação produz `CONFLICT`, com a
+  conta explícita na mensagem. É deliberado: um número que pode ser derivado de
+  colocação, Overall e temporada não é fonte, é afirmação a conferir. É também
+  a primeira coisa que trava uma importação real —
+  ver [`docs/HOMOLOGACAO-OPERACIONAL.md`](docs/HOMOLOGACAO-OPERACIONAL.md) §3.
 - **Atleta não encontrado nunca é criado em silêncio**: vai para
   `MATCH_PENDING` e espera vinculação manual por usuário autorizado.
 - **Idempotência**: `ExternalResult(source, externalId)` é único. Reimportar o
@@ -470,6 +477,11 @@ Não existe variável financeira, e o teste de ausência confere isso.
   incompleta, `JWT_SECRET` curto e papel superusuário. A ressalva que ficou está
   escrita no `Dockerfile`: a camada `apt-get` não chegou a executar, porque o
   ambiente de verificação bloqueia os espelhos Debian.
+- **[`docs/HOMOLOGACAO-OPERACIONAL.md`](docs/HOMOLOGACAO-OPERACIONAL.md)** — uma
+  temporada inteira executada de ponta a ponta pelo caminho do operador, com a
+  API em produção: 86 verificações, nenhuma falha. Registra o que o operador
+  **não** faz sozinho (corrigir resultado publicado, criar organização, ler a
+  auditoria — todos `403` deliberados) e a armadilha da planilha MuscleWar.
 - **[`docs/BACKUP-RESTORE.md`](docs/BACKUP-RESTORE.md)** — backup, restauração e
   recuperação de desastre, com os números de um ensaio **executado**: dump,
   restauração em banco novo e a aplicação subindo contra o banco recuperado.
