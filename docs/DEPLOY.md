@@ -233,7 +233,36 @@ comunidades iniciais.
 
 O seed é idempotente (`upsert`): reexecutar não duplica nem destrói dados.
 
-### 3.5 Subir a API
+### 3.5 Criar o primeiro administrador
+
+Sem este passo **a instalação fica inacessível**: o cadastro aberto recusa papel
+privilegiado, de propósito, então ninguém consegue administrar nada até que o
+primeiro administrador exista.
+
+```bash
+ADMIN_PASSWORD='<senha forte>' node scripts/criar-admin.js "Nome Completo" pessoa@dominio
+```
+
+Ou, para não deixar a senha nem em variável de ambiente:
+
+```bash
+node scripts/criar-admin.js "Nome Completo" pessoa@dominio
+# a senha é lida da entrada padrão
+```
+
+> **A senha não é aceita como argumento de linha de comando.** Argumento aparece
+> em `ps` para qualquer usuário da máquina e fica no histórico do shell; o
+> script recusa e manda usar variável de ambiente ou entrada padrão.
+
+O script **só cria o primeiro** administrador. Com um já existente, ele recusa e
+manda usar a administração de contas — que registra quem concedeu o papel. Se o
+email já tiver conta comum, ela é **promovida**, sem duplicar cadastro. O
+bootstrap fica registrado na auditoria como `ADMIN_BOOTSTRAP`.
+
+Coberto por `tests/bootstrap-admin.test.mjs`, que vai até o fim: cria, entra,
+lista contas e cria uma federação.
+
+### 3.6 Subir a API
 
 ```bash
 node server.js
