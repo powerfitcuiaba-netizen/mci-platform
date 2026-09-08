@@ -6,6 +6,34 @@ import { fetchMediaObjectUrl, releaseMediaObjectUrl } from '../services/api';
 // Blocos de interface compartilhados. Tudo aqui é apresentação: nenhuma
 // decisão de autorização ou de regra de negócio mora neste arquivo.
 
+// A marca oficial. O arquivo vive em public/ e é servido pela raiz; enquanto
+// ele não existir, a interface cai na sigla, que é o comportamento antigo.
+// Assim quem tem o arquivo só precisa soltá-lo em frontend/public/ — nada de
+// código muda, e nada quebra se ele faltar.
+const CAMINHO_DA_MARCA = '/marca-mci.png';
+
+// A ausência do arquivo é lembrada uma vez por sessão. Sem isto, cada troca de
+// tela pede a imagem de novo e leva a mesma falha — barulho no console e uma
+// requisição inútil por navegação.
+let marcaIndisponivel = false;
+
+export function MarcaMci({ tamanho = 34, titulo = 'Muscle Contest International' }) {
+  const [temArquivo, setTemArquivo] = useState(!marcaIndisponivel);
+
+  if (!temArquivo) return <span className="brand-mark" aria-hidden="true">M</span>;
+
+  return (
+    <img
+      className="brand-logo"
+      src={CAMINHO_DA_MARCA}
+      alt={titulo}
+      width={tamanho}
+      height={tamanho}
+      onError={() => { marcaIndisponivel = true; setTemArquivo(false); }}
+    />
+  );
+}
+
 export function PageHead({ eyebrow, title, description, actions }) {
   return (
     <header className="page-head">
@@ -19,7 +47,11 @@ export function PageHead({ eyebrow, title, description, actions }) {
   );
 }
 
-export const Badge = ({ tom = 'neutro', children }) => <span className={`badge badge-${tom}`}>{children}</span>;
+// `aoVivo` é reservado ao que está acontecendo agora — hoje, a bateria no
+// palco. O ponto do selo pulsa só nesse caso; em estado parado seria ruído.
+export const Badge = ({ tom = 'neutro', aoVivo = false, children }) => (
+  <span className={`badge badge-${tom}${aoVivo ? ' esta-ao-vivo' : ''}`}>{children}</span>
+);
 
 export function Metric({ label, value, hint, destaque = false }) {
   return (
@@ -60,9 +92,16 @@ export const EmptyState = ({ title, description, action }) => (
 
 // Estado de tela padrão: carga, erro e vazio resolvidos em um lugar só, para
 // que nenhuma página invente o seu próprio.
+//
+// A guarda de `data` nulo não é zelo excessivo: sem ela, uma busca que resolve
+// para nulo — porque o filtro mudou, porque a consulta ficou inativa, porque a
+// resposta veio vazia — cai direto em `children(null)`, e a página inteira
+// morre no primeiro `dados.items`. Foi assim que a tela de credenciamento
+// quebrava ao escolher um evento. Nulo é ausência de dado, não erro: mostra o
+// esqueleto, que é o que estava acontecendo de fato.
 export function AsyncSection({ state, empty, children, linhas = 4 }) {
-  if (state.loading && !state.data) return <Skeleton linhas={linhas} />;
   if (state.error) return <ErrorState message={state.error} onRetry={state.reload} />;
+  if (state.data === null || state.data === undefined) return <Skeleton linhas={linhas} />;
   if (empty && empty(state.data)) return <EmptyState title="Nada por aqui ainda" description="Quando houver registro, ele aparece nesta tela." />;
   return children(state.data);
 }
@@ -220,3 +259,64 @@ export const Paginacao = ({ nextCursor, onMore, loading }) => (
     )
     : null
 );
+
+
+// Desenha o QR da credencial a partir do código que o sistema já guarda. Não
+// inventa conteúdo: o campo é rotulado "Conteúdo do QR Code impresso" e existe
+// rota de leitura (POST /events/:id/credentials/scan).
+//
+// O SVG é montado como elementos React a partir da matriz de módulos, e não
+// por injeção de HTML: assim o valor da credencial nunca vira marcação, e o
+// componente não abre superfície de XSS mesmo que o código venha adulterado.
+// A biblioteca entra sob demanda, fora do caminho da primeira pintura.
+export function CodigoQr({ valor, tamanho = 148, legenda = false }) {
+  const [matriz, setMatriz] = useState(null);
+  const [falhou, setFalhou] = useState(false);
+
+  useEffect(() => {
+    if (!valor) return undefined;
+    let cancelado = false;
+    setMatriz(null);
+    setFalhou(false);
+
+    import('qrcode-generator')
+      .then(({ default: gerar }) => {
+        if (cancelado) return;
+        // Correção de erro média: a credencial é lida em ginásio, com o crachá
+        // amassado e a luz ruim.
+        const codigo = gerar(0, 'M');
+        codigo.addData(String(valor));
+        codigo.make();
+        const lado = codigo.getModuleCount();
+        const escuros = [];
+        for (let linha = 0; linha < lado; linha += 1) {
+          for (let coluna = 0; coluna < lado; coluna += 1) {
+            if (codigo.isDark(linha, coluna)) escuros.push([coluna, linha]);
+          }
+        }
+        setMatriz({ lado, escuros });
+      })
+      .catch(() => { if (!cancelado) setFalhou(true); });
+
+    return () => { cancelado = true; };
+  }, [valor]);
+
+  if (!valor) return null;
+  if (falhou) return <p className="muted">Não foi possível desenhar o QR. O código continua legível ao lado.</p>;
+  if (!matriz) return <div className="qr-carregando" style={{ width: tamanho, height: tamanho }} aria-hidden="true" />;
+
+  const margem = 2;
+  const total = matriz.lado + margem * 2;
+
+  return (
+    <figure className="qr" style={{ width: tamanho }}>
+      <svg className="qr-tela" viewBox={`0 0 ${total} ${total}`} role="img" aria-label={`QR da credencial ${valor}`}>
+        <rect x="0" y="0" width={total} height={total} fill="#ffffff" />
+        {matriz.escuros.map(([x, y]) => (
+          <rect key={`${x}-${y}`} x={x + margem} y={y + margem} width="1" height="1" fill="#000000" />
+        ))}
+      </svg>
+      {legenda && <figcaption>{valor}</figcaption>}
+    </figure>
+  );
+}

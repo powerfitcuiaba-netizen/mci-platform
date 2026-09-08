@@ -864,10 +864,13 @@ h1, h2, h3 { margin: 0; }
 .button:disabled { cursor: not-allowed; }
 .button .spin { opacity: .9; }
 
-/* Estado ao vivo. A ordem de palco é a única tela onde algo acontece agora,
-   e o operador olha para ela de longe: a pulsação é lenta o bastante para não
-   irritar em três horas de evento. */
-.badge-perigo::before { animation: pulso 2.4s ease-in-out infinite; }
+/* Estado ao vivo, e SÓ ele. A pulsação estava em .badge-perigo inteiro, que
+   também marca estado parado — "Feminina", "Cancelada", "Revogada". Ponto
+   piscando em coisa que não está acontecendo é ruído: o operador aprende a
+   ignorar, e aí perde o que importa. Fica reservada à bateria no palco, que é
+   a única coisa acontecendo agora, e devagar o bastante para não cansar em
+   três horas de evento. */
+.badge.esta-ao-vivo::before { animation: pulso 2.4s ease-in-out infinite; }
 @keyframes pulso {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%      { opacity: .55; transform: scale(.82); }
@@ -929,3 +932,31 @@ h1, h2, h3 { margin: 0; }
 
 /* Foco de teclado dentro de tabela precisa aparecer sobre a linha realçada. */
 .table tbody tr:focus-within td { background: #12202c; }
+
+/* --- marca oficial -------------------------------------------------------
+   O arquivo entra em frontend/public/marca-mci.png. Enquanto não existir, o
+   componente cai na sigla sozinho — nada quebra, nada precisa ser editado. */
+.brand-logo {
+  display: block; flex-shrink: 0; object-fit: contain;
+  width: 36px; height: 36px;
+}
+.auth-card .brand-logo { width: 56px; height: 56px; margin-bottom: var(--e4); }
+
+/* --- QR da credencial ----------------------------------------------------
+   Fundo branco e margem de silêncio não são estética: leitor de código precisa
+   dos dois. Por isso o QR não segue o tema escuro do resto da interface. */
+.qr { margin: 0; display: grid; gap: var(--e1); justify-items: center; flex-shrink: 0; }
+.qr-tela {
+  display: block; width: 100%; height: auto;
+  background: #fff; border-radius: 3px; border: 1px solid var(--linha-forte);
+}
+.qr figcaption {
+  font-size: 9px; letter-spacing: .8px; color: var(--cinza-fraco);
+  font-weight: 700; text-transform: uppercase;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.qr-carregando {
+  border-radius: 3px; border: 1px solid var(--linha); flex-shrink: 0;
+  background: linear-gradient(90deg, var(--superficie) 0, var(--superficie-3) 50%, var(--superficie) 100%);
+  background-size: 200% 100%; animation: brilho 1.4s infinite linear;
+}

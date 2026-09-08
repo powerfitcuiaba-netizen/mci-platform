@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { CalendarDays, ClipboardCheck, Plus, QrCode, Scale, Search } from 'lucide-react';
 import api, { refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
-import { AsyncSection, Avatar, Badge, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead } from '../components/ui';
+import { AsyncSection, Avatar, Badge, CodigoQr, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead } from '../components/ui';
 import {
   ESTADO_EVENTO, TRANSICOES_EVENTO, formatarData, formatarDataHora, mascararCpf, pesoEmKg, somenteDigitos
 } from '../lib/format';
@@ -959,7 +959,12 @@ export function AdminCredenciamento({ notificar }) {
                 {dados => (dados.items.length
                   ? dados.items.map(credencial => (
                     <div className="list-row" key={credencial.id}>
-                      <span className="avatar"><QrCode size={16} /></span>
+                      {/* O QR desenha o código que a credencial já carrega — o
+                          mesmo que a portaria lê. Só faz sentido para credencial
+                          ativa: revogada não deve ser apresentável no portão. */}
+                      {credencial.status === 'ACTIVE'
+                        ? <CodigoQr valor={credencial.code} tamanho={64} />
+                        : <span className="avatar"><QrCode size={16} /></span>}
                       <span className="info">
                         <strong>{credencial.holderName}</strong>
                         <small>{credencial.type} · {credencial.code} · {credencial._count.scans} leitura(s)</small>
@@ -1122,7 +1127,7 @@ export function AdminPalco({ notificar }) {
                       </small>
                     </div>
                     <div className="actions">
-                      <Badge tom={bateria.status === 'DONE' ? 'neutro' : bateria.status === 'ON_STAGE' ? 'perigo' : bateria.status === 'CALLED' ? 'alerta' : 'info'}>{bateria.status}</Badge>
+                      <Badge tom={bateria.status === 'DONE' ? 'neutro' : bateria.status === 'ON_STAGE' ? 'perigo' : bateria.status === 'CALLED' ? 'alerta' : 'info'} aoVivo={bateria.status === 'ON_STAGE'}>{bateria.status}</Badge>
                       <button type="button" className="button button-secondary button-sm" onClick={() => setOrdenando(bateria)}>Ordem</button>
                       {bateria.status === 'SCHEDULED' && <button type="button" className="button button-primary button-sm" onClick={() => mudarStatus(bateria, 'CALLED')}>Chamar</button>}
                       {bateria.status === 'CALLED' && <button type="button" className="button button-primary button-sm" onClick={() => mudarStatus(bateria, 'ON_STAGE')}>No palco</button>}

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../AuthContext';
-import { Field } from '../components/ui';
+import { Field, MarcaMci } from '../components/ui';
 
 // Login e cadastro. O cadastro aberto só cria papéis sem poder operacional —
 // papel privilegiado é concessão administrativa, e a API recusa o contrário.
@@ -38,6 +38,7 @@ export default function Auth() {
   return (
     <div className="auth-shell">
       <div className="auth-card">
+        <MarcaMci tamanho={56} />
         <span className="eyebrow">MCI Platform</span>
         <h1>{modo === 'login' ? 'Entrar' : 'Criar conta'}</h1>
         <p>Campeonato Brasileiro Muscle Contest</p>

@@ -6,7 +6,7 @@ import {
 import { AuthProvider, useAuth } from './AuthContext';
 import api from './services/api';
 import { useDebounce, useFetch, useHashRoute, useToasts } from './lib/hooks';
-import { Avatar, Toasts } from './components/ui';
+import { Avatar, MarcaMci, Toasts } from './components/ui';
 import Auth from './pages/authPages';
 import { AtletaDetalhe, Atletas, CampeonatoDetalhe, Campeonatos, Inicio, Ranking } from './pages/publicPages';
 import { ComunidadeDetalhe, Comunidades, Feed, MeuPerfilSocial, Notificacoes, Perfil, Salvos } from './pages/socialPages';
@@ -259,7 +259,7 @@ function Shell() {
 
       <nav className={`sidebar${menuAberto ? ' is-open' : ''}`} aria-label="Navegação principal">
         <div className="brand">
-          <span className="brand-mark">M</span>
+          <MarcaMci tamanho={36} />
           <span className="brand-text">
             <strong>MCI Platform</strong>
             <small>Muscle Contest</small>

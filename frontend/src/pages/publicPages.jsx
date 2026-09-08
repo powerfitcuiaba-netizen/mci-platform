@@ -246,7 +246,7 @@ export function CampeonatoDetalhe({ slug, navegar }) {
                           <strong>{bateria.name} — {bateria.competitionClass.name}</strong>
                           <small>{bateria.scheduledAt ? formatarDataHora(bateria.scheduledAt, event.timezone) : 'Horário a definir'}</small>
                         </span>
-                        <Badge tom={bateria.status === 'DONE' ? 'neutro' : bateria.status === 'ON_STAGE' ? 'perigo' : bateria.status === 'CALLED' ? 'alerta' : 'info'}>
+                        <Badge tom={bateria.status === 'DONE' ? 'neutro' : bateria.status === 'ON_STAGE' ? 'perigo' : bateria.status === 'CALLED' ? 'alerta' : 'info'} aoVivo={bateria.status === 'ON_STAGE'}>
                           {bateria.status}
                         </Badge>
                       </div>
