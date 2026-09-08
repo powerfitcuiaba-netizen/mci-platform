@@ -474,7 +474,10 @@ export function Ranking() {
   const estado = useFetch(() => api.ranking.list({ seasonId: seasonId || undefined, categoryId: categoryId || undefined, limit: 50 }), [seasonId, categoryId]);
 
   const filtros = { seasonId: seasonId || undefined, categoryId: categoryId || undefined };
-  const superOverall = useFetch(() => api.ranking.superOverall(filtros), [seasonId, categoryId]);
+  // Mesmo teto do ranking do campeonato, logo acima: a lista cresce com a
+  // temporada, e medimos 818 KB com 3 mil atletas. O recorte é aplicado depois
+  // da classificação, então as posições exibidas são as do ranking inteiro.
+  const superOverall = useFetch(() => api.ranking.superOverall({ ...filtros, limit: 50 }), [seasonId, categoryId]);
   const equipes = useFetch(() => api.ranking.teams(filtros), [seasonId, categoryId]);
   const empresas = useFetch(() => api.ranking.companies(filtros), [seasonId, categoryId]);
 

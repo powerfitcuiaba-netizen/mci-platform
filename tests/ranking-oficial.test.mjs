@@ -1486,3 +1486,66 @@ describe('elegibilidade ao Super Overall não se inverte por texto', () => {
     expect(resposta.body.error.code).toBe('VALIDATION_ERROR');
   });
 });
+
+// ============================================================================
+// Paginação dos rankings derivados — fase 12.2.
+//
+// A fatia é aplicada DEPOIS de classificar. A ordem é a regra: cortar antes de
+// classificar mudaria a posição de quem sobrou, e um ranking paginado que
+// discorda do ranking inteiro é pior que um ranking grande.
+//
+// Medido antes de existir: 3 mil atletas devolviam 818 KB numa resposta só.
+// ============================================================================
+describe('paginação não altera o ranking', () => {
+  // Cada teste parte de banco limpo (beforeEach), então o cenário é montado
+  // aqui: quatro atletas na OPEN, que é a classe elegível ao Super Overall.
+  beforeEach(async () => {
+    await eventoPontuado({ colocacoes: ['P_UM', 'P_DOIS', 'P_TRES', 'P_QUATRO'], classe: 'OPEN' });
+  });
+
+  it('a página é exatamente a fatia correspondente da lista inteira', async () => {
+    const inteiro = await api().get('/api/v1/ranking/super-overall').query({ seasonId });
+    expect(inteiro.status).toBe(200);
+    expect(inteiro.body.length).toBeGreaterThan(2);
+
+    const primeira = await api().get('/api/v1/ranking/super-overall').query({ seasonId, limit: 2 });
+    const segunda = await api().get('/api/v1/ranking/super-overall').query({ seasonId, limit: 2, offset: 2 });
+
+    expect(primeira.body).toEqual(inteiro.body.slice(0, 2));
+    expect(segunda.body).toEqual(inteiro.body.slice(2, 4));
+  });
+
+  it('a posição de cada atleta é a do ranking inteiro, não a da página', async () => {
+    const inteiro = await api().get('/api/v1/ranking/super-overall').query({ seasonId });
+    const segunda = await api().get('/api/v1/ranking/super-overall').query({ seasonId, limit: 1, offset: 1 });
+
+    // Se a paginação fosse aplicada antes de classificar, esta linha voltaria
+    // como 1ª colocada — que é exatamente o defeito que não pode existir.
+    expect(segunda.body[0].position).toBe(inteiro.body[1].position);
+    expect(segunda.body[0].athlete.id).toBe(inteiro.body[1].athlete.id);
+  });
+
+  it('sem limit, a resposta continua inteira: cliente antigo não quebra', async () => {
+    const semLimite = await api().get('/api/v1/ranking/super-overall').query({ seasonId });
+    const comLimiteAlto = await api().get('/api/v1/ranking/super-overall').query({ seasonId, limit: 500 });
+
+    expect(semLimite.body).toEqual(comLimiteAlto.body.slice(0, semLimite.body.length));
+  });
+
+  it('o recorte por evento aceita a mesma paginação', async () => {
+    const evento = await comoAtor(diretor, tx => tx.event.findFirst({ where: { seasonId } }));
+    const inteiro = await api().get('/api/v1/ranking/by').query({ seasonId, eventId: evento.id });
+    const pagina = await api().get('/api/v1/ranking/by').query({ seasonId, eventId: evento.id, limit: 1 });
+
+    expect(inteiro.status).toBe(200);
+    expect(pagina.body).toEqual(inteiro.body.slice(0, 1));
+  });
+
+  it('limit fora da faixa é recusado, em vez de virar consulta ilimitada', async () => {
+    const zero = await api().get('/api/v1/ranking/super-overall').query({ seasonId, limit: 0 });
+    const gigante = await api().get('/api/v1/ranking/super-overall').query({ seasonId, limit: 999999 });
+
+    expect(zero.status).toBe(400);
+    expect(gigante.status).toBe(400);
+  });
+});

@@ -142,12 +142,18 @@ module.exports = {
       classId: req.query.classId ?? null,
       eventId: req.query.eventId ?? null,
       divisionId: req.query.divisionId ?? null,
-      categoryId: req.query.categoryId ?? null
+      categoryId: req.query.categoryId ?? null,
+      limit: req.query.limit ?? null,
+      offset: req.query.offset ?? 0
     })),
     teams: async (req, res) => res.json(await ranking.teamRanking(req.query.seasonId, { categoryId: req.query.categoryId ?? null })),
     declareOverall: async (req, res) => res.status(201).json(await ranking.declareOverall(req.params.id, req.body, req.user)),
     listOverall: async (req, res) => res.json({ items: await ranking.listOverall(req.params.id) }),
-    superOverall: async (req, res) => res.json(await ranking.superOverallRanking(req.query.seasonId, { categoryId: req.query.categoryId ?? null })),
+    superOverall: async (req, res) => res.json(await ranking.superOverallRanking(req.query.seasonId, {
+      categoryId: req.query.categoryId ?? null,
+      limit: req.query.limit ?? null,
+      offset: req.query.offset ?? 0
+    })),
     listClasses: async (req, res) => res.json({ items: await ranking.listClasses(req.query.organizationId, req.user) }),
     upsertClass: async (req, res) => res.status(201).json(await ranking.upsertClass(req.body.organizationId, req.body, req.user)),
     companies: async (req, res) => res.json(await ranking.companyRanking(req.query.seasonId, { categoryId: req.query.categoryId ?? null }))

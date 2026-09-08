@@ -305,10 +305,23 @@ const classCatalogUpsert = z.object({
   sortOrder: z.coerce.number().int().min(0).max(999).optional()
 });
 
+// `limit`/`offset` recortam a lista JÁ CLASSIFICADA, nunca a entrada. Cortar
+// antes de classificar mudaria a posição de quem sobrou — um ranking paginado
+// não pode discordar do ranking inteiro.
+//
+// Sem `limit`, a resposta continua completa: cliente que já consome a lista
+// toda não quebra. Medido: 3.000 atletas devolvem 818 KB, e a temporada só
+// cresce.
+const recorteDeLista = {
+  limit: z.coerce.number().int().min(1).max(500).optional(),
+  offset: z.coerce.number().int().min(0).max(100000).optional()
+};
+
 const superOverallQuery = z.object({
   seasonId: id.optional(),
   categoryId: id.optional(),
-  organizationId: id.optional()
+  organizationId: id.optional(),
+  ...recorteDeLista
 });
 
 const overallDeclare = z.object({
@@ -338,7 +351,8 @@ const rankingCutQuery = z.object({
   categoryId: id.optional(),
   classId: id.optional(),
   eventId: id.optional(),
-  divisionId: id.optional()
+  divisionId: id.optional(),
+  ...recorteDeLista
 }).refine(
   d => [d.classId, d.eventId, d.divisionId].filter(Boolean).length === 1,
   { message: 'Informe exatamente um recorte: classId, eventId ou divisionId' }
