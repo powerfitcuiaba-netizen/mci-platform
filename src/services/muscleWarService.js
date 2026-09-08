@@ -312,7 +312,21 @@ async function linkItem(itemId, { athleteId }, actor) {
 
   assertCan(actor, 'musclewar.review', item.import.organizationId);
 
-  if (item.import.status === 'APPLIED') throw new AppError(422, 'IMPORT_ALREADY_APPLIED', 'Lote já aplicado');
+  // Lote REJEITADO não recebe vinculação: ele não vai ser aplicado, e resolver
+  // linha nele só produziria trabalho perdido.
+  //
+  // Lote já APLICADO recebe, sim. É o que o `apply` promete no seu próprio
+  // comentário: "pendências e conflitos ficam para revisão e podem ser
+  // aplicados depois, no mesmo lote". Barrar aqui prendia a linha para sempre —
+  // o operador aplicava o lote para aproveitar as linhas boas, cadastrava
+  // depois o atleta que faltava, e não tinha como voltar. O resultado se perdia
+  // em silêncio.
+  //
+  // Não há risco de pontuar duas vezes: a linha aplicada vira `APPLIED`, e o
+  // `apply` só recolhe `MATCHED`.
+  if (item.import.status === 'REJECTED') {
+    throw new AppError(422, 'IMPORT_REJECTED', 'Lote rejeitado não aceita vinculação');
+  }
   if (!['MATCH_PENDING', 'CONFLICT'].includes(item.matchStatus)) {
     throw new AppError(422, 'ITEM_NOT_PENDING', `Registro em ${item.matchStatus} não aceita vinculação`);
   }

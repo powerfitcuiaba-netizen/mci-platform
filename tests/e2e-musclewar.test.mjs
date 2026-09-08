@@ -186,6 +186,74 @@ describe('importação MuscleWar', () => {
     expect(ponto.athleteId).toBe(atleta.athleteId);
   });
 
+  // ==========================================================================
+  // Pendência resolvida DEPOIS de o lote já ter sido aplicado.
+  //
+  // Achado sondando a plataforma de pé: o `apply` promete no próprio
+  // comentário que "pendências e conflitos ficam para revisão e podem ser
+  // aplicados depois, no mesmo lote" — mas a vinculação recusava lote
+  // aplicado, e a linha ficava presa para sempre. O operador aplicava para
+  // aproveitar as linhas boas, cadastrava depois o atleta que faltava, e não
+  // tinha como voltar: o resultado se perdia em silêncio.
+  // ==========================================================================
+  it('pendência é resolvida mesmo com o lote já aplicado, e o ponto entra', async () => {
+    const lote = await importar(csv([
+      `MW-70,${CPF_A},Atleta Reconhecida,FED-MT,BIKINI,OPEN,1,100,Etapa`,
+      `MW-71,${CPF_DESCONHECIDO},Fulana,FED-MT,BIKINI,OPEN,2,80,Etapa`
+    ]));
+    const importId = lote.body.import.id;
+
+    // Aplica com a pendência em aberto: é o que o operador faz para não
+    // segurar as linhas que já estão boas.
+    const primeira = await api().post(`/api/v1/musclewar/imports/${importId}/apply`).set(gerente.auth());
+    expect(primeira.body.applied).toBe(1);
+    expect(await prisma.rankingPoint.count()).toBe(1);
+
+    const pendente = (await api().get(`/api/v1/musclewar/imports/${importId}`).set(gerente.auth()))
+      .body.items.find(item => item.externalResultId === 'MW-71');
+    expect(pendente.matchStatus).toBe('MATCH_PENDING');
+
+    const atleta = await comoAtor(gerente, tx => tx.athleteIdentity.findFirst({ where: { cpf: CPF_A } }));
+
+    const vinculo = await api().post(`/api/v1/musclewar/items/${pendente.id}/link`).set(gerente.auth())
+      .send({ athleteId: atleta.athleteId });
+    expect(vinculo.status, JSON.stringify(vinculo.body)).toBe(200);
+
+    const segunda = await api().post(`/api/v1/musclewar/imports/${importId}/apply`).set(gerente.auth());
+    expect(segunda.body.applied).toBe(1);
+    expect(await prisma.rankingPoint.count()).toBe(2);
+  });
+
+  it('reaplicar sem nada novo não pontua de novo', async () => {
+    const lote = await importar(csv([`MW-80,${CPF_A},Atleta Reconhecida,FED-MT,BIKINI,OPEN,1,100,Etapa`]));
+    const importId = lote.body.import.id;
+
+    await api().post(`/api/v1/musclewar/imports/${importId}/apply`).set(gerente.auth());
+    expect(await prisma.rankingPoint.count()).toBe(1);
+
+    const repetida = await api().post(`/api/v1/musclewar/imports/${importId}/apply`).set(gerente.auth());
+
+    expect(repetida.status).toBe(422);
+    expect(repetida.body.error.code).toBe('NOTHING_TO_APPLY');
+    expect(await prisma.rankingPoint.count()).toBe(1);
+  });
+
+  it('lote rejeitado não aceita vinculação', async () => {
+    const lote = await importar(csv([`MW-90,${CPF_DESCONHECIDO},Fulana,FED-MT,BIKINI,OPEN,1,100,Etapa`]));
+    const importId = lote.body.import.id;
+    const pendente = lote.body.items[0];
+
+    await api().post(`/api/v1/musclewar/imports/${importId}/reject`).set(gerente.auth())
+      .send({ reason: 'Planilha enviada por engano pela federação' });
+
+    const atleta = await comoAtor(gerente, tx => tx.athleteIdentity.findFirst({ where: { cpf: CPF_A } }));
+    const vinculo = await api().post(`/api/v1/musclewar/items/${pendente.id}/link`).set(gerente.auth())
+      .send({ athleteId: atleta.athleteId });
+
+    expect(vinculo.status).toBe(422);
+    expect(vinculo.body.error.code).toBe('IMPORT_REJECTED');
+  });
+
   it('registra na auditoria quem importou, quem revisou e quem aplicou', async () => {
     const lote = await importar(csv([`MW-60,${CPF_A},Atleta Reconhecida,FED-MT,BIKINI,OPEN,1,100,Etapa`]));
     await api().post(`/api/v1/musclewar/imports/${lote.body.import.id}/apply`).set(gerente.auth());
