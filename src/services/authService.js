@@ -56,12 +56,29 @@ async function register(data, contexto = {}) {
   return { token: createToken(completo), user: sanitizeUser(completo) };
 }
 
+// Hash descartável usado quando o email não existe, para que a comparação
+// custe o MESMO tempo dos dois lados.
+//
+// Aqui havia um literal de custo fixo 04. A comparação acontecia, o comentário
+// prometia tempo constante — e o tempo não era constante coisa nenhuma:
+// medido, um `compare` contra custo 04 leva 0,03 ms e contra os hashes reais
+// de custo 10 leva 80 ms; em custo 12, 313 ms. Três ordens de grandeza de
+// diferença entre "este email existe" e "não existe", em cima de uma rota
+// anônima. A defesa estava escrita, mas não funcionava.
+//
+// Gerado uma vez, na carga do módulo, com o MESMO custo dos hashes reais. A
+// senha não abre conta nenhuma: o hash existe só para gastar o tempo certo.
+const HASH_DESCARTAVEL = bcrypt.hashSync(
+  'nenhuma-conta-usa-esta-senha-ela-existe-so-para-igualar-o-tempo',
+  config.bcryptRounds
+);
+
 async function login(data, contexto = {}) {
   const user = await userRepository.findByEmail(data.email);
 
   // Comparação executada mesmo sem usuário, contra um hash descartável, para
   // que o tempo de resposta não revele quais emails existem.
-  const hash = user?.passwordHash || '$2a$04$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalidi';
+  const hash = user?.passwordHash || HASH_DESCARTAVEL;
   const senhaConfere = await bcrypt.compare(data.password, hash);
 
   if (!user || !senhaConfere) throw new AppError(401, 'INVALID_CREDENTIALS', 'Credenciais inválidas');

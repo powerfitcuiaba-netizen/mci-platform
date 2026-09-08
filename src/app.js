@@ -22,11 +22,22 @@ app.use(helmet());
 app.use(express.json({ limit: '8mb' }));
 
 // Origens explícitas. Em produção a lista vem do ambiente e não há curinga.
+//
+// Origem não listada NÃO vira erro: a resposta sai sem os cabeçalhos de CORS,
+// e é o navegador que barra a leitura — que é como o mecanismo funciona.
+// Devolver um `Error` no callback, como estava aqui, transformava cada
+// requisição com Origin desconhecido num 500 INTERNAL_ERROR e numa linha de
+// log em nível `error`. Duas consequências ruins: o monitoramento passava a
+// acusar falha de servidor onde não há falha nenhuma, e qualquer um na
+// internet podia inundar o log de erro só mandando um cabeçalho Origin —
+// afogando erro de verdade no meio do ruído.
+//
+// Isto NÃO é uma barreira de autorização: CORS protege o navegador da vítima,
+// não o servidor. Quem impede acesso indevido é autenticação, RBAC e RLS.
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    if (config.corsOrigins.includes(origin)) return callback(null, true);
-    return callback(new Error('Origem não permitida pelo CORS'), false);
+    return callback(null, config.corsOrigins.includes(origin));
   },
   credentials: true
 }));

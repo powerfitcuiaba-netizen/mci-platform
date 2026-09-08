@@ -68,8 +68,24 @@ const extensionFor = mime => {
 
 // A chave é sempre gerada pelo servidor. Nada vindo do cliente compõe o caminho
 // de armazenamento: o nome original fica apenas como metadado, para exibição.
+//
+// A limpeza é por SEGMENTO, e não sobre a string inteira. A versão anterior
+// apagava todo caractere fora de [A-Za-z0-9_-] de uma vez — inclusive a barra
+// que os chamadores passam de propósito. `events/<id>` virava `events<id>`, e
+// o bucket terminava com uma pasta por evento no nível raiz em vez das árvores
+// `events/` e `athletes/`. Segurança não mudava; o que se perdia era a
+// possibilidade de escrever regra de ciclo de vida ou política de acesso por
+// prefixo no provedor de objetos, que é justamente o que o runbook recomenda.
+//
+// A barreira continua igual de rígida: cada segmento perde tudo que não seja
+// letra, dígito, `_` ou `-`, então `..` e `.` viram vazio e somem no filtro.
+// Não existe entrada capaz de produzir `..` no caminho.
 function buildKey(scope, mimeType) {
-  const escopoSeguro = String(scope || 'geral').replace(/[^a-zA-Z0-9_-]/g, '');
+  const escopoSeguro = String(scope || '')
+    .split('/')
+    .map(parte => parte.replace(/[^a-zA-Z0-9_-]/g, ''))
+    .filter(Boolean)
+    .join('/');
   return `${escopoSeguro || 'geral'}/${crypto.randomUUID()}.${extensionFor(mimeType)}`;
 }
 

@@ -477,6 +477,13 @@ Não existe variável financeira, e o teste de ausência confere isso.
   incompleta, `JWT_SECRET` curto e papel superusuário. A ressalva que ficou está
   escrita no `Dockerfile`: a camada `apt-get` não chegou a executar, porque o
   ambiente de verificação bloqueia os espelhos Debian.
+- **[`docs/SEGURANCA.md`](docs/SEGURANCA.md)** — o portão final de segurança:
+  cabeçalhos, CORS, JWT, enumeração, força bruta, injeção, IDOR, upload, log e
+  dependências, cada frente sondada por requisição real contra a API em
+  produção. Registra os três achados e o que os corrigiu — entre eles uma
+  defesa de tempo constante no login que existia e estava **três ordens de
+  grandeza fora**, porque o hash descartável tinha custo 04 contra os 10 ou 12
+  dos reais.
 - **[`docs/HOMOLOGACAO-OPERACIONAL.md`](docs/HOMOLOGACAO-OPERACIONAL.md)** — uma
   temporada inteira executada de ponta a ponta pelo caminho do operador, com a
   API em produção: 86 verificações, nenhuma falha. Registra o que o operador
