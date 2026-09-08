@@ -161,6 +161,7 @@ h1, h2, h3 { margin: 0; }
 }
 
 .brand { display: flex; align-items: center; gap: var(--e3); padding: 0 var(--e2) var(--e6); }
+.brand:has(.brand-plate-bloco) { display: block; padding-bottom: var(--e5); }
 .brand-mark {
   display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0;
   background: linear-gradient(150deg, var(--vermelho-claro) 0, var(--vermelho) 55%, #9c1418 100%);
@@ -934,13 +935,31 @@ h1, h2, h3 { margin: 0; }
 .table tbody tr:focus-within td { background: #12202c; }
 
 /* --- marca oficial -------------------------------------------------------
-   O arquivo entra em frontend/public/marca-mci.png. Enquanto não existir, o
-   componente cai na sigla sozinho — nada quebra, nada precisa ser editado. */
-.brand-logo {
-  display: block; flex-shrink: 0; object-fit: contain;
-  width: 36px; height: 36px;
+   A plaqueta clara existe por uma razão medida, não estética: o lockup oficial
+   tem espada e "SINCE 1988" em preto, e sobre o preto do sistema eles somem —
+   a logo aparece oca. A plaqueta é o espaço de respiro da marca; o arquivo em
+   si não é tocado, recortado nem recolorido, e object-fit: contain garante que
+   a proporção original nunca se perde. */
+.brand-plate {
+  display: block; flex-shrink: 0;
+  background: #f4f6f8; border-radius: var(--raio-2);
+  padding: var(--e2); line-height: 0;
+  box-shadow: inset 0 0 0 1px rgba(6,8,11,.12), var(--sombra-1);
 }
-.auth-card .brand-logo { width: 56px; height: 56px; margin-bottom: var(--e4); }
+.brand-logo {
+  display: block; width: 100%; height: auto;
+  object-fit: contain; aspect-ratio: 1 / 1;
+}
+/* Bloco da barra lateral. 132px é o menor tamanho em que o letreiro ainda se
+   lê com folga — abaixo de ~96 ele vira borrão, conferido renderizando o
+   arquivo em quatro tamanhos sobre o preto do sistema. */
+.brand-plate-bloco { margin: var(--e1) auto 0; }
+/* Entrada: a marca é a primeira coisa que se vê. */
+.marca-na-entrada { margin: 0 auto var(--e5); }
+/* A marca NÃO vai na barra de topo. Tentei e medi: o lockup é quadrado, a barra
+   tem 60px de altura, e a 44px o letreiro é ilegível — a 104px ela transborda a
+   barra e espreme a busca até virar "Busc". Num celular a marca fica na gaveta,
+   que é onde há espaço para ela ser lida. */
 
 /* --- QR da credencial ----------------------------------------------------
    Fundo branco e margem de silêncio não são estética: leitor de código precisa

@@ -38,7 +38,7 @@ export default function Auth() {
   return (
     <div className="auth-shell">
       <div className="auth-card">
-        <MarcaMci tamanho={56} />
+        <MarcaMci largura={168} className="marca-na-entrada" />
         <span className="eyebrow">MCI Platform</span>
         <h1>{modo === 'login' ? 'Entrar' : 'Criar conta'}</h1>
         <p>Campeonato Brasileiro Muscle Contest</p>

@@ -17,20 +17,66 @@ const CAMINHO_DA_MARCA = '/marca-mci.png';
 // requisição inútil por navegação.
 let marcaIndisponivel = false;
 
-export function MarcaMci({ tamanho = 34, titulo = 'Muscle Contest International' }) {
+// A marca oficial é um lockup para fundo claro: a espada e o "SINCE 1988" são
+// pretos. Sobre o preto do sistema eles somem, e a logo aparece oca — conferido
+// renderizando o arquivo a 36, 56, 96 e 152px sobre #06080b. Por isso ela vai
+// sempre sobre uma plaqueta clara, que é espaço de respiro da marca e não
+// alteração dela: o arquivo não é tocado, recortado nem recolorido.
+//
+// A mesma prova mostrou que abaixo de ~90px o letreiro vira borrão. Então a
+// marca não é usada como ícone miúdo: onde havia um quadrado de 36px, agora há
+// o bloco da marca em largura cheia.
+export function MarcaMci({ largura = 120, titulo = 'Muscle Contest International', className = '' }) {
   const [temArquivo, setTemArquivo] = useState(!marcaIndisponivel);
 
   if (!temArquivo) return <span className="brand-mark" aria-hidden="true">M</span>;
 
   return (
-    <img
-      className="brand-logo"
-      src={CAMINHO_DA_MARCA}
-      alt={titulo}
-      width={tamanho}
-      height={tamanho}
-      onError={() => { marcaIndisponivel = true; setTemArquivo(false); }}
-    />
+    <span className={`brand-plate ${className}`.trim()} style={{ width: largura }}>
+      <img
+        className="brand-logo"
+        src={CAMINHO_DA_MARCA}
+        alt={titulo}
+        width={500}
+        height={500}
+        decoding="async"
+        onError={() => { marcaIndisponivel = true; setTemArquivo(false); }}
+      />
+    </span>
+  );
+}
+
+// Bloco de marca da barra lateral. Quando o arquivo oficial existe, ele fala
+// sozinho — o letreiro escrito ao lado seria a marca dita duas vezes. Quando
+// não existe, volta o lockup textual antigo, que é o que sustentava a
+// identidade antes: sigla e nome.
+export function BlocoDaMarca({ largura = 132 }) {
+  const [temArquivo, setTemArquivo] = useState(!marcaIndisponivel);
+
+  if (!temArquivo) {
+    return (
+      <>
+        <span className="brand-mark" aria-hidden="true">M</span>
+        <span className="brand-text">
+          <strong>MCI Platform</strong>
+          <small>Muscle Contest</small>
+        </span>
+      </>
+    );
+  }
+
+  return (
+    <span className="brand-plate brand-plate-bloco" style={{ width: largura }}>
+      <img
+        className="brand-logo"
+        src={CAMINHO_DA_MARCA}
+        alt="Muscle Contest International"
+        width={500}
+        height={500}
+        decoding="async"
+        onError={() => { marcaIndisponivel = true; setTemArquivo(false); }}
+      />
+    </span>
   );
 }
 
