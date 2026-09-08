@@ -5,39 +5,81 @@
 # este processo (src/app.js não serve arquivo estático): ele vai para um host
 # estático ou CDN. Ver docs/DEPLOY.md.
 #
-# ESTADO DA VERIFICAÇÃO (8 de setembro de 2026)
+# ESTADO DA VERIFICAÇÃO (8 de setembro de 2026, fase 12.4)
 #
-# O build FOI tentado, com daemon Docker de pé, e não completou — por restrição
-# de rede do ambiente, não por defeito deste arquivo. O que ficou provado e o
-# que não ficou:
+# A imagem FOI construída e EXECUTADA. Antes disso, em duas tentativas, não
+# tinha sido — o que este bloco registra é o que ficou provado de fato, e com
+# quais ressalvas.
 #
-#   PROVADO  A imagem base baixa e roda (`node:22-bookworm-slim`).
-#   PROVADO  A camada `apt-get install openssl ca-certificates` é NECESSÁRIA:
-#            conferido dentro da imagem base, ela não traz openssl, nem
-#            libssl, nem ca-certificates. Sem essa camada o engine do Prisma
-#            não sobe.
-#   PROVADO  A camada apt precisa vir ANTES do `npm ci`. Sem ca-certificates a
-#            imagem não completa NENHUMA conexão HTTPS — nem ao registro do
-#            npm. A ordem abaixo não é preferência, é requisito.
-#   NÃO PROVADO  `npm ci`, `prisma generate`, as cópias, o usuário sem
-#            privilégio, o HEALTHCHECK e o CMD. Nenhum deles chegou a executar.
+# COMO foi construída, para que ninguém leia mais do que está escrito:
+#   - `--build-arg BASE_IMAGE=node:22-bookworm` (a base CHEIA, que já traz
+#     openssl e ca-certificates), porque o ambiente de verificação bloqueia
+#     todos os espelhos Debian testados — nove deles, 403 no túnel do proxy;
+#   - com duas linhas a mais, fora deste arquivo, injetando a CA do proxy que
+#     intercepta TLS nesse ambiente. Sem elas o `npm ci` morre com
+#     SELF_SIGNED_CERT_IN_CHAIN. É particularidade do ambiente, não do deploy.
 #
-# O ambiente bloqueia os repositórios Debian (403 em HTTPS, e o proxy responde
-# 405 a HTTP simples), o que trava o `apt-get update` e, em cascata, todo o
-# resto. Trate o primeiro build como parte do deploy, não como formalidade.
+# PROVADO
+#   - openssl, libssl e ca-certificates NÃO vêm em `node:22-bookworm-slim`:
+#     conferido dentro da imagem, os três ausentes. Sem eles o engine do
+#     Prisma não sobe e nenhuma conexão HTTPS se completa, nem ao registro do
+#     npm — por isso a camada de pacotes vem ANTES do `npm ci`. É requisito de
+#     ordem, não preferência.
+#   - `npm ci`, `npx prisma generate`, todas as cópias, o usuário sem
+#     privilégio, o EXPOSE, o HEALTHCHECK e o CMD: a imagem construiu inteira.
+#   - O processo roda como uid 1000 (`node`), não root.
+#   - `/health` responde 200; `/ready` responde 200 com database, storage e
+#     rls verdadeiros, contra um PostgreSQL real.
+#   - Login autentica e o ranking público responde, com NODE_ENV=production.
+#   - As guardas de partida funcionam DENTRO da imagem: sem configuração
+#     completa, com JWT_SECRET curto, ou contra papel SUPERUSUÁRIO (em que o
+#     RLS não teria efeito), o processo recusa subir e explica por quê.
+#   - O HEALTHCHECK chega a `healthy` com código 0.
+#   - `docker stop` encerra pelo caminho ordenado: o log registra o SIGTERM,
+#     o processo sai com código 0 em 69 ms — não é morte por sinal.
+#   - `npx prisma migrate deploy` roda a partir da própria imagem e cria as 73
+#     tabelas com as 21 sob FORCE RLS. CLI e client na mesma versão (6.19.3),
+#     que é a razão de as devDependencies permanecerem na imagem.
+#
+# NÃO PROVADO
+#   - O `apt-get` em si, pelo bloqueio descrito acima. A camada de pacotes foi
+#     exercitada só pelo ramo que a dispensa. Num ambiente com acesso ao apt é
+#     o caminho trivial — mas trate o primeiro build do deploy como parte do
+#     deploy, não como formalidade.
+#   - A base padrão (`node:22-bookworm-slim`) não chegou a completar o build
+#     AQUI, pelo mesmo motivo. A imagem provada nasceu da base cheia.
 # ==========================================================================
+
+# Imagem base parametrizada. Não é firula: este projeto já foi construído em
+# dois ambientes que bloqueiam os repositórios Debian, e um deles bloqueava
+# também o CDN do Docker Hub. Poder apontar para um espelho, ou para uma base
+# já preparada pela organização, é a diferença entre construir e não construir.
+# O padrão continua sendo a slim oficial.
+ARG BASE_IMAGE=node:22-bookworm-slim
 
 # Base Debian slim, não Alpine: o Prisma resolve o binário de engine pela
 # libssl do sistema, e trocar para musl muda o engine baixado. Evitar essa
 # variável a mais no primeiro deploy vale os megabytes.
-FROM node:22-bookworm-slim AS deps
+FROM ${BASE_IMAGE} AS deps
 
 WORKDIR /app
 
-# openssl é requisito de runtime do engine do Prisma.
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
+# openssl é requisito de runtime do engine do Prisma; ca-certificates é
+# requisito de QUALQUER conexão HTTPS de dentro da imagem.
+#
+# A condição não é atalho: ela testa o requisito de verdade — os binários e o
+# bundle de CA presentes — e não uma variável dizendo que estão. Numa base que
+# já os traga (a `node:22-bookworm` cheia, ou uma base interna preparada), o
+# apt seria trabalho repetido; na slim oficial, que não traz nenhum dos três,
+# o ramo do apt é o que roda. Base sem os pacotes e sem acesso ao apt falha
+# aqui, alto, que é onde tem de falhar.
+RUN if command -v openssl >/dev/null 2>&1 && [ -f /etc/ssl/certs/ca-certificates.crt ]; then \
+      echo "openssl e ca-certificates já presentes na base"; \
+    else \
+      apt-get update \
+      && apt-get install -y --no-install-recommends openssl ca-certificates \
+      && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 # O schema entra ANTES do `npm ci`: o postinstall do @prisma/client procura por
 # ele, e instalar sem o schema presente deixa o passo de geração dependendo
@@ -57,13 +99,28 @@ RUN npm ci
 RUN npx prisma generate
 
 
-FROM node:22-bookworm-slim AS runtime
+# `ARG` não atravessa `FROM`: precisa ser redeclarado para valer neste estágio.
+ARG BASE_IMAGE=node:22-bookworm-slim
+FROM ${BASE_IMAGE} AS runtime
 
 WORKDIR /app
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
+# openssl é requisito de runtime do engine do Prisma; ca-certificates é
+# requisito de QUALQUER conexão HTTPS de dentro da imagem.
+#
+# A condição não é atalho: ela testa o requisito de verdade — os binários e o
+# bundle de CA presentes — e não uma variável dizendo que estão. Numa base que
+# já os traga (a `node:22-bookworm` cheia, ou uma base interna preparada), o
+# apt seria trabalho repetido; na slim oficial, que não traz nenhum dos três,
+# o ramo do apt é o que roda. Base sem os pacotes e sem acesso ao apt falha
+# aqui, alto, que é onde tem de falhar.
+RUN if command -v openssl >/dev/null 2>&1 && [ -f /etc/ssl/certs/ca-certificates.crt ]; then \
+      echo "openssl e ca-certificates já presentes na base"; \
+    else \
+      apt-get update \
+      && apt-get install -y --no-install-recommends openssl ca-certificates \
+      && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 ENV NODE_ENV=production
 ENV PORT=3000

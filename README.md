@@ -462,10 +462,14 @@ Não existe variável financeira, e o teste de ausência confere isso.
 ## Deploy e homologação
 
 - **[`docs/DEPLOY.md`](docs/DEPLOY.md)** — runbook: ordem do primeiro deploy,
-  provisionamento do papel `mci_app`, sondas, rollback e checklist. Declara o
-  que foi verificado e o que não foi (a imagem Docker **não completou o build**
-  em nenhum ambiente até aqui — o `Dockerfile` registra, passo a passo, o que
-  ficou provado e o que não).
+  provisionamento dos papéis, sondas, rollback e checklist. Declara o que foi
+  verificado e o que não foi. Na fase 12.4 a **imagem Docker finalmente foi
+  construída e executada**: `/ready` verdadeiro contra PostgreSQL real, processo
+  como uid 1000, `HEALTHCHECK` saudável, `docker stop` encerrando com código 0
+  pelo caminho ordenado, e as guardas de partida recusando configuração
+  incompleta, `JWT_SECRET` curto e papel superusuário. A ressalva que ficou está
+  escrita no `Dockerfile`: a camada `apt-get` não chegou a executar, porque o
+  ambiente de verificação bloqueia os espelhos Debian.
 - **[`docs/BACKUP-RESTORE.md`](docs/BACKUP-RESTORE.md)** — backup, restauração e
   recuperação de desastre, com os números de um ensaio **executado**: dump,
   restauração em banco novo e a aplicação subindo contra o banco recuperado.

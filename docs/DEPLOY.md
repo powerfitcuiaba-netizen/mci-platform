@@ -304,16 +304,25 @@ justamente quando reiniciar não ajuda.
 
 ---
 
-## 6. Imagem Docker (NÃO CONSTRUÍDA)
+## 6. Imagem Docker
 
 ```bash
 docker build -t mci-platform:$(git rev-parse --short HEAD) .
+
+# Rede que bloqueia os repositórios Debian, ou base preparada pela organização:
+docker build --build-arg BASE_IMAGE=registry.interna/node:22-bookworm -t mci-platform:... .
 ```
 
 Decisões embutidas no `Dockerfile`, todas comentadas nele:
 
 - base Debian slim em vez de Alpine — evita trocar o engine do Prisma para musl
   no primeiro deploy;
+- `ARG BASE_IMAGE` — o projeto já foi construído em dois ambientes que bloqueiam
+  os repositórios Debian; poder apontar para um espelho é a diferença entre
+  construir e não construir;
+- a camada de pacotes (`openssl`, `ca-certificates`) vem **antes** do `npm ci`:
+  a imagem slim não traz nenhum dos dois, e sem `ca-certificates` nenhuma
+  conexão HTTPS se completa — nem ao registro do npm;
 - `npm ci` completo mantido na imagem final, de propósito: o CLI do Prisma
   precisa estar disponível para `migrate deploy` como passo de release.
   Instalá-lo à parte já produziu **neste projeto** divergência de versão entre
@@ -323,8 +332,31 @@ Decisões embutidas no `Dockerfile`, todas comentadas nele:
   SIGTERM e o encerramento ordenado nunca rodaria;
 - `HEALTHCHECK` aponta para `/health` (liveness). O `/ready` é do orquestrador.
 
-O comando do `HEALTHCHECK` **foi verificado** contra um servidor real (sai 0
-quando saudável). O **build da imagem não foi**.
+### O que foi verificado com a imagem construída (fase 12.4)
+
+A imagem **foi construída e executada**. Contra um PostgreSQL real, em
+`NODE_ENV=production`:
+
+| Verificação | Resultado |
+|---|---|
+| Build completo (`npm ci`, `prisma generate`, cópias, usuário, HEALTHCHECK, CMD) | passou |
+| Processo dentro do contêiner | uid 1000 (`node`), não root |
+| `/health` | 200 |
+| `/ready` | 200 com `database`, `storage` e `rls` verdadeiros |
+| Login e ranking público | 200 |
+| Partida sem configuração completa | **recusa** e lista o que falta |
+| Partida com `JWT_SECRET` curto | **recusa** |
+| Partida contra papel SUPERUSUÁRIO | **recusa**: o RLS não teria efeito |
+| `HEALTHCHECK` da imagem | chega a `healthy`, código 0 |
+| `docker stop` (SIGTERM) | encerramento ordenado, **código 0** em 69 ms |
+| `prisma migrate deploy` a partir da imagem | 73 tabelas, 21 com FORCE RLS |
+| CLI e client do Prisma na imagem | mesma versão (6.19.3) |
+
+**Ressalva honesta:** o ambiente de verificação bloqueia todos os espelhos
+Debian testados, então a camada `apt-get` **não** chegou a executar — o build
+usou `--build-arg BASE_IMAGE=node:22-bookworm`, base que já traz os pacotes, e
+a camada seguiu pelo ramo que a dispensa. O `apt-get` em si continua sem prova
+de execução. Trate o primeiro build do deploy como parte do deploy.
 
 ---
 
@@ -341,6 +373,35 @@ npm run build     # gera frontend/dist
 
 A origem onde o frontend for publicado precisa constar em `CORS_ORIGINS` da
 API, ou o navegador bloqueia as chamadas.
+
+---
+
+## 7.9. Vulnerabilidades conhecidas das dependências
+
+`npm audit` do backend fica em **zero**. Chegou a acusar três achados de
+severidade alta, todos a mesma raiz: `deepmerge-ts` abaixo de 8.0.0
+(exaustão de pilha ao mesclar grafo recursivo — [GHSA-ggr8-5vv4-36mx]),
+alcançado por `prisma` → `@prisma/config`.
+
+O que foi verificado antes de decidir:
+
+* **Atualizar o Prisma não resolve.** A versão mais recente publicada
+  (7.10.0) ainda fixa `deepmerge-ts@7.1.5`.
+* **A única correção que o npm oferece é um *downgrade*** para `prisma@6.12.0`,
+  marcado como semver-major. Voltar versão de ORM para calar um aviso é
+  troca ruim.
+* **`npm audit fix --force` está proibido neste projeto** — ele aplicaria
+  exatamente esse downgrade sem que ninguém o tivesse decidido.
+
+A correção adotada é um `overrides` no `package.json` fixando
+`deepmerge-ts@^8.0.2`, e ela **foi exercitada**, não apenas declarada: com o
+override aplicado, `npm ci` instala limpo, `prisma validate`, `prisma
+generate`, `prisma migrate deploy` e `prisma migrate status` funcionam, e a
+suíte inteira passa. Se um Prisma futuro passar a depender de `deepmerge-ts@8`
+por conta própria, o override vira inócuo e pode ser removido — confira com
+`npm ls deepmerge-ts`.
+
+[GHSA-ggr8-5vv4-36mx]: https://github.com/advisories/GHSA-ggr8-5vv4-36mx
 
 ---
 
@@ -366,6 +427,10 @@ API, ou o navegador bloqueia as chamadas.
 - [ ] `BCRYPT_ROUNDS` ≥ 10
 - [ ] Decisão de armazenamento tomada (§1.3) — `STORAGE_DRIVER=s3` com as quatro variáveis, ou volume persistente com `ALLOW_LOCAL_STORAGE=true`
 - [ ] `readinessProbe` em `/ready`, `livenessProbe` em `/health`
+- [ ] Imagem construída **neste ambiente de deploy** — a camada `apt-get` só se
+      prova com acesso aos repositórios Debian (§6)
+- [ ] `npm audit` em zero, com o `overrides` de `deepmerge-ts` ainda necessário
+      (§7.9) — conferir com `npm ls deepmerge-ts`
 - [ ] TLS terminando antes da API; `trust proxy` já ligado em produção
 - [ ] Papel de backup provisionado (`scripts/provision-backup-role.sql`) — sob `FORCE RLS` o dono do schema **não** consegue rodar `pg_dump`
 - [ ] `scripts/backup.sh` agendado, com destino **fora do servidor do banco**
