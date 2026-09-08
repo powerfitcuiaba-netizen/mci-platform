@@ -941,11 +941,23 @@ h1, h2, h3 { margin: 0; }
    si não é tocado, recortado nem recolorido, e object-fit: contain garante que
    a proporção original nunca se perde. */
 .brand-plate {
-  display: block; flex-shrink: 0;
-  background: #f4f6f8; border-radius: var(--raio-2);
-  padding: var(--e2); line-height: 0;
-  box-shadow: inset 0 0 0 1px rgba(6,8,11,.12), var(--sombra-1);
+  display: block; flex-shrink: 0; position: relative;
+  /* Não é uma caixa branca posta em cima da interface: é uma placa esmaltada
+     assentada nela. A face clara existe porque a marca precisa dela; o que a
+     integra ao sistema é o resto — anel escuro da própria paleta em volta,
+     realce de luz no topo, sombra curta embaixo. A face desce de quase-branco
+     para um cinza de viés azul, o mesmo viés dos neutros do sistema, em vez de
+     ser um branco chapado. */
+  background: linear-gradient(178deg, #f7f9fb 0%, #e9eef3 62%, #dfe6ec 100%);
+  border-radius: var(--raio-2);
+  padding: var(--e3); line-height: 0;
+  box-shadow:
+    0 0 0 1px var(--linha-forte),                 /* assenta no preto */
+    inset 0 1px 0 rgba(255,255,255,.95),          /* luz na borda de cima */
+    inset 0 -1px 0 rgba(6,8,11,.10),              /* peso na borda de baixo */
+    0 6px 20px -12px rgba(0,0,0,.85);             /* sombra curta, sem borrão */
 }
+
 .brand-logo {
   display: block; width: 100%; height: auto;
   object-fit: contain; aspect-ratio: 1 / 1;
