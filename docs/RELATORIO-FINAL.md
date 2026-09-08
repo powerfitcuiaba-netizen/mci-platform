@@ -3,6 +3,32 @@
 Execução sobre `claude/mci-platform-muscle-contest-o6haz9`, partindo de
 `a7d9a91`. Todos os números abaixo foram medidos, não estimados.
 
+> ## ⚠️ Addendum de 8 de setembro de 2026 — leia antes do resto
+>
+> Este relatório é um **registro datado** da fase 10 e foi mantido como está,
+> em vez de reescrito: apagar o que foi entregue naquele momento falsificaria o
+> histórico. Duas coisas mudaram desde então e contradizem o que se lê abaixo.
+>
+> **1. O motor de julgamento interno não existe mais.** Por decisão do
+> organizador (fase 11.5), o julgamento esportivo é **externo** ao MCI. Saíram
+> `judgingService.js`, `tabulation.js`, as dez rotas de julgamento, as
+> permissões `judging.*` e a tela correspondente — 2.254 linhas. No lugar entrou
+> `POST /classes/:id/result`, que **recebe** a colocação já decidida fora e não
+> a recalcula. Tudo o que este relatório descreve como painel de juízes, ficha,
+> sessão, apuração determinística ou regra de descarte **não vale mais**.
+>
+> As tabelas de julgamento continuam no banco de propósito: removê-las exigiria
+> migration destrutiva, proibida no projeto. Nenhum código as alcança, e uma
+> trava em `tests/rotas.test.mjs` recusa a volta de qualquer rota de julgamento.
+>
+> **2. Os números de teste desta página estão desatualizados.** Eram 171 em 11
+> arquivos; hoje são **355 em 19 arquivos**, mais 31 na interface. A suíte de
+> homologação da apuração (23 testes) foi removida junto com o subsistema que
+> ela documentava.
+>
+> O estado corrente está em [`../README.md`](../README.md) e em
+> [`phase-11.4-regulamento-ranking.md`](phase-11.4-regulamento-ranking.md).
+
 ---
 
 ## 1. Implementado

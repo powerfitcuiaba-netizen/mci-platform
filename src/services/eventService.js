@@ -218,9 +218,17 @@ async function addClass(divisionId, data, actor) {
   }
 }
 
-// Catálogo global de categorias oficiais.
+// Catálogo global de categorias oficiais, com os critérios que cada uma avalia.
+//
+// Os critérios são REFERÊNCIA, não ficha de julgamento: quem julga é externo ao
+// MCI. Eles existem para o atleta saber o que a sua categoria valoriza — e é
+// por isso que continuam depois de o julgamento interno sair.
 async function listCategories() {
-  return prisma.category.findMany({ where: { active: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] });
+  return prisma.category.findMany({
+    where: { active: true },
+    include: { criteria: { orderBy: { sortOrder: 'asc' }, select: { code: true, name: true } } },
+    orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }]
+  });
 }
 
 async function createCategory(data, actor) {

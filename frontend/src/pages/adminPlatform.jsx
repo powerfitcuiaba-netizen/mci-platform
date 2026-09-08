@@ -36,8 +36,8 @@ export function AdminPainel({ navegar }) {
               <Metric label="Check-ins" value={dados.checkIns} />
               <Metric label="Pesagens" value={dados.weighIns} />
               <Metric label="Baterias" value={dados.batches} />
-              <Metric label="Sessões abertas" value={dados.openJudgingSessions} />
               <Metric label="Resultados publicados" value={dados.publishedResults} />
+              <Metric label="Importações MuscleWar" value={dados.muscleWarImports} />
             </div>
 
             <div className="grid grid-3" style={{ marginTop: 18 }}>

@@ -77,17 +77,6 @@ async function seedCategorias() {
   }
 }
 
-async function seedRegraDeApuracao() {
-  // Regra padrão conservadora: soma de colocações, sem descarte e com
-  // desempate por countback. Nenhuma regra esportiva é presumida além do que
-  // está declarado aqui — o organizador escolhe outra se o regulamento pedir.
-  await prisma.scoringRuleSet.upsert({
-    where: { name: 'Padrão MCI' },
-    create: { name: 'Padrão MCI', method: 'RELATIVE_PLACEMENT_SUM', dropHighLow: false, tieBreakers: ['COUNT_BACK'] },
-    update: {}
-  });
-}
-
 async function seedComunidades() {
   for (const comunidade of COMUNIDADES) {
     await prisma.community.upsert({ where: { slug: comunidade.slug }, create: comunidade, update: { name: comunidade.name, description: comunidade.description } });
@@ -96,7 +85,6 @@ async function seedComunidades() {
 
 async function main() {
   await seedCategorias();
-  await seedRegraDeApuracao();
   await seedComunidades();
 
   const categorias = await prisma.category.count();

@@ -24,7 +24,7 @@ vi.mock('./services/api', () => {
     social: { feed: vi.fn(() => Promise.resolve(vazio)), stories: vi.fn(() => Promise.resolve({ items: [] })), me: vi.fn() },
     communities: { list: vi.fn(() => Promise.resolve(vazio)) },
     events: { list: vi.fn(() => Promise.resolve(vazio)) },
-    dashboard: { admin: vi.fn(() => Promise.resolve({ events: { active: 1, total: 2 }, athletes: { total: 10, pro: 2 }, registrations: 8, checkIns: 4, weighIns: 3, batches: 2, openJudgingSessions: 1, publishedResults: 0, muscleWarImports: 0, alerts: [] })), athlete: vi.fn() },
+    dashboard: { admin: vi.fn(() => Promise.resolve({ events: { active: 1, total: 2 }, athletes: { total: 10, pro: 2 }, registrations: 8, checkIns: 4, weighIns: 3, batches: 2, publishedResults: 0, muscleWarImports: 0, alerts: [] })), athlete: vi.fn() },
     search: vi.fn(() => Promise.resolve({ query: '', results: {} })),
     audit: vi.fn(() => Promise.resolve(vazio))
   };

@@ -221,12 +221,14 @@ node prisma/seed.js
 ```
 
 Carrega as 11 categorias oficiais (incluindo as obrigatórias **Women's
-Bodybuilding** e **Fitmodel**), as classes de referência, os critérios de
-avaliação por categoria, as comunidades iniciais e a regra de apuração
-`Padrão MCI`.
+Bodybuilding** e **Fitmodel**), as classes de referência (`ESTREANTE`,
+`NOVICE`, `OPEN`, `MASTER`), os critérios de avaliação por categoria e as
+comunidades iniciais.
 
-> ⚠️ A regra `Padrão MCI` é **ponto de partida de desenvolvimento, não regra
-> homologada**. Antes de qualquer prova oficial, ver
+> Os critérios de avaliação são **referência para o atleta**, não ficha de
+> julgamento: o julgamento esportivo é externo ao MCI. A regra de apuração
+> `Padrão MCI`, que este passo criava, saiu na fase 11.5 junto com o motor de
+> julgamento interno. Ver
 > [`HOMOLOGACAO-ESPORTIVA.md`](HOMOLOGACAO-ESPORTIVA.md).
 
 O seed é idempotente (`upsert`): reexecutar não duplica nem destrói dados.
