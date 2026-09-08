@@ -480,6 +480,25 @@ Não existe variável financeira, e o teste de ausência confere isso.
 
 ---
 
+## Tabelas que existem e nenhum código usa
+
+Nove das 72 tabelas não são alcançadas por nenhuma linha de código. Estão
+listadas aqui de propósito: quem encontrar uma delas no schema merece saber por
+que ficou, em vez de deduzir que é esquecimento.
+
+| Tabela | Por que continua |
+| --- | --- |
+| `JudgePanel`, `PanelJudge`, `JudgingSession`, `JudgingScore`, `JudgingScoreCriterion`, `ScoringRuleSet` | Restos do motor de julgamento removido na fase 11.5. Apagá-las exigiria migration destrutiva, proibida no projeto. Nenhum código as alcança e uma trava em `tests/rotas.test.mjs` recusa a volta das rotas. |
+| `CategoryRule` | Saco de chave/valor por classe, sem semântica definida. Dar sentido a ela seria **inventar regra esportiva** — exatamente o que o projeto proíbe. Fica até o organizador dizer o que ela guarda. |
+| `CommentLike` | Curtida em comentário: modelada, nunca implementada. Não há rota nem botão, então nada está quebrado. É decisão de produto, não pendência técnica. |
+
+`ScoreCriterion` **não** está nesta lista: os 38 critérios de avaliação por
+categoria eram semeados e ignorados até a fase 11.5, e agora chegam em
+`GET /categories`. São referência para o atleta — o que a sua categoria
+valoriza —, não ficha de julgamento.
+
+---
+
 ## Decisões e limites conhecidos
 
 **O MCI não julga, e regras esportivas não são presumidas.** Método de
