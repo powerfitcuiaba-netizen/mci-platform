@@ -1,4 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap');
+/* A fonte da marca NÃO é importada aqui de propósito: `@import` remoto
+   bloqueia a primeira pintura. Ela entra por src/main.jsx, sem bloquear.
+   A pilha de reserva declarada em --fonte-display e --fonte-corpo sustenta a
+   interface sozinha quando a rede não responde. */
 
 /* ==========================================================================
    MCI COMMAND CENTER — design system da MCI PLATFORM
@@ -847,3 +850,82 @@ h1, h2, h3 { margin: 0; }
 }
 .search-box:focus-within .atalho { opacity: 0; }
 @media (max-width: 900px) { .search-box .atalho { display: none; } }
+
+/* ==========================================================================
+   POLIMENTO — a segunda passagem.
+
+   O objetivo aqui não é adicionar efeito: é fechar as lacunas que só aparecem
+   quando se usa a interface de verdade. Cada regra abaixo resolve um momento
+   concreto de operação, e nenhuma custa repintura durante a rolagem — só
+   transform, opacity e cor.
+   ========================================================================== */
+
+/* O botão que está trabalhando precisa parecer ocupado, não quebrado. */
+.button:disabled { cursor: not-allowed; }
+.button .spin { opacity: .9; }
+
+/* Estado ao vivo. A ordem de palco é a única tela onde algo acontece agora,
+   e o operador olha para ela de longe: a pulsação é lenta o bastante para não
+   irritar em três horas de evento. */
+.badge-perigo::before { animation: pulso 2.4s ease-in-out infinite; }
+@keyframes pulso {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: .55; transform: scale(.82); }
+}
+
+/* Linha de tabela sob o cursor: o filete ciano já marca a posição; o texto
+   principal ganha um grau a mais de contraste para confirmar a leitura. */
+.table tbody tr:hover td strong,
+.table tbody tr:hover td .link-button { color: var(--branco); }
+
+/* Cartão de métrica: o número sobe um fio junto com o cartão. Sem isso o
+   conjunto parece deslizar, e não subir. */
+.metric strong { transition: color var(--t-base) ease; }
+.metric:hover strong { color: var(--branco); }
+
+/* Painel e cartão respondem ao cursor com borda, não com sombra — sombra
+   grande em fundo escuro vira borrão, e borda é barata. */
+.panel { transition: border-color var(--t-base) ease; }
+.panel:hover { border-color: #22323f; }
+
+/* Vazio não é erro: é uma tela esperando dado. Um traço acima do título dá
+   ao estado vazio a mesma dignidade das outras seções. */
+.empty::before {
+  content: ''; display: block; width: 28px; height: 2px;
+  background: var(--linha-forte); border-radius: 1px; margin: 0 auto var(--e4);
+}
+
+/* Alerta de erro: a barra lateral respira uma vez ao aparecer, e para. */
+.alert-erro { animation: entra-alerta var(--t-amplo) var(--mola); }
+@keyframes entra-alerta { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+/* Item de menu: o ícone acompanha o texto no hover em vez de ficar parado. */
+.nav-item:hover svg { transform: translateX(1px); }
+.nav-item svg { transition: opacity var(--t-rapido) ease, transform var(--t-rapido) var(--mola), color var(--t-rapido) ease; }
+
+/* Pódio: o metal reage ao cursor como metal — brilho, não movimento. */
+.placing-1, .placing-2, .placing-3 { transition: box-shadow var(--t-base) ease, transform var(--t-base) var(--mola); }
+.table tbody tr:hover .placing-1 { box-shadow: inset 0 1px 0 rgba(245,207,90,.6), 0 3px 16px -4px rgba(245,207,90,.55); }
+.table tbody tr:hover .placing-2 { box-shadow: inset 0 1px 0 rgba(211,221,230,.5), 0 3px 14px -6px rgba(211,221,230,.4); }
+.table tbody tr:hover .placing-3 { box-shadow: inset 0 1px 0 rgba(224,149,90,.5), 0 3px 14px -6px rgba(224,149,90,.4); }
+
+/* Filtro ligado: a marca precisa aguentar o hover sem perder o estado. */
+.chip.is-on:hover { background: #3a1015; border-color: var(--vermelho-claro); color: var(--branco); }
+
+/* Publicação e conversa: a mídia entra sem salto de layout. */
+.post-media img, .post-media video, .chat-msg img { background: var(--superficie-2); }
+
+/* Barra de progresso em movimento ganha um brilho que percorre — só durante a
+   importação, onde a espera é real. */
+.progress-bar i::after {
+  content: ''; display: block; height: 100%; width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.28), transparent);
+  animation: varre 1.6s linear infinite;
+}
+@keyframes varre { from { transform: translateX(-100%); } to { transform: translateX(320%); } }
+
+/* Avatar dentro de linha clicável acompanha o realce. */
+.list-row:hover .avatar, .conversation-item:hover .avatar { border-color: var(--linha-forte); }
+
+/* Foco de teclado dentro de tabela precisa aparecer sobre a linha realçada. */
+.table tbody tr:focus-within td { background: #12202c; }
