@@ -81,8 +81,7 @@ export default function Auth() {
           <span>{modo === 'login' ? 'Não tem conta?' : 'Já tem conta?'}</span>
           <button
             type="button"
-            className="button button-ghost button-sm"
-            style={{ padding: 0, minHeight: 0 }}
+            className="button button-ghost button-sm link-inline"
             onClick={() => { setModo(modo === 'login' ? 'registro' : 'login'); setErro(null); }}
           >
             {modo === 'login' ? 'Criar conta' : 'Entrar'}

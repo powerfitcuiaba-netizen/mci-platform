@@ -285,7 +285,7 @@ export function Post({ post, notificar, onMudou, navegar }) {
         <div className="info">
           <strong>{estado.author.displayName}</strong>
           <small>
-            <button type="button" className="button button-ghost button-sm" style={{ padding: 0, minHeight: 0 }} onClick={() => navegar(`perfil/${estado.author.handle}`)}>
+            <button type="button" className="button button-ghost button-sm link-inline" onClick={() => navegar(`perfil/${estado.author.handle}`)}>
               @{estado.author.handle}
             </button>
             {' · '}{desde(estado.createdAt)}

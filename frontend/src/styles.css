@@ -235,7 +235,7 @@ h1, h2, h3 { margin: 0; }
 
 .icon-button {
   border: 1px solid var(--linha); background: var(--superficie); color: var(--cinza);
-  width: 36px; height: 36px; border-radius: var(--raio);
+  width: 36px; height: 36px; flex-shrink: 0; border-radius: var(--raio);
   display: grid; place-items: center; position: relative;
   transition: color var(--t-rapido) ease, border-color var(--t-rapido) ease, background var(--t-rapido) ease;
 }
@@ -387,7 +387,7 @@ h1, h2, h3 { margin: 0; }
 }
 .search-box:hover { border-color: #3b5064; }
 .search-box:focus-within { border-color: var(--ciano-puro); box-shadow: var(--brilho-ciano); background: var(--superficie-2); color: var(--ciano); }
-.search-box input { border: 0; background: transparent; outline: 0; width: 100%; font-size: 13px; color: var(--branco); }
+.search-box input { border: 0; background: transparent; outline: 0; width: 100%; align-self: stretch; font-size: 13px; color: var(--branco); }
 .search-box input::placeholder { color: var(--cinza-fraco); }
 
 /* Nome que abre o detalhe: age como link, mas é <button> — quem navega por
@@ -749,6 +749,8 @@ h1, h2, h3 { margin: 0; }
 .hero-meta span { display: flex; align-items: center; gap: var(--e2); }
 .hero-meta svg { color: var(--vermelho-claro); }
 
+.link-inline { padding: 0; min-height: 0; border: 0; background: transparent; }
+
 .pagination { display: flex; justify-content: center; padding: var(--e4) 0 0; }
 
 /* ============================================================= responsivo
@@ -789,13 +791,17 @@ h1, h2, h3 { margin: 0; }
      o pior era o botão de abrir o menu, com 31 x 34. */
   .icon-button { width: 44px; height: 44px; }
   .button { min-height: 44px; padding: 0 var(--e5); }
-  .button-sm { min-height: 40px; padding: 0 var(--e4); }
+  .button-sm { min-height: 44px; padding: 0 var(--e4); }
   .nav-item { min-height: 46px; padding: var(--e3) var(--e2); }
   .chip { min-height: 44px; padding: var(--e2) var(--e5); }
   .post-action { min-height: 44px; padding: var(--e2) var(--e4); }
   .field input, .field textarea, .field select, .select-control,
   .chat-foot input[type=text], .comment-form input { min-height: 46px; }
-  .search-box { min-height: 44px; }
+  .search-box { min-height: 46px; }
+  /* Seletor de duas classes vence a regra genérica acima: precisa entrar aqui. */
+  .composer-foot .select-control { min-height: 44px; }
+  /* No celular o link em linha volta a ser alvo de toque cheio. */
+  .link-inline { min-height: 44px; padding: 0 var(--e2); }
   .table td { height: 52px; }
   .conversation-item { min-height: 68px; }
   .story-bubble { width: 76px; }
