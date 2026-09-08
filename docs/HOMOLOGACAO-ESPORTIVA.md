@@ -237,9 +237,13 @@ do motor.
 
 ## P2. Quais resultados de atleta são "elegíveis" para a equipe
 
-Sem regra de descarte, de teto de atletas pontuando ou de mínimo por equipe,
-**todos** os resultados pontuados do atleta contam para a equipe. Qualquer corte
-seria presunção.
+✅ **RESOLVIDO na fase 13 — ratificado pelo organizador.** A equipe **segue a
+regra de pontuação já homologada**: não há descarte, teto de atletas pontuando
+nem mínimo por equipe. **Todos** os resultados pontuados do atleta contam para
+a equipe, com a mesma tabela e o mesmo desempate do ranking individual.
+
+Não é ausência de regra à espera de definição: *é* a regra. Qualquer corte
+seria presunção, e o sistema não presume.
 
 ## P3. Desempate além do 3º lugar
 

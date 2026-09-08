@@ -32,7 +32,8 @@ restauração em banco novo e a aplicação subindo contra o banco recuperado.
 > Um plano de recuperação que só copia o banco entrega um catálogo de arquivos
 > que não existem mais.
 
-**O storage precisa da sua própria cópia**, com a mesma disciplina do banco:
+**O storage tem a sua própria cópia**, feita por `scripts/backup-storage.js`
+(seção 3.5), com a mesma disciplina do banco:
 
 * **S3 / compatível (produção):** ative versionamento no bucket, e replicação
   entre regiões ou cópia agendada para um segundo bucket. Não confie apenas na
@@ -122,6 +123,61 @@ escrita neste repositório**.
 
 ---
 
+## 3.5. Fazer o backup dos ARQUIVOS
+
+```bash
+DATABASE_URL='postgresql://mci_backup:<senha>@host:5432/mci' \
+STORAGE_DRIVER=s3 S3_BUCKET=... S3_ENDPOINT=... S3_REGION=... \
+S3_ACCESS_KEY_ID=... S3_SECRET_ACCESS_KEY=... \
+  node scripts/backup-storage.js /var/backups/mci
+```
+
+```json
+{"pasta":"/var/backups/mci/storage-20260908T121820Z","driver":"local","referenciados":3,"copiados":3,"ausentes":0,"bytes":156,"ms":140,"sha256":"b063bf1c…"}
+```
+
+**A lista do que copiar vem do BANCO, não de uma varredura do diretório.** Duas
+razões: funciona igual para disco e para bucket, sem depender de listar objetos
+no provedor; e copia exatamente o que o sistema referencia, o que faz o backup
+**casar com o dump da mesma janela**.
+
+O script:
+
+1. varre o schema atrás de toda coluna de chave de objeto (`storageKey`,
+   `photoKey`, `avatarKey`, `coverKey`) — e **para**, em vez de continuar às
+   cegas, se aparecer um campo `*Key` que ele não sabe classificar. Uma coluna
+   de arquivo nova não passa despercebida;
+2. copia cada objeto pelo mesmo provedor que a aplicação usa, calculando
+   SHA-256 por arquivo;
+3. grava `manifesto.json` com chave, checksum, tamanho e **de qual linha do
+   banco cada objeto veio**, mais o SHA-256 do próprio manifesto ao lado;
+4. **relata as referências órfãs** — linha que aponta para arquivo que não
+   existe mais. Isso é perda de dado já ocorrida: o backup salva o que existe e
+   diz quantas faltaram, em vez de esconder;
+5. apaga a pasta parcial se falhar no meio.
+
+> **Órfão do outro lado** — arquivo no storage sem linha que o aponte — **não é
+> copiado, de propósito.** Ninguém precisa dele para recuperar o sistema.
+
+### Restaurar os arquivos
+
+```bash
+STORAGE_DRIVER=local STORAGE_DIR=./uploads \
+  node scripts/restore-storage.js /var/backups/mci/storage-20260908T121820Z
+```
+
+Recusa storage de destino que já tenha os objetos do manifesto, e **confere
+todos os checksums antes de gravar qualquer um**: storage meio restaurado é
+pior do que storage nenhum, porque ninguém sabe onde a restauração parou.
+
+> **Alternativa nativa do provedor, e não substituta:** em S3, ligue
+> versionamento do bucket e replicação entre regiões. Isso protege contra
+> exclusão acidental e perda de região, mas **não produz uma cópia fria
+> verificável por checksum e casada com o dump do banco** — que é o que este
+> script dá. Use os dois.
+
+---
+
 ## 4. Retenção
 
 Política mínima recomendada para uma temporada de campeonato:
@@ -177,17 +233,23 @@ psql -d mci_recuperado -v senha="'<senha>'" -f scripts/provision-app-role.sql
 
 1. **Parar a aplicação.** Escrita em base inconsistente aumenta o estrago.
 2. **Escolher o dump** — o mais recente cujo checksum confere.
-3. **Restaurar o storage** da mesma janela (bucket ou diretório). *Não pule
-   este passo:* o banco sozinho recupera as referências, não os arquivos.
+3. **Escolher o backup de storage** da mesma janela do dump.
 4. **Criar o banco vazio** e rodar `scripts/restore.sh`.
-5. **Provisionar o papel de aplicação** (`provision-app-role.sql`) e o de
+5. **Restaurar os arquivos** com `scripts/restore-storage.js` (seção 3.5),
+   apontando para o storage de destino vazio.
+6. **Provisionar o papel de aplicação** (`provision-app-role.sql`) e o de
    backup (`provision-backup-role.sql`) no banco novo.
-6. **Subir a aplicação** apontando para o banco recuperado e para o storage
+
+   > **Não pule o papel de backup.** O `pg_restore` recria as tabelas, e com
+   > elas somem os `GRANT` do papel de leitura. Sem reprovisionar, o **próximo
+   > backup falha** com `permission denied for table "Athlete"` — descoberto
+   > exatamente assim, no ensaio da fase 13.
+7. **Subir a aplicação** apontando para o banco recuperado e para o storage
    recuperado.
-7. **Conferir `/ready`** — tem de vir `{"ready":true}` com `database`,
+8. **Conferir `/ready`** — tem de vir `{"ready":true}` com `database`,
    `storage` **e `rls`** verdadeiros. A aplicação recusa subir sem RLS efetivo.
-8. **Rodar a conferência da seção 7.**
-9. Só então liberar o acesso.
+9. **Rodar a conferência da seção 7.**
+10. Só então liberar o acesso.
 
 ---
 
@@ -232,9 +294,10 @@ select count(*) from "AthleteIdentity";
 
 ---
 
-## 8. Números do ensaio executado
+## 8. Números dos ensaios executados
 
-Ensaio real, em 8 de setembro de 2026, com a base de recuperação de desastre:
+### Ensaio do banco (fase 12.3)
+
 43 tabelas povoadas, **279 linhas**, 6 atletas, 2 organizações, 2 eventos, 2
 resultados, 11 lançamentos de ponto, 2 títulos Overall, 1 importação MuscleWar
 com `CONFLICT` e `MATCH_PENDING` abertos, 90 registros de auditoria.
@@ -248,9 +311,27 @@ com `CONFLICT` e `MATCH_PENDING` abertos, 90 registros de auditoria.
 | Primeiro login com sucesso | **365 ms** |
 | **`RTO_OBSERVED`** (banco vazio → primeiro login) | **1 720 ms** |
 
+### Ensaio do PAR banco + storage (fase 13)
+
+Desta vez o desastre foi completo: banco **e** storage destruídos, e os dois
+recuperados. Três documentos reais enviados pela API antes da destruição.
+
+| Etapa | Medido |
+|---|---|
+| Backup do storage | **140 ms** — 3 objetos referenciados, 3 copiados, 0 ausentes |
+| Backup do banco, na mesma janela | **183 ms** — 264 215 bytes, 641 objetos |
+| `pg_restore` em banco novo | **716 ms** — 73 tabelas, 21 com `FORCE RLS` |
+| Restauração dos arquivos | **6 ms** — 3 de 3 |
+| Aplicação de pé até `/ready 200` | **712 ms** |
+| **`RTO_OBSERVED` do par completo** | **1 942 ms** |
+
+E a conferência que importa: os **três documentos baixaram com `HTTP 200` e
+SHA-256 idêntico ao original**. É a diferença entre "o banco voltou" e "o
+sistema voltou".
+
 `RPO_OBSERVED` = **intervalo entre backups**. O procedimento não usa
 *point-in-time recovery*, então a perda máxima é tudo o que foi escrito desde o
-último dump: com o agendamento diário sugerido, **até 24 horas**.
+último par de cópias: com o agendamento diário sugerido, **até 24 horas**.
 
 > Para reduzir o `RPO` é preciso arquivamento contínuo de WAL
 > (`archive_command` + `restore_command`) ou uma réplica em *streaming*. Isso
@@ -282,8 +363,14 @@ Provado no ensaio — cada guarda foi disparada de propósito:
 | Dump adulterado (1 byte a mais) | recusa: *"checksum não confere"* — **0 tabelas criadas** |
 | Dump sem objeto algum | recusa: *"arquivo inútil"* |
 | Restore que voltasse sem `FORCE RLS` | recusa e relata quantas tabelas |
+| **Storage:** restaurar sobre storage que já tem os objetos | recusa: *"Restaure em storage vazio"* |
+| **Storage:** manifesto adulterado | recusa, **0 arquivos gravados** |
+| **Storage:** um objeto adulterado entre três íntegros | recusa: *"Nada foi gravado"* — nem os íntegros |
+| **Storage:** referência apontando para arquivo sumido | copia o que existe, **relata a ausente** e avisa |
+| **Storage:** campo `*Key` novo e não classificado no schema | **para o backup** e pede classificação |
 
-Tudo isso é exercitado automaticamente em `tests/backup-restore.test.mjs`,
+Tudo isso é exercitado automaticamente em `tests/backup-restore.test.mjs` e
+`tests/backup-storage.test.mjs`,
 contra um PostgreSQL real, a cada rodada de CI. A pipeline reprova se essa
 suíte for **pulada** — uma suíte que pula silenciosamente é uma suíte que não
 existe.
@@ -294,7 +381,8 @@ existe.
 
 Registrado explicitamente para não ser confundido com item resolvido:
 
-* **Não faz backup do storage.** Seção 1.
+* **Não faz backup de arquivo órfão** — objeto no storage sem linha que o
+  aponte. É deliberado: ninguém precisa dele para recuperar o sistema.
 * **Não faz *point-in-time recovery*.** Sem WAL arquivado, o `RPO` é o intervalo
   entre dumps.
 * **Não copia o dump para fora do host.** O envio para armazenamento frio, e a

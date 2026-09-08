@@ -151,11 +151,13 @@ jobs:
       - name: Conferir que o ensaio de backup/restore não foi pulado
         run: |
           set -e
-          SAIDA=$(npx vitest run tests/backup-restore.test.mjs --reporter=json 2>/dev/null | tail -1)
+          SAIDA=$(npx vitest run tests/backup-restore.test.mjs tests/backup-storage.test.mjs --reporter=json 2>/dev/null | tail -1)
           PULADOS=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPendingTests+r.numTodoTests)" <<< "$SAIDA")
           PASSOU=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPassedTests)" <<< "$SAIDA")
-          echo "backup/restore: $PASSOU passaram, $PULADOS pulados"
-          if [ "$PULADOS" != "0" ] || [ "$PASSOU" -lt 5 ]; then
+          echo "backup/restore (banco e storage): $PASSOU passaram, $PULADOS pulados"
+          # 5 do banco + 6 do storage. Recuperar só o banco é meia recuperação:
+          # o dump não guarda arquivo algum.
+          if [ "$PULADOS" != "0" ] || [ "$PASSOU" -lt 11 ]; then
             echo "O ensaio de backup/restore não rodou por inteiro."
             exit 1
           fi

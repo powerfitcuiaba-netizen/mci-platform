@@ -478,10 +478,10 @@ Não existe variável financeira, e o teste de ausência confere isso.
   escrita no `Dockerfile`: a camada `apt-get` não chegou a executar, porque o
   ambiente de verificação bloqueia os espelhos Debian.
 - **[`docs/GO-LIVE.md`](docs/GO-LIVE.md)** — **comece por aqui**: o relatório
-  final do ciclo 12 (backup e desastre, prontidão de deploy, homologação
-  operacional, RBAC papel a papel, portão de segurança, produção e teste de
-  fumaça), com a classificação de go-live, os sete defeitos que o ciclo
-  encontrou, as condições de infraestrutura que faltam e o que continua **não
+  final e o certificado de go-live (backup e desastre do par banco+arquivos,
+  prontidão de deploy, homologação operacional, RBAC papel a papel, portão de
+  segurança, produção e teste de fumaça), com os defeitos que o ciclo
+  encontrou, os passos de infraestrutura que faltam e o que continua **não
   provado**.
 - **[`docs/SEGURANCA.md`](docs/SEGURANCA.md)** — o portão final de segurança:
   cabeçalhos, CORS, JWT, enumeração, força bruta, injeção, IDOR, upload, log e

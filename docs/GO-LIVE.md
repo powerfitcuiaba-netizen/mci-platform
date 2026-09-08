@@ -1,6 +1,6 @@
-# Relatório final do ciclo 12 — e a classificação de go-live
+# Relatório final e certificado de go-live
 
-Fases 12.3 a 12.9, executadas em sequência sobre
+Fases 12.3 a 12.9 e a fase 13, executadas em sequência sobre
 `claude/mci-platform-muscle-contest-o6haz9`, partindo de `dcf9167`.
 
 Tudo aqui foi **executado e medido**. Onde algo não pôde ser provado, está
@@ -10,40 +10,88 @@ escrito que não pôde, e por quê.
 
 ## Classificação
 
-# ✅ READY FOR GO-LIVE — COM CONDIÇÕES
+# ✅ READY FOR GO-LIVE
 
-O sistema está pronto para entrar em produção. As condições abaixo **não são
-defeitos do software**: são passos de infraestrutura que só podem ser
-executados no ambiente real, e nenhum deles depende de mais código.
+O bloqueio que segurava esta classificação — **backup do storage** — foi
+fechado na fase 13: existe ferramenta, foi exercitada num desastre completo
+(banco **e** arquivos destruídos e recuperados juntos), e roda na CI a cada
+push.
 
-### Condições, em ordem de importância
+O que resta são passos que **só existem no ambiente real** e nenhum depende de
+mais código.
 
-| # | Condição | Por quê |
+### Antes do primeiro campeonato
+
+| # | Passo | Onde |
 |---|---|---|
-| 1 | **Provisionar o backup do STORAGE**, separado do banco | O dump do PostgreSQL **não** guarda arquivo algum. Provado: documento restaurado aparecia na listagem e o download devolvia `404`. Ver [`BACKUP-RESTORE.md`](BACKUP-RESTORE.md) §1 |
-| 2 | **Agendar `scripts/backup.sh` num job com o cliente do PostgreSQL**, com destino fora do servidor do banco | As ferramentas não estão na imagem da aplicação, de propósito. Ver [`DEPLOY.md`](DEPLOY.md) §7.95 |
-| 3 | **Construir a imagem no ambiente de deploy** | A camada `apt-get` nunca executou aqui: o ambiente de verificação bloqueia todos os espelhos Debian testados. Todo o resto da imagem foi construído e executado |
-| 4 | **Medir `RTO`/`RPO` com dados reais** | Os números registrados são de ensaio local com base pequena. Não valem como promessa |
-| 5 | **Definir o limitador de taxa da borda se houver mais de uma réplica** | O limitador em processo conta por instância |
-| 6 | **Ratificar as duas decisões esportivas em aberto** (abaixo) | São do organizador, não do software |
+| 1 | Agendar o **par** `backup.sh` + `backup-storage.js` na mesma janela, com destino fora do servidor do banco | [`BACKUP-RESTORE.md`](BACKUP-RESTORE.md) §3, §3.5 |
+| 2 | Ensaiar a recuperação **com dados reais**, em ambiente separado, e medir `RTO`/`RPO` de verdade | §6, §7 |
+| 3 | Construir a imagem no ambiente de deploy (a camada `apt-get` nunca executou aqui) | [`DEPLOY.md`](DEPLOY.md) §6 |
+| 4 | Definir o limitador de taxa da borda se houver mais de uma réplica | [`DEPLOY.md`](DEPLOY.md) §7.95 |
+| 5 | Decidir se o `EVENT_DIRECTOR` lê a auditoria da própria organização — **decisão de produto, sem risco técnico** (abaixo) | — |
+
+Nenhum desses cinco é defeito de software, e nenhum precisa de código novo.
+
+## Regras esportivas: nada pendente
+
+A versão anterior deste relatório listava duas "decisões que continuam com o
+organizador". **Estava errado, e a moldura era minha** — as duas já haviam sido
+decididas e estão implementadas. Corrigido na fase 13:
+
+1. **Quem é o campeão Overall.** Vem do **julgamento externo**. O MCI recebe o
+   fato oficial, registra com autor e data, e aplica o bônus homologado de +10.
+   Não existe julgamento dentro do MCI e o sistema **não deve** inventar
+   algoritmo para descobrir o campeão. Ratificado na fase 11.4 —
+   [`HOMOLOGACAO-ESPORTIVA.md`](HOMOLOGACAO-ESPORTIVA.md) §P1.
+2. **Quais resultados contam para a equipe.** A equipe **segue a regra de
+   pontuação já homologada**: sem descarte, sem teto, sem mínimo. Ratificado na
+   fase 13 — §P2.
+
+Nenhuma das duas bloqueia o go-live, e nenhuma exige código novo.
 
 ---
 
-## As duas decisões que continuam com o organizador
+## A pergunta de permissão — respondida por experimento
 
-Não são pendências técnicas. O software está pronto para qualquer das
-respostas; o que falta é a resposta.
+**O `EVENT_DIRECTOR` deve enxergar a auditoria da própria organização?** Hoje
+não enxerga: `audit.read` é de `SUPER_ADMIN`/`ADMIN`.
 
-1. **Como o campeão Overall é determinado.** Hoje é **fato declarado** pela
-   organização — informado na rota ou trazido na importação. O sistema não
-   deduz, por decisão homologada (fase 11.4).
-2. **Quais resultados de atleta contam para a equipe.** Hoje contam todos os
-   pontos dos atletas vinculados.
+Antes de tratar isso como decisão de produto, era preciso saber se a restrição
+atual **carrega peso de segurança**. Carrega ou não? Fui medir.
 
-E uma terceira, de política de acesso, levantada na homologação operacional:
-**o diretor do evento deve poder ler a auditoria da própria organização?** Hoje
-não pode (`audit.read` é de `SUPER_ADMIN`/`ADMIN`). Mudar é uma linha na
-matriz de permissões — mas é decisão da federação.
+Primeiro achado, na leitura do código: `can(ator, permissão, null)` — sem
+escopo — **une as permissões de todas as organizações** do usuário. Um usuário
+que é `REGISTRATION_OPERATOR` numa federação e simples atleta em outra passa na
+verificação sem escopo por causa do papel da primeira. Conferido:
+
+```
+search.sensitive na org A   : true
+search.sensitive na org B   : false
+search.sensitive SEM escopo : true   <- une os papéis das duas
+```
+
+Isso *pareceu* um vazamento de CPF entre federações. **Não é** — e a prova é
+que a sonda por requisição real não encontra o atleta da outra federação. O que
+contém é o **RLS do banco**: a política de `AthleteIdentity` exige ser
+*operador* daquela organização, e um atleta comum não é. A camada de permissão
+tem a folga; o banco não deixa passar.
+
+O mesmo vale para a auditoria. A política de `AuditLog` é
+`mci_is_platform_admin() OR mci_operator_of("organizationId")`, e
+`EVENT_DIRECTOR` está na lista de operadores. Conferido com o contexto de ator
+real: consultando **sem filtro nenhum**, um diretor da federação A recebe
+apenas linhas da federação A.
+
+**Conclusão, com evidência:** conceder `audit.read` ao `EVENT_DIRECTOR` daria a
+ele a auditoria da **própria** organização e nada além — o limite entre
+federações é do banco, não da permissão. A restrição atual é **política, não
+barreira de segurança**, e a decisão é da federação sem risco técnico
+associado. Não mudei nada: conceder permissão é decisão de produto.
+
+> Fica registrado como dívida de robustez, não como falha: a folga do
+> `can(..., null)` está contida pelo RLS hoje, mas depende dele. Uma tabela
+> futura sem política equivalente não teria essa rede. Os testes de
+> `tests/rbac-matriz.test.mjs` e `tests/rls*.test.mjs` cobrem o estado atual.
 
 ---
 
@@ -175,11 +223,34 @@ pé; IDOR respondendo `404` e não `403`; upload com travessia contida, `.sh` e
   com zero reinícios.
 * `docker stop` com requisições em voo: **nenhuma cortada no meio**, saída `0`.
 
+### 13 — Fechamento da infraestrutura de go-live
+
+* **Backup dos arquivos** (`scripts/backup-storage.js`): a lista do que copiar
+  vem do **banco**, não de uma varredura de diretório — funciona igual para
+  disco e para bucket, e casa com o dump da mesma janela. Manifesto com
+  checksum por objeto e a linha de origem de cada um.
+* **Desastre completo ensaiado:** banco **e** storage destruídos, os dois
+  recuperados. `RTO_OBSERVED` do par: **1 942 ms**. Os três documentos
+  baixaram com **`HTTP 200` e SHA-256 idêntico ao original** — a diferença
+  entre "o banco voltou" e "o sistema voltou".
+* **Guardas conferidas disparando:** restaurar sobre storage não vazio; manifesto
+  adulterado (0 arquivos gravados); um objeto adulterado entre três íntegros
+  (**nada gravado**, nem os íntegros); referência apontando para arquivo sumido
+  (copia o que existe e **relata**); campo `*Key` novo e não classificado no
+  schema (**para o backup** em vez de deixar bytes de fora em silêncio).
+* **Lacuna encontrada no procedimento:** o `pg_restore` recria as tabelas e com
+  elas somem os `GRANT` do papel de backup — o **próximo backup falharia** com
+  `permission denied for table "Athlete"`. Descoberto no ensaio, corrigido no
+  runbook.
+* **Documentação das regras esportivas corrigida:** as duas "decisões
+  pendentes" que o relatório anterior listava **já estavam decididas**. A
+  moldura errada era minha.
+
 ---
 
 ## Estado da suíte
 
-**675 testes em 25 arquivos**, backend, mais **31 no frontend**, ESLint limpo,
+**681 testes em 26 arquivos**, backend, mais **31 no frontend**, ESLint limpo,
 13 migrations aplicadas do zero em banco novo com dono **não-superusuário**, e
 21 tabelas com `FORCE ROW LEVEL SECURITY`. CI verde.
 
@@ -193,6 +264,10 @@ que ele é trava de comportamento e não guarda de regressão.
 
 Registrado para não ser confundido com item resolvido:
 
+* **O backup do storage contra um bucket S3 real.** O ensaio rodou com o
+  driver `local`, que é o mesmo caminho de código através da mesma abstração de
+  provedor — mas nenhum bucket foi tocado. Este ambiente não tem cliente S3 nem
+  endpoint compatível.
 * **A camada `apt-get` da imagem.** O ambiente bloqueia todos os espelhos
   Debian testados; o build usou `--build-arg BASE_IMAGE=node:22-bookworm`, base
   que já traz os pacotes.
