@@ -463,7 +463,9 @@ Não existe variável financeira, e o teste de ausência confere isso.
 
 - **[`docs/DEPLOY.md`](docs/DEPLOY.md)** — runbook: ordem do primeiro deploy,
   provisionamento do papel `mci_app`, sondas, rollback e checklist. Declara o
-  que foi verificado e o que não foi (a imagem Docker **nunca foi construída**).
+  que foi verificado e o que não foi (a imagem Docker **não completou o build**
+  em nenhum ambiente até aqui — o `Dockerfile` registra, passo a passo, o que
+  ficou provado e o que não).
 - **[`docs/phase-11.4-regulamento-ranking.md`](docs/phase-11.4-regulamento-ranking.md)**
   — **o regulamento do ranking**, consolidado e sem nada provisório: classes
   Estreante/Novice/Open/Master, pontuação 5/4/3/2/1 e **0 do 6º em diante**,

@@ -5,10 +5,26 @@
 # este processo (src/app.js não serve arquivo estático): ele vai para um host
 # estático ou CDN. Ver docs/DEPLOY.md.
 #
-# ATENÇÃO: esta imagem NUNCA foi construída. O ambiente onde o arquivo foi
-# escrito não tem daemon Docker, então `docker build` não foi executado e o
-# resultado não foi verificado. Trate o primeiro build como parte do deploy,
-# não como formalidade.
+# ESTADO DA VERIFICAÇÃO (8 de setembro de 2026)
+#
+# O build FOI tentado, com daemon Docker de pé, e não completou — por restrição
+# de rede do ambiente, não por defeito deste arquivo. O que ficou provado e o
+# que não ficou:
+#
+#   PROVADO  A imagem base baixa e roda (`node:22-bookworm-slim`).
+#   PROVADO  A camada `apt-get install openssl ca-certificates` é NECESSÁRIA:
+#            conferido dentro da imagem base, ela não traz openssl, nem
+#            libssl, nem ca-certificates. Sem essa camada o engine do Prisma
+#            não sobe.
+#   PROVADO  A camada apt precisa vir ANTES do `npm ci`. Sem ca-certificates a
+#            imagem não completa NENHUMA conexão HTTPS — nem ao registro do
+#            npm. A ordem abaixo não é preferência, é requisito.
+#   NÃO PROVADO  `npm ci`, `prisma generate`, as cópias, o usuário sem
+#            privilégio, o HEALTHCHECK e o CMD. Nenhum deles chegou a executar.
+#
+# O ambiente bloqueia os repositórios Debian (403 em HTTPS, e o proxy responde
+# 405 a HTTP simples), o que trava o `apt-get update` e, em cascata, todo o
+# resto. Trate o primeiro build como parte do deploy, não como formalidade.
 # ==========================================================================
 
 # Base Debian slim, não Alpine: o Prisma resolve o binário de engine pela
