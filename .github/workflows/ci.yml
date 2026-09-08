@@ -39,6 +39,11 @@ jobs:
       # superusuário ignora RLS. Ver o passo que cria este papel.
       DATABASE_URL: postgresql://mci_owner:mci_owner_ci@localhost:5432/mci_test?schema=public
       RLS_DATABASE_URL: postgresql://mci_app:mci_app_ci@localhost:5432/mci_test?schema=public
+      # Papel de leitura do backup. Sem ele definido, a suíte de
+      # backup/restore se declara "skipped" e a pipeline fica verde sem ter
+      # exercitado o procedimento de recuperação — exatamente o buraco que a
+      # FASE 12.3 encontrou.
+      BACKUP_DATABASE_URL: postgresql://mci_backup:mci_backup_ci@localhost:5432/mci_test?schema=public
       STORAGE_DIR: ./uploads-test
       JWT_SECRET: ci-secret-apenas-para-a-pipeline-com-tamanho-suficiente
       BCRYPT_ROUNDS: '4'
@@ -119,11 +124,41 @@ jobs:
           # recebe para que a pipeline se baste.
           psql -h localhost -U mci_owner -d mci_test -v senha="'mci_app_ci'" -f scripts/provision-app-role.sql
 
+      # BYPASSRLS só é concedível por papel administrativo; aqui é o usuário de
+      # bootstrap que concede, como em produção seria o DBA. O papel resultante
+      # é somente-leitura e existe porque, sob FORCE ROW LEVEL SECURITY, o dono
+      # do schema NÃO consegue rodar pg_dump.
+      - name: Provisionar o papel de backup
+        env:
+          PGPASSWORD: mci_ci
+        run: |
+          psql -h localhost -U mci -d mci_test -v ON_ERROR_STOP=1 \
+               -v DBNAME=mci_test -v senha="'mci_backup_ci'" \
+               -f scripts/provision-backup-role.sql
+          # O papel de backup precisa poder criar o banco de destino do ensaio
+          # de restauração.
+          psql -h localhost -U mci -d mci_test -v ON_ERROR_STOP=1 \
+               -c "ALTER ROLE mci_owner CREATEDB"
+
       - name: Popular o catálogo oficial
         run: node prisma/seed.js
 
       - name: Testes do backend
         run: npx vitest run
+
+      # Uma suíte que pula silenciosamente é uma suíte que não existe. Este
+      # passo reprova se os testes de backup/restore não tiverem rodado.
+      - name: Conferir que o ensaio de backup/restore não foi pulado
+        run: |
+          set -e
+          SAIDA=$(npx vitest run tests/backup-restore.test.mjs --reporter=json 2>/dev/null | tail -1)
+          PULADOS=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPendingTests+r.numTodoTests)" <<< "$SAIDA")
+          PASSOU=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPassedTests)" <<< "$SAIDA")
+          echo "backup/restore: $PASSOU passaram, $PULADOS pulados"
+          if [ "$PULADOS" != "0" ] || [ "$PASSOU" -lt 5 ]; then
+            echo "O ensaio de backup/restore não rodou por inteiro."
+            exit 1
+          fi
 
   frontend:
     name: Frontend — testes e build

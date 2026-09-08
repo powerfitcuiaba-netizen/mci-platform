@@ -67,3 +67,6 @@ uploads-test/
 .agents/
 .claude/
 skills-lock.json
+
+# Dumps do banco: dados reais, nunca versionados.
+backups/

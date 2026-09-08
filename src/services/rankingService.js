@@ -705,7 +705,13 @@ async function list(filtros, actor) {
     },
     // A posição já carrega o desempate oficial; o total entra só como
     // critério secundário de leitura.
-    orderBy: [{ position: 'asc' }, { totalPoints: 'desc' }],
+    //
+    // O `id` fecha a ordenação. Sem ele, duas linhas empatadas (ambas com
+    // `position` nula) ficariam na ordem física da tabela, e a paginação por
+    // cursor — que é ancorada no `id` — poderia repetir ou pular uma delas
+    // entre duas páginas. Não é desempate: quem está empatado continua com
+    // `position` nula e `tieUnresolved` verdadeiro.
+    orderBy: [{ position: 'asc' }, { totalPoints: 'desc' }, { id: 'asc' }],
     take: filtros.limit,
     ...(filtros.cursor ? { cursor: { id: filtros.cursor }, skip: 1 } : {})
   });

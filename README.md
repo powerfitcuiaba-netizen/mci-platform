@@ -466,6 +466,14 @@ Não existe variável financeira, e o teste de ausência confere isso.
   que foi verificado e o que não foi (a imagem Docker **não completou o build**
   em nenhum ambiente até aqui — o `Dockerfile` registra, passo a passo, o que
   ficou provado e o que não).
+- **[`docs/BACKUP-RESTORE.md`](docs/BACKUP-RESTORE.md)** — backup, restauração e
+  recuperação de desastre, com os números de um ensaio **executado**: dump,
+  restauração em banco novo e a aplicação subindo contra o banco recuperado.
+  Registra em letras grandes que **o backup do banco NÃO protege o storage** —
+  no ensaio, o documento restaurado aparecia na listagem e o download devolvia
+  `404` até os arquivos serem copiados à parte. Explica também por que o
+  backup exige um papel próprio: sob `FORCE ROW LEVEL SECURITY`, o `pg_dump` do
+  dono do schema **falha**.
 - **[`docs/phase-11.4-regulamento-ranking.md`](docs/phase-11.4-regulamento-ranking.md)**
   — **o regulamento do ranking**, consolidado e sem nada provisório: classes
   Estreante/Novice/Open/Master, pontuação 5/4/3/2/1 e **0 do 6º em diante**,

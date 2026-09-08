@@ -367,7 +367,11 @@ API, ou o navegador bloqueia as chamadas.
 - [ ] Decisão de armazenamento tomada (§1.3) — `STORAGE_DRIVER=s3` com as quatro variáveis, ou volume persistente com `ALLOW_LOCAL_STORAGE=true`
 - [ ] `readinessProbe` em `/ready`, `livenessProbe` em `/health`
 - [ ] TLS terminando antes da API; `trust proxy` já ligado em produção
-- [ ] Backup do PostgreSQL configurado e **restauração testada**
+- [ ] Papel de backup provisionado (`scripts/provision-backup-role.sql`) — sob `FORCE RLS` o dono do schema **não** consegue rodar `pg_dump`
+- [ ] `scripts/backup.sh` agendado, com destino **fora do servidor do banco**
+- [ ] **Backup do storage** configurado — versionamento/replicação do bucket, ou cópia do `STORAGE_DIR`. O dump do banco **não** protege arquivo algum
+- [ ] Restauração ensaiada de ponta a ponta, com a conferência de [`BACKUP-RESTORE.md`](BACKUP-RESTORE.md) §7
+- [ ] `RTO` e `RPO` medidos **no ambiente de produção** — os números do ensaio local não valem como promessa
 - [ ] `FORCE ROW LEVEL SECURITY` confirmado nas 21 tabelas (§1.1)
 - [ ] **`current_setting('is_superuser')` = `off` na conexão da aplicação (§1.2)** — superusuário anula o RLS inteiro
 - [ ] [`HOMOLOGACAO-ESPORTIVA.md`](HOMOLOGACAO-ESPORTIVA.md) ratificado antes de apurar prova oficial

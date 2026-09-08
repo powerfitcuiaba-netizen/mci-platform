@@ -163,6 +163,35 @@ function compararOficial(a, b) {
   return 0;
 }
 
+// Chave de SEQUENCIAMENTO, não de desempate.
+//
+// `compararOficial` devolve 0 para quem a regra oficial não separa, e nesse
+// ponto a ordem de saída passava a ser a ordem de ENTRADA — que é a ordem
+// física das linhas no PostgreSQL. Um `pg_restore` reescreve essa ordem
+// física, e a FASE 12.3 flagrou o efeito: o mesmo Super Overall, antes e
+// depois do backup, devolvia dois atletas empatados trocados de lugar.
+//
+// Duas consequências reais: um relatório deixa de bater byte a byte com o
+// emitido antes do restore, e a paginação — que fatia a lista JÁ classificada
+// — pode repetir ou perder um competidor entre duas requisições.
+//
+// Fixar a sequência NÃO desempata nada: todo mundo do bloco continua saindo
+// com `position: null` e `tieUnresolved: true`. A colocação segue indefinida,
+// como manda a regra homologada; o que deixa de variar é só a ordem de
+// leitura da lista.
+function chaveDeSequencia(linha) {
+  return String(linha.athleteId ?? linha.teamId ?? linha.companyId ?? linha.id ?? '');
+}
+
+// Comparação de string byte a byte. `localeCompare` depende do locale do
+// processo e do ICU disponível — o que reintroduziria, por outra porta, a
+// não-determinação que esta função existe para eliminar.
+function compararChave(a, b) {
+  const x = chaveDeSequencia(a), y = chaveDeSequencia(b);
+  if (x === y) return 0;
+  return x < y ? -1 : 1;
+}
+
 /**
  * Ordena e numera. Quem a hierarquia não separou sai sem posição, marcado
  * como empate não resolvido.
@@ -171,7 +200,9 @@ function compararOficial(a, b) {
  *                  `tieUnresolved` (boolean).
  */
 function classificar(linhas) {
-  const ordenadas = [...linhas].sort(compararOficial);
+  // O agrupamento abaixo continua usando SÓ `compararOficial`: a chave de
+  // sequência ordena, mas nunca separa um bloco de empatados.
+  const ordenadas = [...linhas].sort((a, b) => compararOficial(a, b) || compararChave(a, b));
 
   // Agrupa quem a hierarquia deixou equivalente.
   const blocos = [];
