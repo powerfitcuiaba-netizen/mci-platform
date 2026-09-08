@@ -9,17 +9,38 @@ const notifications = require('./notificationService');
 // Operação de piso: check-in, pesagem, credenciamento e ordem de palco.
 // Tudo aqui é auditável e registra operador, momento e dispositivo.
 
+// `Athlete` está sob RLS; `Registration` não. Trazer o atleta no MESMO
+// `include` fazia o Prisma estourar quando a política escondia o dono — a
+// relação é obrigatória no schema, e ele recebia null:
+//
+//   Inconsistent query result: Field athlete is required to return data
+//
+// O resultado era 500 onde deveria ser 404. Pior que o código errado: o 500
+// virava ORÁCULO DE EXISTÊNCIA. Medido no gate final, com o diretor de outra
+// federação — inscrição dele 200, inscrição alheia 500, id inventado 404. Três
+// respostas distinguíveis, ou seja, dá para varrer ids e descobrir quais
+// existem em federações que não são a sua.
+//
+// A leitura passa a ser em dois passos. Se o RLS esconde o dono, o ator não
+// tem visibilidade sobre esta inscrição, e a resposta certa é a mesma de um id
+// que não existe: 404.
 async function carregarInscricao(registrationId) {
   const registration = await prisma.registration.findUnique({
     where: { id: registrationId },
     include: {
       event: true,
-      athlete: { select: { id: true, fullName: true, userId: true, athleteNumber: true, identity: { select: { cpf: true } } } },
       items: { include: { competitionClass: { select: { id: true, name: true, minWeightGrams: true, maxWeightGrams: true } } } }
     }
   });
   if (!registration) throw new AppError(404, 'REGISTRATION_NOT_FOUND', 'Inscrição não encontrada');
-  return registration;
+
+  const athlete = await prisma.athlete.findUnique({
+    where: { id: registration.athleteId },
+    select: { id: true, fullName: true, userId: true, athleteNumber: true, identity: { select: { cpf: true } } }
+  });
+  if (!athlete) throw new AppError(404, 'REGISTRATION_NOT_FOUND', 'Inscrição não encontrada');
+
+  return { ...registration, athlete };
 }
 
 // --------------------------------------------------------------------- CHECK-IN

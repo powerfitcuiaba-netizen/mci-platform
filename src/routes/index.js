@@ -18,7 +18,14 @@ const perm = (permission, from = null) => requirePermission(permission, from);
 const orgDoCorpo = req => req.body?.organizationId ?? null;
 const orgDaQuery = req => req.query?.organizationId ?? null;
 
-const limiteAutenticacao = rateLimit({ windowMs: 15 * 60_000, max: 10, nome: 'auth' });
+// Dois baldes: por origem e por CONTA ALVO. O segundo é o que segura força
+// bruta quando o atacante troca de endereço — e o ensaio do gate final provou
+// que trocar de endereço era trivial enquanto a origem vinha do cabeçalho cru.
+const limiteAutenticacao = rateLimit({
+  windowMs: 15 * 60_000, max: 10, nome: 'auth',
+  alvo: req => String(req.body?.email || '').trim().toLowerCase() || null,
+  maxPorAlvo: 20
+});
 const limitePublico = rateLimit({ windowMs: 60_000, max: 180, nome: 'public' });
 const limiteUpload = rateLimit({ windowMs: 60_000, max: 30, nome: 'upload' });
 const limiteBusca = rateLimit({ windowMs: 60_000, max: 120, nome: 'search' });

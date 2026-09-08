@@ -10,9 +10,18 @@ const { config } = require('./config/environment');
 
 const app = express();
 
-// Atrás de proxy, o IP real vem em X-Forwarded-For. Sem isto o limitador
-// contaria todo o tráfego como vindo de um único endereço.
-if (config.isProduction) app.set('trust proxy', 1);
+// Atrás de proxy, o endereço real vem em X-Forwarded-For — mas SÓ os saltos
+// que a gente confia. `trustProxyHops` tem de ser o número real de proxies na
+// frente deste processo: o Express descarta essa quantidade a partir da
+// direita e usa o próximo endereço.
+//
+// Se o número for maior que a realidade, sobra cabeçalho escrito pelo cliente
+// dentro da faixa confiável, e ele passa a escolher o próprio endereço — que é
+// como o limitador de login foi contornado no ensaio do gate final, 60 de 60
+// tentativas aceitas. Com a aplicação exposta direto, use 0.
+if (config.isProduction && config.trustProxyHops > 0) {
+  app.set('trust proxy', config.trustProxyHops);
+}
 
 app.disable('x-powered-by');
 app.use(helmet());

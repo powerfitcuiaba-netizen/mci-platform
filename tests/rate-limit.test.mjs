@@ -111,3 +111,85 @@ describe('como o limitador conta', () => {
     }
   });
 });
+
+// GATE FINAL — o limitador era contornável trocando um cabeçalho.
+//
+// `identificar` lia `headers['x-forwarded-for'].split(',')[0]`: o valor MAIS À
+// ESQUERDA da cadeia, que é exatamente o pedaço que o cliente escreve e
+// ninguém verifica. Medido contra a API rodando em produção: 60 tentativas de
+// login, 60 aceitas, zero bloqueadas, trocando o cabeçalho a cada requisição.
+// O limitador existia e não limitava nada — força bruta ilimitada.
+//
+// Duas correções, e as duas têm teste aqui:
+//   1. a origem vem de `req.ip`, que o Express calcula a partir de
+//      `trust proxy` — nunca do cabeçalho cru;
+//   2. o login ganha um segundo balde, por CONTA ALVO, que sobrevive à troca
+//      de endereço. É o que segura quando o `trust proxy` está mal
+//      configurado, ou quando o ataque vem distribuído.
+describe('o limitador não se deixa contornar por cabeçalho', () => {
+  beforeEach(() => reset());
+
+  // `req.ip` é o que o Express entrega depois de aplicar `trust proxy`. Um
+  // cliente que escreve o cabeçalho não muda `req.ip` — é essa a diferença.
+  const requisicao = ({ ip = '10.0.0.1', xff = null, corpo = null }) => ({
+    user: undefined,
+    headers: xff ? { 'x-forwarded-for': xff } : {},
+    ip,
+    body: corpo,
+    socket: { remoteAddress: ip }
+  });
+  const rodar = (limitador, req) => new Promise(resolve => {
+    limitador(req, { setHeader() {} }, erro => resolve(erro ? erro.status : 200));
+  });
+
+  it('trocar X-Forwarded-For a cada requisição NÃO renova a cota', async () => {
+    const limitador = rateLimit({ windowMs: 60_000, max: 3, nome: 'sonda-xff', quandoAtivo: true });
+
+    const codigos = [];
+    for (let i = 0; i < 8; i += 1) {
+      // Mesmo endereço real, cabeçalho diferente a cada vez.
+      codigos.push(await rodar(limitador, requisicao({ ip: '10.0.0.1', xff: `203.0.113.${i + 1}` })));
+    }
+
+    // Sem a correção, os oito voltariam 200 — foi o que aconteceu na API real.
+    expect(codigos.filter(c => c === 200)).toHaveLength(3);
+    expect(codigos.filter(c => c === 429)).toHaveLength(5);
+  });
+
+  it('o identificador ignora o cabeçalho e usa o endereço que o Express calculou', () => {
+    expect(identificar(requisicao({ ip: '10.0.0.1', xff: '203.0.113.9' }))).toBe('10.0.0.1');
+  });
+
+  it('o balde por conta segura mesmo quando cada tentativa vem de outro endereço', async () => {
+    const limitador = rateLimit({
+      windowMs: 60_000, max: 100, nome: 'sonda-alvo', quandoAtivo: true,
+      alvo: req => String(req.body?.email || '').toLowerCase() || null,
+      maxPorAlvo: 4
+    });
+
+    const codigos = [];
+    for (let i = 0; i < 9; i += 1) {
+      codigos.push(await rodar(limitador, requisicao({ ip: `198.51.100.${i + 1}`, corpo: { email: 'vitima@mci.test' } })));
+    }
+
+    expect(codigos.slice(0, 4).every(c => c === 200)).toBe(true);
+    expect(codigos.filter(c => c === 429)).toHaveLength(5);
+  });
+
+  it('travar uma conta NÃO trava as outras — senão o limitador vira o ataque', async () => {
+    const limitador = rateLimit({
+      windowMs: 60_000, max: 100, nome: 'sonda-isolamento', quandoAtivo: true,
+      alvo: req => String(req.body?.email || '').toLowerCase() || null,
+      maxPorAlvo: 2
+    });
+
+    for (let i = 0; i < 4; i += 1) {
+      await rodar(limitador, requisicao({ ip: '10.0.0.9', corpo: { email: 'atacada@mci.test' } }));
+    }
+    const atacada = await rodar(limitador, requisicao({ ip: '10.0.0.9', corpo: { email: 'atacada@mci.test' } }));
+    const inocente = await rodar(limitador, requisicao({ ip: '10.0.0.9', corpo: { email: 'inocente@mci.test' } }));
+
+    expect(atacada).toBe(429);
+    expect(inocente).toBe(200);
+  });
+});

@@ -39,32 +39,70 @@ function agendarLimpeza() {
 // O prefixo evita que um id de usuário venha a colidir com um IP.
 // Rota sem autenticação — login, rota pública — continua contando por origem,
 // que ali é a única coisa que existe.
+//
+// A origem vem de `req.ip`, NUNCA do cabeçalho cru. Aqui havia
+// `headers['x-forwarded-for'].split(',')[0]`, que é o valor MAIS À ESQUERDA da
+// cadeia — ou seja, exatamente o pedaço que o cliente escreve e ninguém
+// verifica. Medido antes da correção: 60 tentativas de login, 60 aceitas e
+// zero bloqueadas, trocando o cabeçalho a cada requisição. O limitador
+// existia e não limitava nada.
+//
+// `req.ip` é o que o Express calcula a partir de `trust proxy`: com a
+// contagem de saltos certa, ele pega o endereço que o SEU proxy escreveu e
+// ignora o que o cliente inventou. Ver `config.trustProxyHops` e o runbook.
 const identificar = req => {
   if (req.user?.id) return `u:${req.user.id}`;
-  const encaminhado = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-  return encaminhado || req.ip || req.socket?.remoteAddress || 'desconhecido';
+  return req.ip || req.socket?.remoteAddress || 'desconhecido';
 };
 
-function rateLimit({ windowMs = 60_000, max = 60, nome = 'geral', quandoAtivo = config.rateLimitEnabled } = {}) {
+// Conta uma batida no balde e diz em quantos segundos ele libera, ou null se
+// ainda está dentro do teto.
+function bater(chave, max, windowMs, agora) {
+  const registro = baldes.get(chave);
+
+  if (!registro || registro.expiraEm <= agora) {
+    baldes.set(chave, { contagem: 1, expiraEm: agora + windowMs });
+    return null;
+  }
+
+  registro.contagem += 1;
+  if (registro.contagem > max) return Math.ceil((registro.expiraEm - agora) / 1000);
+  return null;
+}
+
+/**
+ * @param {Function|null} alvo  Extrai de `req` QUEM está sendo atacado — no
+ *   login, o email tentado. Cria um segundo balde, por alvo, que sobrevive à
+ *   troca de endereço: força bruta mira UMA conta, e limitar por conta é a
+ *   defesa que continua de pé mesmo com o `trust proxy` mal configurado ou com
+ *   o ataque distribuído entre muitos endereços.
+ * @param {number} maxPorAlvo  Teto do balde por alvo. Mais folgado que o de
+ *   origem de propósito: apertar demais aqui transformaria o limitador numa
+ *   negação de serviço contra o dono legítimo da conta.
+ */
+function rateLimit({ windowMs = 60_000, max = 60, nome = 'geral', quandoAtivo = config.rateLimitEnabled,
+  alvo = null, maxPorAlvo = null } = {}) {
   agendarLimpeza();
+  const tetoAlvo = maxPorAlvo ?? max * 3;
 
   const limitador = (req, res, next) => {
     if (!quandoAtivo) return next();
 
-    const chave = `${nome}:${identificar(req)}`;
     const agora = Date.now();
-    const registro = baldes.get(chave);
-
-    if (!registro || registro.expiraEm <= agora) {
-      baldes.set(chave, { contagem: 1, expiraEm: agora + windowMs });
-      return next();
-    }
-
-    registro.contagem += 1;
-    if (registro.contagem > max) {
-      const segundos = Math.ceil((registro.expiraEm - agora) / 1000);
+    const recusar = segundos => {
       res.setHeader('Retry-After', String(segundos));
       return next(new AppError(429, 'TOO_MANY_REQUESTS', `Muitas tentativas. Tente novamente em ${segundos}s.`));
+    };
+
+    const porOrigem = bater(`${nome}:${identificar(req)}`, max, windowMs, agora);
+    if (porOrigem !== null) return recusar(porOrigem);
+
+    if (alvo) {
+      const quem = alvo(req);
+      if (quem) {
+        const porAlvo = bater(`${nome}:alvo:${quem}`, tetoAlvo, windowMs, agora);
+        if (porAlvo !== null) return recusar(porAlvo);
+      }
     }
 
     return next();
@@ -74,7 +112,7 @@ function rateLimit({ windowMs = 60_000, max = 60, nome = 'geral', quandoAtivo = 
   // conferir QUAIS rotas estão de fato atrás do limitador. O defeito que isso
   // previne não é o limitador errar a conta — é ele nunca ter sido ligado na
   // rota, que é silencioso e não aparece em nenhum teste de comportamento.
-  limitador.limite = { nome, max, windowMs };
+  limitador.limite = { nome, max, windowMs, maxPorAlvo: alvo ? tetoAlvo : null };
   return limitador;
 }
 

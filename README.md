@@ -477,6 +477,16 @@ Não existe variável financeira, e o teste de ausência confere isso.
   incompleta, `JWT_SECRET` curto e papel superusuário. A ressalva que ficou está
   escrita no `Dockerfile`: a camada `apt-get` não chegou a executar, porque o
   ambiente de verificação bloqueia os espelhos Debian.
+- **[`docs/GATE-VALIDACAO.md`](docs/GATE-VALIDACAO.md)** — auditoria com
+  mentalidade de atacante contra a API em produção: 82 sondas ofensivas, quatro
+  defeitos reais encontrados e corrigidos (entre eles um limitador de
+  requisições que **não limitava nada** — 60 tentativas de login aceitas
+  trocando um cabeçalho), mais performance de backend e de frontend medida em
+  navegador real, responsividade em cinco larguras e estabilidade sob
+  navegação prolongada.
+- **[`docs/TESTE-MANUAL.md`](docs/TESTE-MANUAL.md)** — roteiro de aceitação em
+  21 etapas, cada uma com o que fazer, o que deve acontecer e **o que não pode
+  acontecer**.
 - **[`docs/GO-LIVE.md`](docs/GO-LIVE.md)** — **comece por aqui**: o relatório
   final e o certificado de go-live (backup e desastre do par banco+arquivos,
   prontidão de deploy, homologação operacional, RBAC papel a papel, portão de

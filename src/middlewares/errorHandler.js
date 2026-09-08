@@ -4,7 +4,18 @@ const { config } = require('../config/environment');
 // A resposta de erro nunca carrega stack trace: em produção isso é entrega de
 // mapa da aplicação. O rastro vai para o log estruturado, que já redige senha,
 // token e segredo.
+// Corpo que não é JSON válido é erro do cliente, e o `express.json` já o
+// classifica como 400. O que vazava era a mensagem crua do parser do V8
+// ("Expected property name or '}' in JSON at position 1"), com um código
+// genérico `ERROR` que não diz nada a quem lê o log depois.
+const ehJsonQuebrado = err =>
+  err instanceof SyntaxError && err.status === 400 && 'body' in err;
+
 function errorHandler(err, req, res, next) { // eslint-disable-line no-unused-vars
+  if (ehJsonQuebrado(err)) {
+    return res.status(400).json({ error: { code: 'INVALID_JSON', message: 'Corpo da requisição não é um JSON válido' } });
+  }
+
   const status = err.status || 500;
   const code = err.code || (status === 500 ? 'INTERNAL_ERROR' : 'ERROR');
 

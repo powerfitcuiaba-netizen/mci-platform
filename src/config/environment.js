@@ -55,6 +55,17 @@ const config = Object.freeze({
   // Custo do bcrypt. Alto por padrão; a suíte de teste reduz para que a
   // verificação de milhares de hashes não domine o tempo de execução.
   bcryptRounds: inteiro(process.env.BCRYPT_ROUNDS, isTest ? 4 : 12),
+  // Quantos proxies existem ENTRE o cliente e este processo. O Express usa
+  // esse número para descobrir o endereço real dentro de X-Forwarded-For.
+  //
+  // Errar aqui não dá erro nenhum — só faz o limitador contar o endereço
+  // errado. Alto demais, e o cliente escolhe o próprio endereço: foi assim
+  // que 60 tentativas de login passaram sem bloqueio no ensaio do gate final.
+  // Baixo demais, e todo o tráfego conta como vindo do proxy, transformando o
+  // limitador numa negação de serviço geral.
+  //
+  // 0 = aplicação exposta direto, ninguém à frente. 1 = um proxy (o padrão).
+  trustProxyHops: inteiro(process.env.TRUST_PROXY_HOPS, 1),
 
   corsOrigins: origensPermitidas(),
   corsOriginsDefinido: Boolean(process.env.CORS_ORIGINS || process.env.FRONTEND_URL),

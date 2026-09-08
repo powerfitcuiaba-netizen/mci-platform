@@ -119,7 +119,16 @@ function parseCsv(texto) {
 }
 
 function parseJson(conteudo) {
-  const dados = typeof conteudo === 'string' ? JSON.parse(conteudo) : conteudo;
+  // Arquivo torto é erro DO ARQUIVO, não do servidor. Sem este try, o
+  // `JSON.parse` estourava cru e a importação respondia 500 "Erro interno do
+  // servidor" — o operador que colasse um arquivo quebrado não fazia ideia do
+  // que fazer, e cada tentativa dele entrava no log como falha da aplicação.
+  let dados;
+  try {
+    dados = typeof conteudo === 'string' ? JSON.parse(conteudo) : conteudo;
+  } catch (erro) {
+    throw new AppError(422, 'IMPORT_FORMAT', `Conteúdo não é um JSON válido: ${erro.message}`);
+  }
   const lista = Array.isArray(dados) ? dados : Array.isArray(dados?.results) ? dados.results : Array.isArray(dados?.data) ? dados.data : null;
 
   if (!lista) {

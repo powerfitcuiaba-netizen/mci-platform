@@ -238,11 +238,34 @@ function serializar(registration, actor) {
   };
 }
 
-async function cancel(id, { reason }, actor) {
-  const registration = await prisma.registration.findUnique({
-    where: { id },
-    include: { event: true, athlete: { select: { id: true, fullName: true, userId: true } } }
+// Junta o atleta à inscrição numa segunda consulta, em vez de no `include`.
+//
+// `Athlete` está sob RLS e `Registration` não. No mesmo `include`, quando a
+// política escondia o dono, o Prisma recebia null numa relação obrigatória e
+// estourava — 500 onde deveria ser 404. E o 500 virava oráculo: no gate final,
+// o diretor de outra federação recebia 200 na inscrição dele, 500 na alheia e
+// 404 num id inventado. Três respostas distinguíveis dão um varredor de ids.
+//
+// Devolve null quando o RLS esconde o dono: sem visibilidade sobre o atleta,
+// a inscrição não existe para este ator, e a resposta é a mesma de um id que
+// nunca existiu.
+async function comAtleta(registration, select) {
+  if (!registration) return null;
+
+  const athlete = await prisma.athlete.findUnique({
+    where: { id: registration.athleteId },
+    ...(select ? { select } : { include: { affiliation: true, team: true, coach: true, gym: true } })
   });
+  if (!athlete) return null;
+
+  return { ...registration, athlete };
+}
+
+async function cancel(id, { reason }, actor) {
+  const registration = await comAtleta(
+    await prisma.registration.findUnique({ where: { id }, include: { event: true } }),
+    { id: true, fullName: true, userId: true }
+  );
   if (!registration) throw new AppError(404, 'REGISTRATION_NOT_FOUND', 'Inscrição não encontrada');
 
   assertCan(actor, 'registrations.cancel', registration.event.organizationId);
@@ -324,18 +347,20 @@ async function listByEvent(eventId, filtros, actor) {
 }
 
 async function findById(id, actor) {
-  const registration = await prisma.registration.findUnique({
-    where: { id },
-    include: {
-      event: true,
-      affiliation: true,
-      athlete: { include: { affiliation: true, team: true, coach: true, gym: true } },
-      items: { include: { competitionClass: { include: INCLUDE_CLASSE } } },
-      checkIn: true,
-      weighIns: { orderBy: { measuredAt: 'desc' } },
-      credentials: true
-    }
-  });
+  const registration = await comAtleta(
+    await prisma.registration.findUnique({
+      where: { id },
+      include: {
+        event: true,
+        affiliation: true,
+        items: { include: { competitionClass: { include: INCLUDE_CLASSE } } },
+        checkIn: true,
+        weighIns: { orderBy: { measuredAt: 'desc' } },
+        credentials: true
+      }
+    }),
+    null
+  );
   if (!registration) throw new AppError(404, 'REGISTRATION_NOT_FOUND', 'Inscrição não encontrada');
 
   // O próprio atleta consulta a sua inscrição; qualquer outro precisa de

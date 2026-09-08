@@ -70,3 +70,8 @@ skills-lock.json
 
 # Dumps do banco: dados reais, nunca versionados.
 backups/
+uploads-gate/
+uploads-homolog/
+uploads-dr*/
+uploads-recuperado/
+uploads-desastre/
