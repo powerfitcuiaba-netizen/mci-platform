@@ -138,11 +138,33 @@ async function criarVinculo(athlete, team, { reason, actor, anterior = null, aca
     // realidade: se há vínculo ativo agora, a recusa é 409, com o nome da
     // equipe atual. Só o que não se explica assim continua subindo.
     if (ERROS_DE_CORRIDA.has(error.code)) {
-      const atual = await vinculoAtivo(athlete.id);
+      // A consulta abaixo enriquece a recusa com o nome da equipe atual, mas
+      // NÃO pode decidir a resposta — porque ela pode simplesmente não ter
+      // como rodar.
+      //
+      // A requisição inteira corre dentro de UMA transação interativa, aberta
+      // por `withUserContext` para carregar o `SET LOCAL mci.user_id` que faz
+      // a RLS valer (ver src/config/prisma.js: o `$transaction` interno
+      // reaproveita a transação da requisição, não abre outra nem cria
+      // savepoint). Logo, quando o índice único recusa o INSERT, quem aborta
+      // não é uma sub-transação: é a transação da requisição. Daí em diante
+      // qualquer leitura nela é recusada pelo PostgreSQL com 25P02
+      // (`current transaction is aborted, commands ignored until end of
+      // transaction block`) — e esse erro subia daqui de dentro, escapava do
+      // tratamento de corrida e virava 500 INTERNAL_ERROR.
+      //
+      // Não é intermitente: sempre que o INSERT perde a corrida, esta leitura
+      // falha. Medido na CI real (run #81: P2002 às 22:52:55.062 e o SELECT
+      // recusado 8ms depois) e reproduzido localmente em 60 de 60 disputas
+      // com 4 concorrentes — 177 ocorrências, todas idênticas.
+      const atual = await vinculoAtivo(athlete.id).catch(() => null);
       if (atual) recusaPorVinculoExistente(atual);
-      if (error.code === 'P2002') {
-        throw new AppError(409, 'ATHLETE_ALREADY_LINKED', 'Este atleta já possui vínculo ativo com uma equipe');
-      }
+
+      // Sem o nome da equipe, a recusa é genérica — mas continua sendo 409.
+      // Todo código deste conjunto significa a mesma coisa: outra transação
+      // chegou primeiro. Reservar o 409 ao P2002 deixava P2034, 40001 e 40P01
+      // caindo em erro interno.
+      throw new AppError(409, 'ATHLETE_ALREADY_LINKED', 'Este atleta já possui vínculo ativo com uma equipe');
     }
     throw error;
   }

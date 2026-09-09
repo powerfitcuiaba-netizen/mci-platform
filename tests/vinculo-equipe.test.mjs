@@ -187,6 +187,46 @@ describe('a trava é do banco, não da tela', () => {
     expect(ativos, 'o banco não pode ter dois vínculos ativos').toHaveLength(1);
   });
 
+  // REGRESSÃO — o defeito que a CI real pegou (run #81) e que DUAS tentativas
+  // simultâneas não pegavam neste hardware: a corrida acontecia, mas o
+  // perdedor era barrado pela pré-checagem antes de chegar ao índice único, e
+  // o ramo de erro nunca era exercitado.
+  //
+  // Com OITO tentativas simultâneas os perdedores chegam ao INSERT e o índice
+  // único recusa. Como a requisição inteira roda dentro de UMA transação
+  // interativa (a da RLS), essa recusa aborta a transação da REQUISIÇÃO — e a
+  // leitura de recuperação, feita logo depois no mesmo bloco catch, era
+  // rejeitada com 25P02 (`current transaction is aborted`). O erro escapava do
+  // tratamento de corrida e virava 500 INTERNAL_ERROR.
+  //
+  // O número de disputantes não é enfeite: foi medido. Contra o código
+  // defeituoso, 4 simultâneos reprovavam em 2 de 5 execuções — deixariam a
+  // regressão passar na maioria das vezes; 8 simultâneos reprovaram em 8 de 8.
+  // Contra o código corrigido, 8 simultâneos passaram em 10 de 10. Quem baixar
+  // esse número está afrouxando a trava, não simplificando o teste.
+  it('sob disputa de OITO simultâneos, o perdedor recebe 409 — nunca 500', async () => {
+    const atleta = await criarAtletaLivre('Joao Silva');
+
+    const DISPUTANTES = 8;
+    const respostas = await Promise.all(Array.from({ length: DISPUTANTES }, (_, i) => {
+      const ator = i % 2 === 0 ? diretor : operadorInscricao;
+      const equipe = i % 2 === 0 ? alpha : beta;
+      return api().post(`/api/v1/athletes/${atleta.id}/team`).set(ator.auth()).send({ teamId: equipe.id });
+    }));
+
+    const resumo = JSON.stringify(respostas.map(r => [r.status, r.body?.error?.code]));
+
+    expect(respostas.filter(r => r.status >= 500), `nenhuma resposta pode ser 5xx — ${resumo}`).toHaveLength(0);
+    expect(respostas.filter(r => r.status === 201), `exatamente um vínculo — ${resumo}`).toHaveLength(1);
+
+    const recusados = respostas.filter(r => r.status === 409);
+    expect(recusados, `todos os demais são recusados com 409 — ${resumo}`).toHaveLength(DISPUTANTES - 1);
+    for (const r of recusados) expect(r.body.error.code).toBe('ATHLETE_ALREADY_LINKED');
+
+    const ativos = await comoAtor(diretor, tx => tx.athleteTeamMembership.findMany({ where: { athleteId: atleta.id, endedAt: null } }));
+    expect(ativos, 'o banco não pode ter dois vínculos ativos').toHaveLength(1);
+  });
+
   it('o banco recusa dois vínculos ativos mesmo por escrita direta', async () => {
     const atleta = await criarAtletaLivre('Joao Silva');
     await api().post(`/api/v1/athletes/${atleta.id}/team`).set(diretor.auth()).send({ teamId: alpha.id });
