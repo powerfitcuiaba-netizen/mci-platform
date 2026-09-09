@@ -40,6 +40,18 @@ async function main() {
   if (!nome || !email) {
     encerrar('Uso: ADMIN_PASSWORD=\'...\' node scripts/criar-admin.js "Nome Completo" email@dominio');
   }
+
+  // Os argumentos são POSICIONAIS. Quem chega aqui vindo de outro script ou de
+  // documentação desatualizada tende a escrever `--email x --nome y`, e então o
+  // nome do administrador vira a string "--email". Isso não é um detalhe
+  // cosmético: esta ferramenta cria o PRIMEIRO administrador e se recusa a
+  // rodar de novo, então o engano não teria como ser desfeito por aqui.
+  if (nome.startsWith('-') || email.startsWith('-')) {
+    encerrar(
+      'Os argumentos são posicionais, sem opções de linha de comando.\n'
+      + 'Uso: ADMIN_PASSWORD=\'...\' node scripts/criar-admin.js "Nome Completo" email@dominio'
+    );
+  }
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) encerrar(`Email inválido: ${email}`);
 
   const senha = process.env.ADMIN_PASSWORD || await lerSenhaDaEntrada();

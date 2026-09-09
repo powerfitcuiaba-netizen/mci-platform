@@ -120,7 +120,7 @@ DATABASE_URL='postgresql://.../mci_homolog' npx prisma migrate deploy
 DATABASE_URL='postgresql://.../mci_homolog' node prisma/seed.js
 psql -d mci_homolog -v senha="'...'" -f scripts/provision-app-role.sql
 DATABASE_URL='postgresql://.../mci_homolog' ADMIN_PASSWORD='...' \
-  node scripts/criar-admin.js --email admin@... --name '...'
+  node scripts/criar-admin.js 'Nome Completo' admin@...
 # subir a API contra esse banco e rodar o roteiro da seção 1
 ```
 
