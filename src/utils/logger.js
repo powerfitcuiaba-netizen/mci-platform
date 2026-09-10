@@ -4,7 +4,14 @@ const { config } = require('../config/environment');
 // Log estruturado em JSON, com redação obrigatória. O que nunca pode aparecer
 // num log é justamente o que costuma vazar por descuido: senha, token, segredo
 // e dado de cartão. A redação é por nome de chave, em qualquer profundidade.
-const PROIBIDAS = ['password', 'senha', 'token', 'secret', 'authorization', 'cvv', 'cardnumber', 'card_number', 'passwordhash', 'apikey', 'api_key', 'idempotencykey'];
+//
+// `cpf` entrou na lista na fase 12.1. Hoje nenhum caminho leva CPF ao log — o
+// corpo da requisição não é registrado em lugar nenhum, e isso foi conferido.
+// A lista está aqui como rede para o código de amanhã: o CPF é o dado mais
+// protegido da plataforma (tabela própria, RLS de linha, fora de toda rota
+// pública), e seria incoerente ele ser o único a cair no log em claro porque
+// alguém passou um objeto inteiro para o logger.
+const PROIBIDAS = ['password', 'senha', 'token', 'secret', 'authorization', 'cvv', 'cardnumber', 'card_number', 'passwordhash', 'apikey', 'api_key', 'idempotencykey', 'cpf'];
 
 const NIVEIS = { silent: 0, error: 1, warn: 2, info: 3, debug: 4 };
 const nivelAtual = NIVEIS[config.logLevel] ?? NIVEIS.info;

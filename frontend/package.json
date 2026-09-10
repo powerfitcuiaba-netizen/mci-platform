@@ -1,5 +1,5 @@
 {
-  "name": "mci-campeonatos-frontend",
+  "name": "mci-platform-frontend",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -11,10 +11,11 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
+    "lucide-react": "latest",
+    "qrcode-generator": "^2.0.4",
     "react": "latest",
     "react-dom": "latest",
-    "lucide-react": "latest"
+    "vite": "latest"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "latest",

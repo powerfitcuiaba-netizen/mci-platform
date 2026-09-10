@@ -13,27 +13,81 @@ concurrency:
 
 jobs:
   backend:
-    name: Backend — validação e testes
+    name: Backend — migrations, RLS e testes
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
+    # A suíte exige PostgreSQL de verdade: o RLS é testado executando as
+    # políticas, não lendo o SQL.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mci
+          POSTGRES_PASSWORD: mci_ci
+          POSTGRES_DB: mci_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U mci -d mci_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
     env:
       NODE_ENV: test
-      DATABASE_URL: file:./test.db
+      # NÃO é o usuário de bootstrap do contêiner: aquele é superusuário, e
+      # superusuário ignora RLS. Ver o passo que cria este papel.
+      DATABASE_URL: postgresql://mci_owner:mci_owner_ci@localhost:5432/mci_test?schema=public
+      RLS_DATABASE_URL: postgresql://mci_app:mci_app_ci@localhost:5432/mci_test?schema=public
+      # Papel de leitura do backup. Sem ele definido, a suíte de
+      # backup/restore se declara "skipped" e a pipeline fica verde sem ter
+      # exercitado o procedimento de recuperação — exatamente o buraco que a
+      # FASE 12.3 encontrou.
+      BACKUP_DATABASE_URL: postgresql://mci_backup:mci_backup_ci@localhost:5432/mci_test?schema=public
       STORAGE_DIR: ./uploads-test
       JWT_SECRET: ci-secret-apenas-para-a-pipeline-com-tamanho-suficiente
-      PAYMENT_WEBHOOK_SECRET: ci-webhook-secret
+      BCRYPT_ROUNDS: '4'
+      LOG_LEVEL: silent
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '22'
           cache: npm
 
       - name: Instalar dependências
         run: npm ci
+
+      # O POSTGRES_USER da imagem oficial é o usuário de bootstrap e nasce
+      # SUPERUSUÁRIO — e superusuário ignora RLS incondicionalmente, mesmo com
+      # FORCE. Rodar a suíte com ele deixaria a barreira sem efeito e a CI
+      # verde justamente no cenário que ela precisa reprovar.
+      #
+      # Rebaixá-lo não é possível: o PostgreSQL recusa remover SUPERUSER do
+      # usuário de bootstrap. Então a aplicação recebe um papel próprio, comum,
+      # que passa a ser dono do schema e das tabelas.
+      - name: Criar o papel dono do schema, sem superusuário
+        env:
+          PGPASSWORD: mci_ci
+        run: |
+          set -e
+          PSQL="psql -h localhost -U mci -d mci_test -v ON_ERROR_STOP=1"
+          $PSQL -c "CREATE ROLE mci_owner LOGIN PASSWORD 'mci_owner_ci' NOSUPERUSER CREATEROLE"
+          $PSQL -c "GRANT ALL ON DATABASE mci_test TO mci_owner"
+          $PSQL -c "ALTER SCHEMA public OWNER TO mci_owner"
+          # Falha alto se o papel sair superusuário: sem isto, a suíte inteira
+          # rodaria sem RLS e mesmo assim ficaria verde.
+          #
+          # Bloco DO, e não CASE ... THEN 1/0: o PostgreSQL dobra subexpressão
+          # constante em tempo de planejamento, então a divisão estoura mesmo
+          # no ramo que não é tomado. A primeira versão desta guarda reprovava
+          # sempre — inclusive num ambiente correto.
+          PGPASSWORD=mci_owner_ci psql -h localhost -U mci_owner -d mci_test -v ON_ERROR_STOP=1 -qc \
+            "DO \$\$ BEGIN IF current_setting('is_superuser') = 'on' THEN RAISE EXCEPTION 'papel da aplicacao e superusuario: o RLS nao teria efeito nenhum'; END IF; END \$\$"
+          echo "mci_owner criado sem superusuário."
+
 
       - name: Validar schema do Prisma
         run: npx prisma validate
@@ -41,19 +95,72 @@ jobs:
       - name: Gerar Prisma Client
         run: npx prisma generate
 
-      - name: Verificar sintaxe do servidor
+      # O projeto é JavaScript puro: não há etapa de typecheck porque não há
+      # tipos para checar. As duas validações estáticas reais são estas — a
+      # sintaxe, que pega arquivo que nem carrega, e o ESLint, que pega defeito.
+      # Nenhuma delas é decorativa: ambas reprovam o job.
+      - name: Verificar sintaxe
         run: |
           node --check server.js
-          find src -name "*.js" -print0 | xargs -0 -n1 node --check
+          find src prisma scripts -name "*.js" -print0 | xargs -0 -n1 node --check
 
-      - name: Aplicar migrations no banco de teste
+      # A configuração na raiz cobre backend, scripts, testes e frontend/src.
+      - name: ESLint
+        run: npx eslint .
+
+      - name: Aplicar migrations
         run: npx prisma migrate deploy
 
       - name: Conferir que nenhuma migration ficou pendente
         run: npx prisma migrate status
 
+      - name: Provisionar o papel de aplicação usado nos testes de RLS
+        env:
+          PGPASSWORD: mci_owner_ci
+        run: |
+          # A criação do papel exige CREATEROLE. Em produção o usuário de
+          # migration não deve tê-lo, e o provisionamento é passo separado com
+          # um papel administrativo (ver docs/DEPLOY.md); aqui `mci_owner` o
+          # recebe para que a pipeline se baste.
+          psql -h localhost -U mci_owner -d mci_test -v senha="'mci_app_ci'" -f scripts/provision-app-role.sql
+
+      # BYPASSRLS só é concedível por papel administrativo; aqui é o usuário de
+      # bootstrap que concede, como em produção seria o DBA. O papel resultante
+      # é somente-leitura e existe porque, sob FORCE ROW LEVEL SECURITY, o dono
+      # do schema NÃO consegue rodar pg_dump.
+      - name: Provisionar o papel de backup
+        env:
+          PGPASSWORD: mci_ci
+        run: |
+          psql -h localhost -U mci -d mci_test -v ON_ERROR_STOP=1 \
+               -v DBNAME=mci_test -v senha="'mci_backup_ci'" \
+               -f scripts/provision-backup-role.sql
+          # O papel de backup precisa poder criar o banco de destino do ensaio
+          # de restauração.
+          psql -h localhost -U mci -d mci_test -v ON_ERROR_STOP=1 \
+               -c "ALTER ROLE mci_owner CREATEDB"
+
+      - name: Popular o catálogo oficial
+        run: node prisma/seed.js
+
       - name: Testes do backend
         run: npx vitest run
+
+      # Uma suíte que pula silenciosamente é uma suíte que não existe. Este
+      # passo reprova se os testes de backup/restore não tiverem rodado.
+      - name: Conferir que o ensaio de backup/restore não foi pulado
+        run: |
+          set -e
+          SAIDA=$(npx vitest run tests/backup-restore.test.mjs tests/backup-storage.test.mjs --reporter=json 2>/dev/null | tail -1)
+          PULADOS=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPendingTests+r.numTodoTests)" <<< "$SAIDA")
+          PASSOU=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPassedTests)" <<< "$SAIDA")
+          echo "backup/restore (banco e storage): $PASSOU passaram, $PULADOS pulados"
+          # 5 do banco + 6 do storage. Recuperar só o banco é meia recuperação:
+          # o dump não guarda arquivo algum.
+          if [ "$PULADOS" != "0" ] || [ "$PASSOU" -lt 11 ]; then
+            echo "O ensaio de backup/restore não rodou por inteiro."
+            exit 1
+          fi
 
   frontend:
     name: Frontend — testes e build
@@ -69,7 +176,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -95,7 +202,7 @@ jobs:
           set +e
           # Comprimento realista de propósito: 'sk_live_x' num teste de redação
           # não é credencial, e um padrão que o acusa vira ruído que se aprende
-          # a ignorar. tests/ continua no escopo para não criar ponto cego.
+          # a ignorar.
           PADRAO='sk_live_[A-Za-z0-9]{20,}|pk_live_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY|ghp_[A-Za-z0-9]{36}|xox[baprs]-[A-Za-z0-9-]{20,}'
           ENCONTRADO=$(git ls-files | grep -vE 'package-lock|design/|\.github/' | xargs grep -lnE "$PADRAO" 2>/dev/null)
           if [ -n "$ENCONTRADO" ]; then
@@ -124,5 +231,17 @@ jobs:
           fi
           echo "Nenhum marcador de trabalho inacabado."
 
-      - name: Whitespace limpo
-        run: git diff --check HEAD~1 HEAD || true
+      - name: Nenhum módulo financeiro no repositório
+        run: |
+          set +e
+          # A ausência de camada financeira é requisito do produto. A suíte já
+          # verifica schema, banco e rotas; aqui a checagem é de nome de
+          # arquivo, para pegar um módulo reintroduzido antes de ele ser
+          # ligado em qualquer lugar.
+          ENCONTRADO=$(git ls-files 'src/**' 'frontend/src/**' | grep -iE '(payment|checkout|coupon|refund|invoice|billing|wallet)')
+          if [ -n "$ENCONTRADO" ]; then
+            echo "Arquivo financeiro encontrado:"
+            echo "$ENCONTRADO"
+            exit 1
+          fi
+          echo "Nenhum módulo financeiro."

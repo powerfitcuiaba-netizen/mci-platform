@@ -1,22 +1,27 @@
 {
   "name": "mci-platform",
   "version": "1.0.0",
-  "description": "",
+  "description": "MCI Platform — Campeonato Brasileiro Muscle Contest",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "cross-env DATABASE_URL=file:./test.db prisma migrate deploy && cross-env DATABASE_URL=file:./test.db STORAGE_DIR=./uploads-test vitest run",
-    "prisma:generate": "prisma generate",
-    "prisma:validate": "prisma validate",
-    "prisma:migrate": "prisma migrate dev --name init"
+    "test": "node scripts/run-tests.mjs",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test:watch": "vitest",
+    "db:migrate": "prisma migrate deploy",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:generate": "prisma generate",
+    "db:validate": "prisma validate",
+    "db:seed": "node prisma/seed.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@prisma/client": "^6.16.0",
+    "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.3",
     "busboy": "^1.6.0",
     "cors": "^2.8.6",
@@ -26,9 +31,16 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "cross-env": "^10.1.0",
-    "prisma": "^6.16.0",
+    "eslint": "^10.10.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "prisma": "^6.19.3",
     "supertest": "^7.2.2",
     "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.2"
   }
 }

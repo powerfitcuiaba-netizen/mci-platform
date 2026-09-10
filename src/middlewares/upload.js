@@ -10,7 +10,13 @@ const storage = require('../services/storageService');
 // O buffer é adequado ao tamanho previsto aqui (10 MB por padrão). Para
 // arquivos grandes, o caminho é trocar por gravação em stream num temporário,
 // que o storageService já suporta.
-function singleFileUpload(fieldName = 'file') {
+// `tipo` decide a lista de tipos aceitos: documento não abre caminho para
+// vídeo, e mídia social não abre caminho para PDF. As duas listas são
+// separadas de propósito.
+function singleFileUpload(fieldName = 'file', { maxBytes = storage.MAX_BYTES, tipo = 'documento' } = {}) {
+  const aceita = tipo === 'midia' ? storage.isAllowedMediaMime : storage.isAllowedMime;
+  const aceitos = () => Object.keys(tipo === 'midia' ? storage.ALLOWED_MEDIA : storage.ALLOWED).join(', ');
+
   return (req, res, next) => {
     const tipo = String(req.headers['content-type'] || '');
     if (!tipo.toLowerCase().startsWith('multipart/form-data')) {
@@ -19,7 +25,7 @@ function singleFileUpload(fieldName = 'file') {
 
     let busboy;
     try {
-      busboy = Busboy({ headers: req.headers, limits: { files: 1, fileSize: storage.MAX_BYTES, fields: 20 } });
+      busboy = Busboy({ headers: req.headers, limits: { files: 1, fileSize: maxBytes, fields: 20 } });
     } catch (error) {
       return next(new AppError(400, 'INVALID_UPLOAD', 'Envio malformado'));
     }
@@ -64,18 +70,20 @@ function singleFileUpload(fieldName = 'file') {
       if (finalizado) return;
 
       if (excedeuTamanho) {
-        const limiteMb = Math.round(storage.MAX_BYTES / (1024 * 1024));
+        const limiteMb = Math.round(maxBytes / (1024 * 1024));
         return encerrar(new AppError(413, 'FILE_TOO_LARGE', `Arquivo excede o limite de ${limiteMb} MB`));
       }
       if (!arquivo || !arquivo.buffer.length) {
         return encerrar(new AppError(422, 'FILE_REQUIRED', 'Nenhum arquivo foi enviado'));
       }
-      if (!storage.isAllowedMime(arquivo.mimeType)) {
-        const aceitos = Object.keys(storage.ALLOWED).join(', ');
-        return encerrar(new AppError(415, 'UNSUPPORTED_FILE_TYPE', `Tipo não aceito. Aceitos: ${aceitos}`));
+      if (!aceita(arquivo.mimeType)) {
+        return encerrar(new AppError(415, 'UNSUPPORTED_MEDIA_TYPE', `Tipo não aceito. Aceitos: ${aceitos()}`));
       }
 
       req.body = { ...campos };
+      // `req.file` é o nome que os controllers usam; `req.uploadedFile` fica
+      // como alias para não quebrar quem já dependia dele.
+      req.file = arquivo;
       req.uploadedFile = arquivo;
       finalizado = true;
       next();

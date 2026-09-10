@@ -1,216 +1,157 @@
 const prisma = require('../config/prisma');
-const adminService = require('./adminService');
-const coachService = require('./coachService');
-const athleteService = require('./athleteService');
-const backstageService = require('./backstageService');
+const { AppError } = require('../utils/errors');
+const { organizationFilter } = require('../utils/tenant');
+const { can } = require('../utils/permissions');
 
-const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
-const endOfToday = () => { const d = new Date(); d.setHours(23, 59, 59, 999); return d; };
+// Painéis. Toda métrica sai de contagem real no banco — nenhum número aqui é
+// estimado, arredondado ou fabricado para preencher tela.
 
-const matchShape = {
-  id: true, status: true, scheduledAt: true, phase: true,
-  tournament: { select: { id: true, name: true } },
-  participantA: { select: { id: true, name: true } },
-  participantB: { select: { id: true, name: true } },
-  result: { select: { scoreA: true, scoreB: true } }
-};
+async function adminOverview(filtros, actor) {
+  const escopo = organizationFilter(actor, filtros.organizationId);
+  const eventoNoEscopo = Object.keys(escopo).length ? { event: escopo } : {};
 
-// Cada perfil recebe o painel do seu trabalho. A composição reaproveita os
-// services de cada área em vez de repetir a regra: o dashboard é uma vista, não
-// uma segunda fonte de verdade.
-async function summary(actor) {
-  if (actor?.role === 'ADMIN') return { role: 'ADMIN', ...(await adminDashboard(actor)) };
-  if (actor?.role === 'JUDGE') return { role: 'JUDGE', ...(await judgeDashboard(actor)) };
-  if (actor?.role === 'COACH') return { role: 'COACH', ...(await coachDashboard(actor)) };
-  if (actor?.role === 'ATHLETE') return { role: 'ATHLETE', ...(await athleteDashboard(actor)) };
-  return { role: actor?.role || 'ORGANIZER', ...(await organizerDashboard(actor)) };
-}
-
-const unreadFor = actor => (actor ? prisma.notification.count({ where: { userId: actor.id, isRead: false } }) : Promise.resolve(0));
-
-// ADMIN — retrato global da plataforma e as últimas ações auditadas.
-async function adminDashboard(actor) {
-  const [global, unread, live] = await Promise.all([
-    adminService.overview(actor),
-    unreadFor(actor),
-    prisma.match.findMany({ where: { status: 'IN_PROGRESS' }, select: matchShape, orderBy: { scheduledAt: 'asc' }, take: 5 })
+  const [
+    eventosAtivos, eventosTotais, atletas, atletasPro, inscricoes, checkins,
+    pesagens, baterias, resultadosPublicados, importacoes, alertasEmpate, pendenciasImport
+  ] = await Promise.all([
+    prisma.event.count({ where: { ...escopo, status: { in: ['REGISTRATIONS_OPEN', 'REGISTRATIONS_CLOSED', 'IN_OPERATION', 'IN_JUDGING', 'RESULTS_IN_REVIEW'] } } }),
+    prisma.event.count({ where: escopo }),
+    prisma.athlete.count({ where: escopo }),
+    prisma.athlete.count({ where: { ...escopo, proStatus: 'ACTIVE' } }),
+    prisma.registration.count({ where: { ...eventoNoEscopo, status: 'CONFIRMED' } }),
+    prisma.checkIn.count({ where: { status: 'CHECKED_IN', registration: eventoNoEscopo } }),
+    prisma.weighIn.count({ where: { registration: eventoNoEscopo } }),
+    prisma.stageBatch.count({ where: escopo.organizationId ? { event: escopo } : {} }),
+    prisma.result.count({ where: { ...(escopo.organizationId ? { event: escopo } : {}), status: 'PUBLISHED' } }),
+    prisma.muscleWarImport.count({ where: escopo }),
+    prisma.result.count({ where: { ...(escopo.organizationId ? { event: escopo } : {}), hasUnresolvedTie: true } }),
+    prisma.muscleWarImportItem.count({ where: { import: escopo, matchStatus: { in: ['MATCH_PENDING', 'CONFLICT'] } } })
   ]);
 
-  const alerts = [];
-  if ((global.enrollments.porStatus?.CANCELLED || 0) > 0) {
-    alerts.push({ level: 'INFO', code: 'CANCELLED_ENROLLMENTS', message: `${global.enrollments.porStatus.CANCELLED} inscrição(ões) cancelada(s) na plataforma.` });
-  }
-  if ((global.users.porPerfil?.ADMIN || 0) < 2) {
-    alerts.push({ level: 'WARNING', code: 'SINGLE_ADMIN', message: 'A plataforma tem apenas um administrador.' });
-  }
+  const alertas = [];
+  if (alertasEmpate > 0) alertas.push({ level: 'HIGH', code: 'TIE_UNRESOLVED', message: `${alertasEmpate} classe(s) com empate não resolvido` });
+  if (pendenciasImport > 0) alertas.push({ level: 'NORMAL', code: 'IMPORT_PENDING', message: `${pendenciasImport} registro(s) do MuscleWar aguardando vinculação` });
 
   return {
-    totals: {
-      users: global.users.total,
-      tournaments: global.tournaments.total,
-      participants: global.participants.total,
-      enrollments: global.enrollments.total,
-      matches: global.matches.total,
-      auditLogs: global.totals.auditLogs,
-      liveMatches: live.length,
-      unreadNotifications: unread
-    },
-    usersByRole: global.users.porPerfil,
-    tournamentsByStatus: global.tournaments.porStatus,
-    participantsByType: global.participants.porTipo,
-    enrollmentsByStatus: global.enrollments.porStatus,
-    liveMatches: live,
-    recentAudit: global.recentAudit,
-    alerts
+    events: { active: eventosAtivos, total: eventosTotais },
+    athletes: { total: atletas, pro: atletasPro },
+    registrations: inscricoes,
+    checkIns: checkins,
+    weighIns: pesagens,
+    batches: baterias,
+    publishedResults: resultadosPublicados,
+    muscleWarImports: importacoes,
+    alerts: alertas
   };
 }
 
-// ORGANIZER — a operação dos próprios eventos, com o que exige atenção.
-async function organizerDashboard(actor) {
-  const scope = actor?.role === 'ORGANIZER' ? { createdById: actor.id } : {};
-  const today = { gte: startOfToday(), lte: endOfToday() };
-
-  const tournaments = await prisma.tournament.findMany({
-    where: scope,
-    select: {
-      id: true, name: true, status: true, startDate: true, endDate: true,
-      _count: { select: { enrollments: true, matches: true, judgeAssignments: true, documents: true } }
-    },
-    orderBy: { startDate: 'asc' }
+async function athleteOverview(actor) {
+  const athlete = await prisma.athlete.findUnique({
+    where: { userId: actor.id },
+    include: { team: true, coach: true, gym: true, affiliation: true }
   });
-  const ids = tournaments.map(item => item.id);
-  const escopoPartida = ids.length ? { tournamentId: { in: ids } } : { id: '__none__' };
 
-  const [enrollments, checkedIn, judges, todayMatches, liveMatches, recentResults, unread, backstage] = await Promise.all([
-    ids.length ? prisma.enrollment.count({ where: { tournamentId: { in: ids }, status: 'CONFIRMED' } }) : 0,
-    ids.length ? prisma.checkIn.count({ where: { status: 'CHECKED_IN', enrollment: { tournamentId: { in: ids }, status: 'CONFIRMED' } } }) : 0,
-    ids.length ? prisma.judgeAssignment.findMany({
-      where: { tournamentId: { in: ids } },
-      select: { id: true, tournament: { select: { id: true, name: true } }, judge: { select: { id: true, name: true } } }
-    }) : [],
-    prisma.match.findMany({ where: { ...escopoPartida, scheduledAt: today }, select: matchShape, orderBy: { scheduledAt: 'asc' } }),
-    prisma.match.findMany({ where: { ...escopoPartida, status: 'IN_PROGRESS' }, select: matchShape, orderBy: { scheduledAt: 'asc' } }),
-    prisma.result.findMany({
-      where: ids.length ? { match: { tournamentId: { in: ids } } } : { id: '__none__' },
-      select: {
-        id: true, scoreA: true, scoreB: true, updatedAt: true,
-        match: { select: { id: true, tournament: { select: { id: true, name: true } }, participantA: { select: { name: true } }, participantB: { select: { name: true } } } }
+  const profile = await prisma.socialProfile.findUnique({
+    where: { userId: actor.id },
+    include: { _count: { select: { posts: true, followers: true, following: true } } }
+  });
+
+  if (!athlete) {
+    // Usuário com conta mas sem perfil de atleta: a resposta diz isso em vez
+    // de fingir um painel vazio.
+    return { athlete: null, profile, registrations: [], upcoming: [], results: [], rankings: [], unreadMessages: 0 };
+  }
+
+  const [registrations, resultados, rankings, naoLidas] = await Promise.all([
+    prisma.registration.findMany({
+      where: { athleteId: athlete.id },
+      include: {
+        event: { select: { id: true, name: true, slug: true, status: true, startDate: true, city: true, state: true, timezone: true } },
+        items: { include: { competitionClass: { include: { division: { include: { eventCategory: { include: { category: true } } } } } }, stageOrders: { include: { batch: true } } } },
+        checkIn: true,
+        weighIns: { orderBy: { measuredAt: 'desc' }, take: 1 }
       },
-      orderBy: { updatedAt: 'desc' },
-      take: 5
+      orderBy: { createdAt: 'desc' },
+      take: 30
     }),
-    unreadFor(actor),
-    actor ? backstageService.overview(actor) : Promise.resolve({ alerts: [], pendingResults: [] })
+    prisma.resultEntry.findMany({
+      where: { athleteId: athlete.id, result: { status: 'PUBLISHED' } },
+      include: {
+        result: { select: { publishedAt: true, event: { select: { id: true, name: true, slug: true } } } },
+        registrationItem: { include: { competitionClass: { select: { id: true, name: true } } } }
+      },
+      orderBy: { result: { publishedAt: 'desc' } },
+      take: 30
+    }),
+    prisma.ranking.findMany({
+      where: { athleteId: athlete.id },
+      include: { season: { select: { id: true, name: true, year: true } }, category: { select: { id: true, code: true, name: true } } },
+      orderBy: { totalPoints: 'desc' }
+    }),
+    profile ? prisma.message.count({
+      where: {
+        senderId: { not: profile.id },
+        deletedAt: null,
+        conversation: { members: { some: { profileId: profile.id, leftAt: null } } }
+      }
+    }) : Promise.resolve(0)
   ]);
 
-  const [participants, teams] = await Promise.all([
-    prisma.participant.count({ where: { type: 'PLAYER' } }),
-    prisma.participant.count({ where: { type: 'TEAM' } })
-  ]);
+  const agora = new Date();
+  const agenda = registrations
+    .filter(item => item.status === 'CONFIRMED' && item.event.startDate && item.event.startDate >= agora)
+    .sort((a, b) => a.event.startDate - b.event.startDate);
 
-  const now = new Date();
+  const titulos = resultados.filter(item => item.placing === 1).length;
+
   return {
-    totals: {
-      tournaments: tournaments.length,
-      activeTournaments: tournaments.filter(item => item.status === 'ACTIVE').length,
-      participants, teams, enrollments, checkedIn,
-      judges: judges.length,
-      todayMatches: todayMatches.length,
-      liveMatches: liveMatches.length,
-      pendingResults: backstage.pendingResults?.length || 0,
-      unreadNotifications: unread
-    },
-    activeTournaments: tournaments.filter(item => item.status === 'ACTIVE').slice(0, 5),
-    upcomingTournaments: tournaments.filter(item => item.startDate && item.startDate >= now).slice(0, 5),
-    judges,
-    todayMatches, liveMatches, recentResults,
-    pendingResults: backstage.pendingResults || [],
-    alerts: backstage.alerts || []
+    athlete,
+    profile,
+    registrations,
+    upcoming: agenda,
+    batches: registrations.flatMap(item => item.items.flatMap(sub => sub.stageOrders.map(order => ({ position: order.position, status: order.status, batch: order.batch })))),
+    results: resultados,
+    titles: titulos,
+    rankings,
+    unreadMessages: naoLidas,
+    social: profile?._count ?? null
   };
 }
 
-// JUDGE — a agenda de arbitragem, separada por momento.
-async function judgeDashboard(actor) {
-  const assignments = await prisma.judgeAssignment.findMany({
-    where: { judgeId: actor.id },
-    select: { tournament: { select: { id: true, name: true, status: true } } }
-  });
-  const ids = assignments.map(item => item.tournament.id);
-
-  if (!ids.length) {
-    const unread = await unreadFor(actor);
-    return {
-      totals: { assignments: 0, todayMatches: 0, upcoming: 0, finished: 0, pendingResults: 0, unreadNotifications: unread },
-      tournaments: [], todayMatches: [], upcomingMatches: [], finishedMatches: [], pendingResults: []
-    };
+async function summary(actor) {
+  if (can(actor, 'analytics.read')) {
+    return { kind: 'ADMIN', data: await adminOverview({}, actor) };
   }
+  return { kind: 'ATHLETE', data: await athleteOverview(actor) };
+}
 
-  const [matches, unread] = await Promise.all([
-    prisma.match.findMany({ where: { tournamentId: { in: ids } }, select: matchShape, orderBy: { scheduledAt: 'asc' } }),
-    unreadFor(actor)
+// Painel operacional de um evento: o que o diretor precisa ver durante o dia.
+async function eventOperations(eventId, actor) {
+  const event = await prisma.event.findUnique({ where: { id: eventId } });
+  if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Evento não encontrado');
+  if (!can(actor, 'analytics.read', event.organizationId)) throw new AppError(403, 'FORBIDDEN', 'Sem permissão para o painel operacional');
+
+  const [inscritos, comCheckIn, pesados, credenciais, baterias, resultados] = await Promise.all([
+    prisma.registration.count({ where: { eventId, status: 'CONFIRMED' } }),
+    prisma.checkIn.count({ where: { status: 'CHECKED_IN', registration: { eventId } } }),
+    prisma.weighIn.findMany({ where: { registration: { eventId } }, select: { registrationId: true }, distinct: ['registrationId'] }),
+    prisma.credential.count({ where: { eventId, status: 'ACTIVE' } }),
+    prisma.stageBatch.groupBy({ by: ['status'], where: { eventId }, _count: { _all: true } }),
+    prisma.result.groupBy({ by: ['status'], where: { eventId }, _count: { _all: true } })
   ]);
 
-  const inicio = startOfToday(); const fim = endOfToday(); const agora = new Date();
-  const doDia = matches.filter(m => m.scheduledAt && m.scheduledAt >= inicio && m.scheduledAt <= fim);
-  const proximas = matches.filter(m => m.status === 'SCHEDULED' && m.scheduledAt && m.scheduledAt > fim);
-  const concluidas = matches.filter(m => m.result);
-  // Pendência do juiz: partida que já passou ou encerrou e segue sem resultado.
-  const pendentes = matches.filter(m => !m.result && m.status !== 'CANCELLED' && (m.status === 'FINISHED' || m.status === 'IN_PROGRESS' || (m.scheduledAt && m.scheduledAt < agora)));
+  const paraMapa = linhas => Object.fromEntries(linhas.map(linha => [linha.status, linha._count._all]));
 
   return {
-    totals: {
-      assignments: ids.length,
-      todayMatches: doDia.length,
-      upcoming: proximas.length,
-      finished: concluidas.length,
-      pendingResults: pendentes.length,
-      unreadNotifications: unread
-    },
-    tournaments: assignments.map(item => item.tournament),
-    todayMatches: doDia,
-    upcomingMatches: proximas.slice(0, 8),
-    finishedMatches: concluidas.slice(-8).reverse(),
-    pendingResults: pendentes
+    event: { id: event.id, name: event.name, slug: event.slug, status: event.status, timezone: event.timezone },
+    registrations: inscritos,
+    checkedIn: comCheckIn,
+    pendingCheckIn: inscritos - comCheckIn,
+    weighedIn: pesados.length,
+    credentials: credenciais,
+    batches: paraMapa(baterias),
+    results: paraMapa(resultados)
   };
 }
 
-// COACH — o elenco e a agenda de quem ele treina.
-async function coachDashboard(actor) {
-  const [visao, unread] = await Promise.all([coachService.overview(actor), unreadFor(actor)]);
-  const agora = new Date();
-  const proximas = (visao.matches || []).filter(m => !m.result && (!m.scheduledAt || m.scheduledAt >= agora));
-  const resultados = (visao.matches || []).filter(m => m.result);
-
-  return {
-    totals: { ...visao.totals, results: resultados.length, unreadNotifications: unread },
-    teams: visao.teams,
-    athletes: visao.athletes,
-    tournaments: visao.tournaments,
-    upcomingMatches: proximas.slice(0, 8),
-    recentMatches: resultados.slice(-8).reverse(),
-    standings: visao.standings
-  };
-}
-
-// ATHLETE — a própria carreira.
-async function athleteDashboard(actor) {
-  const visao = await athleteService.overview(actor);
-  const agora = new Date();
-  const proximas = (visao.matches || []).filter(m => !m.result && (!m.scheduledAt || m.scheduledAt >= agora));
-
-  return {
-    semVinculo: visao.semVinculo,
-    profile: visao.profile,
-    participant: visao.participant,
-    team: visao.team,
-    coach: visao.coach,
-    totals: visao.totals,
-    enrollments: visao.enrollments,
-    upcomingMatches: proximas.slice(0, 8),
-    results: (visao.results || []).slice(-8).reverse(),
-    standings: visao.standings,
-    documents: visao.documents
-  };
-}
-
-module.exports = { summary };
+module.exports = { adminOverview, athleteOverview, summary, eventOperations };

@@ -1,189 +1,178 @@
 const prisma = require('../config/prisma');
 const { AppError } = require('../utils/errors');
+const { assertCan } = require('../utils/tenant');
+const { can } = require('../utils/permissions');
 const storage = require('./storageService');
-const auditService = require('./auditService');
+const audit = require('./auditService');
 
-// Só o que a interface precisa. A chave de armazenamento nunca sai daqui: o
-// cliente referencia o documento pelo id, e o download é servido pelo servidor.
-const publicShape = {
-  id: true,
-  tournamentId: true,
-  title: true,
-  fileName: true,
-  mimeType: true,
-  sizeBytes: true,
-  createdAt: true,
-  tournament: { select: { id: true, name: true, status: true } },
-  uploadedBy: { select: { id: true, name: true } }
-};
+// Documentos de atleta (privados) e de evento (privados por padrão, públicos
+// só quando marcados). A chave de armazenamento nunca vem do cliente e o
+// download passa sempre por autorização — conhecer a chave não dá acesso.
 
-// Vínculo do usuário com o campeonato: inscrito como atleta ou técnico de um inscrito.
-const viewerScope = actorId => ({
-  OR: [
-    { createdById: actorId },
-    { enrollments: { some: { participant: { userId: actorId } } } },
-    { enrollments: { some: { participant: { coachId: actorId } } } }
-  ]
-});
+async function uploadAthleteDocument(athleteId, arquivo, data, actor) {
+  const athlete = await prisma.athlete.findUnique({ where: { id: athleteId } });
+  if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
 
-const podeGravar = (tournament, actor) =>
-  actor.role === 'ADMIN' || tournament.createdById === actor.id;
+  const ehODono = athlete.userId && athlete.userId === actor?.id;
+  if (!ehODono) assertCan(actor, 'documents.upload', athlete.organizationId);
 
-async function assertTournamentWritable(tournamentId, actor) {
-  const tournament = await prisma.tournament.findUnique({ where: { id: tournamentId } });
-  if (!tournament) throw new AppError(404, 'TOURNAMENT_NOT_FOUND', 'Campeonato não encontrado');
-  if (!podeGravar(tournament, actor)) {
-    throw new AppError(403, 'FORBIDDEN', 'Você não pode adicionar documentos a este campeonato');
+  if (!storage.isAllowedMime(arquivo.mimeType)) {
+    throw new AppError(415, 'UNSUPPORTED_MEDIA_TYPE', `Tipo de arquivo não aceito: ${arquivo.mimeType}`);
   }
-  return tournament;
-}
 
-async function list(actor, tournamentId) {
-  const scope = actor.role === 'ADMIN'
-    ? {}
-    : actor.role === 'ORGANIZER'
-      ? { tournament: { createdById: actor.id } }
-      : { tournament: viewerScope(actor.id) };
+  const key = storage.buildKey(`athletes/${athleteId}`, arquivo.mimeType);
+  await storage.saveBuffer(key, arquivo.buffer);
 
-  const where = tournamentId ? { AND: [scope, { tournamentId }] } : scope;
-
-  const items = await prisma.document.findMany({ where, select: publicShape, orderBy: { createdAt: 'desc' } });
-  return { items };
-}
-
-// Aceita apenas o nome do arquivo. Qualquer separador de caminho ou salto de
-// diretório é rejeitado antes de tocar no banco. Vale tanto para o registro de
-// metadados quanto para o nome original de um envio.
-function safeFileName(value) {
-  const name = String(value || '').trim();
-  if (!name) throw new AppError(422, 'INVALID_FILE_NAME', 'Nome de arquivo é obrigatório');
-  if (name.includes('/') || name.includes('\\') || name.includes('\0')) {
-    throw new AppError(422, 'INVALID_FILE_NAME', 'Nome de arquivo não pode conter caminho');
-  }
-  if (name === '.' || name === '..' || name.startsWith('..')) {
-    throw new AppError(422, 'INVALID_FILE_NAME', 'Nome de arquivo inválido');
-  }
-  if (name.length > 255) throw new AppError(422, 'INVALID_FILE_NAME', 'Nome de arquivo muito longo');
-  return name;
-}
-
-// Registro por metadados: o documento existe como referência, sem arquivo.
-async function create(data, actor) {
-  await assertTournamentWritable(data.tournamentId, actor);
-
-  const documento = await prisma.document.create({
-    data: { ...data, fileName: safeFileName(data.fileName), uploadedById: actor.id },
-    select: publicShape
+  const documento = await prisma.athleteDocument.create({
+    data: {
+      athleteId,
+      kind: data.kind || 'OTHER',
+      title: data.title || arquivo.originalName || 'Documento',
+      fileName: arquivo.originalName || 'documento',
+      mimeType: arquivo.mimeType,
+      storageKey: key,
+      sizeBytes: arquivo.buffer.length,
+      uploadedById: actor.id
+    }
   });
 
-  await auditService.record({
-    actor, action: 'DOCUMENT_CREATE', entity: 'Document', entityId: documento.id,
-    metadata: { tournamentId: data.tournamentId, title: documento.title, comArquivo: false }
-  });
+  await audit.record({ actor, action: 'DOCUMENT_UPLOAD', entity: 'AthleteDocument', entityId: documento.id, organizationId: athlete.organizationId, metadata: { athleteId, kind: documento.kind } });
 
   return documento;
 }
 
-// Envio com arquivo. A autorização é resolvida antes de gravar em disco, para
-// que uma requisição negada não deixe resíduo em uploads/.
-async function createWithFile(data, file, actor) {
-  const tournament = await assertTournamentWritable(data.tournamentId, actor);
+async function listAthleteDocuments(athleteId, actor) {
+  const athlete = await prisma.athlete.findUnique({ where: { id: athleteId } });
+  if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
 
-  const nomeOriginal = safeFileName(data.fileName || file.originalName || 'arquivo');
-  const key = storage.buildKey(tournament.id, file.mimeType);
-  const { sizeBytes } = await storage.saveBuffer(key, file.buffer);
+  const ehODono = athlete.userId && athlete.userId === actor?.id;
+  if (!ehODono) assertCan(actor, 'documents.read', athlete.organizationId);
 
-  try {
-    const documento = await prisma.document.create({
-      data: {
-        tournamentId: tournament.id,
-        title: String(data.title || nomeOriginal).trim().slice(0, 180),
-        fileName: nomeOriginal,
-        mimeType: file.mimeType,
-        storageKey: key,
-        sizeBytes,
-        uploadedById: actor.id
-      },
-      select: publicShape
+  return prisma.athleteDocument.findMany({
+    where: { athleteId },
+    select: { id: true, kind: true, title: true, fileName: true, mimeType: true, sizeBytes: true, createdAt: true },
+    orderBy: { createdAt: 'desc' }
+  });
+}
+
+async function downloadAthleteDocument(id, actor) {
+  const documento = await prisma.athleteDocument.findUnique({ where: { id }, include: { athlete: true } });
+  if (!documento) throw new AppError(404, 'DOCUMENT_NOT_FOUND', 'Documento não encontrado');
+
+  const ehODono = documento.athlete.userId && documento.athlete.userId === actor?.id;
+  if (!ehODono) assertCan(actor, 'documents.read', documento.athlete.organizationId);
+
+  if (!(await storage.exists(documento.storageKey))) throw new AppError(404, 'FILE_NOT_FOUND', 'Arquivo indisponível');
+
+  await audit.record({ actor, action: 'DOCUMENT_DOWNLOAD', entity: 'AthleteDocument', entityId: id, organizationId: documento.athlete.organizationId });
+
+  return { stream: storage.createReadStream(documento.storageKey), document: documento };
+}
+
+async function deleteAthleteDocument(id, actor) {
+  const documento = await prisma.athleteDocument.findUnique({ where: { id }, include: { athlete: true } });
+  if (!documento) throw new AppError(404, 'DOCUMENT_NOT_FOUND', 'Documento não encontrado');
+
+  assertCan(actor, 'documents.delete', documento.athlete.organizationId);
+
+  await prisma.athleteDocument.delete({ where: { id } });
+  await storage.remove(documento.storageKey).catch(() => false);
+
+  await audit.record({ actor, action: 'DOCUMENT_DELETE', entity: 'AthleteDocument', entityId: id, organizationId: documento.athlete.organizationId });
+  return { success: true };
+}
+
+// ---------------------------------------------------------- documentos de evento
+async function uploadEventDocument(eventId, arquivo, data, actor) {
+  const event = await prisma.event.findUnique({ where: { id: eventId } });
+  if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Evento não encontrado');
+
+  assertCan(actor, 'documents.upload', event.organizationId);
+
+  if (!storage.isAllowedMime(arquivo.mimeType)) {
+    throw new AppError(415, 'UNSUPPORTED_MEDIA_TYPE', `Tipo de arquivo não aceito: ${arquivo.mimeType}`);
+  }
+
+  const key = storage.buildKey(`events/${eventId}`, arquivo.mimeType);
+  await storage.saveBuffer(key, arquivo.buffer);
+
+  const documento = await prisma.eventDocument.create({
+    data: {
+      eventId,
+      title: data.title || arquivo.originalName || 'Documento',
+      fileName: arquivo.originalName || 'documento',
+      mimeType: arquivo.mimeType,
+      storageKey: key,
+      sizeBytes: arquivo.buffer.length,
+      isPublic: Boolean(data.isPublic),
+      uploadedById: actor.id
+    }
+  });
+
+  await audit.record({ actor, action: 'DOCUMENT_UPLOAD', entity: 'EventDocument', entityId: documento.id, organizationId: event.organizationId, metadata: { eventId, isPublic: documento.isPublic } });
+
+  return documento;
+}
+
+async function listEventDocuments(eventId, actor) {
+  const event = await prisma.event.findUnique({ where: { id: eventId } });
+  if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Evento não encontrado');
+
+  const podeVerPrivados = actor ? can(actor, 'documents.read', event.organizationId) : false;
+
+  return prisma.eventDocument.findMany({
+    where: { eventId, ...(podeVerPrivados ? {} : { isPublic: true }) },
+    select: { id: true, title: true, fileName: true, mimeType: true, sizeBytes: true, isPublic: true, createdAt: true },
+    orderBy: { createdAt: 'desc' }
+  });
+}
+
+async function downloadEventDocument(id, actor) {
+  const documento = await prisma.eventDocument.findUnique({ where: { id }, include: { event: true } });
+  if (!documento) throw new AppError(404, 'DOCUMENT_NOT_FOUND', 'Documento não encontrado');
+
+  if (!documento.isPublic) assertCan(actor, 'documents.read', documento.event.organizationId);
+
+  if (!(await storage.exists(documento.storageKey))) throw new AppError(404, 'FILE_NOT_FOUND', 'Arquivo indisponível');
+
+  return { stream: storage.createReadStream(documento.storageKey), document: documento };
+}
+
+// Mídia social: a chave está no banco, mas o acesso segue a visibilidade da
+// publicação.
+async function downloadPostMedia(mediaId, actor) {
+  const media = await prisma.postMedia.findUnique({ where: { id: mediaId }, include: { post: true } });
+  if (!media || media.post.deletedAt) throw new AppError(404, 'MEDIA_NOT_FOUND', 'Mídia não encontrada');
+
+  const social = require('./socialService');
+  const profile = actor ? await prisma.socialProfile.findUnique({ where: { userId: actor.id } }) : null;
+  await social.postVisivel(media.postId, profile?.id);
+
+  if (!(await storage.exists(media.storageKey))) throw new AppError(404, 'FILE_NOT_FOUND', 'Arquivo indisponível');
+
+  return { stream: storage.createReadStream(media.storageKey), mimeType: media.mimeType };
+}
+
+async function downloadStoryMedia(storyId, actor) {
+  const story = await prisma.story.findUnique({ where: { id: storyId } });
+  if (!story || story.expiresAt <= new Date()) throw new AppError(404, 'STORY_NOT_FOUND', 'Story não encontrado ou expirado');
+
+  const profile = actor ? await prisma.socialProfile.findUnique({ where: { userId: actor.id } }) : null;
+  if (!profile) throw new AppError(401, 'UNAUTHORIZED', 'Autenticação obrigatória');
+
+  if (story.authorId !== profile.id) {
+    const segue = await prisma.follow.findUnique({
+      where: { followerId_followingId: { followerId: profile.id, followingId: story.authorId } }
     });
-
-    await auditService.record({
-      actor, action: 'DOCUMENT_UPLOAD', entity: 'Document', entityId: documento.id,
-      metadata: { tournamentId: tournament.id, title: documento.title, sizeBytes, mimeType: file.mimeType }
-    });
-
-    return documento;
-  } catch (error) {
-    // O registro falhou: o arquivo não pode ficar órfão no disco.
-    await storage.remove(key).catch(() => {});
-    throw error;
-  }
-}
-
-async function assertReadable(id, actor) {
-  const item = await prisma.document.findUnique({
-    where: { id },
-    select: { ...publicShape, storageKey: true, tournament: { select: { id: true, name: true, status: true, createdById: true } } }
-  });
-  if (!item) throw new AppError(404, 'DOCUMENT_NOT_FOUND', 'Documento não encontrado');
-
-  if (actor.role === 'ADMIN') return item;
-  if (item.tournament.createdById === actor.id) return item;
-
-  const vinculado = await prisma.tournament.findFirst({
-    where: { AND: [{ id: item.tournamentId }, viewerScope(actor.id)] },
-    select: { id: true }
-  });
-  if (vinculado) return item;
-
-  throw new AppError(403, 'FORBIDDEN', 'Você não tem acesso a este documento');
-}
-
-async function findById(id, actor) {
-  const item = await assertReadable(id, actor);
-  const { storageKey, ...visivel } = item;
-  return { ...visivel, hasFile: Boolean(storageKey) };
-}
-
-// Devolve o stream para o controller servir. A mesma regra de leitura do
-// findById se aplica: quem não pode ver o registro não baixa o arquivo.
-async function download(id, actor) {
-  const item = await assertReadable(id, actor);
-
-  if (!item.storageKey) {
-    throw new AppError(409, 'DOCUMENT_HAS_NO_FILE', 'Este documento é apenas um registro e não possui arquivo');
-  }
-  if (!await storage.exists(item.storageKey)) {
-    throw new AppError(410, 'DOCUMENT_FILE_MISSING', 'O arquivo deste documento não está mais disponível');
+    if (!segue) throw new AppError(403, 'FORBIDDEN', 'Story de perfil que você não segue');
   }
 
-  await auditService.record({
-    actor, action: 'DOCUMENT_DOWNLOAD', entity: 'Document', entityId: item.id,
-    metadata: { tournamentId: item.tournamentId }
-  });
-
-  return {
-    stream: storage.createReadStream(item.storageKey),
-    fileName: item.fileName,
-    mimeType: item.mimeType,
-    sizeBytes: item.sizeBytes
-  };
+  if (!(await storage.exists(story.storageKey))) throw new AppError(404, 'FILE_NOT_FOUND', 'Arquivo indisponível');
+  return { stream: storage.createReadStream(story.storageKey), mimeType: story.mimeType };
 }
 
-async function remove(id, actor) {
-  const item = await prisma.document.findUnique({ where: { id }, include: { tournament: true } });
-  if (!item) throw new AppError(404, 'DOCUMENT_NOT_FOUND', 'Documento não encontrado');
-  if (actor.role !== 'ADMIN' && item.tournament.createdById !== actor.id) {
-    throw new AppError(403, 'FORBIDDEN', 'Você não pode excluir este documento');
-  }
-
-  await prisma.document.delete({ where: { id } });
-  if (item.storageKey) await storage.remove(item.storageKey).catch(() => {});
-
-  await auditService.record({
-    actor, action: 'DOCUMENT_DELETE', entity: 'Document', entityId: id,
-    metadata: { tournamentId: item.tournamentId, title: item.title }
-  });
-}
-
-module.exports = { list, create, createWithFile, findById, download, remove, safeFileName };
+module.exports = {
+  uploadAthleteDocument, listAthleteDocuments, downloadAthleteDocument, deleteAthleteDocument,
+  uploadEventDocument, listEventDocuments, downloadEventDocument,
+  downloadPostMedia, downloadStoryMedia
+};
