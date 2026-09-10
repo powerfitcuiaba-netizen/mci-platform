@@ -1,10 +1,13 @@
-const { PrismaClient } = require('@prisma/client');
 const { contextoAtual } = require('./rlsContext');
 
 // Cliente base: dono do pool. Só é usado diretamente quando não há contexto de
 // requisição — partida, sondas e rotas públicas, que leem apenas o que as
 // políticas liberam para ator anônimo.
-const base = new PrismaClient();
+//
+// Mora em `./prismaPublico` porque esse uso deixou de ser implícito: a
+// projeção pública passou a lê-lo de propósito, e não só por acaso de a
+// requisição não ter token. É a MESMA instância — um cliente só, um pool só.
+const base = require('./prismaPublico');
 
 // ============================================================================
 // Cliente sensível ao contexto.

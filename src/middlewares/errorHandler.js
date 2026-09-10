@@ -19,6 +19,17 @@ function errorHandler(err, req, res, next) { // eslint-disable-line no-unused-va
   const status = err.status || 500;
   const code = err.code || (status === 500 ? 'INTERNAL_ERROR' : 'ERROR');
 
+  // Falha de 500 não publica a taxonomia interna. A mensagem já era redigida
+  // em produção, mas o CÓDIGO passava direto: um erro não tratado do Prisma
+  // saía como `{"code":"P2003"}`, que diz ao visitante qual é a camada de
+  // persistência e que classe de falha ocorreu. É o mesmo mapa da aplicação
+  // que o comentário acima recusa a entregar junto com o stack.
+  //
+  // Nada é mascarado: o status continua 500 e o código REAL continua indo
+  // para o log estruturado, logo abaixo, que é onde ele serve para alguma
+  // coisa. O que muda é só o que sai pela porta da frente.
+  const codigoNaResposta = status >= 500 ? 'INTERNAL_ERROR' : code;
+
   if (status >= 500) {
     logger.error('erro não tratado', { rota: `${req.method} ${req.originalUrl}`, code, message: err.message, stack: config.isProduction ? undefined : err.stack });
   } else if (status === 429 || status === 401 || status === 403) {
@@ -27,7 +38,7 @@ function errorHandler(err, req, res, next) { // eslint-disable-line no-unused-va
 
   const corpo = {
     error: {
-      code,
+      code: codigoNaResposta,
       message: status === 500 && config.isProduction ? 'Erro interno do servidor' : err.message
     }
   };

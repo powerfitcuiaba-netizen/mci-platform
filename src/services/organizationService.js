@@ -72,6 +72,13 @@ async function findById(id, actor) {
 async function addMember(organizationId, data, actor) {
   assertCan(actor, 'users.manage', organizationId);
 
+  // A organização precisa ser conferida como o usuário já era. Sem isto, o id
+  // inexistente ia até o INSERT e voltava como violação de chave estrangeira —
+  // 500, com o código do Prisma (P2003) no corpo da resposta, onde o usuário
+  // inexistente na MESMA rota devolvia um 404 limpo.
+  const organization = await prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true } });
+  if (!organization) throw new AppError(404, 'ORGANIZATION_NOT_FOUND', 'Organização não encontrada');
+
   const user = await prisma.user.findUnique({ where: { id: data.userId } });
   if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'Usuário não encontrado');
 

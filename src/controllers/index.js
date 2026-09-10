@@ -132,7 +132,9 @@ module.exports = {
   },
 
   ranking: {
-    list: async (req, res) => res.json(await ranking.list(req.query, req.user)),
+    // Projeção pública: a resposta é a mesma para visitante e para quem está
+    // autenticado, então o ator não entra. Ver src/config/prismaPublico.js.
+    list: async (req, res) => res.json(await ranking.list(req.query)),
     listSeasons: async (req, res) => res.json({ items: await ranking.listSeasons(req.query, req.user) }),
     createSeason: async (req, res) => res.status(201).json(await ranking.createSeason(req.body, req.user)),
     setPointsRules: async (req, res) => res.json({ items: await ranking.setPointsRules(req.params.id, req.body, req.user) }),

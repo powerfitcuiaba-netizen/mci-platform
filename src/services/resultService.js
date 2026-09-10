@@ -1,4 +1,5 @@
 const prisma = require('../config/prisma');
+const publico = require('../config/prismaPublico');
 const { AppError } = require('../utils/errors');
 const { assertCan } = require('../utils/tenant');
 const crypto = require('node:crypto');
@@ -183,8 +184,42 @@ async function receive(classId, { entries, reason, source = 'EXTERNAL' }, actor)
   return findByClass(classId, actor);
 }
 
+/**
+ * Resultado da classe. Rota pública, mas também o retorno de quem publica.
+ *
+ * Quem pode ver rascunho lê pelo cliente da REQUISIÇÃO; os demais leem pela
+ * projeção PÚBLICA. A mesma condição resolve dois problemas opostos:
+ *
+ *   Sem isso, quem está autenticado e não é membro recebia 500 onde o
+ *   visitante anônimo recebia 200. A entrada traz `athlete`, relação
+ *   OBRIGATÓRIA, e `atleta_leitura` só libera para ator anônimo — para o
+ *   outsider autenticado a linha some e o Prisma estoura na relação.
+ *
+ *   E o inverso, que a correção não pode causar: `publish` e `override`
+ *   chamam esta função para devolver o que ACABARAM de gravar, e o operador
+ *   precisa enxergar o próprio rascunho. O cliente público roda fora da
+ *   transação da requisição e leria o estado anterior à escrita — além de a
+ *   política `resultado_publicado` esconder rascunho do anônimo. Como esses
+ *   caminhos são justamente os de quem pode ver rascunho, caem no cliente da
+ *   requisição e nada muda para eles.
+ *
+ * A decisão de visibilidade continua com `resultFor`: o cliente escolhido
+ * aqui não amplia o que sai, só torna a leitura possível.
+ */
 async function findByClass(classId, actor) {
-  const result = await prisma.result.findFirst({
+  const { can } = require('../utils/permissions');
+
+  // A organização vem da classe, que é dado público — a mesma leitura serve
+  // ao anônimo, ao outsider e ao operador.
+  const classe = await publico.competitionClass.findUnique({
+    where: { id: classId },
+    select: { division: { select: { eventCategory: { select: { event: { select: { organizationId: true } } } } } } }
+  });
+  const organizationId = classe?.division?.eventCategory?.event?.organizationId ?? null;
+  const podeVerRascunho = Boolean(actor && organizationId && can(actor, 'results.read_unpublished', organizationId));
+  const leitor = podeVerRascunho ? prisma : publico;
+
+  const result = await leitor.result.findFirst({
     where: { classId },
     include: {
       entries: {
@@ -350,13 +385,18 @@ async function versions(classId, actor) {
 }
 
 async function listByEvent(eventId, actor) {
-  const event = await prisma.event.findUnique({ where: { id: eventId } });
+  const event = await publico.event.findUnique({ where: { id: eventId } });
   if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Evento não encontrado');
 
   const { can } = require('../utils/permissions');
   const podeVerRascunho = actor ? can(actor, 'results.read_unpublished', event.organizationId) : false;
 
-  return prisma.result.findMany({
+  // Mesma regra de `findByClass`, pelo mesmo motivo: a entrada traz `athlete`,
+  // relação obrigatória que a política só libera ao ator anônimo. Quem pode
+  // ver rascunho lê pela requisição; os demais, pela projeção pública.
+  const leitor = podeVerRascunho ? prisma : publico;
+
+  return leitor.result.findMany({
     where: { eventId, ...(podeVerRascunho ? {} : { status: 'PUBLISHED' }) },
     include: {
       competitionClass: { include: { division: { include: { eventCategory: { include: { category: true } } } } } },

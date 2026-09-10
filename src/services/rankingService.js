@@ -1,4 +1,10 @@
 const prisma = require('../config/prisma');
+// Projeção pública: ranking, Super Overall, recortes e títulos Overall são
+// lidos por este cliente de propósito. Ver src/config/prismaPublico.js — sem
+// isso, quem está autenticado e não é membro da organização recebe MENOS que
+// o visitante anônimo, porque a política do atleta libera a leitura só quando
+// não há ator definido.
+const publico = require('../config/prismaPublico');
 const { AppError } = require('../utils/errors');
 const { assertCan, organizationFilter } = require('../utils/tenant');
 const audit = require('./auditService');
@@ -412,7 +418,7 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
 }
 
 async function listOverall(eventId) {
-  return prisma.eventOverallTitle.findMany({
+  return publico.eventOverallTitle.findMany({
     where: { eventId },
     include: {
       athlete: { select: { id: true, fullName: true, stageName: true } },
@@ -516,12 +522,12 @@ async function athleteRankingBy(seasonId, { classId = null, eventId = null, divi
   if (classId) where.classId = classId;
 
   if (divisionId) {
-    const classes = await prisma.competitionClass.findMany({ where: { divisionId }, select: { id: true } });
+    const classes = await publico.competitionClass.findMany({ where: { divisionId }, select: { id: true } });
     // Divisão sem classe nenhuma não é "todas as classes": é conjunto vazio.
     where.classId = { in: classes.length ? classes.map(classe => classe.id) : ['__sem-classe__'] };
   }
 
-  const pontos = await prisma.rankingPoint.findMany({
+  const pontos = await publico.rankingPoint.findMany({
     where,
     select: {
       athleteId: true, categoryId: true, points: true, superOverallPoints: true, placing: true,
@@ -581,7 +587,7 @@ async function superOverallRanking(seasonId, { categoryId = null, limit = null, 
   });
 
   const atletas = new Map(
-    (await prisma.athlete.findMany({
+    (await publico.athlete.findMany({
       where: { id: { in: [...new Set(pontos.map(ponto => ponto.athleteId))] } },
       select: { id: true, fullName: true, stageName: true, state: true, team: { select: { id: true, name: true } } }
     })).map(atleta => [atleta.id, atleta])
@@ -677,7 +683,7 @@ async function recompute(seasonId, actor) {
   return resultado;
 }
 
-async function list(filtros, actor) {
+async function list(filtros) {
   const where = {};
   if (filtros.seasonId) where.seasonId = filtros.seasonId;
   if (filtros.categoryId) where.categoryId = filtros.categoryId;
@@ -687,8 +693,15 @@ async function list(filtros, actor) {
   // Sem temporada escolhida, o ranking é o da temporada aberta mais recente:
   // somar temporadas diferentes não significaria nada.
   if (!where.seasonId) {
-    const escopo = actor ? organizationFilter(actor, filtros.organizationId) : {};
-    const temporada = await prisma.rankingSeason.findFirst({
+    // A temporada padrão não pode depender de QUEM está olhando. Antes, o
+    // ator autenticado caía em `organizationFilter`, que devolve um sentinela
+    // que não casa com nada quando a pessoa não tem organização — e a home
+    // do atleta logado mostrava ranking VAZIO enquanto o visitante anônimo,
+    // na mesma rota, via a tabela cheia. `organizationId` passa a ser um
+    // filtro comum, válido para todo mundo do mesmo jeito (antes ele era
+    // simplesmente ignorado para o anônimo).
+    const escopo = filtros.organizationId ? { organizationId: filtros.organizationId } : {};
+    const temporada = await publico.rankingSeason.findFirst({
       where: { ...escopo, status: 'OPEN' },
       orderBy: [{ year: 'desc' }, { createdAt: 'desc' }]
     });
@@ -696,7 +709,7 @@ async function list(filtros, actor) {
     where.seasonId = temporada.id;
   }
 
-  const items = await prisma.ranking.findMany({
+  const items = await publico.ranking.findMany({
     where,
     include: {
       athlete: { select: { id: true, fullName: true, stageName: true, photoKey: true, state: true, city: true, proStatus: true, team: { select: { id: true, name: true } } } },
@@ -718,7 +731,7 @@ async function list(filtros, actor) {
 
   return {
     items,
-    season: items[0]?.season ?? await prisma.rankingSeason.findUnique({ where: { id: where.seasonId }, select: { id: true, name: true, year: true } }),
+    season: items[0]?.season ?? await publico.rankingSeason.findUnique({ where: { id: where.seasonId }, select: { id: true, name: true, year: true } }),
     nextCursor: items.length === filtros.limit ? items[items.length - 1].id : null
   };
 }
