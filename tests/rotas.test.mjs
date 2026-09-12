@@ -147,6 +147,13 @@ describe('auditoria de rotas', () => {
       /^GET \/api\/v1\/classes\/:id\/result$/,
       /^GET \/api\/v1\/social\/(feed|posts|profiles)/,
       /^GET \/api\/v1\/media\/posts\//,
+      // Foto de perfil: aberta DE PROPÓSITO, e não por descuido. A API já
+      // devolve `avatarKey` dentro de `profilePublic` para qualquer visitante
+      // — inclusive de perfil privado, porque o que o "privado" protege é o
+      // CONTEÚDO, não a identidade. Servir a foto com regra mais apertada do
+      // que a API que a anuncia daria avatar quebrado em telas públicas que a
+      // própria API mandou exibir.
+      /^GET \/api\/v1\/media\/profiles\/:id\/avatar$/,
       /^GET \/api\/v1\/documents\/event\//
     ];
 

@@ -153,6 +153,28 @@ async function downloadPostMedia(mediaId, actor) {
   return { stream: storage.createReadStream(media.storageKey), mimeType: media.mimeType };
 }
 
+// A foto de perfil é servida a quem enxerga o perfil — inclusive quando ele é
+// privado. Não é frouxidão: `profilePublic` já devolve `avatarKey` nesse mesmo
+// caso, porque o que o perfil privado protege é o CONTEÚDO, não a identidade.
+// Servir a foto com regra mais apertada do que a API que a anuncia produziria
+// avatar quebrado em telas que a própria API mandou exibir.
+async function downloadProfileAvatar(profileId) {
+  const profile = await prisma.socialProfile.findUnique({
+    where: { id: profileId },
+    select: { avatarKey: true }
+  });
+  if (!profile || !profile.avatarKey) throw new AppError(404, 'AVATAR_NOT_FOUND', 'Perfil sem foto');
+  if (!(await storage.exists(profile.avatarKey))) throw new AppError(404, 'FILE_NOT_FOUND', 'Arquivo indisponível');
+
+  const extensao = String(profile.avatarKey).split('.').pop().toLowerCase();
+  const tipoPorExtensao = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' };
+
+  return {
+    stream: storage.createReadStream(profile.avatarKey),
+    mimeType: tipoPorExtensao[extensao] || 'application/octet-stream'
+  };
+}
+
 async function downloadStoryMedia(storyId, actor) {
   const story = await prisma.story.findUnique({ where: { id: storyId } });
   if (!story || story.expiresAt <= new Date()) throw new AppError(404, 'STORY_NOT_FOUND', 'Story não encontrado ou expirado');
@@ -174,5 +196,5 @@ async function downloadStoryMedia(storyId, actor) {
 module.exports = {
   uploadAthleteDocument, listAthleteDocuments, downloadAthleteDocument, deleteAthleteDocument,
   uploadEventDocument, listEventDocuments, downloadEventDocument,
-  downloadPostMedia, downloadStoryMedia
+  downloadPostMedia, downloadStoryMedia, downloadProfileAvatar
 };

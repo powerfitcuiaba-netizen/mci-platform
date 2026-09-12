@@ -14,8 +14,13 @@ const storage = require('../services/storageService');
 // vídeo, e mídia social não abre caminho para PDF. As duas listas são
 // separadas de propósito.
 function singleFileUpload(fieldName = 'file', { maxBytes = storage.MAX_BYTES, tipo = 'documento' } = {}) {
-  const aceita = tipo === 'midia' ? storage.isAllowedMediaMime : storage.isAllowedMime;
-  const aceitos = () => Object.keys(tipo === 'midia' ? storage.ALLOWED_MEDIA : storage.ALLOWED).join(', ');
+  const LISTAS = {
+    midia: [storage.isAllowedMediaMime, storage.ALLOWED_MEDIA],
+    avatar: [storage.isAllowedAvatarMime, storage.ALLOWED_AVATAR],
+    documento: [storage.isAllowedMime, storage.ALLOWED]
+  };
+  const [aceita, tabela] = LISTAS[tipo] || LISTAS.documento;
+  const aceitos = () => Object.keys(tabela).join(', ');
 
   return (req, res, next) => {
     const tipo = String(req.headers['content-type'] || '');
@@ -78,6 +83,14 @@ function singleFileUpload(fieldName = 'file', { maxBytes = storage.MAX_BYTES, ti
       }
       if (!aceita(arquivo.mimeType)) {
         return encerrar(new AppError(415, 'UNSUPPORTED_MEDIA_TYPE', `Tipo não aceito. Aceitos: ${aceitos()}`));
+      }
+
+      // A lista acima julga o RÓTULO que o cliente mandou. Esta segunda guarda
+      // julga os BYTES: sem ela, dizer "image/png" e enviar HTML, SVG ou um
+      // executável atravessava a lista fechada sem obstáculo nenhum.
+      const motivo = storage.motivoDeRecusaPorAssinatura(arquivo.mimeType, arquivo.buffer);
+      if (motivo) {
+        return encerrar(new AppError(415, 'UNSUPPORTED_MEDIA_TYPE', `Arquivo recusado: ${motivo}`));
       }
 
       req.body = { ...campos };

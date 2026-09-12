@@ -193,6 +193,8 @@ module.exports = {
   },
 
   social: {
+    setAvatar: async (req, res) => res.json(await social.setAvatar(req.user.id, req.file)),
+    removeAvatar: async (req, res) => res.json(await social.removeAvatar(req.user.id)),
     myProfile: async (req, res) => res.json(await social.meuPerfil(req.user.id)),
     updateProfile: async (req, res) => res.json(await social.updateProfile(req.user.id, req.body)),
     setHandle: async (req, res) => res.json(await social.setHandle(req.user.id, req.body.handle)),
@@ -292,6 +294,10 @@ module.exports = {
     },
     storyMedia: async (req, res) => {
       const { stream, mimeType } = await documents.downloadStoryMedia(req.params.id, req.user);
+      enviarArquivo(res, stream, { mimeType, fileName: req.params.id, inline: true });
+    },
+    profileAvatar: async (req, res) => {
+      const { stream, mimeType } = await documents.downloadProfileAvatar(req.params.id);
       enviarArquivo(res, stream, { mimeType, fileName: req.params.id, inline: true });
     }
   },

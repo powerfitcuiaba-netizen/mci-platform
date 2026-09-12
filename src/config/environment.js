@@ -93,6 +93,9 @@ const config = Object.freeze({
   storageDir: process.env.STORAGE_DIR || null,
   uploadMaxBytes: inteiro(process.env.UPLOAD_MAX_BYTES, 10 * 1024 * 1024),
   mediaMaxBytes: inteiro(process.env.MEDIA_MAX_BYTES, 50 * 1024 * 1024),
+  // Foto de perfil tem teto próprio, bem menor: é imagem estática, aparece
+  // dezenas de vezes por tela, e 5 MB já é generoso para um avatar.
+  avatarMaxBytes: inteiro(process.env.AVATAR_MAX_BYTES, 5 * 1024 * 1024),
 
   // Duração de um story antes de expirar.
   storyTtlHours: inteiro(process.env.STORY_TTL_HOURS, 24),

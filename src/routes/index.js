@@ -46,6 +46,10 @@ const limiteMensagem = rateLimit({ windowMs: 60_000, max: 90, nome: 'mensagem' }
 
 const uploadDocumento = singleFileUpload('file');
 const uploadMidia = singleFileUpload('file', { maxBytes: storage.MAX_MEDIA_BYTES, tipo: 'midia' });
+// Foto de perfil: imagem estática e teto próprio, menor que o da mídia social.
+// Um avatar aparece dezenas de vezes por tela; não há motivo para aceitar os
+// mesmos megabytes de um vídeo de publicação.
+const uploadAvatar = singleFileUpload('file', { maxBytes: storage.MAX_AVATAR_BYTES, tipo: 'avatar' });
 
 // ============================================================ AUTENTICAÇÃO
 router.post('/auth/register', limiteAutenticacao, validate(s.authRegister), wrap(c.auth.register));
@@ -238,6 +242,10 @@ router.post('/partnerships/:id/status', requireAuth, validate(s.paramsWithId, 'p
 // ==================================================================== SOCIAL
 router.get('/social/me', requireAuth, wrap(c.social.myProfile));
 router.patch('/social/me', requireAuth, validate(s.profileUpdateSocial), wrap(c.social.updateProfile));
+// A rota é sempre "a minha foto": não recebe id de perfil, então não existe
+// caminho para trocar a de outra pessoa. O perfil sai do token.
+router.post('/social/me/avatar', requireAuth, limiteUpload, uploadAvatar, wrap(c.social.setAvatar));
+router.delete('/social/me/avatar', requireAuth, wrap(c.social.removeAvatar));
 router.post('/social/me/handle', requireAuth, validate(s.handleUpdate), wrap(c.social.setHandle));
 
 router.get('/social/feed', optionalAuth, validate(s.feedQuery, 'query'), wrap(c.social.feed));
@@ -274,6 +282,7 @@ router.post('/social/stories/:id/view', requireAuth, validate(s.paramsWithId, 'p
 
 router.get('/media/posts/:id', optionalAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.postMedia));
 router.get('/media/stories/:id', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.storyMedia));
+router.get('/media/profiles/:id/avatar', optionalAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.profileAvatar));
 
 router.post('/social/reports', requireAuth, limiteConteudo, validate(s.reportCreate), wrap(c.social.report));
 router.get('/social/reports', requireAuth, perm('social.moderate'), validate(s.reportQuery, 'query'), wrap(c.social.listReports));

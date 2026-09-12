@@ -143,6 +143,64 @@ async function createPost(userId, data) {
 
 // Mídia entra por upload autenticado e só depois de o post existir e ser do
 // autor: um arquivo nunca chega ao storage antes da autorização.
+// ------------------------------------------------------------------ avatar
+//
+// `avatarKey` existia no modelo e era LIDO em todo lugar — no perfil, no autor
+// da publicação, na lista de parceiros — mas nada no sistema escrevia. O campo
+// nascia nulo e morria nulo, e a interface caía para sempre nas iniciais.
+//
+// A rota é sempre "a minha foto": não recebe id de perfil, e por isso não
+// existe caminho para trocar a foto de outra pessoa. O perfil vem do token,
+// nunca do corpo da requisição.
+async function setAvatar(userId, arquivo) {
+  const profile = await meuPerfil(userId);
+
+  if (!storage.isAllowedAvatarMime(arquivo.mimeType)) {
+    throw new AppError(415, 'UNSUPPORTED_MEDIA_TYPE', `Foto de perfil aceita apenas ${Object.keys(storage.ALLOWED_AVATAR).join(', ')}`);
+  }
+
+  const anterior = profile.avatarKey;
+  const key = storage.buildKey(`avatars/${profile.id}`, arquivo.mimeType);
+  await storage.saveBuffer(key, arquivo.buffer);
+
+  const atualizado = await prisma.socialProfile.update({
+    where: { id: profile.id },
+    data: { avatarKey: key }
+  });
+
+  // O arquivo antigo só é apagado DEPOIS de o banco já apontar para o novo: se
+  // a ordem fosse inversa e a gravação falhasse, o perfil ficaria apontando
+  // para um arquivo que não existe mais. Falhar ao apagar o antigo deixa um
+  // órfão, que é muito melhor que uma foto quebrada.
+  if (anterior && anterior !== key) {
+    await storage.remove(anterior).catch(() => {});
+  }
+
+  await audit.record({
+    actor: { id: userId }, action: 'PROFILE_AVATAR_SET', entity: 'SocialProfile', entityId: profile.id,
+    metadata: { mimeType: arquivo.mimeType, sizeBytes: arquivo.buffer.length, substituiu: Boolean(anterior) }
+  });
+
+  return profilePublic(atualizado);
+}
+
+async function removeAvatar(userId) {
+  const profile = await meuPerfil(userId);
+  if (!profile.avatarKey) return profilePublic(profile);
+
+  const atualizado = await prisma.socialProfile.update({
+    where: { id: profile.id },
+    data: { avatarKey: null }
+  });
+  await storage.remove(profile.avatarKey).catch(() => {});
+
+  await audit.record({
+    actor: { id: userId }, action: 'PROFILE_AVATAR_REMOVE', entity: 'SocialProfile', entityId: profile.id
+  });
+
+  return profilePublic(atualizado);
+}
+
 async function attachMedia(postId, userId, arquivo) {
   const profile = await meuPerfil(userId);
   const post = await prisma.post.findUnique({ where: { id: postId } });
@@ -697,6 +755,7 @@ async function resolveReport(reportId, data, actor) {
 
 module.exports = {
   meuPerfil, updateProfile, setHandle, profileByHandle,
+  setAvatar, removeAvatar,
   createPost, attachMedia, feed, getPost, deletePost,
   like, unlike, save, unsave, share, listSaved,
   comment, listComments, deleteComment,
