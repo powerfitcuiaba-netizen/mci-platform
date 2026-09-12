@@ -329,9 +329,9 @@ router.patch('/admin/users/:id', requireAuth, perm('users.manage'), validate(s.p
 
 // =================================================================== VITRINE
 router.get('/public/summary', limitePublico, wrap(c.publicApi.summary));
-router.get('/public/events', limitePublico, validate(s.paginacao, 'query'), wrap(c.publicApi.listEvents));
+router.get('/public/events', limitePublico, validate(s.buscaPublica, 'query'), wrap(c.publicApi.listEvents));
 router.get('/public/events/:slug', limitePublico, wrap(c.publicApi.eventPage));
-router.get('/public/athletes', limitePublico, validate(s.paginacao, 'query'), wrap(c.publicApi.listAthletes));
+router.get('/public/athletes', limitePublico, validate(s.buscaPublica, 'query'), wrap(c.publicApi.listAthletes));
 router.get('/public/athletes/:id', limitePublico, validate(s.paramsWithId, 'params'), wrap(c.publicApi.athletePage));
 
 module.exports = router;

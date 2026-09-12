@@ -103,7 +103,27 @@ export function Inicio({ navegar }) {
 export function Campeonatos({ navegar }) {
   const [busca, setBusca] = useState('');
   const termo = useDebounce(busca);
-  const estado = useFetch(() => api.publicApi.events({ limit: 24 }), []);
+  const [pagina, setPagina] = useState({ items: [], nextCursor: null });
+  const [carregandoMais, setCarregandoMais] = useState(false);
+
+  // A busca vai para o SERVIDOR. Filtrar no cliente só o que já carregou faz a
+  // tela dizer "nenhum campeonato encontrado" para uma etapa que existe — foi
+  // o que acontecia com as 47 etapas da temporada, das quais 24 chegavam aqui.
+  const estado = useFetch(async () => {
+    const resposta = await api.publicApi.events({ limit: 24, search: termo || undefined });
+    setPagina(resposta);
+    return resposta;
+  }, [termo]);
+
+  const carregarMais = async () => {
+    setCarregandoMais(true);
+    try {
+      const resposta = await api.publicApi.events({ limit: 24, cursor: pagina.nextCursor, search: termo || undefined });
+      setPagina(atual => ({ items: [...atual.items, ...resposta.items], nextCursor: resposta.nextCursor }));
+    } finally {
+      setCarregandoMais(false);
+    }
+  };
 
   return (
     <div className="page">
@@ -117,13 +137,13 @@ export function Campeonatos({ navegar }) {
       </div>
 
       <AsyncSection state={estado} linhas={4}>
-        {dados => {
-          const lista = dados.items.filter(item => item.name.toLowerCase().includes(termo.toLowerCase()));
-          if (!lista.length) return <EmptyState title="Nenhum campeonato encontrado" description="Ajuste a busca para ver outras etapas." />;
+        {() => {
+          if (!pagina.items.length) return <EmptyState title="Nenhum campeonato encontrado" description="Ajuste a busca para ver outras etapas." />;
 
           return (
+            <>
             <div className="grid grid-3">
-              {lista.map(evento => {
+              {pagina.items.map(evento => {
                 const estadoEvento = seloDoEvento(evento);
                 return (
                   <button
@@ -146,6 +166,8 @@ export function Campeonatos({ navegar }) {
                 );
               })}
             </div>
+            <Paginacao nextCursor={pagina.nextCursor} onMore={carregarMais} loading={carregandoMais} />
+            </>
           );
         }}
       </AsyncSection>

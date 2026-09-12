@@ -28,6 +28,14 @@ const paginacao = z.object({
   cursor: z.string().min(1).max(60).optional()
 });
 
+// Listagem pública COM busca. Não dá para usar `paginacao` direto: o
+// validate() troca req.query pelo resultado do Zod, e o Zod descarta chave
+// não declarada — então um `search` recebido aqui sumiria em silêncio, e a
+// rota devolveria a lista inteira como se fosse o resultado da busca.
+const buscaPublica = paginacao.extend({
+  search: z.string().trim().max(120).optional()
+});
+
 const paramsWithId = z.object({ id });
 
 // ---------------------------------------------------------------- autenticação
@@ -569,7 +577,7 @@ const handleUpdate = z.object({ handle: z.string().trim().toLowerCase().regex(/^
 const rejectImport = z.object({ reason: opcional(texto(3, 300)) });
 
 module.exports = {
-  paginacao, paramsWithId, scopedListQuery, checkInQuery, sponsorshipQuery, partnershipQuery,
+  paginacao, buscaPublica, paramsWithId, scopedListQuery, checkInQuery, sponsorshipQuery, partnershipQuery,
   importQuery, reportQuery, rankingPointsQuery, communityMemberAdd, handleUpdate, rejectImport,
   authRegister, authLogin, profileUpdate, passwordChange,
   organizationCreate, organizationMemberCreate,
