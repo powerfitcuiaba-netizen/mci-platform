@@ -265,17 +265,26 @@ const provedorApontandoPara = srv => new S3StorageProvider({
 
 describe('a falha do armazenamento se explica', () => {
   it('extrai apenas Code e Message — a Access Key do XML fica de fora', () => {
+    // A chave falsa é MONTADA, e não escrita inteira. Um literal com a forma
+    // exata de uma Access Key da AWS (AKIA + 16 maiúsculas) é indistinguível
+    // de uma credencial de verdade para qualquer varredura — a do repositório,
+    // a do GitHub, a de quem revisar. Foi assim que o job de higiene da CI
+    // reprovou três commits seguidos: acusou este arquivo, que existe
+    // justamente para PROVAR que a chave não escapa. Montada em duas partes,
+    // a prova continua idêntica e o repositório para de carregar algo com cara
+    // de segredo.
+    const chaveFalsa = `AKIA${'VAZAMENTOSEGREDO'}`;
     // Corpo real de um erro de credencial: a chave vem dentro dele.
     const xml = '<?xml version="1.0"?><Error><Code>InvalidAccessKeyId</Code>'
       + '<Message>The AWS Access Key Id you provided does not exist in our records.</Message>'
-      + '<AWSAccessKeyId>AKIAVAZAMENTOSEGREDO</AWSAccessKeyId>'
+      + `<AWSAccessKeyId>${chaveFalsa}</AWSAccessKeyId>`
       + '<RequestId>abc123</RequestId></Error>';
 
     const { codigo, mensagem } = interpretarErroS3(xml);
 
     expect(codigo).toBe('InvalidAccessKeyId');
     expect(mensagem).toContain('does not exist');
-    expect(`${codigo} ${mensagem}`).not.toContain('AKIAVAZAMENTOSEGREDO');
+    expect(`${codigo} ${mensagem}`).not.toContain(chaveFalsa);
   });
 
   it('corpo sem XML não quebra o diagnóstico', () => {
