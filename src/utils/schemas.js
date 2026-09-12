@@ -346,6 +346,11 @@ const teamRankingQuery = z.object({
 
 const rankingQuery = paginacao.extend({
   seasonId: id.optional(),
+  // Declarado porque o serviço LÊ: sem temporada escolhida, ele decide a
+  // temporada padrão dentro desta organização. Faltando aqui, o Zod apagava o
+  // parâmetro antes de o serviço vê-lo, e o recorte pedido era ignorado em
+  // silêncio.
+  organizationId: id.optional(),
   categoryId: id.optional(),
   state: z.string().trim().length(2).optional(),
   country: z.string().trim().min(2).max(3).optional()

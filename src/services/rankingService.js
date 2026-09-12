@@ -302,7 +302,31 @@ async function recompute_(seasonId) {
  * equipe, TODOS os resultados pontuados contam — presumir qualquer corte seria
  * inventar regulamento.
  */
-async function teamRanking(seasonId, { categoryId = null } = {}) {
+// Temporada adotada quando a consulta não escolhe uma: a ABERTA mais recente.
+//
+// Sem isto, `seasonId` ausente vai para o `where` como `undefined`, e o Prisma
+// IGNORA a chave — a consulta varre todas as temporadas e devolve a soma dos
+// anos. Medido: com 10 pontos em 2025 e 7 em 2026, o ranking de equipes sem
+// temporada devolvia 17. Somar temporadas diferentes não significa nada, e a
+// tela de Ranking pede exatamente isso na primeira renderização, porque nasce
+// sem temporada escolhida.
+//
+// `publico` e não `prisma`: a temporada padrão é fato público e não pode
+// depender de quem está olhando — é o mesmo caminho que `list()` já usa.
+async function temporadaPadrao(organizationId = null) {
+  return publico.rankingSeason.findFirst({
+    where: { ...(organizationId ? { organizationId } : {}), status: 'OPEN' },
+    orderBy: [{ year: 'desc' }, { createdAt: 'desc' }]
+  });
+}
+
+async function teamRanking(seasonId, { categoryId = null, organizationId = null } = {}) {
+  if (!seasonId) {
+    const temporada = await temporadaPadrao(organizationId);
+    if (!temporada) return [];
+    seasonId = temporada.id;
+  }
+
   // A equipe é buscada UMA vez, e não junto de cada ponto.
   //
   // Medido, não suposto: numa temporada de 24 mil lançamentos e 60 equipes, o
@@ -439,7 +463,13 @@ async function listOverall(eventId) {
  * apontando para o resultado do atleta que a originou, e não há um agregado
  * paralelo para manter sincronizado.
  */
-async function companyRanking(seasonId, { categoryId = null } = {}) {
+async function companyRanking(seasonId, { categoryId = null, organizationId = null } = {}) {
+  if (!seasonId) {
+    const temporada = await temporadaPadrao(organizationId);
+    if (!temporada) return [];
+    seasonId = temporada.id;
+  }
+
   // Mesma correção do ranking de equipes, pela mesma medição: poucas empresas
   // repetidas em muitos lançamentos.
   const pontos = await prisma.rankingPoint.findMany({
@@ -575,7 +605,13 @@ function paginar(classificados, { limit = null, offset = 0 } = {}) {
   return classificados.slice(offset, limit == null ? undefined : offset + limit);
 }
 
-async function superOverallRanking(seasonId, { categoryId = null, limit = null, offset = 0 } = {}) {
+async function superOverallRanking(seasonId, { categoryId = null, limit = null, offset = 0, organizationId = null } = {}) {
+  if (!seasonId) {
+    const temporada = await temporadaPadrao(organizationId);
+    if (!temporada) return { items: [], season: null };
+    seasonId = temporada.id;
+  }
+
   // Mesma correção do ranking de equipes: o atleta é buscado uma vez por
   // atleta, não uma vez por lançamento.
   const pontos = await prisma.rankingPoint.findMany({
@@ -700,11 +736,7 @@ async function list(filtros) {
     // na mesma rota, via a tabela cheia. `organizationId` passa a ser um
     // filtro comum, válido para todo mundo do mesmo jeito (antes ele era
     // simplesmente ignorado para o anônimo).
-    const escopo = filtros.organizationId ? { organizationId: filtros.organizationId } : {};
-    const temporada = await publico.rankingSeason.findFirst({
-      where: { ...escopo, status: 'OPEN' },
-      orderBy: [{ year: 'desc' }, { createdAt: 'desc' }]
-    });
+    const temporada = await temporadaPadrao(filtros.organizationId);
     if (!temporada) return { items: [], season: null, nextCursor: null };
     where.seasonId = temporada.id;
   }
