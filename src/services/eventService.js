@@ -136,7 +136,11 @@ async function list(filtros, actor) {
 
   const items = await prisma.event.findMany({
     where,
-    orderBy: [{ startDate: 'desc' }, { createdAt: 'desc' }],
+    // Calendário se lê do começo para o fim: a etapa mais próxima primeiro.
+    // O desempate por `createdAt` também é crescente — nas datas com várias
+    // etapas (12/12 tem quatro), isso as deixa na ordem em que entraram, que
+    // para o calendário importado é a ordem do documento oficial.
+    orderBy: [{ startDate: 'asc' }, { createdAt: 'asc' }],
     take: filtros.limit,
     ...(filtros.cursor ? { cursor: { id: filtros.cursor }, skip: 1 } : {}),
     select: {

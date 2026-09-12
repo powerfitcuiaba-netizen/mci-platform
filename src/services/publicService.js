@@ -36,7 +36,11 @@ async function listEvents(filtros) {
       organization: { select: { id: true, name: true, slug: true } },
       _count: { select: { registrations: true } }
     },
-    orderBy: [{ startDate: 'desc' }],
+    // Mesma direção da listagem de operação: as duas telas mostram o mesmo
+    // calendário e discordar seria defeito. O `createdAt` entra como segundo
+    // critério porque sem ele a ordem entre etapas do MESMO dia é indefinida,
+    // e ordem indefinida com cursor pode repetir ou pular linha entre páginas.
+    orderBy: [{ startDate: 'asc' }, { createdAt: 'asc' }],
     take: filtros.limit,
     ...(filtros.cursor ? { cursor: { id: filtros.cursor }, skip: 1 } : {})
   });
