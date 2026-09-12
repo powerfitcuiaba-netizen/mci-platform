@@ -4,7 +4,7 @@ import api from '../services/api';
 import { useAuth } from '../AuthContext';
 import { useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Field, Metric, Modal, ModalActions, PageHead } from '../components/ui';
-import { ESTADO_EVENTO, ESTADO_PRO, formatarData, formatarDataHora, pesoEmKg } from '../lib/format';
+import { ESTADO_PRO, formatarData, formatarDataHora, pesoEmKg, seloDoEvento } from '../lib/format';
 
 // Painel do atleta e conta do usuário.
 
@@ -72,9 +72,10 @@ export function MeuPainel({ navegar }) {
                             {' · '}{inscricao.items.map(item => item.competitionClass.name).join(', ')}
                           </small>
                         </span>
-                        <Badge tom={(ESTADO_EVENTO[inscricao.event.status] || {}).tom || 'neutro'}>
-                          {(ESTADO_EVENTO[inscricao.event.status] || {}).rotulo || inscricao.event.status}
-                        </Badge>
+                        {(() => {
+                          const selo = seloDoEvento(inscricao.event);
+                          return <Badge tom={selo.tom} aoVivo={selo.aoVivo}>{selo.rotulo}</Badge>;
+                        })()}
                       </button>
                     ))
                     : <EmptyState title="Sem eventos futuros" description="Suas próximas etapas aparecem aqui." />}

@@ -4,7 +4,7 @@ import api, { refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, CodigoQr, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead } from '../components/ui';
 import {
-  ESTADO_EVENTO, TRANSICOES_EVENTO, formatarData, formatarDataHora, mascararCpf, pesoEmKg, somenteDigitos
+  ESTADO_EVENTO, TRANSICOES_EVENTO, formatarData, formatarDataHora, mascararCpf, pesoEmKg, seloDoEvento, somenteDigitos
 } from '../lib/format';
 
 // Área administrativa do evento. Cada tela opera contra a API real e reflete a
@@ -86,7 +86,7 @@ export function AdminEventos({ notificar, navegar }) {
                 </thead>
                 <tbody>
                   {dados.items.map(evento => {
-                    const info = ESTADO_EVENTO[evento.status] || { rotulo: evento.status, tom: 'neutro' };
+                    const info = seloDoEvento(evento);
                     return (
                       <tr key={evento.id}>
                         <td><strong>{evento.name}</strong></td>
@@ -216,7 +216,7 @@ export function AdminEventoDetalhe({ eventId, notificar, navegar }) {
 
       <AsyncSection state={estado} linhas={4}>
         {evento => {
-          const info = ESTADO_EVENTO[evento.status] || { rotulo: evento.status, tom: 'neutro' };
+          const info = seloDoEvento(evento);
           const proximos = TRANSICOES_EVENTO[evento.status] || [];
 
           return (

@@ -3,7 +3,7 @@ import { CalendarDays, ChevronRight, MapPin, Search, Trophy, Users } from 'lucid
 import api from '../services/api';
 import { useDebounce, useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Metric, PageHead, Paginacao } from '../components/ui';
-import { ESTADO_EVENTO, ESTADO_PRO, formatarData, formatarDataHora } from '../lib/format';
+import { ESTADO_PRO, formatarData, formatarDataHora, seloDoEvento } from '../lib/format';
 
 // Vitrine pública. Tudo aqui sai da API real; nenhuma métrica é estimada e
 // nenhuma lista é fixa no código.
@@ -124,7 +124,7 @@ export function Campeonatos({ navegar }) {
           return (
             <div className="grid grid-3">
               {lista.map(evento => {
-                const estadoEvento = ESTADO_EVENTO[evento.status] || { rotulo: evento.status, tom: 'neutro' };
+                const estadoEvento = seloDoEvento(evento);
                 return (
                   <button
                     key={evento.id}
@@ -133,7 +133,7 @@ export function Campeonatos({ navegar }) {
                     style={{ textAlign: 'left', cursor: 'pointer' }}
                     onClick={() => navegar(`campeonatos/${evento.slug}`)}
                   >
-                    <Badge tom={estadoEvento.tom}>{estadoEvento.rotulo}</Badge>
+                    <Badge tom={estadoEvento.tom} aoVivo={estadoEvento.aoVivo}>{estadoEvento.rotulo}</Badge>
                     <h3 className="display" style={{ fontSize: 22, margin: '14px 0 6px' }}>{evento.name}</h3>
                     <p style={{ color: 'var(--cinza)', fontSize: 12.5, margin: 0, minHeight: 34 }}>
                       {evento.description || 'Etapa do Campeonato Brasileiro Muscle Contest.'}
@@ -166,12 +166,12 @@ export function CampeonatoDetalhe({ slug, navegar }) {
       <AsyncSection state={estado} linhas={5}>
         {dados => {
           const { event, categories, schedule, athletes, results, sponsors } = dados;
-          const estadoEvento = ESTADO_EVENTO[event.status] || { rotulo: event.status, tom: 'neutro' };
+          const estadoEvento = seloDoEvento(event);
 
           return (
             <>
               <section className="hero">
-                <Badge tom={estadoEvento.tom}>{estadoEvento.rotulo}</Badge>
+                <Badge tom={estadoEvento.tom} aoVivo={estadoEvento.aoVivo}>{estadoEvento.rotulo}</Badge>
                 <h1 style={{ marginTop: 12 }}>{event.name}</h1>
                 {event.description && <p>{event.description}</p>}
                 <div className="hero-meta">

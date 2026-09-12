@@ -71,6 +71,59 @@ export const ESTADO_EVENTO = {
   CANCELLED: { rotulo: 'Cancelado', tom: 'perigo' }
 };
 
+// ==========================================================================
+// O dia do evento.
+//
+// Regra de APRESENTAÇÃO, e não de estado. Nada no banco muda sozinho: um
+// evento só entra "em operação" quando alguém o coloca lá, porque esse estado
+// é o que libera check-in, pesagem, credencial e palco. Relógio não pode abrir
+// o piso de um evento que ninguém começou — nem marcar como acontecendo uma
+// etapa que foi adiada e ainda não teve a data corrigida.
+//
+// O que a tela faz é dizer a verdade sobre hoje:
+//
+//   em operação E hoje  ->  "Ao vivo", pulsando
+//   hoje, mas parado    ->  "Hoje", pulsando — recado para o operador de que a
+//                           etapa é hoje e ainda não foi aberta
+//   qualquer outro dia  ->  o estado, como sempre
+// ==========================================================================
+
+// Estados de piso: aqui o evento está de fato acontecendo.
+const ESTADOS_DE_PISO = ['IN_OPERATION', 'IN_JUDGING'];
+
+// Estados em que o dia não muda nada. Rascunho não é público; cancelado não
+// acontece; resultado publicado e encerrado já passaram.
+const ESTADOS_INDIFERENTES_AO_DIA = ['DRAFT', 'CANCELLED', 'CLOSED', 'RESULTS_IN_REVIEW', 'RESULTS_PUBLISHED'];
+
+// "en-CA" devolve AAAA-MM-DD, que compara como texto na ordem certa.
+const diaNoFuso = (valor, fuso) => new Intl.DateTimeFormat('en-CA', {
+  timeZone: fuso || 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit'
+}).format(new Date(valor));
+
+// O fuso é o DO EVENTO, não o do servidor nem o do navegador. Às 03h30 UTC de
+// 15/11 já é dia 15 em São Paulo e ainda é dia 14 em Manaus: comparar em UTC
+// apagaria o selo de um evento que ainda está acontecendo.
+export function aconteceHoje(evento, agora = new Date()) {
+  if (!evento?.startDate) return false;
+  const fuso = evento.timezone;
+  const hoje = diaNoFuso(agora, fuso);
+  const inicio = diaNoFuso(evento.startDate, fuso);
+  const fim = diaNoFuso(evento.endDate || evento.startDate, fuso);
+  return hoje >= inicio && hoje <= fim;
+}
+
+export function seloDoEvento(evento, agora = new Date()) {
+  const base = ESTADO_EVENTO[evento?.status] || { rotulo: evento?.status, tom: 'neutro' };
+
+  if (ESTADOS_INDIFERENTES_AO_DIA.includes(evento?.status) || !aconteceHoje(evento, agora)) {
+    return { ...base, aoVivo: false };
+  }
+  if (ESTADOS_DE_PISO.includes(evento.status)) {
+    return { rotulo: 'Ao vivo', tom: 'perigo', aoVivo: true };
+  }
+  return { rotulo: 'Hoje', tom: 'alerta', aoVivo: true };
+}
+
 // Transições permitidas, espelhando a máquina de estados do servidor. A
 // interface só oferece o que a API aceitaria; a autoridade continua no backend.
 export const TRANSICOES_EVENTO = {
