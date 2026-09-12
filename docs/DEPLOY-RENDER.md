@@ -161,6 +161,52 @@ uma tentativa. Confira o comando antes de apertar enter.
 
 ---
 
+## Quando `/ready` disser `storage: false`
+
+A sonda agora explica a própria reprovação, como o RLS sempre fez:
+
+```json
+{"ready": false,
+ "checks": {"database": true, "storage": false, "rls": true},
+ "storage": ["o armazenamento respondeu 403: credencial recusada ou sem permissão no bucket — confira o par de chaves e o escopo do token"]}
+```
+
+O que sai é **status HTTP e o `<Code>` do serviço** — nunca o corpo bruto da
+resposta. Erro de credencial em S3 devolve a Access Key dentro do XML, e
+`/ready` é público.
+
+Para o diagnóstico completo, rode **no shell do serviço**, onde as variáveis já
+existem:
+
+```bash
+node scripts/diagnostico-r2.js
+```
+
+Ele exercita o ciclo inteiro — HEAD, PUT, HEAD, STAT, GET, DELETE, HEAD — e diz
+onde parou. Nenhum segredo é impresso: a Access Key aparece só com os quatro
+últimos caracteres, o Secret nunca. O objeto de teste tem chave própria
+(`.mci-qa/r2-healthcheck-<timestamp>`) e é removido no fim; nada mais no bucket
+é tocado.
+
+Por que o script e não só o `/ready`: o `healthCheck` usa **HEAD**, e resposta a
+HEAD não tem corpo — por essa porta só o status está disponível. O script usa
+verbos que devolvem corpo, então alcança também o `<Code>`, que é o que separa
+`InvalidAccessKeyId` de `AccessDenied` de `NoSuchBucket`.
+
+As causas mais comuns, na ordem em que vale conferir:
+
+| `<Code>` | O que costuma ser |
+|---|---|
+| `InvalidAccessKeyId` | usou um **Account API Token** em vez das credenciais do **token de R2** (que geram Access Key + Secret) |
+| `SignatureDoesNotMatch` | Secret não corresponde à Access Key, ou sobrou **espaço/quebra de linha** no valor colado |
+| `AccessDenied` | credencial válida, mas o token não tem permissão **neste** bucket |
+| `NoSuchBucket` | `S3_BUCKET` errado, ou endpoint de outra conta |
+
+O script também acusa espaço ou quebra de linha sobrando em qualquer variável —
+é o defeito de configuração mais comum e o mais difícil de enxergar no painel.
+
+---
+
 ## Passo 7 — Smoke test
 
 ```bash

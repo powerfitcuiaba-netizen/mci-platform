@@ -15,6 +15,16 @@ const { assinar, sha256Hex, codificarCaminho } = require('./awsSignature');
 // construído quando STORAGE_DRIVER=s3.
 // ============================================================================
 
+// Erro de serviço compatível com S3 vem em XML. Só dois elementos interessam,
+// e nenhum deles é sensível: `<Code>` diz O QUE houve (InvalidAccessKeyId,
+// SignatureDoesNotMatch, AccessDenied, NoSuchBucket) e `<Message>` explica em
+// texto. O restante do corpo pode conter a Access Key e fica de fora.
+function interpretarErroS3(corpo) {
+  const texto = String(corpo || '');
+  const pegar = etiqueta => (new RegExp(`<${etiqueta}>([^<]{0,200})</${etiqueta}>`, 'i').exec(texto) || [])[1] || '';
+  return { codigo: pegar('Code').trim(), mensagem: pegar('Message').trim() };
+}
+
 class S3StorageProvider {
   constructor({ endpoint, region, bucket, accessKeyId, secretAccessKey, forcePathStyle = true }) {
     if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) {
@@ -81,9 +91,23 @@ class S3StorageProvider {
     if (resposta.status === 404 && aceitarAusente) return null;
 
     if (!resposta.ok) {
-      const detalhe = await resposta.text().catch(() => '');
-      throw new AppError(502, 'STORAGE_UNAVAILABLE',
-        `Armazenamento respondeu ${resposta.status} para ${method} ${key}${detalhe ? `: ${detalhe.slice(0, 200)}` : ''}`);
+      const corpo = await resposta.text().catch(() => '');
+      const { codigo, mensagem } = interpretarErroS3(corpo);
+
+      // O corpo BRUTO não entra na mensagem nem nos detalhes. Erros S3 de
+      // credencial trazem a Access Key dentro do XML (`<AWSAccessKeyId>`), e
+      // esta mensagem chega ao log — que é colado em chamado, em issue e em
+      // conversa. `<Code>` e `<Message>` carregam o diagnóstico inteiro e
+      // nenhum segredo, então são eles que saem daqui.
+      const erro = new AppError(502, 'STORAGE_UNAVAILABLE',
+        `Armazenamento respondeu ${resposta.status}${codigo ? ` (${codigo})` : ''} para ${method} ${key}`
+        + `${mensagem ? `: ${mensagem}` : ''}`);
+
+      // Propriedade INTERNA, de propósito. `details` não serve: o AppError o
+      // ignora no construtor, e o errorHandler encaminharia o campo para o
+      // cliente até em resposta 5xx. Isto aqui só é lido pela sonda /ready.
+      erro.diagnosticoStorage = { statusHttp: resposta.status, codigoS3: codigo || null };
+      throw erro;
     }
 
     return resposta;
@@ -137,4 +161,4 @@ class S3StorageProvider {
   }
 }
 
-module.exports = { S3StorageProvider };
+module.exports = { S3StorageProvider, interpretarErroS3 };
