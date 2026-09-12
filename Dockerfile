@@ -130,6 +130,18 @@ COPY package.json package-lock.json ./
 COPY prisma ./prisma
 COPY src ./src
 COPY scripts ./scripts
+
+# `data/` entra na imagem porque os scripts de release leem dela em tempo de
+# execução: `scripts/importar-campeonatos.js` resolve
+# `data/campeonatos-2026.json` por caminho relativo ao próprio arquivo, o que
+# dentro da imagem é `/app/data/campeonatos-2026.json`. Sem esta linha o
+# script existe mas o dado não, e a importação morre com ENOENT no deploy —
+# foi exatamente o que aconteceu: o diretório nasceu depois da última edição
+# deste arquivo, e como as cópias são enumeradas uma a uma, faltar aqui é
+# silencioso até alguém rodar o script. Ao acrescentar um diretório de nível
+# superior que o runtime precise, acrescente também a cópia.
+COPY data ./data
+
 COPY server.js ./
 
 # Usuário sem privilégio. A imagem node já traz `node` (uid 1000); o processo
