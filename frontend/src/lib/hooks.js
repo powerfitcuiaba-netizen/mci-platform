@@ -8,21 +8,35 @@ export function useFetch(carregar, dependencias = [], { ativo = true } = {}) {
   const [loading, setLoading] = useState(ativo);
   const [error, setError] = useState(null);
   const montado = useRef(true);
+  // Ordem de emissão das buscas. A rede NÃO devolve na ordem em que foi
+  // perguntada: o operador troca o filtro de evento duas vezes, a primeira
+  // consulta é a lenta, e ela chega depois da segunda. Sem este contador, a
+  // resposta abandonada reescrevia a tela com o dado do filtro anterior — e
+  // nada na interface indicava que o que está à vista não corresponde ao que
+  // está selecionado. Só a busca mais recente tem permissão de escrever.
+  const geracao = useRef(0);
 
   const executar = useCallback(async () => {
     if (!ativo) {
       setLoading(false);
       return;
     }
+    geracao.current += 1;
+    const minha = geracao.current;
+    const aindaVale = () => montado.current && geracao.current === minha;
+
     setLoading(true);
     setError(null);
     try {
       const resposta = await carregar();
-      if (montado.current) setData(resposta);
+      if (aindaVale()) setData(resposta);
     } catch (erro) {
-      if (montado.current) setError(erro.message || 'Falha ao carregar.');
+      if (aindaVale()) setError(erro.message || 'Falha ao carregar.');
     } finally {
-      if (montado.current) setLoading(false);
+      // Encerrar a carga também é privilégio da busca atual: uma resposta
+      // obsoleta apagava o indicador de carregamento da busca que ainda
+      // estava em curso.
+      if (aindaVale()) setLoading(false);
     }
     // `carregar` costuma ser uma arrow recriada a cada render: as dependências
     // declaradas pela tela é que definem quando refazer a busca.
@@ -79,14 +93,30 @@ export function useDebounce(valor, atraso = 350) {
 // o usuário precisa ler.
 export function useToasts() {
   const [toasts, setToasts] = useState([]);
+  // O aviso mais longo dura 7 s. Sair da tela antes disso deixava o
+  // temporizador correndo sozinho, agendado sobre um componente que não existe
+  // mais — lixo que só some quando a aba fecha.
+  const temporizadores = useRef(new Set());
 
   const remover = useCallback(id => setToasts(atual => atual.filter(item => item.id !== id)), []);
 
   const notificar = useCallback((mensagem, tipo = 'ok') => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     setToasts(atual => [...atual, { id, mensagem, tipo }]);
-    setTimeout(() => remover(id), tipo === 'erro' ? 7000 : 4000);
+    const temporizador = setTimeout(() => {
+      temporizadores.current.delete(temporizador);
+      remover(id);
+    }, tipo === 'erro' ? 7000 : 4000);
+    temporizadores.current.add(temporizador);
   }, [remover]);
+
+  useEffect(() => {
+    const pendentes = temporizadores.current;
+    return () => {
+      for (const temporizador of pendentes) clearTimeout(temporizador);
+      pendentes.clear();
+    };
+  }, []);
 
   return { toasts, notificar, remover };
 }

@@ -790,9 +790,24 @@ h1, h2, h3 { margin: 0; }
   .messenger.mostra-lista .conversation-list { display: block; border-right: 0; }
   .messenger.mostra-chat .chat { display: flex; }
 
-  /* Alvo de toque. Dedo não é cursor: 44 x 44 é o mínimo em toda a
-     superfície acionável, sem exceção. Seis controles ficavam abaixo disso —
-     o pior era o botão de abrir o menu, com 31 x 34. */
+  .table td { height: 52px; }
+  .conversation-item { min-height: 68px; }
+  .story-bubble { width: 76px; }
+}
+
+/* ---------------------------------------------------------- alvo de toque
+   44 x 44 é o mínimo em toda a superfície acionável.
+
+   A condição NÃO é só largura. Medido: um iPad Pro em retrato tem 1024px e é
+   dispositivo de toque — ali 20 controles ficavam entre 34 e 38px, incluindo
+   todos os itens do menu e os botões de ícone. Largura descreve o espaço;
+   `pointer: coarse` descreve o dedo, que é o que importa aqui.
+
+   A segunda condição é o que preserva a densidade: uma janela de 1024px com
+   mouse continua com os controles compactos, porque tela operacional de
+   inscrição, pesagem e palco vive de ver muita linha de uma vez. Só quem
+   aponta com o dedo paga o preço do alvo maior. */
+@media (max-width: 900px), (pointer: coarse) {
   .icon-button { width: 44px; height: 44px; }
   .button { min-height: 44px; padding: 0 var(--e5); }
   .button-sm { min-height: 44px; padding: 0 var(--e4); }
@@ -804,11 +819,8 @@ h1, h2, h3 { margin: 0; }
   .search-box { min-height: 46px; }
   /* Seletor de duas classes vence a regra genérica acima: precisa entrar aqui. */
   .composer-foot .select-control { min-height: 44px; }
-  /* No celular o link em linha volta a ser alvo de toque cheio. */
+  /* Link em linha volta a ser alvo de toque cheio. */
   .link-inline { min-height: 44px; padding: 0 var(--e2); }
-  .table td { height: 52px; }
-  .conversation-item { min-height: 68px; }
-  .story-bubble { width: 76px; }
 }
 
 @media (max-width: 560px) {
