@@ -36,6 +36,9 @@ vi.mock('./services/api', () => {
     setAuthToken: vi.fn(),
     clearAuthToken: vi.fn(),
     refreshData: vi.fn(),
+    // Mesmo nome do evento real: o AuthContext escuta por ele para levar a
+    // aplicação de volta à entrada quando o servidor recusa a sessão.
+    SESSAO_EXPIRADA: 'mci-sessao-expirada',
     fetchMediaObjectUrl: vi.fn(() => Promise.reject(new Error('sem mídia'))),
     releaseMediaObjectUrl: vi.fn()
   };

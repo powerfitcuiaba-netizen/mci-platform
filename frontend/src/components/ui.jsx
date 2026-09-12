@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Check, Info, Loader2, X } from 'lucide-react';
 import { iniciais } from '../lib/format';
 import { fetchMediaObjectUrl, releaseMediaObjectUrl } from '../services/api';
@@ -162,17 +162,82 @@ export function Field({ label, required, hint, children }) {
   );
 }
 
+// Pilha de diálogos abertos. Existe por causa do Escape: cada diálogo escutava
+// a tecla na janela, então abrir uma confirmação sobre um formulário e apertar
+// Escape fechava OS DOIS de uma vez — o operador perdia o formulário inteiro
+// por causa de um "cancelar" na confirmação. Só o diálogo do topo responde.
+const pilhaDeDialogos = [];
+
+const FOCALIZAVEIS = [
+  'a[href]', 'button:not([disabled])', 'input:not([disabled])',
+  'select:not([disabled])', 'textarea:not([disabled])', '[tabindex]:not([tabindex="-1"])'
+].join(',');
+
 export function Modal({ title, description, wide = false, onClose, children }) {
+  const caixa = useRef(null);
+
   useEffect(() => {
-    const aoTeclar = evento => { if (evento.key === 'Escape') onClose(); };
+    const meuLugar = {};
+    pilhaDeDialogos.push(meuLugar);
+
+    // `aria-modal="true"` promete ao leitor de tela que o resto da página está
+    // inerte. Sem gestão de foco a promessa é falsa: quem navega por teclado
+    // sai do diálogo sem perceber e passa a operar controles que a interface
+    // declarou inexistentes. Três peças cumprem a promessa: levar o foco para
+    // dentro, não deixá-lo sair, e devolvê-lo a quem abriu.
+    const veioDe = document.activeElement;
+    caixa.current?.focus();
+
+    // Sem filtro por `offsetParent`: ele é nulo para elemento de posição fixa
+    // — que é exatamente o caso da caixa do diálogo — e sempre nulo fora de um
+    // navegador com layout. A filtragem por visibilidade real custaria mais do
+    // que resolve: dentro de um diálogo, o que está no DOM está à vista.
+    const focalizaveis = () => Array.from(caixa.current?.querySelectorAll(FOCALIZAVEIS) || [])
+      .filter(no => !no.hasAttribute('hidden') && no.getAttribute('aria-hidden') !== 'true');
+
+    const aoTeclar = evento => {
+      if (pilhaDeDialogos[pilhaDeDialogos.length - 1] !== meuLugar) return;
+
+      if (evento.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (evento.key !== 'Tab') return;
+
+      const alvos = focalizaveis();
+      if (!alvos.length) { evento.preventDefault(); return; }
+
+      const primeiro = alvos[0];
+      const ultimo = alvos[alvos.length - 1];
+      const atual = document.activeElement;
+
+      if (evento.shiftKey && (atual === primeiro || atual === caixa.current)) {
+        evento.preventDefault();
+        ultimo.focus();
+      } else if (!evento.shiftKey && atual === ultimo) {
+        evento.preventDefault();
+        primeiro.focus();
+      }
+    };
+
     window.addEventListener('keydown', aoTeclar);
-    return () => window.removeEventListener('keydown', aoTeclar);
+    return () => {
+      window.removeEventListener('keydown', aoTeclar);
+      const indice = pilhaDeDialogos.indexOf(meuLugar);
+      if (indice >= 0) pilhaDeDialogos.splice(indice, 1);
+      // Devolver o foco importa mais no fim: sem isto ele fica no elemento que
+      // acabou de sumir, e o navegador o joga para o início do documento.
+      if (veioDe instanceof HTMLElement && document.contains(veioDe)) veioDe.focus();
+    };
   }, [onClose]);
 
   return (
     <div className="modal-layer" role="dialog" aria-modal="true" aria-label={title}>
-      <button type="button" className="modal-scrim" aria-label="Fechar" onClick={onClose} />
-      <div className={`modal${wide ? ' modal-wide' : ''}`}>
+      {/* O fundo fecha ao clique, mas fica FORA da ordem de tabulação: ele
+          duplicaria o botão de fechar do cabeçalho e seria o primeiro alvo do
+          Tab — pressionar Enter logo ao abrir descartaria o diálogo. */}
+      <button type="button" className="modal-scrim" tabIndex={-1} aria-hidden="true" onClick={onClose} />
+      <div className={`modal${wide ? ' modal-wide' : ''}`} ref={caixa} tabIndex={-1}>
         <div className="modal-head">
           <div>
             <h2>{title}</h2>

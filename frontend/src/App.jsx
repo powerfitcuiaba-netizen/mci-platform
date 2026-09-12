@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from './AuthContext';
 import api from './services/api';
 import { useDebounce, useFetch, useHashRoute, useToasts } from './lib/hooks';
 import { Avatar, BlocoDaMarca, Toasts } from './components/ui';
+import LimiteDeErro from './components/limiteDeErro';
 import Auth from './pages/authPages';
 import { AtletaDetalhe, Atletas, CampeonatoDetalhe, Campeonatos, Inicio, Ranking } from './pages/publicPages';
 import { ComunidadeDetalhe, Comunidades, Feed, MeuPerfilSocial, Notificacoes, Perfil, Salvos } from './pages/socialPages';
@@ -317,7 +318,11 @@ function Shell() {
           </div>
         </header>
 
-        <main>{conteudo()}</main>
+        {/* O limite envolve só a tela, e não o casco: se uma tela falhar, o
+            menu e a barra de topo continuam de pé, e o operador navega para
+            outra em vez de ficar diante de uma página em branco. A chave pela
+            rota rearma o limite a cada navegação. */}
+        <main><LimiteDeErro key={rota}>{conteudo()}</LimiteDeErro></main>
       </div>
 
       <Toasts toasts={toasts} onDismiss={remover} />

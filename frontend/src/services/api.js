@@ -6,6 +6,17 @@ export const AUTH_STORAGE_KEY = 'mci-auth-token';
 // o que estiver na tela, em vez de cada tela adivinhar quando revalidar.
 export const refreshData = () => window.dispatchEvent(new Event('mci-data-changed'));
 
+// Fim de sessão. O token vence sozinho, e sem este aviso o que o operador vê é
+// uma tela que CONTINUA parecendo autenticada — nome no canto, menu inteiro —
+// onde toda ação devolve um erro e nenhuma diz que a sessão acabou. O evento
+// leva a aplicação de volta à entrada, uma vez só.
+export const SESSAO_EXPIRADA = 'mci-sessao-expirada';
+
+// Entrar e cadastrar RESPONDEM 401 por senha errada, e isso não é sessão
+// vencida: não há sessão. Tratar os dois casos igual mandaria o usuário para a
+// tela de entrada em que ele já está, apagando a mensagem do erro real.
+const ROTAS_DE_ENTRADA = ['/auth/login', '/auth/register'];
+
 export const getAuthToken = () => {
   try {
     return localStorage.getItem(AUTH_STORAGE_KEY);
@@ -50,6 +61,13 @@ export async function apiRequest(path, options = {}) {
     const corpo = response.status === 204 ? null : await response.json().catch(() => null);
 
     if (!response.ok) {
+      // 401 com token enviado significa que o servidor recusou ESTA sessão.
+      // 403 não entra aqui: é falta de permissão, e derrubar a sessão por
+      // isso tiraria o usuário do sistema por ter clicado onde não podia.
+      if (response.status === 401 && token && !ROTAS_DE_ENTRADA.includes(path)) {
+        clearAuthToken();
+        window.dispatchEvent(new Event(SESSAO_EXPIRADA));
+      }
       const erro = new Error(corpo?.error?.message || 'Não foi possível concluir a operação.');
       erro.code = corpo?.error?.code;
       erro.status = response.status;
@@ -91,11 +109,22 @@ const upload = (path, arquivo, campos = {}) => {
 // Token em query string acabaria em log de servidor, histórico e Referer.
 export async function fetchMediaObjectUrl(caminho) {
   const token = getAuthToken();
-  const response = await fetch(`${API_URL}${caminho}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {}
-  });
-  if (!response.ok) throw new Error('Mídia indisponível.');
-  return URL.createObjectURL(await response.blob());
+  // Mesmo teto de espera das demais chamadas. Sem ele, uma conexão que abre e
+  // não responde deixa o avatar ou a foto girando para sempre — e, numa tela
+  // de feed, várias ao mesmo tempo, cada uma segurando uma conexão do
+  // navegador.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const response = await fetch(`${API_URL}${caminho}`, {
+      signal: controller.signal,
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+    if (!response.ok) throw new Error('Mídia indisponível.');
+    return URL.createObjectURL(await response.blob());
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export const releaseMediaObjectUrl = url => {

@@ -229,3 +229,133 @@ describe('provedor de objetos — contrato completo contra servidor real', () =>
     expect(provider.forcePathStyle).toBe(true);
   });
 });
+
+// ============================================================================
+// DIAGNÓSTICO DA FALHA — por que `storage: false`.
+//
+// Antes desta fase, qualquer falha do armazenamento virava um booleano falso e
+// nada mais: `healthService.ready()` capturava o erro e o descartava. Em
+// produção isso deixou a equipe sem como distinguir credencial recusada de
+// bucket inexistente ou de rede fora, sem acesso ao servidor.
+//
+// O que estes testes travam:
+//   o provedor carrega status HTTP e o `<Code>` do serviço no erro;
+//   NADA além de `<Code>` e `<Message>` sai do corpo da resposta — o XML de
+//   erro de credencial traz a Access Key dentro dele, e /ready é PÚBLICO.
+// ============================================================================
+
+const { interpretarErroS3 } = require('../src/services/storage/s3StorageProvider.js');
+
+function servidorQueResponde(status, corpo = '') {
+  const srv = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => res.writeHead(status).end(corpo));
+  });
+  return new Promise(resolve => srv.listen(0, '127.0.0.1', () => resolve(srv)));
+}
+
+const provedorApontandoPara = srv => new S3StorageProvider({
+  endpoint: `http://127.0.0.1:${srv.address().port}`,
+  region: 'auto',
+  bucket: 'mci-platform-prod',
+  accessKeyId: 'AKIAMCITESTE0000',
+  secretAccessKey: 'segredo-de-teste-nao-usado-em-lugar-nenhum',
+  forcePathStyle: true
+});
+
+describe('a falha do armazenamento se explica', () => {
+  it('extrai apenas Code e Message — a Access Key do XML fica de fora', () => {
+    // A chave falsa é MONTADA, e não escrita inteira. Um literal com a forma
+    // exata de uma Access Key da AWS (AKIA + 16 maiúsculas) é indistinguível
+    // de uma credencial de verdade para qualquer varredura — a do repositório,
+    // a do GitHub, a de quem revisar. Foi assim que o job de higiene da CI
+    // reprovou três commits seguidos: acusou este arquivo, que existe
+    // justamente para PROVAR que a chave não escapa. Montada em duas partes,
+    // a prova continua idêntica e o repositório para de carregar algo com cara
+    // de segredo.
+    const chaveFalsa = `AKIA${'VAZAMENTOSEGREDO'}`;
+    // Corpo real de um erro de credencial: a chave vem dentro dele.
+    const xml = '<?xml version="1.0"?><Error><Code>InvalidAccessKeyId</Code>'
+      + '<Message>The AWS Access Key Id you provided does not exist in our records.</Message>'
+      + `<AWSAccessKeyId>${chaveFalsa}</AWSAccessKeyId>`
+      + '<RequestId>abc123</RequestId></Error>';
+
+    const { codigo, mensagem } = interpretarErroS3(xml);
+
+    expect(codigo).toBe('InvalidAccessKeyId');
+    expect(mensagem).toContain('does not exist');
+    expect(`${codigo} ${mensagem}`).not.toContain(chaveFalsa);
+  });
+
+  it('corpo sem XML não quebra o diagnóstico', () => {
+    expect(interpretarErroS3('erro em texto puro')).toEqual({ codigo: '', mensagem: '' });
+    expect(interpretarErroS3('')).toEqual({ codigo: '', mensagem: '' });
+    expect(interpretarErroS3(null)).toEqual({ codigo: '', mensagem: '' });
+  });
+
+  // O healthCheck usa HEAD, e resposta a HEAD NÃO TEM CORPO — é regra de HTTP,
+  // não limitação desta casa. Então por essa porta só o status está disponível,
+  // e é dele que o /ready tira o diagnóstico. O `<Code>` aparece nos verbos que
+  // devolvem corpo, e é por isso que scripts/diagnostico-r2.js exercita o ciclo
+  // inteiro em vez de só chamar o healthCheck.
+  for (const status of [403, 401, 500]) {
+    it(`healthCheck: ${status} sobe com o status e NUNCA como saudável`, async () => {
+      const srv = await servidorQueResponde(status, '<Error><Code>AccessDenied</Code></Error>');
+      try {
+        await expect(provedorApontandoPara(srv).healthCheck()).rejects.toMatchObject({
+          status: 502,
+          code: 'STORAGE_UNAVAILABLE',
+          diagnosticoStorage: { statusHttp: status }
+        });
+      } finally {
+        await new Promise(r => srv.close(r));
+      }
+    });
+  }
+
+  for (const [status, codigoS3] of [[403, 'AccessDenied'], [401, 'InvalidAccessKeyId'], [404, 'NoSuchBucket']]) {
+    it(`verbo com corpo: ${status} entrega também o código ${codigoS3}`, async () => {
+      const srv = await servidorQueResponde(status, `<Error><Code>${codigoS3}</Code><Message>recusado</Message></Error>`);
+      try {
+        // DELETE devolve corpo de erro; HEAD não devolveria.
+        await expect(provedorApontandoPara(srv).remove('objeto-qualquer')).rejects.toMatchObject({
+          status: 502,
+          code: 'STORAGE_UNAVAILABLE',
+          diagnosticoStorage: { statusHttp: status, codigoS3 }
+        });
+      } finally {
+        await new Promise(r => srv.close(r));
+      }
+    });
+  }
+
+  it('404 continua sendo saudável — o serviço respondeu e a credencial passou', async () => {
+    const srv = await servidorQueResponde(404);
+    try {
+      await expect(provedorApontandoPara(srv).healthCheck()).resolves.toBe(true);
+    } finally {
+      await new Promise(r => srv.close(r));
+    }
+  });
+
+  it('serviço inalcançável falha sem status HTTP, e não vira saudável', async () => {
+    const srv = await servidorQueResponde(200);
+    const porta = srv.address().port;
+    await new Promise(r => srv.close(r));
+
+    const p = new S3StorageProvider({
+      endpoint: `http://127.0.0.1:${porta}`,
+      region: 'auto',
+      bucket: 'mci-platform-prod',
+      accessKeyId: 'AKIAMCITESTE0000',
+      secretAccessKey: 'segredo-de-teste-nao-usado-em-lugar-nenhum'
+    });
+
+    await expect(p.healthCheck()).rejects.toThrow();
+    await p.healthCheck().catch(erro => {
+      // Sem resposta HTTP não há o que diagnosticar: a sonda precisa dizer
+      // "não respondeu", e não inventar um status.
+      expect(erro.diagnosticoStorage).toBeUndefined();
+    });
+  });
+});

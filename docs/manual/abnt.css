@@ -1,0 +1,326 @@
+/* ==========================================================================
+   Formatação conforme ABNT NBR 14724:2011 (apresentação), NBR 6024:2012
+   (numeração progressiva), NBR 6027:2012 (sumário), NBR 6028:2021 (resumo),
+   NBR 6023:2018 (referências) e NBR 10520:2023 (citações).
+
+   Papel A4; margens superior e esquerda 3 cm, inferior e direita 2 cm;
+   Arial 12; entrelinhas 1,5; recuo de parágrafo 1,25 cm; texto justificado.
+   ========================================================================== */
+
+@page {
+  size: A4;
+  margin: 3cm 2cm 2cm 3cm;
+}
+/* A capa sangra ate a borda e e gerada em arquivo proprio, com @page
+   margin: 0 declarado la. Nao usar :first aqui: o primeiro impresso deste
+   arquivo e a folha de rosto, que segue as margens da norma. */
+
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+:root {
+  --mci-vermelho: #ED1C24;
+  --mci-azul: #00AEEF;
+  --mci-preto: #111417;
+  --mci-cinza: #5b6570;
+  --mci-linha: #c9ced4;
+  --mci-fundo: #f2f4f6;
+}
+
+body {
+  font-family: Arial, "Liberation Sans", Helvetica, sans-serif;
+  font-size: 12pt;
+  line-height: 1.5;
+  color: #000;
+  margin: 0;
+  text-align: justify;
+  hyphens: auto;
+}
+
+p { margin: 0 0 0 0; text-indent: 1.25cm; }
+p + p { margin-top: 0; }
+p.sem-recuo { text-indent: 0; }
+
+/* --------------------------------------------------------------- TÍTULOS */
+/* NBR 6024: indicativo numérico alinhado à esquerda, separado do título por
+   um espaço. Os níveis são distinguidos por recurso tipográfico uniforme:
+   primária em CAIXA ALTA NEGRITO, secundária em Negrito, terciária em
+   Itálico. */
+
+h1 {
+  font-size: 12pt;
+  font-weight: bold;
+  text-transform: uppercase;
+  text-align: left;
+  margin: 0 0 1.5em 0;
+  padding-top: 0;
+  break-before: page;
+  break-after: avoid;
+  letter-spacing: 0.02em;
+}
+h1::after {
+  content: "";
+  display: block;
+  width: 2.4cm;
+  height: 3pt;
+  margin-top: 6pt;
+  background: linear-gradient(90deg, var(--mci-vermelho) 0 55%, var(--mci-azul) 55% 100%);
+}
+h1.sem-quebra { break-before: auto; }
+
+h2 {
+  font-size: 12pt;
+  font-weight: bold;
+  text-align: left;
+  margin: 1.5em 0 0.6em 0;
+  break-after: avoid;
+}
+h3 {
+  font-size: 12pt;
+  font-weight: normal;
+  font-style: italic;
+  text-align: left;
+  margin: 1.2em 0 0.5em 0;
+  break-after: avoid;
+}
+
+/* Título de seção não numerada (pré e pós-textuais): centralizado,
+   caixa alta, negrito — NBR 14724, 5.2. */
+h1.nao-numerada { text-align: center; }
+h1.nao-numerada::after { margin-left: auto; margin-right: auto; }
+
+/* ------------------------------------------------------- LISTAS / ALÍNEAS */
+ul, ol { margin: 0.6em 0 0.6em 1.25cm; padding-left: 0.8cm; }
+li { margin-bottom: 0.25em; text-align: justify; }
+ul.aliena { list-style: none; padding-left: 0.6cm; }
+ul.aliena > li { counter-increment: aliena; }
+ul.aliena > li::before {
+  content: counter(aliena, lower-alpha) ") ";
+  font-weight: normal;
+}
+ul.aliena { counter-reset: aliena; }
+
+/* ---------------------------------------------------- QUADROS E TABELAS */
+figure { margin: 1.2em 0; break-inside: avoid; }
+figure.larga { break-inside: auto; }
+
+.rotulo {
+  font-size: 10pt;
+  line-height: 1.2;
+  text-align: left;
+  text-indent: 0;
+  margin-bottom: 4pt;
+}
+.rotulo b { font-weight: bold; }
+
+.fonte {
+  font-size: 10pt;
+  line-height: 1.2;
+  text-align: left;
+  text-indent: 0;
+  margin-top: 4pt;
+  color: #000;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10pt;
+  line-height: 1.25;
+}
+/* Quadro: moldura fechada nas quatro laterais (IBGE / NBR 14724). */
+table.quadro th, table.quadro td {
+  border: 0.6pt solid var(--mci-preto);
+  padding: 4pt 6pt;
+  text-align: left;
+  vertical-align: top;
+}
+table.quadro thead th {
+  background: var(--mci-preto);
+  color: #fff;
+  font-weight: bold;
+}
+table.quadro tbody tr:nth-child(even) td { background: var(--mci-fundo); }
+table.quadro td.n, table.quadro th.n { text-align: center; white-space: nowrap; }
+
+/* Tabela (dado numérico): laterais abertas — norma de apresentação tabular. */
+table.tabela th, table.tabela td {
+  border: 0;
+  border-top: 0.6pt solid var(--mci-preto);
+  border-bottom: 0.6pt solid var(--mci-preto);
+  padding: 4pt 6pt;
+}
+table.tabela tbody td { border-top: 0; border-bottom: 0; }
+table.tabela tbody tr:last-child td { border-bottom: 0.6pt solid var(--mci-preto); }
+
+/* ------------------------------------------------------------- CITAÇÕES */
+/* NBR 10520: citação com mais de três linhas — recuo de 4 cm, corpo 10,
+   espaçamento simples, sem aspas. */
+blockquote {
+  margin: 1em 0 1em 4cm;
+  font-size: 10pt;
+  line-height: 1;
+  text-align: justify;
+  border-left: 2pt solid var(--mci-vermelho);
+  padding-left: 10pt;
+}
+
+/* ----------------------------------------------------------- DESTAQUES */
+.nota {
+  border: 0.6pt solid var(--mci-linha);
+  border-left: 4pt solid var(--mci-azul);
+  background: var(--mci-fundo);
+  padding: 8pt 10pt;
+  margin: 1em 0;
+  font-size: 10pt;
+  line-height: 1.3;
+  break-inside: avoid;
+}
+.nota.atencao { border-left-color: var(--mci-vermelho); }
+.nota p { text-indent: 0; }
+.nota .titulo {
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 8.5pt;
+  display: block;
+  margin-bottom: 3pt;
+  color: var(--mci-cinza);
+}
+
+code, .mono {
+  font-family: "Liberation Mono", "DejaVu Sans Mono", monospace;
+  font-size: 9.5pt;
+}
+pre {
+  font-family: "Liberation Mono", "DejaVu Sans Mono", monospace;
+  font-size: 9pt;
+  line-height: 1.25;
+  background: var(--mci-fundo);
+  border: 0.6pt solid var(--mci-linha);
+  padding: 8pt 10pt;
+  margin: 0.8em 0;
+  white-space: pre-wrap;
+  text-align: left;
+  break-inside: avoid;
+}
+
+/* ============================================================== CAPA */
+.capa {
+  break-after: page;
+  height: 29.7cm;
+  width: 21cm;
+  box-sizing: border-box;
+  padding: 2.2cm 2cm 2cm 2.6cm;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+}
+.capa .faixa-topo {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 0.75cm;
+  background: linear-gradient(90deg, var(--mci-vermelho) 0 50%, var(--mci-azul) 50% 100%);
+}
+.capa .faixa-rodape {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 0.35cm;
+  background: linear-gradient(90deg, var(--mci-azul) 0 50%, var(--mci-vermelho) 50% 100%);
+}
+.capa .instituicao {
+  font-size: 12pt;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  margin-top: 1.2cm;
+  text-indent: 0;
+}
+.capa .marca { width: 8.4cm; height: 8.4cm; object-fit: contain; margin: 1.6cm 0 1.2cm; }
+.capa .regua {
+  width: 6cm; height: 2pt; margin: 0 0 1.1cm;
+  background: linear-gradient(90deg, var(--mci-vermelho) 0 50%, var(--mci-azul) 50% 100%);
+}
+.capa .titulo {
+  font-size: 20pt;
+  font-weight: bold;
+  text-transform: uppercase;
+  line-height: 1.25;
+  letter-spacing: 0.02em;
+  text-indent: 0;
+  margin: 0;
+}
+.capa .subtitulo {
+  font-size: 12pt;
+  margin-top: 0.5cm;
+  text-indent: 0;
+  color: var(--mci-cinza);
+}
+.capa .versao {
+  margin-top: 1.1cm;
+  font-size: 10pt;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-indent: 0;
+  color: var(--mci-cinza);
+}
+.capa .local {
+  margin-top: auto;
+  font-size: 12pt;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  text-indent: 0;
+}
+
+/* ==================================================== FOLHA DE ROSTO */
+.folha-rosto { break-after: page; min-height: 24cm; display: flex; flex-direction: column; text-align: center; }
+.folha-rosto .autor { font-size: 12pt; text-transform: uppercase; letter-spacing: 0.1em; text-indent: 0; }
+.folha-rosto .miolo { margin: auto 0; }
+.folha-rosto .titulo { font-size: 16pt; font-weight: bold; text-transform: uppercase; text-indent: 0; line-height: 1.3; }
+.folha-rosto .subtitulo { font-size: 12pt; margin-top: 0.4cm; text-indent: 0; }
+.folha-rosto .natureza {
+  width: 8cm;
+  margin: 1.6cm 0 0 auto;
+  font-size: 10pt;
+  line-height: 1.2;
+  text-align: justify;
+  text-indent: 0;
+}
+.folha-rosto .local { margin-top: auto; font-size: 12pt; text-transform: uppercase; letter-spacing: 0.08em; text-indent: 0; }
+
+/* ============================================================= SUMÁRIO */
+.sumario { font-size: 12pt; }
+.sumario ul { list-style: none; margin: 0; padding: 0; }
+.sumario li { margin: 0 0 0.35em 0; text-align: left; }
+.sumario .linha {
+  display: flex;
+  align-items: baseline;
+  gap: 4pt;
+}
+.sumario .ind { min-width: 1.5cm; }
+.sumario .ind.n2 { min-width: 1.5cm; padding-left: 0.8cm; }
+.sumario .pontos { flex: 1; border-bottom: 0.6pt dotted #444; transform: translateY(-3pt); }
+.sumario .pg { font-variant-numeric: tabular-nums; }
+.sumario .n1 .tit { font-weight: bold; text-transform: uppercase; }
+.sumario .n2 .tit { font-weight: normal; }
+.sumario li.n2 { padding-left: 0.8cm; }
+
+/* ======================================================== REFERÊNCIAS */
+/* NBR 6023: alinhadas à esquerda, espaçamento simples, separadas entre si
+   por uma linha em branco. */
+.referencias p {
+  text-indent: 0;
+  text-align: left;
+  line-height: 1;
+  margin-bottom: 1em;
+}
+
+.siglas dt { font-weight: bold; }
+dl.siglas { margin: 0; }
+dl.siglas div { display: flex; gap: 10pt; margin-bottom: 0.3em; break-inside: avoid; }
+dl.siglas dt { min-width: 3.4cm; margin: 0; }
+dl.siglas dd { margin: 0; flex: 1; }
+
+.centro { text-align: center; text-indent: 0; }
+.pular { break-before: page; }

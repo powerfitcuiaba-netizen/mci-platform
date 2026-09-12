@@ -1,0 +1,138 @@
+# ==========================================================================
+# MCI Platform — blueprint do Render.
+#
+# Três peças, porque a aplicação é três peças:
+#   mci-api    a API em Node, pela imagem do Dockerfile já existente
+#   mci-web    o bundle estático do Vite (o backend NÃO serve arquivo estático)
+#   mci-db     PostgreSQL gerenciado
+#
+# ATENÇÃO — ESTE ARQUIVO NÃO FOI VALIDADO CONTRA O RENDER.
+# O ambiente onde ele foi escrito tem egress bloqueado para render.com, então
+# não foi possível conferir o schema contra a documentação vigente nem aplicar
+# o blueprint de verdade. Os nomes de campo vêm de conhecimento prévio e o
+# Render muda o schema de tempos em tempos. Confira em
+# https://render.com/docs/blueprint-spec antes de aplicar, e trate um erro de
+# validação como esperado, não como defeito da plataforma.
+#
+# O caminho pelo painel, criando os três serviços à mão, não depende deste
+# arquivo e está descrito em docs/DEPLOY-RENDER.md.
+#
+# O QUE NÃO ESTÁ AQUI, DE PROPÓSITO
+#
+# Nenhum segredo. JWT_SECRET é gerado pelo próprio Render; as credenciais do
+# Cloudflare R2 entram pelo painel (`sync: false` faz o Render perguntar em vez
+# de versionar). Nada de valor sensível pode viver neste arquivo — ele vai para
+# o repositório.
+#
+# DUAS PASSAGENS, e isso não é contornável
+#
+# A API precisa saber a origem do frontend (CORS_ORIGINS) e o frontend precisa
+# saber a URL da API (VITE_API_URL). Nenhuma das duas existe antes de os
+# serviços serem criados. Então: aplique o blueprint, anote as duas URLs,
+# preencha as duas variáveis e redeploy. O VITE_API_URL é lido em tempo de
+# BUILD — o Vite grava o valor dentro do bundle —, portanto mudá-lo exige
+# reconstruir o frontend, não só salvar a variável.
+# ==========================================================================
+
+databases:
+  - name: mci-db
+    databaseName: mci
+    user: mci
+    # O plano gratuito do Render expira sozinho depois de um período. Para um
+    # campeonato nacional isso não serve: escolha um plano pago antes de
+    # cadastrar atleta de verdade.
+    plan: free
+    postgresMajorVersion: "16"
+
+services:
+  # ------------------------------------------------------------------ API
+  - type: web
+    name: mci-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # Ver a nota do plano free abaixo, em "O QUE OBSERVAR".
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+
+    # As migrations rodam antes de a nova versão receber tráfego. Se o seu
+    # plano não oferecer preDeployCommand, remova esta linha e rode uma vez,
+    # pelo shell do serviço:
+    #     npx prisma migrate deploy
+    preDeployCommand: npx prisma migrate deploy
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # A string vem do banco gerenciado; ninguém digita credencial.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mci-db
+          property: connectionString
+
+      # Gerado pelo Render, nunca escrito aqui. Trocar este valor desloga todo
+      # mundo — é o efeito esperado, não um defeito.
+      - key: JWT_SECRET
+        generateValue: true
+
+      # Preencher DEPOIS de o mci-web existir, com a URL completa, incluindo
+      # https://. A aplicação recusa subir sem isto, e recusa curinga `*`.
+      - key: CORS_ORIGINS
+        sync: false
+
+      # Mínimo exigido pela validação de produção é 10.
+      - key: BCRYPT_ROUNDS
+        value: "12"
+
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+
+      # O Render põe um proxy à frente do serviço. Com 0, o limitador leria o
+      # IP do proxy e limitaria o mundo inteiro junto.
+      - key: TRUST_PROXY_HOPS
+        value: "1"
+
+      - key: LOG_LEVEL
+        value: "info"
+
+      - key: DEFAULT_TIMEZONE
+        value: America/Sao_Paulo
+
+      # ---- Armazenamento: Cloudflare R2, compatível com S3 ----
+      # Sem isto a aplicação recusa subir, a menos que se assuma o risco de
+      # disco efêmero com ALLOW_LOCAL_STORAGE=true — que no Render significa
+      # perder todo upload no primeiro redeploy.
+      - key: STORAGE_DRIVER
+        value: s3
+      - key: S3_ENDPOINT      # https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      # O R2 usa "auto" como região e exige endereçamento por caminho.
+      - key: S3_REGION
+        value: auto
+      - key: S3_FORCE_PATH_STYLE
+        value: "true"
+
+  # ------------------------------------------------------- FRONTEND ESTÁTICO
+  - type: web
+    name: mci-web
+    runtime: static
+    buildCommand: npm --prefix frontend ci && npm --prefix frontend run build
+    staticPublishPath: ./frontend/dist
+    envVars:
+      # Preencher DEPOIS de o mci-api existir: https://mci-api-XXXX.onrender.com/api/v1
+      # Lido em tempo de BUILD. Mudou? Reconstrua o site, não basta salvar.
+      - key: VITE_API_URL
+        sync: false
+    routes:
+      # A interface é uma SPA: qualquer caminho precisa cair no index.html, ou
+      # recarregar a página em /ranking devolve 404 do servidor de arquivos.
+      - type: rewrite
+        source: /*
+        destination: /index.html

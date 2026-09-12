@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { api, apiRequest, setAuthToken, clearAuthToken, getAuthToken } from './api';
+import { api, apiRequest, setAuthToken, clearAuthToken, getAuthToken, fetchMediaObjectUrl } from './api';
 
 // O cliente de API precisa: mandar o token, propagar o código de erro do
 // servidor e traduzir falha de rede em mensagem legível.
@@ -199,5 +199,93 @@ describe('cliente de API', () => {
     // E nenhum caminho financeiro chega ao servidor.
     const superficie = JSON.stringify(api.toString?.() ?? '');
     expect(superficie).not.toMatch(/\/orders|\/payments|\/coupons|\/refunds/);
+  });
+});
+
+// ==========================================================================
+// Sessão expirada.
+//
+// O token do MCI vence sozinho. Sem tratamento, o que o operador vê é uma tela
+// que continua parecendo autenticada — nome no canto, menu inteiro — e onde
+// nada funciona: cada ação devolve um aviso de erro e nenhuma explica que a
+// sessão acabou. O caminho de volta precisa ser automático.
+// ==========================================================================
+describe('cliente de API — sessão expirada', () => {
+  beforeEach(() => {
+    clearAuthToken();
+    global.fetch = vi.fn();
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  const responder = (corpo, ok = true, status = 200) => ({ ok, status, json: async () => corpo });
+
+  it('descarta o token e avisa a aplicação quando o servidor recusa a sessão', async () => {
+    setAuthToken('token-vencido');
+    const aviso = vi.fn();
+    window.addEventListener('mci-sessao-expirada', aviso);
+    global.fetch.mockResolvedValue(responder({ error: { code: 'UNAUTHORIZED', message: 'Sessão inválida' } }, false, 401));
+
+    await expect(apiRequest('/qualquer')).rejects.toThrow();
+
+    expect(getAuthToken()).toBeNull();
+    expect(aviso).toHaveBeenCalledTimes(1);
+    window.removeEventListener('mci-sessao-expirada', aviso);
+  });
+
+  it('senha errada no login NÃO é sessão expirada', async () => {
+    const aviso = vi.fn();
+    window.addEventListener('mci-sessao-expirada', aviso);
+    global.fetch.mockResolvedValue(responder({ error: { code: 'INVALID_CREDENTIALS', message: 'Credenciais inválidas' } }, false, 401));
+
+    await expect(api.auth.login({ email: 'a@b.c', password: 'errada' })).rejects.toThrow();
+
+    expect(aviso).not.toHaveBeenCalled();
+    window.removeEventListener('mci-sessao-expirada', aviso);
+  });
+
+  it('403 é falta de permissão, não fim de sessão: o token continua válido', async () => {
+    setAuthToken('token-bom');
+    const aviso = vi.fn();
+    window.addEventListener('mci-sessao-expirada', aviso);
+    global.fetch.mockResolvedValue(responder({ error: { code: 'FORBIDDEN', message: 'Sem permissão' } }, false, 403));
+
+    await expect(apiRequest('/restrito')).rejects.toThrow();
+
+    expect(getAuthToken()).toBe('token-bom');
+    expect(aviso).not.toHaveBeenCalled();
+    window.removeEventListener('mci-sessao-expirada', aviso);
+  });
+});
+
+describe('mídia protegida', () => {
+  beforeEach(() => { clearAuthToken(); global.fetch = vi.fn(); });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('desiste quando o servidor abre a conexão e não responde', async () => {
+    vi.useFakeTimers();
+    try {
+      global.fetch = vi.fn((url, opcoes) => new Promise((_, rejeitar) => {
+        opcoes.signal.addEventListener('abort', () => {
+          const erro = new Error('The operation was aborted.');
+          erro.name = 'AbortError';
+          rejeitar(erro);
+        });
+      }));
+
+      const promessa = fetchMediaObjectUrl('/media/posts/x');
+      const capturada = promessa.catch(erro => erro.name);
+      await vi.advanceTimersByTimeAsync(20001);
+      expect(await capturada).toBe('AbortError');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('passa um sinal de aborto ao buscar mídia', async () => {
+    global.fetch = vi.fn(() => Promise.resolve({ ok: true, blob: async () => new Blob(['x']) }));
+    global.URL.createObjectURL = vi.fn(() => 'blob:fake');
+    await fetchMediaObjectUrl('/media/posts/y');
+    const [, opcoes] = global.fetch.mock.calls[0];
+    expect(opcoes.signal).toBeInstanceOf(AbortSignal);
   });
 });

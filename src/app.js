@@ -6,6 +6,7 @@ const errorHandler = require('./middlewares/errorHandler');
 const asyncHandler = require('./utils/asyncHandler');
 const controllers = require('./controllers');
 const { rateLimit } = require('./middlewares/rateLimit');
+const recusarByteNulo = require('./middlewares/byteNulo');
 const { config } = require('./config/environment');
 
 const app = express();
@@ -29,6 +30,11 @@ app.use(helmet());
 // A importação MuscleWar envia o arquivo inteiro no corpo; o teto acomoda um
 // lote grande sem abrir espaço para envio arbitrário.
 app.use(express.json({ limit: '8mb' }));
+
+// Depois do parser do corpo, porque a guarda precisa enxergar o JSON já
+// interpretado; antes de tudo o mais, porque o byte recusado aqui não deve
+// alcançar rota, validação nem banco.
+app.use(recusarByteNulo);
 
 // Origens explícitas. Em produção a lista vem do ambiente e não há curinga.
 //

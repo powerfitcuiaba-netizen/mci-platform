@@ -1,0 +1,950 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<title>Manual do Sistema — MCI Platform</title>
+<link rel="stylesheet" href="abnt.css"></head>
+<body>
+
+<h1 class="sem-quebra" id="s1">1 INTRODUÇÃO</h1>
+
+<p>Este manual descreve o <b>MCI Platform</b>, sistema oficial de operação do
+Campeonato Brasileiro Muscle Contest International. Reúne, em documento único,
+a finalidade do sistema, sua arquitetura, os papéis de acesso, os módulos
+funcionais, o regulamento esportivo tal como implementado, os procedimentos de
+operação e de implantação, os controles de segurança e as limitações
+conhecidas.</p>
+
+<p>O conteúdo aqui apresentado foi extraído da própria base de código do
+sistema — não de intenção de projeto nem de material promocional. Cada regra
+descrita corresponde a um trecho executável e, na maioria dos casos, a um teste
+automatizado que a sustenta.</p>
+
+<h2 id="s11">1.1 Objetivo</h2>
+
+<p>Fornecer a operadores, administradores e responsáveis técnicos uma referência
+completa e verificável sobre o que o sistema faz, o que ele deliberadamente não
+faz, e como conduzi-lo com segurança durante um campeonato.</p>
+
+<h2 id="s12">1.2 Público-alvo</h2>
+
+<p>O manual atende quatro perfis, e cada um encontra seu ponto de entrada
+próprio, conforme o Quadro 1.</p>
+
+<figure>
+  <p class="rotulo"><b>Quadro 1</b> – Público-alvo e seções de interesse</p>
+  <table class="quadro">
+    <thead><tr><th>Perfil</th><th>Responsabilidade</th><th>Seções principais</th></tr></thead>
+    <tbody>
+      <tr><td>Administrador da plataforma</td><td>Contas, papéis, organizações</td><td>4, 8, 9</td></tr>
+      <tr><td>Operador de evento</td><td>Inscrição, check-in, pesagem, credenciais, baterias</td><td>5, 6, 7</td></tr>
+      <tr><td>Responsável técnico</td><td>Implantação, sondas, backup, diagnóstico</td><td>3, 10, 11</td></tr>
+      <tr><td>Comitê esportivo</td><td>Regulamento aplicado, pontuação, desempate</td><td>6, 12</td></tr>
+    </tbody>
+  </table>
+  <p class="fonte">Fonte: elaborado pelo autor (2026).</p>
+</figure>
+
+<h2 id="s13">1.3 Como ler este manual</h2>
+
+<p>As seções 2 e 6 são de leitura obrigatória para qualquer perfil: a primeira
+delimita o escopo do sistema, e a segunda registra o regulamento esportivo
+efetivamente implementado. As demais podem ser consultadas por necessidade.</p>
+
+<p>Ao longo do texto, os blocos destacados em azul trazem observações
+operacionais; os destacados em vermelho trazem <b>advertências</b> — situações
+em que uma ação equivocada tem consequência difícil de reverter.</p>
+
+<h1 id="s2">2 APRESENTAÇÃO DO SISTEMA</h1>
+
+<h2 id="s21">2.1 Definição</h2>
+
+<p>O MCI Platform é uma aplicação web de gestão esportiva construída para o
+ciclo completo de um campeonato nacional de fisiculturismo: cadastro de atletas
+e entidades, filiação, inscrição em eventos, operação do dia da competição,
+recepção e publicação de resultados oficiais, apuração de rankings e uma camada
+de relacionamento entre os participantes.</p>
+
+<p>A plataforma é <b>multiorganizacional</b>: uma mesma instalação atende várias
+federações e entidades promotoras, com separação de dados garantida no banco,
+e não apenas na aplicação.</p>
+
+<h2 id="s22">2.2 Delimitação do escopo</h2>
+
+<p>Tão importante quanto o que o sistema faz é o que ele deliberadamente não
+faz. Três exclusões são estruturais e não devem ser interpretadas como
+funcionalidade ausente ou pendente.</p>
+
+<h3 id="s221">2.2.1 Não é um sistema financeiro</h3>
+
+<p>Não há pagamento, cobrança, carteira, saldo, cupom, reembolso, fatura,
+assinatura ou qualquer forma de movimentação de valores. Essa ausência é
+verificada por teste automatizado dedicado, que reprova a construção caso
+termos ou rotas de natureza financeira reapareçam na base de código.</p>
+
+<h3 id="s222">2.2.2 O MCI não julga</h3>
+
+<p>O julgamento esportivo é <b>externo</b> à plataforma. O sistema recebe a
+colocação e a pontuação oficiais decididas fora, registra, audita e aplica
+sobre elas a regra de ranking.</p>
+
+<blockquote>A colocação recebida não é recalculada. Quem chegou em 1º continua
+em 1º; nenhum critério interno reordena o resultado esportivo. O que chega de
+fora é dado oficial de entrada, e o papel da plataforma é validar, identificar
+o atleta, registrar, auditar e ranquear.</blockquote>
+
+<p>Um motor de julgamento interno chegou a existir em fase anterior do projeto e
+foi <b>removido</b> por decisão do organizador. Uma trava em teste recusa o
+retorno de qualquer rota de julgamento.</p>
+
+<h3 id="s223">2.2.3 O frontend não concede privilégio</h3>
+
+<p>Nenhuma decisão de autorização é tomada pela interface. A interface apenas
+deixa de exibir o que o usuário não pode usar; quem pode o quê é decidido
+exclusivamente no servidor, a cada requisição. Um formulário adulterado no
+navegador não amplia acesso.</p>
+
+<h2 id="s23">2.3 Princípios de projeto</h2>
+
+<figure>
+  <p class="rotulo"><b>Quadro 2</b> – Princípios que governam o sistema</p>
+  <table class="quadro">
+    <thead><tr><th>Princípio</th><th>Consequência prática</th></tr></thead>
+    <tbody>
+      <tr><td>Negar por padrão</td><td>Toda rota exige permissão nomeada; a ausência de regra nega.</td></tr>
+      <tr><td>Isolamento no banco</td><td><i>Row Level Security</i> do PostgreSQL, não filtro de aplicação.</td></tr>
+      <tr><td>Rastreabilidade</td><td>Todo ato crítico gera registro de auditoria com autor e contexto.</td></tr>
+      <tr><td>Determinismo esportivo</td><td>Mesma entrada, mesma classificação — sempre.</td></tr>
+      <tr><td>Empate não é resolvido à força</td><td>Esgotados os critérios, o empate permanece declarado.</td></tr>
+      <tr><td>Falhar cedo e em voz alta</td><td>Configuração incompleta impede a partida do sistema.</td></tr>
+    </tbody>
+  </table>
+  <p class="fonte">Fonte: elaborado pelo autor (2026) a partir do código-fonte do sistema.</p>
+</figure>
+
+<h1 id="s3">3 ARQUITETURA</h1>
+
+<h2 id="s31">3.1 Visão geral</h2>
+
+<p>O sistema é composto por três peças independentes e implantadas
+separadamente, conforme a Figura 1. O servidor de aplicação <b>não</b> serve
+arquivos estáticos: essa é decisão de arquitetura, e não omissão.</p>
+
+<figure>
+  <p class="rotulo"><b>Figura 1</b> – Topologia de implantação</p>
+<pre>   NAVEGADOR
+       |
+       | HTTPS
+       v
+  +-------------+        +----------------------+
+  |   mci-web   |        |      mci-api         |
+  |  (estático) | -----> |  Node.js / Express   |
+  |  bundle SPA |  HTTPS |  API REST /api/v1    |
+  +-------------+        +----------+-----------+
+                                    |
+                      +-------------+--------------+
+                      |                            |
+                      v                            v
+             +------------------+        +--------------------+
+             |  PostgreSQL 16   |        |  Armazenamento S3  |
+             |  RLS FORCADO     |        |  (Cloudflare R2)   |
+             +------------------+        +--------------------+</pre>
+  <p class="fonte">Fonte: elaborado pelo autor (2026).</p>
+</figure>
+
+<h2 id="s32">3.2 Componentes</h2>
+
+<figure>
+  <p class="rotulo"><b>Quadro 3</b> – Componentes e responsabilidades</p>
+  <table class="quadro">
+    <thead><tr><th>Componente</th><th>Responsabilidade</th></tr></thead>
+    <tbody>
+      <tr><td><span class="mono">mci-api</span></td><td>Regras de negócio, autorização, persistência, auditoria e integração com o armazenamento.</td></tr>
+      <tr><td><span class="mono">mci-web</span></td><td>Interface de página única (SPA). Consome exclusivamente a API; não possui banco nem segredo.</td></tr>
+      <tr><td><span class="mono">mci-db</span></td><td>PostgreSQL 16 com <i>Row Level Security</i> forçado. Fonte única da verdade.</td></tr>
+      <tr><td>Armazenamento de objetos</td><td>Documentos e mídia. Compatível com S3; em produção, Cloudflare R2.</td></tr>
+    </tbody>
+  </table>
+  <p class="fonte">Fonte: elaborado pelo autor (2026).</p>
+</figure>
+
+<h2 id="s33">3.3 Tecnologias</h2>
+
+<figure>
+  <p class="rotulo"><b>Quadro 4</b> – Pilha tecnológica</p>
+  <table class="quadro">
+    <thead><tr><th>Camada</th><th>Tecnologia</th><th>Observação</th></tr></thead>
+    <tbody>
+      <tr><td>Execução</td><td>Node.js 22</td><td>Versão de suporte estendido.</td></tr>
+      <tr><td>Servidor HTTP</td><td>Express 5</td><td>API REST versionada em <span class="mono">/api/v1</span>.</td></tr>
+      <tr><td>Persistência</td><td>Prisma ORM sobre PostgreSQL 16</td><td>Migrações versionadas e aditivas.</td></tr>
+      <tr><td>Validação</td><td>Zod</td><td>Campos desconhecidos são descartados antes de chegar à regra.</td></tr>
+      <tr><td>Autenticação</td><td>JWT + bcrypt</td><td>Senha nunca armazenada em texto claro.</td></tr>
+      <tr><td>Proteções HTTP</td><td>Helmet, CORS restrito, limitador de requisições</td><td>Origem curinga é recusada na partida.</td></tr>
+      <tr><td>Interface</td><td>React 19 + Vite</td><td>Publicada como sítio estático.</td></tr>
+      <tr><td>Testes</td><td>Node Test Runner e Vitest</td><td>30 arquivos de teste no repositório.</td></tr>
+    </tbody>
+  </table>
+  <p class="fonte">Fonte: elaborado pelo autor (2026) a partir de <span class="mono">package.json</span> e do código-fonte.</p>
+</figure>
+
+<h2 id="s34">3.4 Modelo de dados</h2>
+
+<p>O esquema comporta 72 entidades. As centrais estão no Quadro 5; as demais
+são tabelas de apoio, de vínculo ou de registro histórico.</p>
+
+<figure>
+  <p class="rotulo"><b>Quadro 5</b> – Entidades centrais do domínio</p>
+  <table class="quadro">
+    <thead><tr><th>Entidade</th><th>Papel no domínio</th></tr></thead>
+    <tbody>
+      <tr><td><span class="mono">Organization</span></td><td>Federação ou entidade promotora. Raiz do isolamento de dados.</td></tr>
+      <tr><td><span class="mono">User</span></td><td>Conta de acesso. Pertence à plataforma, não a uma organização.</td></tr>
+      <tr><td><span class="mono">Athlete</span></td><td>Ficha esportiva do competidor.</td></tr>
+      <tr><td><span class="mono">AthleteIdentity</span></td><td>CPF, isolado em tabela própria com proteção de linha.</td></tr>
+      <tr><td><span class="mono">Event</span></td><td>Etapa do campeonato, com ciclo de vida próprio.</td></tr>
+      <tr><td><span class="mono">Registration</span></td><td>Inscrição do atleta no evento.</td></tr>
+      <tr><td><span class="mono">Result</span> / <span class="mono">ResultEntry</span></td><td>Resultado oficial recebido e suas colocações.</td></tr>
+      <tr><td><span class="mono">Ranking</span></td><td>Agregado de pontuação por temporada e recorte.</td></tr>
+      <tr><td><span class="mono">ClassCatalog</span></td><td>Catálogo de classes e sua elegibilidade ao Super Overall.</td></tr>
+      <tr><td><span class="mono">Team</span> / <span class="mono">Company</span></td><td>Equipe e empresa competidora.</td></tr>
+      <tr><td><span class="mono">AuditLog</span></td><td>Trilha de auditoria de atos críticos.</td></tr>
+    </tbody>
+  </table>
+  <p class="fonte">Fonte: elaborado pelo autor (2026) a partir de <span class="mono">prisma/schema.prisma</span>.</p>
+</figure>
+
+<div class="nota">
+  <span class="titulo">Observação</span>
+  <p>As migrações do sistema são <b>aditivas</b>: nenhuma delas remove coluna ou
+  tabela. Reverter uma versão é apontar a implantação para o commit anterior —
+  o banco permanece compatível.</p>
+</div>
+
+<h1 id="s4">4 PAPÉIS E CONTROLE DE ACESSO</h1>
+
+<h2 id="s41">4.1 Modelo de autorização</h2>
+
+<p>A autorização é <b>granular por permissão nomeada</b>, e não por hierarquia
+de cargos. São 66 permissões e 21 papéis. Rotas e serviços perguntam sempre por
+uma permissão — nunca por um papel —, e a matriz que liga papéis a permissões é
+a única fonte de verdade.</p>
+
+<p>Não existe herança por nível: um juiz não é um administrador reduzido, é
+outro conjunto de permissões. A permissão efetiva de um usuário é a união do
+papel global com os papéis que ele detém em cada organização.</p>
+
+<h2 id="s42">4.2 Papéis disponíveis</h2>
+
+<figure>
+  <p class="rotulo"><b>Quadro 6</b> – Papéis do sistema por natureza</p>
+  <table class="quadro">
+    <thead><tr><th>Natureza</th><th>Papéis</th></tr></thead>
+    <tbody>
+      <tr><td>Administração da plataforma</td><td><span class="mono">SUPER_ADMIN</span>, <span class="mono">ADMIN</span></td></tr>
+      <tr><td>Direção de evento</td><td><span class="mono">EVENT_DIRECTOR</span>, <span class="mono">EVENT_COORDINATOR</span></td></tr>
+      <tr><td>Corpo técnico esportivo</td><td><span class="mono">JUDGE_COORDINATOR</span>, <span class="mono">JUDGE</span></td></tr>
+      <tr><td>Operação de evento</td><td><span class="mono">STAFF</span>, <span class="mono">REGISTRATION_OPERATOR</span>, <span class="mono">CHECKIN_OPERATOR</span>, <span class="mono">WEIGHIN_OPERATOR</span>, <span class="mono">RESULTS_OPERATOR</span>, <span class="mono">RANKING_MANAGER</span></td></tr>
+      <tr><td>Comunidade</td><td><span class="mono">SOCIAL_ADMIN</span>, <span class="mono">MODERATOR</span></td></tr>
+      <tr><td>Participantes</td><td><span class="mono">ATHLETE</span>, <span class="mono">COACH</span>, <span class="mono">GYM</span>, <span class="mono">TEAM</span>, <span class="mono">BRAND</span>, <span class="mono">SPONSOR</span>, <span class="mono">MEDIA</span></td></tr>
+    </tbody>
+  </table>
+  <p class="fonte">Fonte: elaborado pelo autor (2026) a partir de <span class="mono">src/utils/roles.js</span>.</p>
+</figure>
+
+<h2 id="s43">4.3 Cadastro aberto e papéis privilegiados</h2>
+
+<p>Os sete papéis de participante — atleta, treinador, academia, equipe, marca,
+patrocinador e imprensa — são de <b>cadastro aberto</b>: qualquer pessoa pode
+criar a própria conta com um deles. Eles definem <b>como o usuário aparece</b>
+na plataforma, e não o seu nível de acesso.</p>
+
+<p>Os catorze papéis restantes são <b>privilegiados</b> e nunca podem ser
+obtidos por autocadastro. A recusa é aplicada em duas camadas independentes: o
+esquema de validação da rota de registro aceita apenas os sete papéis abertos,
+e o serviço de autenticação reverifica a mesma condição antes de gravar.</p>
+
+<div class="nota atencao">
+  <span class="titulo">Advertência</span>
+  <p>Nenhum usuário se torna administrador escolhendo uma opção em formulário.
+  Papel privilegiado é <b>concedido</b> por quem já administra, com registro de
+  autoria em auditoria. O procedimento consta da seção 9.</p>
+</div>
+
+<h2 id="s44">4.4 Separação entre organizações</h2>
+
+<p>Quem não é de alcance transversal — isto é, quem não é
+<span class="mono">SUPER_ADMIN</span> nem <span class="mono">ADMIN</span> —
+enxerga apenas as organizações de que participa. A regra vale inclusive para a
+listagem de usuários: um diretor de federação vê quem divide alguma
+organização consigo, e mais ninguém.</p>
+
+<h1 id="s5">5 MÓDULOS FUNCIONAIS</h1>
+
+<p>A API expõe 140 rotas, distribuídas nos módulos descritos a seguir. O
+Apêndice A traz o índice completo por prefixo.</p>
+
+<h2 id="s51">5.1 Organizações e filiações</h2>
+
+<p>A organização é a raiz do isolamento: evento, atleta, resultado e ranking
+pertencem sempre a uma. A filiação registra o vínculo formal do atleta ou da
+entidade com uma federação, entidade, associação ou equipe, e é o que habilita
+a participação oficial.</p>
+
+<h2 id="s52">5.2 Atletas</h2>
+
+<p>A ficha do atleta reúne dados esportivos, situação profissional
+(<span class="mono">NONE</span>, <span class="mono">ACTIVE</span>,
+<span class="mono">INACTIVE</span>, <span class="mono">SUSPENDED</span>,
+<span class="mono">RETIRED</span>), vínculos e histórico competitivo.</p>
+
+<p>O <b>CPF não fica na ficha</b>. Ele reside em tabela separada, protegida por
+política de linha, e sua consulta é ato auditado. Em nenhuma hipótese o CPF
+aparece em busca pública ou em listagem aberta.</p>
+
+<h2 id="s53">5.3 Eventos, categorias e classes</h2>
+
+<p>O evento percorre um ciclo de vida explícito, apresentado no Quadro 7. Cada
+transição é registrada em auditoria.</p>
+
+<figure>
+  <p class="rotulo"><b>Quadro 7</b> – Ciclo de vida do evento</p>
+  <table class="quadro">
+    <thead><tr><th class="n">#</th><th>Situação</th><th>Significado</th></tr></thead>
+    <tbody>
+      <tr><td class="n">1</td><td><span class="mono">DRAFT</span></td><td>Rascunho; invisível ao público.</td></tr>
+      <tr><td class="n">2</td><td><span class="mono">PLANNED</span></td><td>Planejado e divulgado.</td></tr>
+      <tr><td class="n">3</td><td><span class="mono">REGISTRATIONS_OPEN</span></td><td>Inscrições abertas.</td></tr>
+      <tr><td class="n">4</td><td><span class="mono">REGISTRATIONS_CLOSED</span></td><td>Inscrições encerradas.</td></tr>
+      <tr><td class="n">5</td><td><span class="mono">IN_OPERATION</span></td><td>Dia do evento: check-in, pesagem, credenciais.</td></tr>
+      <tr><td class="n">6</td><td><span class="mono">IN_JUDGING</span></td><td>Julgamento em curso — conduzido externamente.</td></tr>
+      <tr><td class="n">7</td><td><span class="mono">RESULTS_IN_REVIEW</span></td><td>Resultado recebido, em conferência, ainda não público.</td></tr>
+      <tr><td class="n">8</td><td><span class="mono">RESULTS_PUBLISHED</span></td><td>Resultado publicado; alimenta o ranking.</td></tr>
+      <tr><td class="n">9</td><td><span class="mono">CLOSED</span></td><td>Evento encerrado.</td></tr>
+      <tr><td class="n">—</td><td><span class="mono">CANCELLED</span></td><td>Evento cancelado.</td></tr>
+    </tbody>
+  </table>
+  <p class="fonte">Fonte: elaborado pelo autor (2026) a partir do enumerado <span class="mono">EventStatus</span>.</p>
+</figure>
+
+<p>O catálogo de classes é configurável pela organização, sem alteração de
+código: criar, editar, ativar, desativar e ordenar classes é operação de
+administração. A elegibilidade ao Super Overall é <b>atributo do dado</b>, e
+não uma comparação de texto escondida no motor de apuração.</p>
+
+<h2 id="s54">5.4 Inscrições</h2>
+
+<p>A inscrição vincula atleta, evento e categoria, e assume uma entre quatro
+situações: <span class="mono">PENDING</span>,
+<span class="mono">CONFIRMED</span>, <span class="mono">CANCELLED</span> e
+<span class="mono">REJECTED</span>. Não há etapa de pagamento em nenhum ponto
+do fluxo — ver a seção 2.2.1.</p>
+
+<h2 id="s55">5.5 Operação do dia do evento</h2>
+
+<p>Quatro módulos operam durante a competição, cada um com permissão própria,
+de modo que o acesso possa ser entregue a equipes distintas.</p>
+
+<figure>
+  <p class="rotulo"><b>Quadro 8</b> – Módulos de operação e respectivas permissões</p>
+  <table class="quadro">
+    <thead><tr><th>Módulo</th><th>Função</th><th>Permissão</th></tr></thead>
+    <tbody>
+      <tr><td>Check-in</td><td>Confirma a presença do atleta inscrito.</td><td><span class="mono">checkin.operate</span></td></tr>
+      <tr><td>Pesagem</td><td>Registra peso e altura e confronta com a categoria.</td><td><span class="mono">weighin.operate</span></td></tr>
+      <tr><td>Credenciais</td><td>Emite e valida credenciais por tipo de portador.</td><td><span class="mono">credentials.manage</span>, <span class="mono">credentials.scan</span></td></tr>
+      <tr><td>Palco e baterias</td><td>Ordena a entrada dos atletas por bateria.</td><td><span class="mono">stage.manage</span></td></tr>
+    </tbody>
+  </table>
+  <p class="fonte">Fonte: elaborado pelo autor (2026) a partir de <span class="mono">src/utils/permissions.js</span>.</p>
+</figure>
+
+<h2 id="s56">5.6 Recepção e publicação de resultados</h2>
+
+<p>O resultado oficial <b>entra</b> na plataforma por uma porta de recepção —
+não é produzido por ela. Recebido, o resultado permanece em rascunho até ser
+publicado, e essa separação é levada a sério: um visitante ou participante
+comum não enxerga resultado não publicado, ainda que autenticado. Apenas quem
+detém <span class="mono">results.read_unpublished</span> alcança o rascunho, e
+somente na própria organização.</p>
+
+<p>A publicação é ato distinto da recepção, com permissão própria
+(<span class="mono">results.publish</span>) e registro de auditoria. Correções
+posteriores exigem <span class="mono">results.override</span> e também são
+auditadas.</p>
+
+<h2 id="s57">5.7 Ranking</h2>
+
+<p>O sistema mantém rankings agregados por temporada, com recortes por atleta,
+categoria, classe, evento, divisão, equipe e empresa, além do Super Overall
+anual. As regras estão na seção 6.</p>
+
+<h2 id="s58">5.8 Importação MuscleWar</h2>
+
+<p>Importação de resultados em lote a partir do sistema externo. O fluxo é
+deliberadamente de três tempos: <b>importar</b>, <b>revisar</b> e
+<b>aplicar</b>, cada um com permissão própria
+(<span class="mono">musclewar.import</span>,
+<span class="mono">musclewar.review</span>,
+<span class="mono">musclewar.apply</span>).</p>
+
+<p>Nada entra no ranking sem passar pela revisão. A identificação do atleta usa
+CPF e filiação; a operação é idempotente, de modo que reenviar o mesmo lote não
+duplica pontuação. Cada ponto guarda quem importou, quando e de qual lote
+veio.</p>
+
+<h2 id="s59">5.9 MCI Social, Messenger e comunidades</h2>
+
+<p>Camada de relacionamento entre os participantes: publicações, comentários,
+reações, <i>stories</i>, mensagens diretas e comunidades temáticas. É o maior
+módulo em número de rotas.</p>
+
+<p>A separação de dados aqui é tão rigorosa quanto no restante: conversa é
+visível apenas a seus membros, e a política é aplicada no banco.</p>
+
+<h2 id="s510">5.10 Documentos e mídia</h2>
+
+<p>Documentos do atleta — identidade, atestado médico, termo, comprovante de
+filiação — e mídia das publicações são guardados no armazenamento de objetos,
+nunca no disco do servidor de aplicação. Em ambiente de produção, disco local
+significa perder todo arquivo enviado no primeiro reinício.</p>
+
+<h2 id="s511">5.11 Busca e notificações</h2>
+
+<p>A busca tem duas superfícies: a pública, restrita a dados divulgáveis, e a
+sensível (<span class="mono">search.sensitive</span>), acessível a operadores.
+<b>CPF nunca aparece em busca pública</b> — regra verificada por teste.</p>
+
+<h1 id="s6">6 REGULAMENTO ESPORTIVO APLICADO</h1>
+
+<p>Esta seção registra as regras <b>homologadas</b> pelo organizador do
+campeonato e implementadas no sistema. Nada aqui é provisório.</p>
+
+<h2 id="s61">6.1 Classes e elegibilidade</h2>
+
+<figure>
+  <p class="rotulo"><b>Quadro 9</b> – Classes e elegibilidade ao Super Overall</p>
+  <table class="quadro">
+    <thead><tr><th>Classe</th><th class="n">Pontua no campeonato</th><th class="n">Alimenta o Super Overall</th></tr></thead>
+    <tbody>
+      <tr><td>ESTREANTE</td><td class="n">Sim</td><td class="n">Não</td></tr>
+      <tr><td>NOVICE</td><td class="n">Sim</td><td class="n">Não</td></tr>
+      <tr><td><b>OPEN</b></td><td class="n">Sim</td><td class="n"><b>Sim</b></td></tr>
+      <tr><td>MASTER</td><td class="n">Sim</td><td class="n">Não</td></tr>
+    </tbody>
+  </table>
+  <p class="fonte">Fonte: regulamento homologado do campeonato, conforme <span class="mono">docs/phase-11.4-regulamento-ranking.md</span>.</p>
+</figure>
+
+<p>A classe <span class="mono">JUNIOR</span> não integra a configuração oficial
+vigente.</p>
+
+<h2 id="s62">6.2 Tabela de pontuação</h2>
+
+<figure>
+  <p class="rotulo"><b>Tabela 1</b> – Pontos por colocação</p>
+  <table class="tabela">
+    <thead><tr><th>Colocação</th><th style="text-align:right">Pontos</th></tr></thead>
+    <tbody>
+      <tr><td>1º</td><td style="text-align:right">5</td></tr>
+      <tr><td>2º</td><td style="text-align:right">4</td></tr>
+      <tr><td>3º</td><td style="text-align:right">3</td></tr>
+      <tr><td>4º</td><td style="text-align:right">2</td></tr>
+      <tr><td>5º</td><td style="text-align:right">1</td></tr>
+      <tr><td>6º em diante</td><td style="text-align:right">0</td></tr>
+    </tbody>
+  </table>
+  <p class="fonte">Fonte: regulamento homologado do campeonato (2026).</p>
+</figure>
+
+<p>O zero do 6º lugar em diante é <b>valor definido</b>, e não lacuna à espera
+de tabela estendida. A tabela vive no banco, por temporada, e é versionável;
+não há tabela de pontos escrita na interface.</p>
+
+<h2 id="s63">6.3 Título Overall</h2>
+
+<p>O campeão Overall recebe <b>10 pontos adicionais</b>, somados aos da
+colocação. Um primeiro lugar que também seja campeão Overall totaliza, portanto,
+15 pontos.</p>
+
+<p>Quem é o campeão Overall é <b>fato declarado</b> pelo operador ou pela
+importação. O sistema não deduz o campeão por algoritmo próprio: a determinação
+pertence ao regulamento esportivo; ao sistema pertence a pontuação.</p>
+
+<h2 id="s64">6.4 Super Overall anual</h2>
+
+<p>Todas as classes pontuam no campeonato; somente a OPEN alimenta o Super
+Overall anual. O bônus de Overall não possui elegibilidade própria — segue a da
+participação que o originou.</p>
+
+<figure>
+  <p class="rotulo"><b>Quadro 10</b> – Efeito da elegibilidade sobre as duas métricas</p>
+  <table class="quadro">
+    <thead><tr><th>Caso</th><th class="n">Campeonato</th><th class="n">Super Overall</th></tr></thead>
+    <tbody>
+      <tr><td>OPEN, 1º lugar</td><td class="n">5</td><td class="n">5</td></tr>
+      <tr><td>OPEN, 1º lugar e Overall</td><td class="n">15</td><td class="n">15</td></tr>
+      <tr><td>NOVICE, 1º lugar</td><td class="n">5</td><td class="n">0</td></tr>
+      <tr><td>NOVICE, 1º lugar e Overall</td><td class="n">15</td><td class="n">0</td></tr>
+      <tr><td>ESTREANTE, 1º lugar e Overall</td><td class="n">15</td><td class="n">0</td></tr>
+      <tr><td>MASTER, 1º lugar e Overall</td><td class="n">15</td><td class="n">0</td></tr>
+    </tbody>
+  </table>
+  <p class="fonte">Fonte: regulamento homologado do campeonato (2026).</p>
+</figure>
+
+<p>As duas métricas são armazenadas em colunas distintas e nunca se misturam.
+Usar a métrica anual no ranking do campeonato apagaria Estreante, Novice e
+Master do pódio; usar a do campeonato no anual traria de volta, por dentro, as
+classes que a regra exclui.</p>
+
+<h2 id="s65">6.5 Critério de desempate</h2>
+
+<p>Aplicado na ordem abaixo; o primeiro critério que separar encerra a
+questão:</p>
+
+<ol>
+  <li>maior número de títulos Overall;</li>
+  <li>maior número de primeiros lugares;</li>
+  <li>maior número de segundos lugares;</li>
+  <li>maior número de terceiros lugares;</li>
+  <li>empate declarado como <span class="mono">TIE_UNRESOLVED</span>.</li>
+</ol>
+
+<p>Quarto e quinto lugares <b>pontuam</b> (2 e 1) e <b>não desempatam</b>:
+pontuação e desempate são conceitos distintos, e os contadores de 4º e 5º
+existem apenas para auditoria.</p>
+
+<div class="nota atencao">
+  <span class="titulo">Regra inegociável</span>
+  <p>Esgotada a hierarquia, o empate <b>não é quebrado</b>. Não se usa
+  identificador, nome, CPF, data, ordem de inscrição, ordem alfabética nem
+  sorteio. Os empatados permanecem sem colocação, marcados como empate não
+  resolvido, e a decisão retorna a quem tem competência para tomá-la.</p>
+</div>
+
+<h2 id="s66">6.6 Equipes e empresas</h2>
+
+<p>Aplicam-se a mesma tabela, o mesmo bônus, o mesmo desempate e a mesma
+elegibilidade — sem fórmula, peso, multiplicador ou critério próprio. A
+hierarquia é: empresa, equipe, atleta.</p>
+
+<p>Um atleta possui <b>vínculo ativo único</b> com equipe ou empresa. A
+tentativa de criar um segundo vínculo ativo é recusada, inclusive sob requisições
+simultâneas — condição verificada por teste de concorrência.</p>
+
+<h1 id="s7">7 FLUXOS OPERACIONAIS</h1>
+
+<h2 id="s71">7.1 Ciclo completo de uma etapa</h2>
+
+<p>A Figura 2 apresenta a sequência de ponta a ponta, do cadastro do evento à
+atualização do ranking.</p>
+
+<figure>
+  <p class="rotulo"><b>Figura 2</b> – Fluxo de ponta a ponta de uma etapa</p>
+<pre>  1. CRIAR EVENTO          direção do evento define etapa, categorias e classes
+            |
+  2. ABRIR INSCRICOES      atletas e treinadores inscrevem
+            |
+  3. FECHAR INSCRICOES     lista de participantes consolidada
+            |
+  4. DIA DO EVENTO         check-in -> pesagem -> credencial -> baterias
+            |
+  5. JULGAMENTO            EXTERNO ao sistema
+            |
+  6. RECEBER RESULTADO     colocacao e pontuacao oficiais entram na plataforma
+            |
+  7. CONFERIR              rascunho visivel apenas a quem tem a permissao
+            |
+  8. PUBLICAR              ato proprio, auditado
+            |
+  9. RANKING               pontos agregados por temporada e recorte</pre>
+  <p class="fonte">Fonte: elaborado pelo autor (2026).</p>
+</figure>
+
+<h2 id="s72">7.2 Procedimento de dia de evento</h2>
+
+<p>No dia da competição, a ordem das operações é a seguinte:</p>
+
+<ol>
+  <li>colocar o evento na situação <span class="mono">IN_OPERATION</span>;</li>
+  <li>realizar o <b>check-in</b> dos atletas inscritos e confirmados;</li>
+  <li>realizar a <b>pesagem</b>, conferindo o enquadramento na categoria;</li>
+  <li>emitir as <b>credenciais</b> por tipo de portador;</li>
+  <li>organizar as <b>baterias</b> e a ordem de entrada em palco;</li>
+  <li>transferir o evento para <span class="mono">IN_JUDGING</span>.</li>
+</ol>
+
+<h2 id="s73">7.3 Procedimento de resultado</h2>
+
+<ol>
+  <li>receber o resultado oficial, por lançamento direto ou por importação;</li>
+  <li>conferir o rascunho, inclusive a origem de cada pontuação;</li>
+  <li>tratar eventuais divergências marcadas como conflito (seção 7.4);</li>
+  <li>publicar, o que torna o resultado visível e alimenta o ranking;</li>
+  <li>encerrar o evento.</li>
+</ol>
+
+<h2 id="s74">7.4 Tratamento de divergência de pontuação</h2>
+
+<p>Quando a pontuação recebida diverge daquela que a regra da temporada calcula,
+o sistema <b>não escolhe em silêncio</b>: registra um conflito auditável, com os
+dois números e a diferença à vista, para decisão humana.</p>
+
+<div class="nota">
+  <span class="titulo">Observação</span>
+  <p>Um sexto lugar valendo zero <b>não</b> é conflito — é a regra. Conflito é
+  divergência entre o valor recebido e o valor que a regra produz para a mesma
+  colocação.</p>
+</div>
+
+<h1 id="s8">8 SEGURANÇA E PROTEÇÃO DE DADOS</h1>
+
+<h2 id="s81">8.1 Autenticação</h2>
+
+<p>O acesso usa credencial de e-mail e senha, com <i>hash</i> bcrypt e fator de
+custo mínimo de 10 em produção. A sessão é um <i>token</i> JWT assinado, cujo
+segredo precisa ter ao menos 32 caracteres e não pode ser valor de exemplo — as
+duas condições são verificadas na partida da aplicação. Trocar o segredo encerra
+todas as sessões, o que é efeito esperado.</p>
+
+<h2 id="s82">8.2 Autorização</h2>
+
+<p>Toda rota protegida declara a permissão exigida. A verificação acontece no
+servidor, em duas camadas: no roteador, antes de chegar à regra de negócio, e
+dentro do serviço, novamente. A dupla verificação existe para que uma rota
+registrada sem proteção não abra caminho silencioso.</p>
+
+<h2 id="s83">8.3 Isolamento no banco — <i>Row Level Security</i></h2>
+
+<p>Vinte e uma tabelas operam com <span class="mono">FORCE ROW LEVEL
+SECURITY</span> do PostgreSQL. A palavra <span class="mono">FORCE</span> é
+essencial: sem ela, o dono da tabela ignora as próprias políticas.</p>
+
+<p>Cada requisição executa em um contexto de ator propagado até a conexão do
+banco, de modo que a política de linha sabe quem está perguntando. A aplicação
+<b>recusa subir</b> em duas hipóteses: se a conexão for de superusuário, ou se
+qualquer tabela protegida estiver sem <span class="mono">FORCE</span>. Não há
+modo degradado — o sistema falha na partida e diz qual é o problema.</p>
+
+<h2 id="s84">8.4 Dado pessoal sensível</h2>
+
+<p>O CPF é tratado como dado de acesso restrito: reside em tabela separada, com
+política própria, e sua consulta gera registro de auditoria específico. Não
+aparece em busca pública, em listagem aberta nem em resposta de rota pública.</p>
+
+<h2 id="s85">8.5 Auditoria</h2>
+
+<p>Atos críticos geram registro em trilha própria, com autor, e-mail do autor,
+entidade afetada, identificador, organização, dados de contexto e endereço de
+origem. A trilha inclui, entre outros, autenticação, criação e alteração de
+atleta, consulta de CPF, inscrição e cancelamento, check-in, pesagem, emissão e
+leitura de credencial, transições de evento, recepção, publicação e correção de
+resultado, atualização de ranking, importação MuscleWar, vínculo e
+transferência de equipe, mudança de papel e bootstrap administrativo.</p>
+
+<p>A própria trilha é protegida por política de linha: sua leitura exige
+permissão de administração ou de operação na organização.</p>
+
+<div class="nota">
+  <span class="titulo">Observação</span>
+  <p>A gravação da auditoria é efeito colateral deliberadamente tolerante a
+  falha: uma falha ao auditar não derruba a operação auditada, mas é registrada
+  no log da aplicação. Procedimentos críticos, como a concessão de papel
+  privilegiado, devem ser <b>conferidos na trilha</b> após a execução, e não
+  presumidos.</p>
+</div>
+
+<h2 id="s86">8.6 Proteções de superfície</h2>
+
+<figure>
+  <p class="rotulo"><b>Quadro 11</b> – Controles de superfície HTTP</p>
+  <table class="quadro">
+    <thead><tr><th>Controle</th><th>Comportamento</th></tr></thead>
+    <tbody>
+      <tr><td>Cabeçalhos de segurança</td><td>Aplicados por Helmet em todas as respostas.</td></tr>
+      <tr><td>CORS</td><td>Lista explícita de origens. Curinga é recusado na partida.</td></tr>
+      <tr><td>Limite de requisições</td><td>Ativo em produção, sensível ao número de saltos de proxy configurado.</td></tr>
+      <tr><td>Validação de entrada</td><td>Campos desconhecidos são descartados antes de alcançar a regra de negócio.</td></tr>
+      <tr><td>Erros internos</td><td>Resposta 5xx nunca expõe código de banco ou detalhe interno; o diagnóstico real vai para o log.</td></tr>
+    </tbody>
+  </table>
+  <p class="fonte">Fonte: elaborado pelo autor (2026) a partir do código-fonte do sistema.</p>
+</figure>
+
+<h1 id="s9">9 ADMINISTRAÇÃO DA PLATAFORMA</h1>
+
+<h2 id="s91">9.1 Primeiro administrador</h2>
+
+<p>Como o cadastro aberto recusa papel privilegiado — e deve recusar —, uma
+instalação nova não teria como dar o primeiro passo. Para isso existe uma
+ferramenta de linha de comando, executada no ambiente da própria aplicação:</p>
+
+<pre>read -rsp 'Senha do administrador: ' ADMIN_PASSWORD; echo
+export ADMIN_PASSWORD
+node scripts/criar-admin.js "Nome Completo" email@dominio
+unset ADMIN_PASSWORD</pre>
+
+<p>A senha não é aceita como argumento de linha de comando: argumento aparece na
+listagem de processos e fica no histórico do interpretador de comandos. A
+ferramenta registra o ato na auditoria como
+<span class="mono">ADMIN_BOOTSTRAP</span>.</p>
+
+<p>Se o endereço informado já pertencer a um usuário, a conta existente é
+<b>promovida no lugar</b>, preservando identificador, perfil e histórico. Nesse
+caso, a senha da conta também é redefinida para a informada no comando.</p>
+
+<div class="nota atencao">
+  <span class="titulo">Advertência</span>
+  <p>A ferramenta cria <b>apenas o primeiro</b> administrador: havendo qualquer
+  <span class="mono">SUPER_ADMIN</span> na instalação, ela se recusa a executar e
+  nada é gravado. Há, portanto, uma única tentativa — confira o endereço de
+  e-mail antes de executar. Endereço divergente resulta em conta nova, e não em
+  promoção.</p>
+</div>
+
+<h2 id="s92">9.2 Concessão de papéis</h2>
+
+<p>Estabelecido o primeiro administrador, toda concessão posterior passa pela
+administração de contas, sujeita a três regras cumulativas:</p>
+
+<ul class="aliena">
+  <li>é exigida a permissão <span class="mono">users.manage</span>, detida por
+  <span class="mono">SUPER_ADMIN</span> e <span class="mono">ADMIN</span>;</li>
+  <li>ninguém altera o próprio papel ou a própria situação;</li>
+  <li>somente <span class="mono">SUPER_ADMIN</span> concede papel privilegiado
+  — um <span class="mono">ADMIN</span> administra contas, mas não fabrica
+  pares.</li>
+</ul>
+
+<p>A operação gera registro <span class="mono">ROLE_CHANGE</span>, com o papel
+anterior e o novo lado a lado, e o autor da concessão identificado.</p>
+
+<h2 id="s93">9.3 Situação das contas</h2>
+
+<p>Uma conta assume uma entre três situações:
+<span class="mono">ACTIVE</span>, <span class="mono">SUSPENDED</span> e
+<span class="mono">DISABLED</span>. A alteração é auditada, e também aqui vale a
+proibição de alterar a própria situação.</p>
+
+<h1 id="s10">10 IMPLANTAÇÃO E OPERAÇÃO</h1>
+
+<h2 id="s101">10.1 Requisitos</h2>
+
+<ul class="aliena">
+  <li>PostgreSQL 16, acessado por papel <b>não superusuário</b>;</li>
+  <li>armazenamento de objetos compatível com S3, com credencial restrita a um
+  único <i>bucket</i>;</li>
+  <li>ambiente de execução Node.js 22, ou a imagem de contêiner do
+  repositório;</li>
+  <li>host estático para o pacote da interface.</li>
+</ul>
+
+<h2 id="s102">10.2 Variáveis de ambiente</h2>
+
+<figure class="larga">
+  <p class="rotulo"><b>Quadro 12</b> – Variáveis exigidas em produção</p>
+  <table class="quadro">
+    <thead><tr><th>Variável</th><th>Valor e observação</th></tr></thead>
+    <tbody>
+      <tr><td><span class="mono">NODE_ENV</span></td><td><span class="mono">production</span>.</td></tr>
+      <tr><td><span class="mono">DATABASE_URL</span></td><td>Conexão do banco. Papel sem privilégio de superusuário.</td></tr>
+      <tr><td><span class="mono">JWT_SECRET</span></td><td>No mínimo 32 caracteres; valor de exemplo é recusado.</td></tr>
+      <tr><td><span class="mono">BCRYPT_ROUNDS</span></td><td>Mínimo 10 em produção.</td></tr>
+      <tr><td><span class="mono">CORS_ORIGINS</span></td><td>Origens completas, com esquema, sem barra final. Curinga é recusado.</td></tr>
+      <tr><td><span class="mono">RATE_LIMIT_ENABLED</span></td><td><span class="mono">true</span> em produção.</td></tr>
+      <tr><td><span class="mono">TRUST_PROXY_HOPS</span></td><td>Número de proxies à frente da aplicação.</td></tr>
+      <tr><td><span class="mono">STORAGE_DRIVER</span></td><td><span class="mono">s3</span>.</td></tr>
+      <tr><td><span class="mono">S3_ENDPOINT</span></td><td>Somente o host da conta, sem o <i>bucket</i> no caminho.</td></tr>
+      <tr><td><span class="mono">S3_BUCKET</span></td><td>Nome do <i>bucket</i>.</td></tr>
+      <tr><td><span class="mono">S3_ACCESS_KEY_ID</span></td><td>Chave de acesso do token de armazenamento.</td></tr>
+      <tr><td><span class="mono">S3_SECRET_ACCESS_KEY</span></td><td>Segredo correspondente. Nunca versionado.</td></tr>
+      <tr><td><span class="mono">S3_REGION</span></td><td><span class="mono">auto</span> no Cloudflare R2.</td></tr>
+      <tr><td><span class="mono">S3_FORCE_PATH_STYLE</span></td><td><span class="mono">true</span> no Cloudflare R2.</td></tr>
+      <tr><td><span class="mono">DEFAULT_TIMEZONE</span></td><td><span class="mono">America/Sao_Paulo</span>.</td></tr>
+    </tbody>
+  </table>
+  <p class="fonte">Fonte: elaborado pelo autor (2026) a partir de <span class="mono">src/config/environment.js</span>.</p>
+</figure>
+
+<div class="nota atencao">
+  <span class="titulo">Advertência</span>
+  <p>Segredos não são versionados, não são impressos em log e não são
+  transmitidos por conversa. A chave de serviço do banco jamais deve alcançar a
+  interface.</p>
+</div>
+
+<h2 id="s103">10.3 Migrações</h2>
+
+<p>Em produção, e somente:</p>
+
+<pre>npx prisma migrate deploy</pre>
+
+<p>Nunca <span class="mono">migrate dev</span> e nunca
+<span class="mono">db push</span>: ambos podem reescrever o esquema sem
+registro.</p>
+
+<h2 id="s104">10.4 Sondas de saúde</h2>
+
+<figure>
+  <p class="rotulo"><b>Quadro 13</b> – Sondas expostas pela aplicação</p>
+  <table class="quadro">
+    <thead><tr><th>Rota</th><th>Finalidade</th><th>Resposta esperada</th></tr></thead>
+    <tbody>
+      <tr><td><span class="mono">/health</span></td><td>Processo vivo</td><td>200</td></tr>
+      <tr><td><span class="mono">/ready</span></td><td>Apto a receber tráfego</td><td>Banco, armazenamento e RLS verdadeiros</td></tr>
+    </tbody>
+  </table>
+  <p class="fonte">Fonte: elaborado pelo autor (2026).</p>
+</figure>
+
+<p>A sonda <span class="mono">/ready</span> é pública e, por isso, explica a
+própria reprovação sem expor conteúdo sensível: informa o código de situação e o
+código do serviço de armazenamento, nunca o corpo bruto da resposta de erro — o
+XML de erro de credencial em S3 carrega a chave de acesso por inteiro.</p>
+
+<h2 id="s105">10.5 Cópia de segurança</h2>
+
+<p>O repositório traz rotina própria de cópia e restauração, com ensaios
+cobertos pela suíte de testes. Ela exige um papel de banco com
+<span class="mono">BYPASSRLS</span> e um destino de armazenamento, e deve ser
+configurada <b>antes</b> do primeiro evento real.</p>
+
+<h1 id="s11">11 DIAGNÓSTICO DE PROBLEMAS</h1>
+
+<h2 id="s111">11.1 Roteiro rápido</h2>
+
+<figure class="larga">
+  <p class="rotulo"><b>Quadro 14</b> – Sintomas, causas prováveis e conduta</p>
+  <table class="quadro">
+    <thead><tr><th>Sintoma</th><th>Causa provável</th><th>Conduta</th></tr></thead>
+    <tbody>
+      <tr><td>A aplicação não sobe e acusa RLS</td><td>Conexão de superusuário, ou tabela sem <span class="mono">FORCE</span></td><td>Usar papel comum; reaplicar as migrações</td></tr>
+      <tr><td><span class="mono">/ready</span> com armazenamento falso</td><td>Credencial, permissão ou <i>bucket</i> incorretos</td><td>Executar o diagnóstico de armazenamento (11.2)</td></tr>
+      <tr><td>Interface acusa bloqueio de origem</td><td><span class="mono">CORS_ORIGINS</span> divergente da URL real</td><td>Corrigir a origem, com esquema e sem barra final</td></tr>
+      <tr><td>Interface não encontra a API</td><td><span class="mono">VITE_API_URL</span> lida em tempo de construção</td><td>Reconstruir a interface após alterar a variável</td></tr>
+      <tr><td>Recarregar uma rota devolve 404</td><td>Ausência de reescrita para <span class="mono">index.html</span></td><td>Configurar a reescrita no host estático</td></tr>
+      <tr><td>Primeira requisição muito lenta</td><td>Hibernação de plano gratuito</td><td>Migrar para plano pago antes da competição</td></tr>
+      <tr><td>Empate sem colocação no ranking</td><td>Comportamento correto: empate não resolvido</td><td>Decisão do comitê; o sistema não desempata por conta própria</td></tr>
+    </tbody>
+  </table>
+  <p class="fonte">Fonte: elaborado pelo autor (2026).</p>
+</figure>
+
+<h2 id="s112">11.2 Diagnóstico do armazenamento</h2>
+
+<p>Executado no ambiente da aplicação, onde as variáveis já existem:</p>
+
+<pre>node scripts/diagnostico-r2.js</pre>
+
+<p>A ferramenta exercita o ciclo completo — verificação, gravação, confirmação,
+metadados, leitura, remoção e nova confirmação — e indica onde parou. Nenhum
+segredo é impresso: a chave de acesso aparece apenas pelos quatro últimos
+caracteres, e o segredo, nunca. Acusa também espaço ou quebra de linha sobrando
+nas variáveis, que é o defeito de configuração mais comum e o mais difícil de
+enxergar em painel de administração.</p>
+
+<h2 id="s113">11.3 O que observar nas primeiras horas</h2>
+
+<ul class="aliena">
+  <li>taxa de respostas 5xx, cuja linha de base medida é zero nas rotas
+  principais;</li>
+  <li>latência da consulta de ranking, que é a tela mais visitada;</li>
+  <li>respostas 401 e 403 concentradas em uma origem;</li>
+  <li>comparação entre a consulta de ranking anônima e autenticada, que devem
+  coincidir.</li>
+</ul>
+
+<h1 id="s12">12 LIMITAÇÕES E PENDÊNCIAS CONHECIDAS</h1>
+
+<p>Esta seção existe para que nenhuma limitação seja descoberta durante um
+evento.</p>
+
+<figure>
+  <p class="rotulo"><b>Quadro 15</b> – Pendências registradas</p>
+  <table class="quadro">
+    <thead><tr><th>Item</th><th>Situação</th></tr></thead>
+    <tbody>
+      <tr><td>Homologação esportiva do critério de campeão Overall</td><td>Pendente de decisão do comitê. Independe do sistema.</td></tr>
+      <tr><td>Domínio próprio</td><td>Enquanto o endereço for de subdomínio do provedor, trata-se de endereço de teste.</td></tr>
+      <tr><td>Rotina de cópia de segurança em produção</td><td>Implementada e ensaiada; exige configuração de papel e destino.</td></tr>
+      <tr><td>Arquivo de infraestrutura declarativa</td><td>Escrito, porém não validado contra o provedor; o roteiro manual é o caminho verificado.</td></tr>
+      <tr><td>Tabelas remanescentes do antigo motor de julgamento</td><td>Permanecem no banco por vedação a migração destrutiva; nenhum código as alcança.</td></tr>
+    </tbody>
+  </table>
+  <p class="fonte">Fonte: elaborado pelo autor (2026).</p>
+</figure>
+
+<h1 id="s13">13 GLOSSÁRIO</h1>
+
+<dl class="siglas">
+  <div><dt>Bateria</dt><dd>Agrupamento de atletas para entrada em palco, em ordem definida pela organização.</dd></div>
+  <div><dt>Classe</dt><dd>Recorte competitivo — Estreante, Novice, Open, Master — com elegibilidade própria ao Super Overall.</dd></div>
+  <div><dt>Conflito de pontuação</dt><dd>Divergência entre a pontuação recebida e a calculada pela regra da temporada, registrada para decisão humana.</dd></div>
+  <div><dt>Elegibilidade</dt><dd>Atributo da classe que determina se sua pontuação alimenta o Super Overall anual.</dd></div>
+  <div><dt>Multiorganizacional</dt><dd>Capacidade de uma mesma instalação atender várias organizações com dados isolados.</dd></div>
+  <div><dt>Overall</dt><dd>Título de campeão absoluto do evento, declarado externamente, que acrescenta 10 pontos.</dd></div>
+  <div><dt>Papel privilegiado</dt><dd>Papel que não pode ser obtido por autocadastro e depende de concessão auditada.</dd></div>
+  <div><dt>Permissão</dt><dd>Unidade nomeada de autorização verificada pelo servidor a cada requisição.</dd></div>
+  <div><dt>RLS</dt><dd><i>Row Level Security</i>: isolamento aplicado pelo próprio banco de dados, linha a linha.</dd></div>
+  <div><dt>Super Overall</dt><dd>Ranking anual alimentado exclusivamente pelas classes elegíveis.</dd></div>
+  <div><dt>Temporada</dt><dd>Ciclo anual que agrega eventos, pontuações e rankings.</dd></div>
+  <div><dt>Trilha de auditoria</dt><dd>Registro imutável de atos críticos, com autor, contexto e momento.</dd></div>
+</dl>
+
+<h1 class="nao-numerada" id="ref">REFERÊNCIAS</h1>
+
+<div class="referencias">
+<p>ASSOCIAÇÃO BRASILEIRA DE NORMAS TÉCNICAS. <b>NBR 6023</b>: informação e documentação: referências: elaboração. Rio de Janeiro: ABNT, 2018.</p>
+
+<p>ASSOCIAÇÃO BRASILEIRA DE NORMAS TÉCNICAS. <b>NBR 6024</b>: informação e documentação: numeração progressiva das seções de um documento: apresentação. Rio de Janeiro: ABNT, 2012.</p>
+
+<p>ASSOCIAÇÃO BRASILEIRA DE NORMAS TÉCNICAS. <b>NBR 6027</b>: informação e documentação: sumário: apresentação. Rio de Janeiro: ABNT, 2012.</p>
+
+<p>ASSOCIAÇÃO BRASILEIRA DE NORMAS TÉCNICAS. <b>NBR 6028</b>: informação e documentação: resumo, resenha e recensão: apresentação. Rio de Janeiro: ABNT, 2021.</p>
+
+<p>ASSOCIAÇÃO BRASILEIRA DE NORMAS TÉCNICAS. <b>NBR 10520</b>: informação e documentação: citações em documentos: apresentação. Rio de Janeiro: ABNT, 2023.</p>
+
+<p>ASSOCIAÇÃO BRASILEIRA DE NORMAS TÉCNICAS. <b>NBR 14724</b>: informação e documentação: trabalhos acadêmicos: apresentação. Rio de Janeiro: ABNT, 2011.</p>
+
+<p>BRASIL. <b>Lei nº 13.709, de 14 de agosto de 2018</b>. Lei Geral de Proteção de Dados Pessoais (LGPD). Diário Oficial da União: seção 1, Brasília, DF, ano 155, n. 157, p. 59, 15 ago. 2018.</p>
+
+<p>JONES, M.; BRADLEY, J.; SAKIMURA, N. <b>RFC 7519</b>: JSON Web Token (JWT). [<i>S. l.</i>]: Internet Engineering Task Force, 2015. Disponível em: https://www.rfc-editor.org/rfc/rfc7519. Acesso em: 12 set. 2026.</p>
+
+<p>OWASP FOUNDATION. <b>OWASP Top 10: 2021</b>. [<i>S. l.</i>]: OWASP, 2021. Disponível em: https://owasp.org/Top10/. Acesso em: 12 set. 2026.</p>
+
+<p>POSTGRESQL GLOBAL DEVELOPMENT GROUP. <b>PostgreSQL 16 documentation</b>: row security policies. [<i>S. l.</i>]: PostgreSQL, 2023. Disponível em: https://www.postgresql.org/docs/16/ddl-rowsecurity.html. Acesso em: 12 set. 2026.</p>
+
+<p>MUSCLE CONTEST INTERNATIONAL. <b>Regulamento do ranking</b>: regras oficiais do Campeonato Brasileiro Muscle Contest International. [<i>S. l.</i>]: MCI, 2026. Documento interno do projeto.</p>
+
+<p>MUSCLE CONTEST INTERNATIONAL. <b>MCI Platform</b>: código-fonte do sistema. [<i>S. l.</i>]: MCI, 2026. Repositório de desenvolvimento.</p>
+</div>
+
+<h1 class="nao-numerada" id="apa">APÊNDICE A – ÍNDICE DE ROTAS POR MÓDULO</h1>
+
+<p class="sem-recuo">Distribuição das 140 rotas da API, agrupadas pelo prefixo
+de primeiro nível, sob a base <span class="mono">/api/v1</span>.</p>
+
+<figure class="larga">
+  <p class="rotulo"><b>Quadro 16</b> – Rotas por prefixo</p>
+  <table class="quadro">
+    <thead><tr><th>Prefixo</th><th class="n">Rotas</th><th>Módulo</th></tr></thead>
+    <tbody>
+      <tr><td><span class="mono">/social</span></td><td class="n">27</td><td>Publicações, comentários, reações, <i>stories</i></td></tr>
+      <tr><td><span class="mono">/events</span></td><td class="n">13</td><td>Eventos e ciclo de vida</td></tr>
+      <tr><td><span class="mono">/athletes</span></td><td class="n">11</td><td>Atletas e vínculos</td></tr>
+      <tr><td><span class="mono">/messenger</span></td><td class="n">10</td><td>Conversas e mensagens</td></tr>
+      <tr><td><span class="mono">/communities</span></td><td class="n">6</td><td>Comunidades</td></tr>
+      <tr><td><span class="mono">/registrations</span></td><td class="n">5</td><td>Inscrições</td></tr>
+      <tr><td><span class="mono">/ranking</span></td><td class="n">5</td><td>Rankings e Super Overall</td></tr>
+      <tr><td><span class="mono">/public</span></td><td class="n">5</td><td>Superfície pública</td></tr>
+      <tr><td><span class="mono">/musclewar</span></td><td class="n">5</td><td>Importação externa</td></tr>
+      <tr><td><span class="mono">/classes</span></td><td class="n">5</td><td>Classes e recepção de resultado</td></tr>
+      <tr><td><span class="mono">/organizations</span></td><td class="n">4</td><td>Organizações e membros</td></tr>
+      <tr><td><span class="mono">/seasons</span>, <span class="mono">/profile</span>, <span class="mono">/notifications</span>, <span class="mono">/documents</span>, <span class="mono">/dashboard</span>, <span class="mono">/auth</span>, <span class="mono">/affiliations</span>, <span class="mono">/admin</span></td><td class="n">3 cada</td><td>Temporadas, perfil, notificações, documentos, painéis, autenticação, filiações, administração</td></tr>
+      <tr><td><span class="mono">/partnerships</span>, <span class="mono">/media</span>, <span class="mono">/batches</span></td><td class="n">2 cada</td><td>Parcerias, mídia, baterias</td></tr>
+      <tr><td>Demais prefixos</td><td class="n">1 cada</td><td>Equipes, patrocínios, patrocinadores, busca, academias, categorias de evento, divisões, credenciais, empresas, treinadores, catálogo de classes, categorias, marcas, auditoria</td></tr>
+    </tbody>
+  </table>
+  <p class="fonte">Fonte: elaborado pelo autor (2026) a partir de <span class="mono">src/routes/index.js</span>.</p>
+</figure>
+
+</body></html>

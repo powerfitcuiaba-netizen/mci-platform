@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { api, clearAuthToken, getAuthToken, setAuthToken } from './services/api';
+import { api, clearAuthToken, getAuthToken, setAuthToken, SESSAO_EXPIRADA } from './services/api';
 
 const AuthContext = createContext(null);
 
@@ -27,6 +27,14 @@ export function AuthProvider({ children }) {
   };
 
   useEffect(() => { hydrate(); }, []);
+
+  // Quando o servidor recusa a sessão, a aplicação volta para a entrada em vez
+  // de continuar exibindo uma casca autenticada que não responde a nada.
+  useEffect(() => {
+    const aoExpirar = () => setUser(null);
+    window.addEventListener(SESSAO_EXPIRADA, aoExpirar);
+    return () => window.removeEventListener(SESSAO_EXPIRADA, aoExpirar);
+  }, []);
 
   const login = async (payload) => {
     const response = await api.auth.login(payload);

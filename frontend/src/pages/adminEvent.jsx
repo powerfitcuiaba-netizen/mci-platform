@@ -11,20 +11,47 @@ import {
 // máquina de estados do servidor: o que a API recusaria, a interface não
 // oferece.
 
-// Seletor de evento compartilhado pelas telas operacionais.
+// Seletor de evento compartilhado pelas telas operacionais: inscrições,
+// check-in, pesagem, credenciamento, palco e resultados. É a porta de todas
+// elas.
+//
+// A falha PRECISA aparecer aqui. Sem isso, busca que falhou e campeonato sem
+// evento ficavam idênticos — uma caixa escrita "Selecione o evento…" e mais
+// nada. No dia da competição esse é o pior desfecho: o operador conclui que o
+// evento sumiu do sistema quando o que caiu foi a rede, e vai procurar o
+// problema no lugar errado enquanto a fila cresce.
 export function SeletorDeEvento({ eventId, onChange, filtroStatus }) {
   const estado = useFetch(() => api.events.list({ limit: 50 }), []);
   const lista = (estado.data?.items || []).filter(evento => (filtroStatus ? filtroStatus.includes(evento.status) : true));
+  const falhou = Boolean(estado.error);
 
   return (
-    <select className="select-control" value={eventId || ''} onChange={evento => onChange(evento.target.value)} aria-label="Selecionar evento">
-      <option value="">Selecione o evento…</option>
-      {lista.map(evento => (
-        <option key={evento.id} value={evento.id}>
-          {evento.name} — {(ESTADO_EVENTO[evento.status] || {}).rotulo || evento.status}
-        </option>
-      ))}
-    </select>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <select
+        className="select-control"
+        value={eventId || ''}
+        onChange={evento => onChange(evento.target.value)}
+        aria-label="Selecionar evento"
+        // Escolher numa lista que não carregou não significaria nada.
+        disabled={falhou}
+      >
+        <option value="">{falhou ? 'Lista indisponível' : 'Selecione o evento…'}</option>
+        {lista.map(evento => (
+          <option key={evento.id} value={evento.id}>
+            {evento.name} — {(ESTADO_EVENTO[evento.status] || {}).rotulo || evento.status}
+          </option>
+        ))}
+      </select>
+
+      {falhou && (
+        <span className="alert alert-erro" role="alert" style={{ padding: '6px 10px', margin: 0, fontSize: 12 }}>
+          <span style={{ flex: 1 }}>Não foi possível carregar os eventos. {estado.error}</span>
+          <button type="button" className="button button-secondary button-sm" onClick={estado.reload}>
+            Tentar de novo
+          </button>
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -915,6 +942,7 @@ export function AdminCredenciamento({ notificar }) {
   const [emitindo, setEmitindo] = useState(false);
   const [codigo, setCodigo] = useState('');
   const [leitura, setLeitura] = useState(null);
+  const [lendo, setLendo] = useState(false);
 
   const estado = useFetch(
     () => (eventId ? api.operations.credentials(eventId) : Promise.resolve({ items: [] })),
@@ -922,9 +950,14 @@ export function AdminCredenciamento({ notificar }) {
     { ativo: Boolean(eventId) }
   );
 
+  // Cada leitura grava uma linha de auditoria. O código só é limpo DEPOIS da
+  // resposta, então o operador apressado que aperta Enter duas vezes na
+  // portaria registrava duas leituras da mesma credencial. A trava fecha a
+  // janela entre o envio e a resposta.
   const ler = async evento => {
     evento.preventDefault();
-    if (!codigo.trim()) return;
+    if (!codigo.trim() || lendo) return;
+    setLendo(true);
     try {
       const resposta = await api.operations.scanCredential(eventId, { code: codigo.trim(), gate: 'Portaria' });
       setLeitura(resposta);
@@ -933,6 +966,8 @@ export function AdminCredenciamento({ notificar }) {
     } catch (erro) {
       setLeitura(null);
       notificar(erro.message, 'erro');
+    } finally {
+      setLendo(false);
     }
   };
 
@@ -998,7 +1033,9 @@ export function AdminCredenciamento({ notificar }) {
                 <Field label="Código da credencial" hint="Conteúdo do QR Code impresso.">
                   <input value={codigo} onChange={evento => setCodigo(evento.target.value.toUpperCase())} placeholder="MCI-XXXXXXXXXXXX" />
                 </Field>
-                <button type="submit" className="button button-primary" style={{ width: '100%' }}>Validar</button>
+                <button type="submit" className="button button-primary" style={{ width: '100%' }} disabled={lendo || !codigo.trim()}>
+                  {lendo ? 'Validando…' : 'Validar'}
+                </button>
               </form>
 
               {leitura && (
