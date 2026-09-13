@@ -2,14 +2,19 @@ import { useState } from 'react';
 import { AlertTriangle, Building2, Plus, Upload, Users } from 'lucide-react';
 import api, { refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
-import { AsyncSection, Avatar, Badge, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead } from '../components/ui';
+import { AsyncSection, AtualizadoEm, Avatar, Badge, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead } from '../components/ui';
 import { ESTADO_MATCH, formatarDataHora } from '../lib/format';
 
 // Painel administrativo, ranking, importação MuscleWar, auditoria e
 // configurações da plataforma.
 
 export function AdminPainel({ navegar }) {
-  const estado = useFetch(() => api.dashboard.admin(), []);
+  // 30s: o painel é tela de acompanhamento, não de operação crítica. A
+  // recarga é silenciosa, não consulta com a aba escondida e atualiza na hora
+  // em que a aba volta para a frente. Escrita feita aqui dentro já atualiza na
+  // hora pelo evento `mci-data-changed`; o intervalo existe para refletir o
+  // que OUTRO operador mudou.
+  const estado = useFetch(() => api.dashboard.admin(), [], { recarregarACada: 30000 });
 
   return (
     <div className="page">
@@ -30,15 +35,25 @@ export function AdminPainel({ navegar }) {
             )}
 
             <div className="grid grid-4">
-              <Metric label="Eventos ativos" value={dados.events.active} hint={`${dados.events.total} no total`} destaque />
-              <Metric label="Atletas" value={dados.athletes.total} hint={`${dados.athletes.pro} PRO`} />
-              <Metric label="Inscrições" value={dados.registrations} />
-              <Metric label="Check-ins" value={dados.checkIns} />
-              <Metric label="Pesagens" value={dados.weighIns} />
-              <Metric label="Baterias" value={dados.batches} />
-              <Metric label="Resultados publicados" value={dados.publishedResults} />
-              <Metric label="Importações MuscleWar" value={dados.muscleWarImports} />
+              <Metric label="Eventos ativos" value={dados.events.active} hint={`${dados.events.total} no total`} destaque
+                onClick={() => navegar('admin/eventos')} destino="Eventos" />
+              <Metric label="Atletas" value={dados.athletes.total} hint={`${dados.athletes.pro} PRO`}
+                onClick={() => navegar('atletas')} destino="Atletas" />
+              <Metric label="Inscrições" value={dados.registrations}
+                onClick={() => navegar('admin/inscricoes')} destino="Inscrições" />
+              <Metric label="Check-ins" value={dados.checkIns}
+                onClick={() => navegar('admin/checkin')} destino="Check-in" />
+              <Metric label="Pesagens" value={dados.weighIns}
+                onClick={() => navegar('admin/pesagem')} destino="Pesagem" />
+              <Metric label="Baterias" value={dados.batches}
+                onClick={() => navegar('admin/palco')} destino="Palco" />
+              <Metric label="Resultados publicados" value={dados.publishedResults}
+                onClick={() => navegar('admin/resultados')} destino="Resultados" />
+              <Metric label="Importações MuscleWar" value={dados.muscleWarImports}
+                onClick={() => navegar('admin/musclewar')} destino="MuscleWar" />
             </div>
+
+            <AtualizadoEm quando={estado.atualizadoEm} />
 
             <div className="grid grid-3" style={{ marginTop: 18 }}>
               <button type="button" className="panel" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => navegar('admin/eventos')}>

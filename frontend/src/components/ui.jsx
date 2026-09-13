@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Check, Info, Loader2, X } from 'lucide-react';
+import { AlertTriangle, Check, Info, Loader2, RefreshCw, X } from 'lucide-react';
 import { iniciais } from '../lib/format';
 import { fetchMediaObjectUrl, releaseMediaObjectUrl } from '../services/api';
 
@@ -99,13 +99,68 @@ export const Badge = ({ tom = 'neutro', aoVivo = false, children }) => (
   <span className={`badge badge-${tom}${aoVivo ? ' esta-ao-vivo' : ''}`}>{children}</span>
 );
 
-export function Metric({ label, value, hint, destaque = false }) {
-  return (
-    <div className={`metric${destaque ? ' destaque' : ''}`}>
+// Métrica do painel. Com `onClick` ela vira um BOTÃO de verdade — e não uma
+// `div` com `cursor: pointer` e um manipulador de clique pendurado.
+//
+// A diferença não é estética: o botão entra na ordem de tabulação, responde a
+// Enter e Espaço, é anunciado como controle pelo leitor de tela e recebe foco
+// visível. Uma `div` clicável é invisível para quem navega por teclado — o
+// número aparece, e não há como chegar nele.
+//
+// O `aria-label` junta rótulo, valor e destino porque o leitor de tela lê o
+// controle fora do contexto visual: "Atletas" sozinho não diz para onde leva.
+export function Metric({ label, value, hint, destaque = false, onClick, destino }) {
+  const classe = `metric${destaque ? ' destaque' : ''}${onClick ? ' metric-clicavel' : ''}`;
+
+  const conteudo = (
+    <>
       <span>{label}</span>
       <strong>{value}</strong>
       {hint && <small>{hint}</small>}
-    </div>
+    </>
+  );
+
+  if (!onClick) return <div className={classe}>{conteudo}</div>;
+
+  return (
+    <button
+      type="button"
+      className={classe}
+      onClick={onClick}
+      aria-label={`${label}: ${value}.${destino ? ` Abrir ${destino}.` : ''}`}
+    >
+      {conteudo}
+    </button>
+  );
+}
+
+// Idade do dado à vista. Um painel que se atualiza sozinho precisa dizer
+// QUANDO conferiu: sem isso, número velho por falha de rede é indistinguível
+// de número recém-confirmado, e o operador confia no que não devia.
+export function AtualizadoEm({ quando }) {
+  const [, redesenhar] = useState(0);
+
+  // O texto envelhece sozinho: sem este tique, "agora" continuaria escrito
+  // "agora" cinco minutos depois.
+  useEffect(() => {
+    if (!quando) return undefined;
+    const intervalo = setInterval(() => redesenhar(n => n + 1), 15000);
+    return () => clearInterval(intervalo);
+  }, [quando]);
+
+  if (!quando) return null;
+
+  const segundos = Math.max(0, Math.round((Date.now() - quando) / 1000));
+  const texto = segundos < 45
+    ? 'Atualizado agora'
+    : segundos < 5400
+      ? `Atualizado há ${Math.round(segundos / 60)} min`
+      : `Atualizado há ${Math.round(segundos / 3600)} h`;
+
+  return (
+    <p className="atualizado-em" role="status" aria-live="polite">
+      <RefreshCw size={12} aria-hidden="true" /> {texto}
+    </p>
   );
 }
 

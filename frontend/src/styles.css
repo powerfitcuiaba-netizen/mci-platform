@@ -1058,3 +1058,67 @@ h1, h2, h3 { margin: 0; }
   background: linear-gradient(90deg, var(--superficie) 0, var(--superficie-3) 50%, var(--superficie) 100%);
   background-size: 200% 100%; animation: brilho 1.4s infinite linear;
 }
+
+/* ------------------------------------------------------------------ painel
+   Métrica clicável. `all: unset` zera a aparência de botão do navegador sem
+   perder o que o BOTÃO traz de graça: tabulação, Enter/Espaço e foco. O
+   `.metric` continua mandando no visual — o card clicável é o mesmo card, com
+   estados de interação por cima.
+
+   `text-align: left` e `width: 100%` são necessários porque botão centraliza e
+   encolhe por padrão, e o card precisa preencher a célula da grade como a
+   `div` preenchia. */
+.metric-clicavel {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: transform var(--t-rapido) var(--mola), border-color var(--t-rapido), background var(--t-rapido);
+}
+
+/* `all: unset` apaga também o que vem de `.metric`. Estes são os traços do
+   card que precisam voltar. */
+.metric-clicavel {
+  padding: 16px 18px;
+  border: 1px solid var(--borda);
+  border-radius: var(--r-md);
+  background: var(--painel);
+}
+
+.metric-clicavel:hover {
+  border-color: var(--ouro);
+  transform: translateY(-2px);
+}
+
+.metric-clicavel:active { transform: translateY(0); }
+
+/* Foco visível é requisito de teclado, não enfeite: sem isto o card clicável
+   fica alcançável mas invisível para quem tabula. */
+.metric-clicavel:focus-visible {
+  outline: 2px solid var(--ouro);
+  outline-offset: 3px;
+}
+
+/* Em dispositivo de toque não existe hover; o realce ficaria "grudado" depois
+   do toque. */
+@media (hover: none) {
+  .metric-clicavel:hover { transform: none; border-color: var(--borda); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .metric-clicavel { transition: none; }
+  .metric-clicavel:hover, .metric-clicavel:active { transform: none; }
+}
+
+.atualizado-em {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--cinza);
+}
