@@ -208,6 +208,22 @@ model Athlete {
   city           String?
   phone          String?
   email          String?
+  /// CAMPO SEM CAMINHO DE ESCRITA — hoje é sempre nulo.
+  ///
+  /// É LIDO em nove lugares (check-in, chamada de palco, ranking, superfície
+  /// pública, resultados) e sai na resposta por utils/visibility.js. Mas nada
+  /// o grava: não há rota, não há serviço, e a validação de entrada de atleta
+  /// nem sequer aceita o campo. Conferido no banco: zero atletas com valor.
+  ///
+  /// NÃO é o mesmo que a foto de perfil social (SocialProfile.avatarKey), que
+  /// funciona ponta a ponta. Este seria a foto de COMPETIÇÃO — a que o
+  /// operador usa para conferir quem está no check-in.
+  ///
+  /// Implementar exige decisão de produto, não só código: quem pode enviar
+  /// (o atleta? o operador da federação?), se é pública, e o que acontece
+  /// quando o atleta compete por outra federação. Por isso está documentado
+  /// em vez de meio-implementado. `scripts/backup-storage.js` já o inclui
+  /// genericamente, então o backup acompanha no dia em que passar a existir.
   photoKey       String?
   athleteNumber  String?
   affiliationId  String?
@@ -419,6 +435,9 @@ model Team {
   sponsorships  Sponsorship[]
 
   @@unique([organizationId, name])
+  // Criado em 20260906260000, junto com a FK para Company. Mesma razão do
+  // índice de RankingPoint: declarado para não sumir num `db push`.
+  @@index([companyId])
   rankingPoints RankingPoint[]
   memberships AthleteTeamMembership[]
 }
@@ -629,6 +648,10 @@ model CompetitionClass {
   minWeightGrams Int?
   maxWeightGrams Int?
   minHeightCm    Int?
+  /// Faixa de altura tem teto como idade e peso têm. A coluna existe desde a
+  /// migration 20260906120000; só a declaração aqui faltava, e a ausência
+  /// derrubava com 500 a rota que aceita o campo na validação de entrada.
+  maxHeightCm    Int?
   /// Se os pontos desta classe entram no ranking classificatório do Super
   /// Overall anual. REGRA HOMOLOGADA: todas as classes pontuam no campeonato,
   /// mas só a OPEN alimenta o Super Overall. A distinção é ATRIBUTO DA CLASSE,
@@ -1234,6 +1257,10 @@ model RankingPoint {
   @@index([seasonId, athleteId])
   @@index([seasonId, teamId])
   @@index([seasonId, companyId])
+  // Criado em 20260906280000. Declarado aqui porque índice que existe só no
+  // SQL some sem aviso no primeiro `db push` — foi exatamente assim que esta
+  // base perdeu a coluna maxHeightCm e os DEFAULT de participantIds.
+  @@index([seasonId, superOverallEligible])
   @@index([source])
 }
 

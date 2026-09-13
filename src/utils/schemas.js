@@ -209,7 +209,8 @@ const classCreate = z.object({
   superOverallEligible: booleano.optional(),
   active: booleano.optional()
 }).refine(d => d.minAge == null || d.maxAge == null || d.maxAge >= d.minAge, { message: 'Idade máxima menor que a mínima', path: ['maxAge'] })
-  .refine(d => d.minWeightGrams == null || d.maxWeightGrams == null || d.maxWeightGrams >= d.minWeightGrams, { message: 'Peso máximo menor que o mínimo', path: ['maxWeightGrams'] });
+  .refine(d => d.minWeightGrams == null || d.maxWeightGrams == null || d.maxWeightGrams >= d.minWeightGrams, { message: 'Peso máximo menor que o mínimo', path: ['maxWeightGrams'] })
+  .refine(d => d.minHeightCm == null || d.maxHeightCm == null || d.maxHeightCm >= d.minHeightCm, { message: 'Altura máxima menor que a mínima', path: ['maxHeightCm'] });
 
 // ------------------------------------------------------------------ inscrição
 const registrationCreate = z.object({

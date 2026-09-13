@@ -336,25 +336,48 @@ export function Post({ post, notificar, onMudou, navegar }) {
         <Lightbox path={ampliada.path} kind={ampliada.kind} alt="Mídia da publicação" onClose={() => setAmpliada(null)} />
       )}
 
+      {/*
+        Os quatro botões abaixo são ícone + contagem. Sem aria-label o nome
+        acessível de cada um é só o número — um leitor de tela anuncia
+        "0, botão" e a pessoa não sabe se aquilo curte, comenta ou salva.
+        aria-pressed marca os que alternam; aria-expanded, o que abre a lista
+        de comentários.
+      */}
       <footer className="post-actions">
         <button
           type="button"
           className={`post-action${estado.likedByMe ? ' is-on' : ''}`}
           disabled={ocupado}
+          aria-label={`${estado.likedByMe ? 'Descurtir' : 'Curtir'} publicação (${estado.counts.likes})`}
+          aria-pressed={estado.likedByMe}
           onClick={() => alternar(() => (estado.likedByMe ? api.social.unlike(estado.id) : api.social.like(estado.id)))}
         >
           <Heart size={15} fill={estado.likedByMe ? 'currentColor' : 'none'} /> {estado.counts.likes}
         </button>
-        <button type="button" className="post-action" onClick={() => setAberto(atual => !atual)}>
+        <button
+          type="button"
+          className="post-action"
+          aria-label={`${aberto ? 'Fechar' : 'Abrir'} comentários (${estado.counts.comments})`}
+          aria-expanded={aberto}
+          onClick={() => setAberto(atual => !atual)}
+        >
           <MessageCircle size={15} /> {estado.counts.comments}
         </button>
-        <button type="button" className="post-action" onClick={compartilhar} disabled={ocupado}>
+        <button
+          type="button"
+          className="post-action"
+          aria-label={`Compartilhar publicação (${estado.counts.shares})`}
+          onClick={compartilhar}
+          disabled={ocupado}
+        >
           <Share2 size={15} /> {estado.counts.shares}
         </button>
         <button
           type="button"
           className={`post-action${estado.savedByMe ? ' is-on-save' : ''}`}
           disabled={ocupado}
+          aria-label={`${estado.savedByMe ? 'Remover dos salvos' : 'Salvar'} publicação (${estado.counts.saves})`}
+          aria-pressed={estado.savedByMe}
           onClick={() => alternar(() => (estado.savedByMe ? api.social.unsave(estado.id) : api.social.save(estado.id)))}
           style={{ marginLeft: 'auto' }}
         >
