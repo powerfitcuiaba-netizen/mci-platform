@@ -176,7 +176,14 @@ describe('o calendário não pede migration nenhuma', () => {
       '20260906250000_classes_e_super_overall',
       '20260906260000_empresas_competidoras',
       '20260906270000_vinculo_unico_atleta_equipe',
-      '20260906280000_pontos_do_campeonato_e_super_overall'
+      '20260906280000_pontos_do_campeonato_e_super_overall',
+      // Entrou pela revisão que esta lista existe para exigir, e NÃO junto com
+      // carga de dados: é a correção da recursão de política que derrubava o
+      // messenger com stack depth exceeded. Muda schema (duas colunas de
+      // array em "Conversation") porque a política de RLS passou a ler a
+      // participação na própria linha, em vez de consultar a tabela que ela
+      // protege. Ver o cabeçalho da migration e tests/rls-conversa-recursao.
+      '20260913010000_rls_conversa_sem_recursao'
     ]);
   });
 });

@@ -1874,6 +1874,15 @@ model Conversation {
   // Chave canônica de conversa direta: os dois ids ordenados. É o que impede
   // duas conversas 1:1 entre as mesmas pessoas.
   directKey     String?          @unique
+  /// Participantes ATIVOS, na própria linha. É o que permite a política de RLS
+  /// ser uma verificação local — sem consultar ConversationMember e sem, com
+  /// isso, criar o ciclo que derrubava o messenger com stack depth exceeded.
+  /// Invariante mantida pela aplicação: iguala os membros com leftAt nulo.
+  participantIds String[]       @default([])
+  /// Quem já participou e saiu. Existe porque o PostgreSQL exige que a linha
+  /// atualizada continue visível para quem a escreve: sem isto ninguém
+  /// conseguiria sair de um grupo. Dá acesso à CASCA, nunca ao conteúdo.
+  formerParticipantIds String[] @default([])
   lastMessageAt DateTime?
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
@@ -1882,6 +1891,11 @@ model Conversation {
   messages Message[]
 
   @@index([lastMessageAt])
+  // GIN porque a busca é "as conversas em que ESTE perfil está", ou seja
+  // `participantIds @> ARRAY[perfil]` — contenção em array, que é exatamente o
+  // que um índice B-tree não resolve. Declarado aqui, e não só no SQL da
+  // migration, para o schema não divergir do banco.
+  @@index([participantIds], type: Gin)
 }
 
 enum ConversationRole {

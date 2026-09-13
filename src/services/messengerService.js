@@ -49,20 +49,28 @@ async function conversaDoParticipante(conversationId, profileId) {
 // Cria a conversa e seus participantes sem ler a linha de volta antes da hora.
 //
 // `create` do Prisma emite INSERT ... RETURNING, e o RETURNING é submetido à
-// política de SELECT da tabela. A política de "Conversation" é "só participante
-// lê" — e no instante do RETURNING nenhum participante existe ainda, porque as
-// linhas de "ConversationMember" só entram depois. O criador ficava sem
-// conseguir ler a própria conversa recém-criada.
+// política de SELECT da tabela. `createMany` não usa RETURNING: a escrita
+// responde apenas à política de INSERT. O id é gerado aqui porque, sem
+// RETURNING, o banco não tem como devolvê-lo.
 //
-// `createMany` não usa RETURNING: a escrita responde apenas à política de
-// INSERT. Com os participantes já gravados, a leitura seguinte passa pela
-// política normalmente. O id é gerado aqui porque, sem RETURNING, o banco não
-// tem como devolvê-lo.
+// A razão original disto era outra: a participação morava só em
+// "ConversationMember", que entrava DEPOIS, então no instante do RETURNING não
+// havia participante nenhum e o criador não conseguia ler a própria conversa.
+// Hoje `participantIds` viaja no mesmo insert e o RETURNING passaria. Mantido
+// mesmo assim: uma escrita que não pede a linha de volta é uma superfície a
+// menos exposta à política de leitura, e trocar de volta reintroduziria a
+// dependência de ordem sem ganhar nada.
 async function criarComParticipantes(dados, participantes) {
   const id = randomUUID();
 
+  // `participantIds` entra no MESMO insert da conversa, e não depois: a
+  // política de criação exige que quem cria esteja na lista, e a política de
+  // leitura só enxerga a linha por esse array. Preencher depois deixaria a
+  // conversa invisível para o próprio autor no intervalo.
+  const participantIds = participantes.map(participante => participante.profileId);
+
   await prisma.$transaction(async tx => {
-    await tx.conversation.createMany({ data: { id, ...dados } });
+    await tx.conversation.createMany({ data: { id, ...dados, participantIds } });
     await tx.conversationMember.createMany({
       data: participantes.map(participante => ({ conversationId: id, ...participante }))
     });
@@ -382,7 +390,15 @@ async function addMembers(conversationId, userId, { participantIds }) {
   const perfis = await prisma.socialProfile.findMany({ where: { id: { in: novos } }, select: { id: true, userId: true } });
   if (perfis.length !== novos.length) throw new AppError(422, 'PROFILE_INVALID', 'Há participante inexistente');
 
-  await prisma.conversationMember.createMany({ data: novos.map(id => ({ conversationId, profileId: id })) });
+  // A linha de participação e o array da conversa mudam JUNTOS: são a mesma
+  // informação, e o array é o que a política de RLS consulta.
+  await prisma.$transaction(async tx => {
+    await tx.conversationMember.createMany({ data: novos.map(id => ({ conversationId, profileId: id })) });
+    await tx.conversation.update({
+      where: { id: conversationId },
+      data: { participantIds: { push: novos } }
+    });
+  });
 
   await notifications.notify({
     userIds: perfis.map(item => item.userId).filter(Boolean),
@@ -400,9 +416,24 @@ async function leave(conversationId, userId) {
 
   if (conversation.kind !== 'GROUP') throw new AppError(422, 'NOT_A_GROUP', 'Conversa individual não pode ser deixada');
 
-  await prisma.conversationMember.update({
-    where: { conversationId_profileId: { conversationId, profileId: profile.id } },
-    data: { leftAt: new Date() }
+  const restantes = conversation.members
+    .filter(membro => membro.profileId !== profile.id && !membro.leftAt)
+    .map(membro => membro.profileId);
+
+  await prisma.$transaction(async tx => {
+    await tx.conversationMember.update({
+      where: { conversationId_profileId: { conversationId, profileId: profile.id } },
+      data: { leftAt: new Date() }
+    });
+    // Sair é deixar de enxergar. A política de UPDATE avalia a linha ANTIGA,
+    // então a gravação passa — mas a linha NOVA já não é visível para quem
+    // saiu, e um `update` do Prisma pede a linha de volta (RETURNING). Por
+    // isso `updateMany`, que devolve só a contagem: escrever e não conseguir
+    // reler é o comportamento correto aqui, não um erro.
+    await tx.conversation.updateMany({
+      where: { id: conversationId },
+      data: { participantIds: restantes, formerParticipantIds: { push: profile.id } }
+    });
   });
 
   return { success: true };
