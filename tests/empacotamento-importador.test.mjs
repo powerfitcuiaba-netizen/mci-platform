@@ -196,7 +196,14 @@ describe('o calendário não pede migration nenhuma', () => {
       //
       // CPF NÃO entrou aqui, de propósito: continua isolado em
       // "AthleteIdentity", sob RLS e único por organização.
-      '20260913170000_cadastro_completo'
+      '20260913170000_cadastro_completo',
+      // Fila de aprovação de perfil de atleta. ADITIVA: um enum, uma tabela
+      // nova com RLS FORÇADA desde o nascimento, seus índices e suas
+      // políticas. NENHUMA política existente foi tocada — em especial
+      // `atleta_criacao`, que continua exigindo `mci_operator_of`. A fila
+      // existe justamente para NÃO precisar afrouxá-la: o usuário pede, o
+      // operador da federação concede.
+      '20260913190000_fila_de_perfil_de_atleta'
     ]);
   });
 });

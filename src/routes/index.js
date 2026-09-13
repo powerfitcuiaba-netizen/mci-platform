@@ -76,6 +76,22 @@ router.post('/affiliations/:id/activate', requireAuth, validate(s.paramsWithId, 
 router.post('/affiliations/:id/deactivate', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.affiliations.deactivate));
 
 // =================================================================== ATLETAS
+// ---------------------------------------------------- fila de perfil de atleta
+//
+// `criar` NÃO exige permissão de operador: é exatamente o ponto da fila. O que
+// protege aqui é a política de RLS (`userId = mci_current_user_id()`) e o
+// serviço, que deriva a organização da FILIAÇÃO e não do corpo.
+router.post('/athlete-requests', requireAuth, validate(s.athleteRequestCreate), wrap(c.athleteRequests.criar));
+router.get('/athlete-requests/me', requireAuth, wrap(c.athleteRequests.meus));
+router.post('/athlete-requests/:id/cancel', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.athleteRequests.cancelar));
+
+// Da análise em diante é operador. A organização conferida é a DO PEDIDO,
+// lida do banco pelo serviço — nunca a que vier na requisição.
+router.get('/athlete-requests', requireAuth, validate(s.athleteRequestQuery, 'query'), wrap(c.athleteRequests.listar));
+router.get('/athlete-requests/:id', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.athleteRequests.analisar));
+router.post('/athlete-requests/:id/approve', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.athleteRequests.aprovar));
+router.post('/athlete-requests/:id/reject', requireAuth, validate(s.paramsWithId, 'params'), validate(s.athleteRequestReject), wrap(c.athleteRequests.rejeitar));
+
 router.route('/athletes')
   .get(requireAuth, validate(s.athleteQuery, 'query'), wrap(c.athletes.list))
   .post(requireAuth, perm('athletes.create', orgDoCorpo), validate(s.athleteCreate), wrap(c.athletes.create));

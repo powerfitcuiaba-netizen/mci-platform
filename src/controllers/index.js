@@ -6,6 +6,7 @@ const auth = require('../services/authService');
 const organizations = require('../services/organizationService');
 const affiliations = require('../services/affiliationService');
 const athletes = require('../services/athleteService');
+const athleteRequests = require('../services/athleteRequestService');
 const events = require('../services/eventService');
 const registrations = require('../services/registrationService');
 const operations = require('../services/operationsService');
@@ -68,6 +69,16 @@ module.exports = {
     create: async (req, res) => res.status(201).json(await affiliations.create(req.body, req.user)),
     activate: async (req, res) => res.json(await affiliations.setActive(req.params.id, true, req.user)),
     deactivate: async (req, res) => res.json(await affiliations.setActive(req.params.id, false, req.user))
+  },
+
+  athleteRequests: {
+    criar: async (req, res) => res.status(201).json(await athleteRequests.criar(req.body, req.user)),
+    meus: async (req, res) => res.json({ items: await athleteRequests.meusPedidos(req.user) }),
+    cancelar: async (req, res) => res.json(await athleteRequests.cancelar(req.params.id, req.user)),
+    listar: async (req, res) => res.json(await athleteRequests.listar(req.query, req.user)),
+    analisar: async (req, res) => res.json(await athleteRequests.carregarParaAnalise(req.params.id, req.user)),
+    aprovar: async (req, res) => res.json(await athleteRequests.aprovar(req.params.id, req.user)),
+    rejeitar: async (req, res) => res.json(await athleteRequests.rejeitar(req.params.id, req.body, req.user))
   },
 
   athletes: {

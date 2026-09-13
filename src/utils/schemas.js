@@ -125,6 +125,32 @@ const cadastroCompleto = z.object({
   sex: z.never({ error: 'O sexo competitivo é definido no perfil de atleta, junto com a filiação.' }).optional()
 });
 
+// Solicitação de perfil de atleta. `organizationId` NÃO existe aqui de
+// propósito: ela é derivada da filiação, no servidor. Aceitá-la do cliente
+// deixaria qualquer pessoa endereçar o pedido à federação que quisesse.
+const athleteRequestCreate = z.object({
+  fullName: texto(2, 160),
+  cpf: z.string().trim().min(11).max(14),
+  sex: z.enum(['MALE', 'FEMALE']),
+  birthDate: opcional(dataIso),
+  affiliationId: id,
+  affiliationNumber: texto(1, 40),
+  photoKey: opcional(texto(1, 300))
+});
+
+const athleteRequestReject = z.object({
+  // Motivo obrigatório: recusa sem explicação deixa o solicitante sem saber o
+  // que corrigir, e o próximo operador sem saber o que já foi analisado.
+  reason: texto(3, 500)
+});
+
+const athleteRequestQuery = z.object({
+  organizationId: id.optional(),
+  status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED']).optional(),
+  cursor: id.optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(20)
+});
+
 const authLogin = z.object({
   email: z.string().trim().toLowerCase().email().max(180),
   password: z.string().min(8).max(200)
@@ -673,6 +699,7 @@ module.exports = {
   paginacao, buscaPublica, paramsWithId, scopedListQuery, checkInQuery, sponsorshipQuery, partnershipQuery,
   importQuery, reportQuery, rankingPointsQuery, communityMemberAdd, handleUpdate, rejectImport,
   authRegister, cadastroCompleto, authLogin, profileUpdate, passwordChange,
+  athleteRequestCreate, athleteRequestReject, athleteRequestQuery,
   organizationCreate, organizationMemberCreate,
   affiliationCreate,
   athleteCreate, athleteUpdate, athleteTeamLink, athleteTeamTransfer, athleteTeamUnlink, athleteQuery, athleteLookup, proStatusUpdate,

@@ -20,6 +20,16 @@ datasource db {
 // ORGANIZAÇÕES (multi-tenancy)
 // ============================================================================
 
+// Estados da solicitação de perfil de atleta. CANCELLED é do próprio
+// solicitante (desistiu); REJECTED é do operador (analisou e recusou). Os dois
+// são finais e nenhum apaga a linha — a fila é histórico auditável.
+enum AthleteProfileRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
 model Organization {
   id        String   @id @default(cuid())
   name      String
@@ -31,19 +41,20 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members           OrganizationMember[]
-  affiliations      Affiliation[]
-  athletes          Athlete[]
-  events            Event[]
-  teams             Team[]
-  gyms              Gym[]
-  brands            Brand[]
-  sponsors          Sponsor[]
-  seasons           RankingSeason[]
-  muscleWarImports  MuscleWarImport[]
-  athleteIdentities AthleteIdentity[]
-  classCatalog      ClassCatalog[]
-  companies         Company[]
+  members                OrganizationMember[]
+  affiliations           Affiliation[]
+  athletes               Athlete[]
+  events                 Event[]
+  teams                  Team[]
+  gyms                   Gym[]
+  brands                 Brand[]
+  sponsors               Sponsor[]
+  seasons                RankingSeason[]
+  muscleWarImports       MuscleWarImport[]
+  athleteIdentities      AthleteIdentity[]
+  classCatalog           ClassCatalog[]
+  companies              Company[]
+  athleteProfileRequests AthleteProfileRequest[]
 
   @@index([active])
 }
@@ -134,12 +145,14 @@ model User {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  memberships   OrganizationMember[]
-  athlete       Athlete?             @relation("AthleteUser")
-  socialProfile SocialProfile?
-  coach         Coach?
-  notifications Notification[]
-  auditLogs     AuditLog[]           @relation("AuditActor")
+  memberships             OrganizationMember[]
+  athlete                 Athlete?                @relation("AthleteUser")
+  socialProfile           SocialProfile?
+  coach                   Coach?
+  notifications           Notification[]
+  auditLogs               AuditLog[]              @relation("AuditActor")
+  athleteRequests         AthleteProfileRequest[] @relation("AthleteRequestUser")
+  athleteRequestsReviewed AthleteProfileRequest[] @relation("AthleteRequestReviewer")
 
   createdEvents          Event[]                 @relation("EventCreatedBy")
   createdAthletes        Athlete[]               @relation("AthleteCreatedBy")
@@ -194,9 +207,10 @@ model Affiliation {
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
-  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  athletes      Athlete[]
-  registrations Registration[]
+  organization           Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  athletes               Athlete[]
+  registrations          Registration[]
+  athleteProfileRequests AthleteProfileRequest[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -272,20 +286,21 @@ model Athlete {
   gym          Gym?         @relation(fields: [gymId], references: [id], onDelete: SetNull)
   createdBy    User?        @relation("AthleteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
-  registrations     Registration[]
-  documents         AthleteDocument[]
-  proHistory        AthleteProHistory[]
-  resultEntries     ResultEntry[]
-  rankingPoints     RankingPoint[]
-  rankings          Ranking[]
-  externalResults   ExternalResult[]
-  muscleWarItems    MuscleWarImportItem[]
-  socialProfile     SocialProfile?
-  sponsorships      Sponsorship[]
-  brandPartnerships AthleteBrandPartnership[]
-  identity          AthleteIdentity?
-  overallTitles     EventOverallTitle[]
-  teamMemberships   AthleteTeamMembership[]
+  registrations          Registration[]
+  documents              AthleteDocument[]
+  proHistory             AthleteProHistory[]
+  resultEntries          ResultEntry[]
+  rankingPoints          RankingPoint[]
+  rankings               Ranking[]
+  externalResults        ExternalResult[]
+  muscleWarItems         MuscleWarImportItem[]
+  socialProfile          SocialProfile?
+  sponsorships           Sponsorship[]
+  brandPartnerships      AthleteBrandPartnership[]
+  identity               AthleteIdentity?
+  overallTitles          EventOverallTitle[]
+  teamMemberships        AthleteTeamMembership[]
+  athleteProfileRequests AthleteProfileRequest[]
 
   @@unique([organizationId, athleteNumber])
   @@index([organizationId, fullName])
@@ -1659,7 +1674,6 @@ model Post {
   authorId     String
   content      String
   visibility   PostVisibility @default(PUBLIC)
-  eventId      String?
   communityId  String?
   likeCount    Int            @default(0)
   commentCount Int            @default(0)
@@ -1669,6 +1683,7 @@ model Post {
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
+  eventId   String?
   author    SocialProfile @relation(fields: [authorId], references: [id], onDelete: Cascade)
   event     Event?        @relation(fields: [eventId], references: [id], onDelete: SetNull)
   community Community?    @relation(fields: [communityId], references: [id], onDelete: Cascade)
@@ -2054,4 +2069,66 @@ model AuditLog {
   @@index([userId, createdAt])
   @@index([action, createdAt])
   @@index([organizationId, createdAt])
+}
+
+// ============================================================================
+// SOLICITAÇÃO DE PERFIL DE ATLETA.
+//
+// Existe por uma barreira real: a política `atleta_criacao` exige
+// `mci_operator_of(organizationId)`, e quem acaba de criar conta não é
+// operador de federação nenhuma. Sem esta fila, ou o autocadastro não
+// registraria atleta, ou seria preciso abrir a porta para qualquer pessoa
+// escrever no tenant de uma federação. A fila entrega a experiência sem
+// mexer na barreira: o usuário PEDE, o operador da federação CONCEDE.
+//
+// SOBRE O CPF AQUI — leia antes de mexer
+//
+// O CPF fica nesta tabela ENTRE o pedido e a análise, porque o operador
+// precisa vê-lo para decidir. É a única exceção ao "CPF só em
+// AthleteIdentity", ela é temporária e está protegida por RLS própria:
+// enxergam a linha apenas o dono do pedido e os operadores da organização.
+// Na aprovação o CPF migra para `AthleteIdentity` e é APAGADO daqui — o
+// pedido guarda a decisão, não o documento.
+// ============================================================================
+model AthleteProfileRequest {
+  id     String @id @default(cuid())
+  userId String
+
+  // Derivada da filiação escolhida no servidor — NUNCA do corpo da
+  // requisição. Aceitar `organizationId` do cliente deixaria qualquer um
+  // endereçar o pedido à federação que quisesse.
+  organizationId    String
+  affiliationId     String
+  affiliationNumber String
+
+  fullName  String
+  sex       Sex
+  birthDate DateTime?
+
+  // Nulo depois da aprovação: o documento passa a viver em AthleteIdentity.
+  cpf      String?
+  photoKey String?
+
+  status          AthleteProfileRequestStatus @default(PENDING)
+  rejectionReason String?
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  reviewedAt   DateTime?
+  reviewedById String?
+
+  // Preenchido na aprovação: liga o pedido ao atleta que nasceu dele.
+  athleteId String?
+
+  user         User         @relation("AthleteRequestUser", fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  affiliation  Affiliation  @relation(fields: [affiliationId], references: [id], onDelete: Restrict)
+  reviewedBy   User?        @relation("AthleteRequestReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  athlete      Athlete?     @relation(fields: [athleteId], references: [id], onDelete: SetNull)
+
+  // Um pedido em aberto por pessoa. O índice parcial fica na migration: o
+  // Prisma não modela `WHERE status = 'PENDING'`, e sem o recorte a pessoa
+  // recusada nunca poderia tentar de novo.
+  @@index([organizationId, status])
+  @@index([userId])
 }
