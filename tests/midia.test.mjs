@@ -35,7 +35,10 @@ describe('mídia de publicação', () => {
 
     const download = await api().get(`/api/v1/media/posts/${midia.body.id}`).set(bruno.auth());
     expect(download.status).toBe(200);
-    expect(download.headers['content-type']).toContain('image/png');
+    // WebP e não PNG: desde a normalização na entrada, imagem enviada é
+    // reencodada. O que se confere aqui é que o arquivo VOLTA e volta com o
+    // tipo que foi realmente guardado.
+    expect(download.headers['content-type']).toContain('image/webp');
     expect(download.headers['x-content-type-options']).toBe('nosniff');
   });
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import sharp from 'sharp';
 import { api, prisma, comoAtor, limparBanco, garantirCatalogo, criarUsuario } from './helpers.mjs';
 
 // ==========================================================================
@@ -20,7 +21,12 @@ const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64'
 );
-const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64, 0x20), Buffer.from([0xff, 0xd9])]);
+// JPEG de VERDADE, gerado na hora. A primeira versão deste arquivo usava
+// bytes inventados que só imitavam o cabeçalho — passavam na conferência de
+// assinatura e eram recusados pelo processamento de imagem, com razão: não
+// eram decodificáveis. Fixture falso vira falha falsa.
+const jpegReal = () => sharp({ create: { width: 300, height: 300, channels: 3, background: '#7a1f2b' } })
+  .jpeg().toBuffer();
 const HTML = Buffer.from('<html><script>alert(1)</script></html>');
 const MP4 = Buffer.concat([Buffer.alloc(4), Buffer.from('ftypisom'), Buffer.alloc(32)]);
 
@@ -54,14 +60,16 @@ describe('enviar, trocar e remover a própria foto', () => {
 
     const arquivo = await api().get(`/api/v1/media/profiles/${perfil.body.id}/avatar`);
     expect(arquivo.status).toBe(200);
-    expect(arquivo.headers['content-type']).toContain('image/png');
+    // WebP, e não o PNG enviado: a foto é reencodada na entrada. O que
+    // importa aqui é que ela VOLTA, com o tipo que foi guardado.
+    expect(arquivo.headers['content-type']).toContain('image/webp');
     // Guarda contra o navegador adivinhar o tipo e executar o que não deve.
     expect(arquivo.headers['x-content-type-options']).toBe('nosniff');
   });
 
   it('trocar a foto APAGA o arquivo anterior — não deixa órfão no storage', async () => {
     const primeira = await enviarAvatar(ana, PNG, { filename: 'a.png', contentType: 'image/png' });
-    const segunda = await enviarAvatar(ana, JPEG, { filename: 'b.jpg', contentType: 'image/jpeg' });
+    const segunda = await enviarAvatar(ana, await jpegReal(), { filename: 'b.jpg', contentType: 'image/jpeg' });
     expect(segunda.status).toBe(200);
     expect(segunda.body.avatarKey).not.toBe(primeira.body.avatarKey);
 

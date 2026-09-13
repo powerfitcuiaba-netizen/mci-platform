@@ -289,7 +289,7 @@ export function Avatar({ name, mediaPath, size = '' }) {
 
 // Mídia protegida: buscada com o token e exibida como object URL. Vale para
 // imagem e vídeo de publicação, story e mensagem.
-export function ProtectedMedia({ path, kind = 'IMAGE', alt = '' }) {
+export function ProtectedMedia({ path, kind = 'IMAGE', alt = '', width = null, height = null }) {
   const [src, setSrc] = useState(null);
   const [erro, setErro] = useState(false);
 
@@ -310,10 +310,21 @@ export function ProtectedMedia({ path, kind = 'IMAGE', alt = '' }) {
     return () => { cancelado = true; releaseMediaObjectUrl(atual); };
   }, [path]);
 
+  // A proporção conhecida reserva o espaço ANTES de a imagem chegar: sem ela,
+  // o texto abaixo pula quando a foto carrega. Vale tanto para o esqueleto de
+  // carregamento quanto para a própria imagem.
+  const proporcao = width && height ? { aspectRatio: `${width} / ${height}` } : null;
+
   if (erro) return <div className="empty" style={{ padding: 20 }}><p>Mídia indisponível.</p></div>;
-  if (!src) return <div className="skeleton" style={{ padding: 8 }}><i style={{ height: 180 }} /></div>;
-  if (kind === 'VIDEO') return <video src={src} controls preload="metadata" />;
-  return <img src={src} alt={alt} loading="lazy" />;
+  if (!src) {
+    return (
+      <div className="skeleton" style={{ padding: 8 }}>
+        <i style={proporcao ? { ...proporcao, height: 'auto', width: '100%' } : { height: 180 }} />
+      </div>
+    );
+  }
+  if (kind === 'VIDEO') return <video src={src} controls preload="metadata" style={proporcao || undefined} />;
+  return <img src={src} alt={alt} loading="lazy" width={width || undefined} height={height || undefined} style={proporcao || undefined} />;
 }
 
 // Visualização ampliada de imagem.

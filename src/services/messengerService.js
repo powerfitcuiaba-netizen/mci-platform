@@ -4,6 +4,7 @@ const { AppError } = require('../utils/errors');
 const { profilePublic } = require('../utils/visibility');
 const { can } = require('../utils/permissions');
 const storage = require('./storageService');
+const imagem = require('./imagemService');
 const notifications = require('./notificationService');
 const social = require('./socialService');
 
@@ -292,12 +293,13 @@ async function sendMedia(conversationId, userId, arquivo) {
 
   const mediaKind = arquivo.mimeType.startsWith('video/') ? 'VIDEO' : 'IMAGE';
   // A chave inclui a conversa: o arquivo fica sob o escopo em que foi enviado.
-  const key = storage.buildKey(`messages/${conversationId}`, arquivo.mimeType);
-  await storage.saveBuffer(key, arquivo.buffer);
+  const normalizada = await imagem.normalizar(arquivo, 'midia');
+  const key = storage.buildKey(`messages/${conversationId}`, normalizada.mimeType);
+  await storage.saveBuffer(key, normalizada.buffer);
 
   const mensagem = await prisma.$transaction(async tx => {
     const criada = await tx.message.create({
-      data: { conversationId, senderId: profile.id, storageKey: key, mimeType: arquivo.mimeType, mediaKind },
+      data: { conversationId, senderId: profile.id, storageKey: key, mimeType: normalizada.mimeType, mediaKind },
       include: { sender: true, reactions: true, sharedPost: false, sharedProfile: true, replyTo: false }
     });
     await tx.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: criada.createdAt } });

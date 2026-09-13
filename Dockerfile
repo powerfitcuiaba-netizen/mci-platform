@@ -94,6 +94,17 @@ COPY prisma ./prisma
 # real, não hipotético. Um único `npm ci` mantém os dois travados no lockfile.
 RUN npm ci
 
+# O `sharp` usa binário pré-compilado por plataforma, resolvido no `npm ci`
+# pelos pacotes opcionais do lockfile (@img/sharp-linux-x64 e o libvips
+# correspondente). Duas consequências práticas:
+#
+#   - este estágio precisa ser da MESMA plataforma do runtime, e é: os dois
+#     partem de ${BASE_IMAGE};
+#   - `npm ci --omit=optional` quebraria o processamento de imagem em tempo de
+#     execução, sem quebrar o build. Não use.
+#
+# O binário exige glibc 2.28 ou mais nova; bookworm traz 2.36.
+
 # Explícito mesmo que o postinstall já tenha gerado: o passo é barato e não
 # depende de o postinstall continuar existindo numa versão futura.
 RUN npx prisma generate

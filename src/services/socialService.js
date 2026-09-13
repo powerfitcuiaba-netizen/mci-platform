@@ -4,6 +4,7 @@ const { config } = require('../config/environment');
 const { profilePublic } = require('../utils/visibility');
 const { can } = require('../utils/permissions');
 const storage = require('./storageService');
+const imagem = require('./imagemService');
 const audit = require('./auditService');
 const notifications = require('./notificationService');
 
@@ -160,8 +161,12 @@ async function setAvatar(userId, arquivo) {
   }
 
   const anterior = profile.avatarKey;
-  const key = storage.buildKey(`avatars/${profile.id}`, arquivo.mimeType);
-  await storage.saveBuffer(key, arquivo.buffer);
+  // Recorte quadrado de 512px em WebP: o avatar aparece dezenas de vezes por
+  // tela, e guardar o original de 8 MP para exibir em 40px é desperdício em
+  // toda leitura, não só no envio.
+  const normalizada = await imagem.normalizar(arquivo, 'avatar');
+  const key = storage.buildKey(`avatars/${profile.id}`, normalizada.mimeType);
+  await storage.saveBuffer(key, normalizada.buffer);
 
   const atualizado = await prisma.socialProfile.update({
     where: { id: profile.id },
@@ -178,7 +183,12 @@ async function setAvatar(userId, arquivo) {
 
   await audit.record({
     actor: { id: userId }, action: 'PROFILE_AVATAR_SET', entity: 'SocialProfile', entityId: profile.id,
-    metadata: { mimeType: arquivo.mimeType, sizeBytes: arquivo.buffer.length, substituiu: Boolean(anterior) }
+    metadata: {
+      mimeType: normalizada.mimeType,
+      sizeBytes: normalizada.buffer.length,
+      bytesOriginais: arquivo.buffer.length,
+      substituiu: Boolean(anterior)
+    }
   });
 
   return profilePublic(atualizado);
@@ -212,15 +222,20 @@ async function attachMedia(postId, userId, arquivo) {
   }
 
   const kind = arquivo.mimeType.startsWith('video/') ? 'VIDEO' : 'IMAGE';
-  const key = storage.buildKey(`social/${profile.id}`, arquivo.mimeType);
-  await storage.saveBuffer(key, arquivo.buffer);
+  const normalizada = await imagem.normalizar(arquivo, 'midia');
+  const key = storage.buildKey(`social/${profile.id}`, normalizada.mimeType);
+  await storage.saveBuffer(key, normalizada.buffer);
 
   const posicao = await prisma.postMedia.count({ where: { postId } });
 
   return prisma.postMedia.create({
     data: {
-      postId, kind, storageKey: key, mimeType: arquivo.mimeType,
-      sizeBytes: arquivo.buffer.length, position: posicao
+      postId, kind, storageKey: key, mimeType: normalizada.mimeType,
+      sizeBytes: normalizada.buffer.length, position: posicao,
+      // `width` e `height` existiam no modelo e nunca eram preenchidos. Com
+      // eles a tela reserva o espaço antes de a imagem chegar, e o texto
+      // abaixo para de pular quando a foto carrega.
+      width: normalizada.width, height: normalizada.height
     }
   });
 }
@@ -235,7 +250,9 @@ function serializarPost(post, viewerProfileId) {
     eventId: post.eventId ?? null,
     communityId: post.communityId ?? null,
     author: profilePublic(post.author),
-    media: (post.media || []).map(item => ({ id: item.id, kind: item.kind, storageKey: item.storageKey, mimeType: item.mimeType, position: item.position })),
+    // `width`/`height` viajam para a tela reservar o espaço antes de a imagem
+    // chegar. Sem eles o texto abaixo pula quando a foto carrega.
+    media: (post.media || []).map(item => ({ id: item.id, kind: item.kind, storageKey: item.storageKey, mimeType: item.mimeType, position: item.position, width: item.width, height: item.height })),
     counts: { likes: post.likeCount, comments: post.commentCount, shares: post.shareCount, saves: post.saveCount },
     likedByMe: Boolean(post.likes?.length),
     savedByMe: Boolean(post.saves?.length),
@@ -605,13 +622,14 @@ async function createStory(userId, arquivo, { caption }) {
   }
 
   const kind = arquivo.mimeType.startsWith('video/') ? 'VIDEO' : 'IMAGE';
-  const key = storage.buildKey(`stories/${profile.id}`, arquivo.mimeType);
-  await storage.saveBuffer(key, arquivo.buffer);
+  const normalizada = await imagem.normalizar(arquivo, 'midia');
+  const key = storage.buildKey(`stories/${profile.id}`, normalizada.mimeType);
+  await storage.saveBuffer(key, normalizada.buffer);
 
   const expiresAt = new Date(Date.now() + config.storyTtlHours * 60 * 60 * 1000);
 
   return prisma.story.create({
-    data: { authorId: profile.id, storageKey: key, mimeType: arquivo.mimeType, kind, caption: caption ?? null, expiresAt }
+    data: { authorId: profile.id, storageKey: key, mimeType: normalizada.mimeType, kind, caption: caption ?? null, expiresAt }
   });
 }
 

@@ -326,7 +326,7 @@ export function Post({ post, notificar, onMudou, navegar }) {
               onClick={() => setAmpliada({ path: `/media/posts/${item.id}`, kind: item.kind })}
               aria-label="Abrir mídia ampliada"
             >
-              <ProtectedMedia path={`/media/posts/${item.id}`} kind={item.kind} alt="Mídia da publicação" />
+              <ProtectedMedia path={`/media/posts/${item.id}`} kind={item.kind} alt="Mídia da publicação" width={item.width} height={item.height} />
             </button>
           ))}
         </div>
