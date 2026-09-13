@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ImagePlus, Plus, Send, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import { useFetch } from '../lib/hooks';
-import { Avatar, EmptyState, Field, Modal, ModalActions, ProtectedMedia, Skeleton } from '../components/ui';
-import { desde, formatarHora } from '../lib/format';
+import { Lightbox, Avatar, EmptyState, Field, Modal, ModalActions, ProtectedMedia, Skeleton } from '../components/ui';
+import { caminhoDoAvatar, desde, formatarHora } from '../lib/format';
 
 // MCI Messenger. A privacidade é do servidor: aqui só se pede o que o usuário
 // tem direito de ver, e a API responde 404 para conversa alheia.
@@ -39,7 +39,7 @@ export default function Messenger({ notificar }) {
               className={`conversation-item${selecionada === conversa.id ? ' is-active' : ''}`}
               onClick={() => setSelecionada(conversa.id)}
             >
-              <Avatar name={conversa.title} />
+              <Avatar name={conversa.title} mediaPath={caminhoDoAvatar(conversa.counterpart)} />
               <span className="info">
                 <strong>{conversa.title}</strong>
                 <small>{conversa.lastMessageAt ? desde(conversa.lastMessageAt) : 'sem mensagens'}</small>
@@ -80,6 +80,7 @@ export default function Messenger({ notificar }) {
 function Conversa({ conversationId, notificar, onVoltar, onMudou }) {
   const [texto, setTexto] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const [ampliada, setAmpliada] = useState(null);
   const fim = useRef(null);
   const inputArquivo = useRef(null);
 
@@ -152,18 +153,27 @@ function Conversa({ conversationId, notificar, onVoltar, onMudou }) {
     <>
       <header className="chat-head">
         <button type="button" className="icon-button mobile-toggle" onClick={onVoltar} aria-label="Voltar"><ArrowLeft size={16} /></button>
-        <Avatar name={conversa.data?.title} />
+        <Avatar name={conversa.data?.title} mediaPath={caminhoDoAvatar(conversa.data?.counterpart)} />
         <div className="info">
           <strong>{conversa.data?.title || 'Conversa'}</strong>
           <small>{conversa.data?.kind === 'GROUP' ? `${conversa.data.members.length} participantes` : 'Conversa individual'}</small>
         </div>
       </header>
 
+      {ampliada && (
+        <Lightbox path={ampliada.path} kind={ampliada.kind} alt="Mídia da mensagem" onClose={() => setAmpliada(null)} />
+      )}
+
       <div className="chat-body">
         {mensagens.loading && !mensagens.data && <Skeleton linhas={4} />}
         {(mensagens.data?.items || []).map(mensagem => (
           <div key={mensagem.id} className={`chat-msg${mensagem.isMine ? ' is-mine' : ''}${mensagem.deleted ? ' is-deleted' : ''}`}>
-            {conversa.data?.kind === 'GROUP' && !mensagem.isMine && <span className="autor">{mensagem.sender.displayName}</span>}
+            {conversa.data?.kind === 'GROUP' && !mensagem.isMine && (
+              <span className="autor">
+                <Avatar name={mensagem.sender.displayName} mediaPath={caminhoDoAvatar(mensagem.sender)} size="avatar-sm" />
+                {mensagem.sender.displayName}
+              </span>
+            )}
 
             {mensagem.replyTo && <div className="quote">{mensagem.replyTo.body}</div>}
 
@@ -172,7 +182,16 @@ function Conversa({ conversationId, notificar, onVoltar, onMudou }) {
               : (
                 <>
                   {mensagem.body}
-                  {mensagem.storageKey && <ProtectedMedia path={`/messenger/messages/${mensagem.id}/media`} kind={mensagem.mediaKind} alt="Mídia da mensagem" />}
+                  {mensagem.storageKey && (
+                    <button
+                      type="button"
+                      className="midia-ampliavel"
+                      onClick={() => setAmpliada({ path: `/messenger/messages/${mensagem.id}/media`, kind: mensagem.mediaKind })}
+                      aria-label="Abrir mídia ampliada"
+                    >
+                      <ProtectedMedia path={`/messenger/messages/${mensagem.id}/media`} kind={mensagem.mediaKind} alt="Mídia da mensagem" />
+                    </button>
+                  )}
                   {mensagem.sharedPost && (
                     <div style={{ borderLeft: '2px solid var(--ciano)', paddingLeft: 8, marginTop: 6, fontSize: 12 }}>
                       <strong>@{mensagem.sharedPost.author.handle}</strong>
@@ -298,7 +317,7 @@ function NovaConversa({ notificar, onClose, onCriada }) {
             style={{ width: '100%', background: 'transparent', border: 0, borderBottom: '1px solid var(--linha)', textAlign: 'left' }}
             onClick={() => alternar(perfil)}
           >
-            <Avatar name={perfil.displayName} size="avatar-sm" />
+            <Avatar name={perfil.displayName} mediaPath={caminhoDoAvatar(perfil)} size="avatar-sm" />
             <span className="info">
               <strong>{perfil.displayName}</strong>
               <small>@{perfil.handle}</small>

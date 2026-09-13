@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from './AuthContext';
 import api from './services/api';
 import { useDebounce, useFetch, useHashRoute, useToasts } from './lib/hooks';
 import { Avatar, BlocoDaMarca, Toasts } from './components/ui';
+import { caminhoDoAvatar } from './lib/format';
 import LimiteDeErro from './components/limiteDeErro';
 import Auth from './pages/authPages';
 import { AtletaDetalhe, Atletas, CampeonatoDetalhe, Campeonatos, Inicio, Ranking } from './pages/publicPages';
@@ -161,7 +162,7 @@ function BuscaGlobal({ navegar }) {
           ))}
           {(resultados.profiles || []).map(perfil => (
             <button key={perfil.id} type="button" className="list-row" style={{ width: '100%', background: 'transparent', border: 0, textAlign: 'left' }} onClick={() => navegar(`perfil/${perfil.handle}`)}>
-              <Avatar name={perfil.displayName} size="avatar-sm" />
+              <Avatar name={perfil.displayName} mediaPath={caminhoDoAvatar(perfil)} size="avatar-sm" />
               <span className="info"><strong>{perfil.displayName}</strong><small>@{perfil.handle}</small></span>
             </button>
           ))}
@@ -193,6 +194,16 @@ function Shell() {
   );
   const mensagens = useFetch(
     () => (authenticated ? api.messenger.conversations({ limit: 40 }) : Promise.resolve({ totalUnread: 0 })),
+    [authenticated],
+    { ativo: authenticated }
+  );
+
+  // O perfil social é buscado aqui só para a foto do rodapé da barra lateral.
+  // `user` é a conta (nome, papel) e não carrega avatar: quem tem foto é o
+  // perfil social. Uma chamada por sessão, e o `refreshData` do envio de foto
+  // já a refaz — trocar a foto atualiza o canto da tela sem recarregar.
+  const perfilSocial = useFetch(
+    () => (authenticated ? api.social.me().catch(() => null) : Promise.resolve(null)),
     [authenticated],
     { ativo: authenticated }
   );
@@ -295,7 +306,7 @@ function Shell() {
 
         <div className="sidebar-foot">
           <button type="button" className="session-card" style={{ width: '100%', border: 0, background: 'transparent', textAlign: 'left' }} onClick={() => navegar('minha-conta')}>
-            <Avatar name={user?.name} size="avatar-sm" />
+            <Avatar name={user?.name} mediaPath={caminhoDoAvatar(perfilSocial.data)} size="avatar-sm" />
             <span className="info">
               <strong>{user?.name}</strong>
               <small>{user?.role}</small>

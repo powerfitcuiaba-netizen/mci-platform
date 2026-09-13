@@ -124,6 +124,12 @@ function serializar(conversation, viewerProfileId, unreadCount = 0) {
     id: conversation.id,
     kind: conversation.kind,
     title: conversation.kind === 'DIRECT' ? (outros[0]?.profile?.displayName ?? 'Conversa') : conversation.title,
+    // Quem é o OUTRO numa conversa individual. O `title` já sai daqui, mas só
+    // o nome: sem o perfil, a tela não tem como saber de quem é a foto —
+    // teria de descobrir qual dos membros não é ela própria, e para isso
+    // precisaria do próprio id de perfil, que não tem. Em grupo é null: grupo
+    // não tem uma foto só.
+    counterpart: conversation.kind === 'DIRECT' ? profilePublic(outros[0]?.profile) : null,
     lastMessageAt: conversation.lastMessageAt,
     members: conversation.members.map(membro => ({ ...profilePublic(membro.profile), role: membro.role, lastReadAt: membro.lastReadAt })),
     unreadCount

@@ -316,6 +316,58 @@ export function ProtectedMedia({ path, kind = 'IMAGE', alt = '' }) {
   return <img src={src} alt={alt} loading="lazy" />;
 }
 
+// Visualização ampliada de imagem.
+//
+// Diálogo de verdade, não uma div com fundo escuro: o foco entra ao abrir,
+// volta para quem abriu ao fechar, ESC fecha e o Tab não escapa para a página
+// atrás. Sem isso, quem navega por teclado abre a foto e continua tabulando
+// por uma tela que não está mais vendo.
+export function Lightbox({ path, kind = 'IMAGE', alt = '', onClose }) {
+  const caixa = useRef(null);
+  const anterior = useRef(null);
+
+  useEffect(() => {
+    anterior.current = document.activeElement;
+    caixa.current?.focus();
+
+    const aoTeclar = evento => {
+      if (evento.key === 'Escape') { onClose(); return; }
+      if (evento.key !== 'Tab') return;
+      const focaveis = caixa.current?.querySelectorAll('button, [href], [tabindex]:not([tabindex="-1"])');
+      if (!focaveis?.length) { evento.preventDefault(); return; }
+      const primeiro = focaveis[0];
+      const ultimo = focaveis[focaveis.length - 1];
+      if (evento.shiftKey && document.activeElement === primeiro) { evento.preventDefault(); ultimo.focus(); }
+      else if (!evento.shiftKey && document.activeElement === ultimo) { evento.preventDefault(); primeiro.focus(); }
+    };
+
+    document.addEventListener('keydown', aoTeclar);
+    return () => {
+      document.removeEventListener('keydown', aoTeclar);
+      anterior.current?.focus?.();
+    };
+  }, [onClose]);
+
+  return (
+    <div className="lightbox" role="presentation" onClick={onClose}>
+      <div
+        className="lightbox-caixa"
+        ref={caixa}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label={alt || 'Imagem ampliada'}
+        onClick={evento => evento.stopPropagation()}
+      >
+        <button type="button" className="icon-button lightbox-fechar" onClick={onClose} aria-label="Fechar imagem">
+          <X size={18} />
+        </button>
+        <ProtectedMedia path={path} kind={kind} alt={alt} />
+      </div>
+    </div>
+  );
+}
+
 export function Toasts({ toasts, onDismiss }) {
   if (!toasts.length) return null;
   return (

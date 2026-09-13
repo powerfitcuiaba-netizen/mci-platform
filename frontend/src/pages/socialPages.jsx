@@ -4,8 +4,8 @@ import {
 } from 'lucide-react';
 import api, { refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
-import { AsyncSection, Avatar, Badge, EmptyState, Modal, ModalActions, PageHead, Paginacao, ProtectedMedia, Field } from '../components/ui';
-import { desde, ESTADO_PRO, formatarData } from '../lib/format';
+import { AsyncSection, Avatar, Badge, EmptyState, Lightbox, Modal, ModalActions, PageHead, Paginacao, ProtectedMedia, Field } from '../components/ui';
+import { caminhoDoAvatar, desde, ESTADO_PRO, formatarData } from '../lib/format';
 
 // MCI Social. Toda interação chama a API: não existe contador local que não
 // tenha sido confirmado pelo servidor.
@@ -57,7 +57,7 @@ function Stories({ notificar }) {
           return (
             <button key={grupo.profile.id} type="button" className="story-bubble" onClick={() => abrir(grupo)}>
               <span className={`story-ring${todosVistos ? ' is-seen' : ''}`}>
-                <Avatar name={grupo.profile.displayName} />
+                <Avatar name={grupo.profile.displayName} mediaPath={caminhoDoAvatar(grupo.profile)} />
               </span>
               <small>{grupo.profile.handle}</small>
             </button>
@@ -86,8 +86,18 @@ function Composer({ notificar, onPublicado }) {
   const [conteudo, setConteudo] = useState('');
   const [visibilidade, setVisibilidade] = useState('PUBLIC');
   const [arquivo, setArquivo] = useState(null);
+  const [previa, setPrevia] = useState(null);
   const [enviando, setEnviando] = useState(false);
   const inputRef = useRef(null);
+
+  // Prévia do que vai ser publicado. O nome do arquivo não diz se a pessoa
+  // escolheu a foto certa; a miniatura diz.
+  useEffect(() => {
+    if (!arquivo) { setPrevia(null); return undefined; }
+    const url = URL.createObjectURL(arquivo);
+    setPrevia(url);
+    return () => URL.revokeObjectURL(url);
+  }, [arquivo]);
 
   const publicar = async evento => {
     evento.preventDefault();
@@ -134,8 +144,14 @@ function Composer({ notificar, onPublicado }) {
         />
         {arquivo && (
           <span className="composer-preview">
-            {arquivo.name}
-            <button type="button" className="button button-ghost button-sm" onClick={() => setArquivo(null)}>remover</button>
+            <span className="composer-miniatura">
+              {arquivo.type.startsWith('video/')
+                ? <video src={previa} muted playsInline />
+                : <img src={previa} alt={`Prévia de ${arquivo.name}`} />}
+              <button type="button" onClick={() => setArquivo(null)} aria-label={`Remover ${arquivo.name}`}>
+                <Trash2 size={13} />
+              </button>
+            </span>
           </span>
         )}
         <select className="select-control" value={visibilidade} onChange={evento => setVisibilidade(evento.target.value)} aria-label="Visibilidade">
@@ -190,7 +206,7 @@ function Comentarios({ postId, notificar, onMudou }) {
       <AsyncSection state={estado} linhas={2}>
         {dados => dados.items.map(comentario => (
           <div className={`comment${comentario.parentId ? ' is-reply' : ''}`} key={comentario.id}>
-            <Avatar name={comentario.author.displayName} size="avatar-sm" />
+            <Avatar name={comentario.author.displayName} mediaPath={caminhoDoAvatar(comentario.author)} size="avatar-sm" />
             <div className="bubble">
               <strong>@{comentario.author.handle}</strong>
               {comentario.content}
@@ -225,6 +241,7 @@ export function Post({ post, notificar, onMudou, navegar }) {
   const [aberto, setAberto] = useState(false);
   const [estado, setEstado] = useState(post);
   const [ocupado, setOcupado] = useState(false);
+  const [ampliada, setAmpliada] = useState(null);
 
   useEffect(() => setEstado(post), [post]);
 
@@ -281,7 +298,7 @@ export function Post({ post, notificar, onMudou, navegar }) {
   return (
     <article className="post">
       <header className="post-head">
-        <Avatar name={estado.author.displayName} />
+        <Avatar name={estado.author.displayName} mediaPath={caminhoDoAvatar(estado.author)} />
         <div className="info">
           <strong>{estado.author.displayName}</strong>
           <small>
@@ -302,9 +319,21 @@ export function Post({ post, notificar, onMudou, navegar }) {
       {estado.media?.length > 0 && (
         <div className="post-media">
           {estado.media.map(item => (
-            <ProtectedMedia key={item.id} path={`/media/posts/${item.id}`} kind={item.kind} alt="Mídia da publicação" />
+            <button
+              key={item.id}
+              type="button"
+              className="midia-ampliavel"
+              onClick={() => setAmpliada({ path: `/media/posts/${item.id}`, kind: item.kind })}
+              aria-label="Abrir mídia ampliada"
+            >
+              <ProtectedMedia path={`/media/posts/${item.id}`} kind={item.kind} alt="Mídia da publicação" />
+            </button>
           ))}
         </div>
+      )}
+
+      {ampliada && (
+        <Lightbox path={ampliada.path} kind={ampliada.kind} alt="Mídia da publicação" onClose={() => setAmpliada(null)} />
       )}
 
       <footer className="post-actions">
@@ -466,7 +495,7 @@ export function Perfil({ handle, notificar, navegar }) {
           return (
             <>
               <section className="hero" style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
-                <Avatar name={profile.displayName} size="avatar-lg" />
+                <Avatar name={profile.displayName} mediaPath={caminhoDoAvatar(profile)} size="avatar-lg" />
                 <div style={{ flex: 1, minWidth: 220 }}>
                   <span className="eyebrow">{profile.kind}</span>
                   <h1 style={{ marginTop: 6 }}>{profile.displayName}</h1>
@@ -674,7 +703,7 @@ export function ComunidadeDetalhe({ slug, notificar, navegar }) {
                 <AsyncSection state={membros} linhas={3}>
                   {lista => lista.items.map(membro => (
                     <div className="list-row" key={membro.id}>
-                      <Avatar name={membro.displayName} size="avatar-sm" />
+                      <Avatar name={membro.displayName} mediaPath={caminhoDoAvatar(membro)} size="avatar-sm" />
                       <span className="info">
                         <strong>{membro.displayName}</strong>
                         <small>@{membro.handle}</small>
@@ -768,13 +797,7 @@ export function MeuPerfilSocial({ notificar }) {
       <AsyncSection state={estado} linhas={3}>
         {perfil => (
           <section className="panel" style={{ maxWidth: 560 }}>
-            <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 18 }}>
-              <Avatar name={perfil.displayName} size="avatar-lg" />
-              <div>
-                <strong style={{ display: 'block', fontSize: 17 }}>{perfil.displayName}</strong>
-                <small style={{ color: 'var(--cinza-fraco)' }}>@{perfil.handle}</small>
-              </div>
-            </div>
+            <FotoDePerfil perfil={perfil} notificar={notificar} onMudou={() => { estado.reload(); refreshData(); }} />
             <p style={{ color: 'var(--cinza)', fontSize: 13 }}>{perfil.bio || 'Sem bio.'}</p>
             <button type="button" className="button button-secondary" onClick={() => setEditando(true)}>Editar perfil</button>
 
@@ -789,6 +812,123 @@ export function MeuPerfilSocial({ notificar }) {
           </section>
         )}
       </AsyncSection>
+    </div>
+  );
+}
+
+// Foto de perfil: escolher, ver a prévia, salvar ou cancelar — e remover.
+//
+// A conferência de tipo e tamanho aqui é CONVENIÊNCIA, para o usuário saber na
+// hora em vez de esperar o envio. Ela não é barreira: quem decide é o
+// servidor, que confere os BYTES do arquivo e não o rótulo. O frontend nunca é
+// autoridade neste projeto.
+const TIPOS_DE_FOTO = ['image/png', 'image/jpeg', 'image/webp'];
+const LIMITE_DA_FOTO = 5 * 1024 * 1024;
+
+function FotoDePerfil({ perfil, notificar, onMudou }) {
+  const [arquivo, setArquivo] = useState(null);
+  const [previa, setPrevia] = useState(null);
+  const [ocupado, setOcupado] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (!arquivo) { setPrevia(null); return undefined; }
+    const url = URL.createObjectURL(arquivo);
+    setPrevia(url);
+    return () => URL.revokeObjectURL(url);
+  }, [arquivo]);
+
+  const escolher = evento => {
+    const escolhido = evento.target.files?.[0] || null;
+    // Limpar o input permite escolher DE NOVO o mesmo arquivo depois de
+    // cancelar; sem isto, o `change` não dispara na segunda vez.
+    evento.target.value = '';
+    if (!escolhido) return;
+    if (!TIPOS_DE_FOTO.includes(escolhido.type)) {
+      notificar('Formato não aceito. Use JPG, PNG ou WebP.', 'erro');
+      return;
+    }
+    if (escolhido.size > LIMITE_DA_FOTO) {
+      notificar('A foto passa de 5 MB. Escolha uma menor.', 'erro');
+      return;
+    }
+    setArquivo(escolhido);
+  };
+
+  const salvar = async () => {
+    setOcupado(true);
+    try {
+      await api.social.setAvatar(arquivo);
+      setArquivo(null);
+      notificar('Foto de perfil atualizada.');
+      onMudou();
+    } catch (erro) {
+      notificar(erro.message, 'erro');
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  const remover = async () => {
+    setOcupado(true);
+    try {
+      await api.social.removeAvatar();
+      notificar('Foto de perfil removida.');
+      onMudou();
+    } catch (erro) {
+      notificar(erro.message, 'erro');
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', marginBottom: 18 }}>
+      {previa
+        ? <span className="avatar avatar-lg"><img src={previa} alt="Prévia da nova foto de perfil" /></span>
+        : <Avatar name={perfil.displayName} mediaPath={caminhoDoAvatar(perfil)} size="avatar-lg" />}
+
+      <div style={{ flex: 1, minWidth: 200 }}>
+        <strong style={{ display: 'block', fontSize: 17 }}>{perfil.displayName}</strong>
+        <small style={{ color: 'var(--cinza-fraco)' }}>@{perfil.handle}</small>
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+          {arquivo ? (
+            <>
+              <button type="button" className="button button-primary button-sm" onClick={salvar} disabled={ocupado}>
+                {ocupado ? 'Salvando…' : 'Salvar foto'}
+              </button>
+              <button type="button" className="button button-ghost button-sm" onClick={() => setArquivo(null)} disabled={ocupado}>
+                Cancelar
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" className="button button-secondary button-sm" onClick={() => inputRef.current?.click()} disabled={ocupado}>
+                <ImageIcon size={14} /> {perfil.avatarKey ? 'Trocar foto' : 'Adicionar foto'}
+              </button>
+              {perfil.avatarKey && (
+                <button type="button" className="button button-ghost button-sm" onClick={remover} disabled={ocupado}>
+                  Remover foto
+                </button>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* `accept` sem `capture`: no celular o seletor do sistema já oferece a
+            câmera junto da galeria. Forçar `capture` tiraria a galeria em
+            parte dos navegadores — ganharíamos a câmera e perderíamos a foto
+            que a pessoa já tem. */}
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          hidden
+          onChange={escolher}
+          aria-label="Escolher foto de perfil"
+        />
+      </div>
     </div>
   );
 }

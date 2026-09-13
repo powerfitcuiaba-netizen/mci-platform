@@ -565,6 +565,42 @@ h1, h2, h3 { margin: 0; }
 .composer-foot .button { margin-left: auto; }
 .composer-preview { display: flex; align-items: center; gap: var(--e2); font-size: 11.5px; color: var(--ciano); }
 
+/* Prévia visual do que vai ser publicado. Antes havia só o NOME do arquivo, e
+   nome de arquivo não diz se a pessoa escolheu a foto certa. */
+.composer-miniatura {
+  position: relative; display: inline-flex; margin-top: var(--e2);
+  border: 1px solid var(--linha-forte); border-radius: var(--raio-1); overflow: hidden;
+}
+.composer-miniatura img, .composer-miniatura video { display: block; max-width: 160px; max-height: 120px; object-fit: cover; }
+.composer-miniatura button {
+  position: absolute; top: 4px; right: 4px;
+  width: 28px; height: 28px; display: grid; place-items: center;
+  border: 0; border-radius: 50%; cursor: pointer;
+  background: rgba(3,5,8,.78); color: #fff;
+}
+
+/* A mídia do feed vira um alvo clicável sem virar um botão visualmente: o que
+   o usuário vê continua sendo a foto. Só o cursor e o foco denunciam que abre. */
+.midia-ampliavel { display: block; width: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
+.midia-ampliavel:focus-visible { outline: 2px solid var(--ciano); outline-offset: 2px; }
+
+/* --- visualização ampliada ---------------------------------------------
+   Mesma camada e mesmo escurecimento do modal: é o mesmo gesto de "abrir por
+   cima", e usar outra linguagem visual aqui faria parecer outra aplicação. */
+.lightbox {
+  position: fixed; inset: 0; z-index: 30;
+  display: grid; place-items: center; padding: var(--e5);
+  background: rgba(3,5,8,.86); backdrop-filter: blur(3px);
+  animation: surge var(--t-base) ease-out;
+}
+.lightbox-caixa { position: relative; width: min(100%, 900px); outline: none; animation: sobe var(--t-calmo) var(--mola); }
+.lightbox-caixa img, .lightbox-caixa video {
+  display: block; width: 100%; height: auto;
+  max-height: calc(100vh - var(--e8)); object-fit: contain;
+  border-radius: var(--raio-2);
+}
+.lightbox-fechar { position: absolute; top: 8px; right: 8px; background: rgba(3,5,8,.78); }
+
 .post {
   background: var(--superficie); border: 1px solid var(--linha);
   border-radius: var(--raio-2); margin-bottom: var(--e4); overflow: hidden;
