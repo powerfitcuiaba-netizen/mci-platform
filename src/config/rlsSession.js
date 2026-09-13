@@ -27,7 +27,17 @@ const lerAtor = async tx => {
   return linha?.user_id || SEM_ATOR;
 };
 
-function withUserContext(userId, callback) {
+// `opcoes` chega ao `$transaction` do Prisma e existe por um motivo só: a
+// transação interativa tem prazo PADRÃO de 5 segundos, e quem escreve muitas
+// linhas numa tacada estoura esse prazo quando o banco não está na mesma
+// máquina. A carga do calendário são ~145 idas e voltas ao banco (47 etapas ×
+// consulta + escrita + auditoria): 327ms contra PostgreSQL local, mas a 30ms
+// de latência isso passa de 4 segundos e a transação morre com P2028 —
+// justamente no ambiente gerenciado, que é onde a carga roda de verdade.
+//
+// Omitir `opcoes` mantém o padrão do Prisma. Nenhuma requisição HTTP passa por
+// aqui com prazo alterado: quem dilata o prazo é o script de carga, e só ele.
+function withUserContext(userId, callback, opcoes = undefined) {
   const ator = userId == null ? SEM_ATOR : String(userId);
   const jaEmContexto = Boolean(contextoAtual()?.tx);
 
@@ -44,7 +54,7 @@ function withUserContext(userId, callback) {
     } finally {
       if (jaEmContexto) await definirAtor(tx, anterior);
     }
-  });
+  }, opcoes);
 }
 
 // Leitura do contexto corrente, útil em diagnóstico e em teste de política.
