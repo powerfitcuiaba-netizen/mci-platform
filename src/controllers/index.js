@@ -61,6 +61,7 @@ module.exports = {
     create: async (req, res) => res.status(201).json(await organizations.create(req.body, req.user)),
     findById: async (req, res) => res.json(await organizations.findById(req.params.id, req.user)),
     addMember: async (req, res) => res.status(201).json(await organizations.addMember(req.params.id, req.body, req.user)),
+    setSelfRegistration: async (req, res) => res.json(await organizations.setSelfRegistration(req.params.id, req.body.open, req.user)),
     removeMember: async (req, res) => res.json(await organizations.removeMember(req.params.id, req.params.membershipId, req.user))
   },
 
@@ -78,7 +79,9 @@ module.exports = {
     listar: async (req, res) => res.json(await athleteRequests.listar(req.query, req.user)),
     analisar: async (req, res) => res.json(await athleteRequests.carregarParaAnalise(req.params.id, req.user)),
     aprovar: async (req, res) => res.json(await athleteRequests.aprovar(req.params.id, req.user)),
-    rejeitar: async (req, res) => res.json(await athleteRequests.rejeitar(req.params.id, req.body, req.user))
+    rejeitar: async (req, res) => res.json(await athleteRequests.rejeitar(req.params.id, req.body, req.user)),
+    definirFoto: async (req, res) => res.json(await athleteRequests.definirFoto(req.params.id, req.file, req.user)),
+    removerFoto: async (req, res) => res.json(await athleteRequests.removerFoto(req.params.id, req.user))
   },
 
   athletes: {
@@ -282,6 +285,7 @@ module.exports = {
     listEvents: async (req, res) => res.json(await publicService.listEvents(req.query)),
     eventPage: async (req, res) => res.json(await publicService.eventPage(req.params.slug)),
     listAthletes: async (req, res) => res.json(await publicService.listAthletes(req.query)),
+    listAffiliations: async (req, res) => res.json({ items: await publicService.listAffiliations(req.query) }),
     athletePage: async (req, res) => res.json(await publicService.athletePage(req.params.id))
   },
 
@@ -298,6 +302,14 @@ module.exports = {
     downloadEvent: async (req, res) => {
       const { stream, document } = await documents.downloadEventDocument(req.params.id, req.user);
       enviarArquivo(res, stream, { mimeType: document.mimeType, fileName: document.fileName });
+    },
+    athleteRequestPhoto: async (req, res) => {
+      const { stream, mimeType } = await documents.downloadAthleteRequestPhoto(req.params.id, req.user);
+      enviarArquivo(res, stream, { mimeType, fileName: req.params.id, inline: true });
+    },
+    athletePhoto: async (req, res) => {
+      const { stream, mimeType } = await documents.downloadAthletePhoto(req.params.id);
+      enviarArquivo(res, stream, { mimeType, fileName: req.params.id, inline: true });
     },
     postMedia: async (req, res) => {
       const { stream, mimeType } = await documents.downloadPostMedia(req.params.id, req.user);

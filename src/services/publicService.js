@@ -120,6 +120,51 @@ async function eventPage(slug) {
   };
 }
 
+// ============================================================================
+// FILIAÇÕES ABERTAS A AUTOCADASTRO.
+//
+// Existe porque `GET /affiliations` é escopado ao VÍNCULO do ator, e quem
+// acaba de criar conta não tem vínculo nenhum: a lista voltava vazia sempre, e
+// a fila de perfil de atleta ficava inalcançável para quem ela atende. Medido
+// na API, não deduzido.
+//
+// A exposição é decidida por TRÊS condições, e nenhuma delas vem do cliente:
+//
+//   organization.selfRegistrationOpen  a federação decidiu receber pedido
+//                                      espontâneo (padrão: false)
+//   organization.active                a federação está operando
+//   affiliation.active                 a filiação está válida
+//
+// O que sai daqui é só o necessário para escolher numa lista: id, nome,
+// código, tipo e UF, mais o nome da federação para contexto. NÃO sai o
+// `organizationId` — a solicitação deriva a federação da filiação escolhida,
+// no servidor, e devolver o id aqui só serviria para alguém tentar mandá-lo
+// de volta.
+// ============================================================================
+async function listAffiliations(filtros = {}) {
+  const termo = (filtros.search || '').trim();
+
+  return prisma.affiliation.findMany({
+    where: {
+      active: true,
+      organization: { active: true, selfRegistrationOpen: true },
+      ...(termo
+        ? { OR: [{ name: { contains: termo, mode: 'insensitive' } }, { code: { contains: termo.toUpperCase() } }] }
+        : {})
+    },
+    select: {
+      id: true,
+      name: true,
+      code: true,
+      kind: true,
+      state: true,
+      organization: { select: { name: true } }
+    },
+    orderBy: [{ name: 'asc' }],
+    take: Math.min(filtros.limit || 100, 200)
+  });
+}
+
 async function athletePage(id) {
   const athlete = await prisma.athlete.findUnique({
     where: { id },
@@ -175,4 +220,4 @@ async function listAthletes(filtros) {
   return { items: items.map(athletePublic), nextCursor: items.length === filtros.limit ? items[items.length - 1].id : null };
 }
 
-module.exports = { summary, listEvents, eventPage, athletePage, listAthletes, EVENTOS_VISIVEIS };
+module.exports = { summary, listEvents, eventPage, athletePage, listAthletes, listAffiliations, EVENTOS_VISIVEIS };

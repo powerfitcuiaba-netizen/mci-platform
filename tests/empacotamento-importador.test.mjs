@@ -203,7 +203,18 @@ describe('o calendário não pede migration nenhuma', () => {
       // `atleta_criacao`, que continua exigindo `mci_operator_of`. A fila
       // existe justamente para NÃO precisar afrouxá-la: o usuário pede, o
       // operador da federação concede.
-      '20260913190000_fila_de_perfil_de_atleta'
+      '20260913190000_fila_de_perfil_de_atleta',
+      // Descoberta de filiações para autocadastro. ADITIVA: UMA coluna em
+      // `Organization` (`selfRegistrationOpen`, padrão `false`) e um índice
+      // parcial. Nenhuma tabela criada, nenhuma apagada, nenhuma política de
+      // RLS tocada.
+      //
+      // O padrão `false` é o ponto: a migration NÃO torna nenhuma federação
+      // publicamente descobrível. Cada uma decide, por rota administrativa e
+      // com auditoria. Reaproveitar `active` teria aberto todas de uma vez,
+      // como efeito colateral de uma migration — que é exatamente o que não se
+      // quer.
+      '20260913220000_autocadastro_de_filiacao'
     ]);
   });
 });

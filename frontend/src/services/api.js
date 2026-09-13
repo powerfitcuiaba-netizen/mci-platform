@@ -151,11 +151,16 @@ export const api = {
     // parâmetro de consulta, onde ficaria em histórico e em log de servidor.
     analisar: id => get(`/athlete-requests/${id}`),
     aprovar: id => post(`/athlete-requests/${id}/approve`, {}),
-    rejeitar: (id, motivo) => post(`/athlete-requests/${id}/reject`, { reason: motivo })
+    rejeitar: (id, motivo) => post(`/athlete-requests/${id}/reject`, { reason: motivo }),
+    // A foto sobe pelo servidor, em multipart. Nenhuma credencial de
+    // armazenamento chega ao navegador, e por isso não há URL assinada aqui.
+    enviarFoto: (id, arquivo) => upload(`/athlete-requests/${id}/photo`, arquivo),
+    removerFoto: id => remove(`/athlete-requests/${id}/photo`)
   },
 
   organizations: {
     list: () => get('/organizations'),
+    setSelfRegistration: (id, aberto) => post(`/organizations/${id}/self-registration`, { open: aberto }),
     create: dados => post('/organizations', dados),
     findById: id => get(`/organizations/${id}`),
     addMember: (id, dados) => post(`/organizations/${id}/members`, dados),
@@ -360,7 +365,11 @@ export const api = {
     events: params => get('/public/events', params),
     event: slug => get(`/public/events/${slug}`),
     athletes: params => get('/public/athletes', params),
-    athlete: id => get(`/public/athletes/${id}`)
+    athlete: id => get(`/public/athletes/${id}`),
+    // Filiações que aceitam autocadastro. Existe porque `/affiliations` é
+    // escopado ao vínculo do ator, e quem acabou de criar conta não tem
+    // nenhum — a lista voltava vazia e a solicitação era impossível.
+    affiliations: params => get('/public/affiliations', params)
   },
 
   notifications: {

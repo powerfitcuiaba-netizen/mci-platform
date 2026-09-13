@@ -65,6 +65,7 @@ router.route('/organizations')
   .get(requireAuth, wrap(c.organizations.list))
   .post(requireAuth, perm('organizations.manage'), validate(s.organizationCreate), wrap(c.organizations.create));
 router.get('/organizations/:id', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.organizations.findById));
+router.post('/organizations/:id/self-registration', requireAuth, validate(s.paramsWithId, 'params'), validate(s.organizationSelfRegistration), wrap(c.organizations.setSelfRegistration));
 router.post('/organizations/:id/members', requireAuth, validate(s.paramsWithId, 'params'), validate(s.organizationMemberCreate), wrap(c.organizations.addMember));
 router.delete('/organizations/:id/members/:membershipId', requireAuth, wrap(c.organizations.removeMember));
 
@@ -84,6 +85,13 @@ router.post('/affiliations/:id/deactivate', requireAuth, validate(s.paramsWithId
 router.post('/athlete-requests', requireAuth, validate(s.athleteRequestCreate), wrap(c.athleteRequests.criar));
 router.get('/athlete-requests/me', requireAuth, wrap(c.athleteRequests.meus));
 router.post('/athlete-requests/:id/cancel', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.athleteRequests.cancelar));
+// A foto sobe PELO SERVIDOR (multipart), como todo upload daqui: nenhuma
+// credencial de armazenamento chega ao navegador. `uploadAvatar` já aplica o
+// teto de bytes e a lista de tipos de avatar; o serviço confere a assinatura
+// dos bytes e só então grava.
+router.route('/athlete-requests/:id/photo')
+  .post(requireAuth, limiteUpload, validate(s.paramsWithId, 'params'), uploadAvatar, wrap(c.athleteRequests.definirFoto))
+  .delete(requireAuth, validate(s.paramsWithId, 'params'), wrap(c.athleteRequests.removerFoto));
 
 // Da análise em diante é operador. A organização conferida é a DO PEDIDO,
 // lida do banco pelo serviço — nunca a que vier na requisição.
@@ -299,6 +307,20 @@ router.post('/social/stories/:id/view', requireAuth, validate(s.paramsWithId, 'p
 router.get('/media/posts/:id', optionalAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.postMedia));
 router.get('/media/stories/:id', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.storyMedia));
 router.get('/media/profiles/:id/avatar', optionalAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.profileAvatar));
+// As duas exigem sessão.
+//
+// A do PEDIDO é evidente: o serviço decide entre o dono e o operador.
+//
+// A do ATLETA foi deliberada. A foto chega aqui por um caminho específico —
+// a pessoa a enviou para a federação CONFERIR sua identidade —, e abri-la a
+// visitante anônimo seria eu decidir publicar retrato de atleta por conta
+// própria. Hoje nada se perde com isso: a vitrine pública nunca exibiu foto,
+// porque até agora não existia rota nenhuma que a servisse. Se a decisão de
+// produto for publicá-la, troca-se por `optionalAuth` e acrescenta-se a rota
+// à lista de públicas em tests/rotas.test.mjs — de propósito, não por
+// descuido.
+router.get('/media/athlete-requests/:id/photo', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.athleteRequestPhoto));
+router.get('/media/athletes/:id/photo', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.athletePhoto));
 
 router.post('/social/reports', requireAuth, limiteConteudo, validate(s.reportCreate), wrap(c.social.report));
 router.get('/social/reports', requireAuth, perm('social.moderate'), validate(s.reportQuery, 'query'), wrap(c.social.listReports));
@@ -356,6 +378,10 @@ router.patch('/admin/users/:id', requireAuth, perm('users.manage'), validate(s.p
 router.get('/public/summary', limitePublico, wrap(c.publicApi.summary));
 router.get('/public/events', limitePublico, validate(s.buscaPublica, 'query'), wrap(c.publicApi.listEvents));
 router.get('/public/events/:slug', limitePublico, wrap(c.publicApi.eventPage));
+// Descoberta de filiações para quem ainda não tem vínculo com organização
+// nenhuma. Devolve só o necessário para escolher numa lista, e apenas de
+// federações que decidiram receber pedido espontâneo.
+router.get('/public/affiliations', limitePublico, validate(s.buscaPublica, 'query'), wrap(c.publicApi.listAffiliations));
 router.get('/public/athletes', limitePublico, validate(s.buscaPublica, 'query'), wrap(c.publicApi.listAthletes));
 router.get('/public/athletes/:id', limitePublico, validate(s.paramsWithId, 'params'), wrap(c.publicApi.athletePage));
 

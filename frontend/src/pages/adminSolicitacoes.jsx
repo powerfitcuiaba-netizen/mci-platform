@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { api } from '../services/api';
 import { useAuth } from '../AuthContext';
 import { useFetch } from '../lib/hooks';
-import { PageHead, Badge, AsyncSection, Modal, Field, Paginacao } from '../components/ui';
+import { PageHead, Badge, AsyncSection, Modal, Field, Paginacao, ProtectedMedia } from '../components/ui';
 import { mascararCpf, formatarData, formatarDataHora } from '../lib/format';
 
 // ============================================================================
@@ -187,6 +187,23 @@ function Analise({ id, onClose, aoDecidir, notificar }) {
       <AsyncSection state={pedido} linhas={5}>
         {pedidoCarregado => (
           <>
+            {/* A foto é o que confirma a identidade contra o documento — vem
+                antes dos campos de propósito. Buscada COM o token: a rota exige
+                sessão e decide entre o dono e o operador da federação. */}
+            <div className="foto-da-analise">
+              <div className="foto-previa foto-previa-grande">
+                {pedidoCarregado.photoKey
+                  ? <ProtectedMedia path={`/media/athlete-requests/${pedidoCarregado.id}/photo`} alt={`Foto enviada por ${pedidoCarregado.fullName}`} />
+                  : <span className="foto-vazia">Sem foto</span>}
+              </div>
+              {!pedidoCarregado.photoKey && (
+                <small className="muted">
+                  Este pedido veio sem foto. A foto é opcional — confira a identidade pelos
+                  demais dados.
+                </small>
+              )}
+            </div>
+
             <dl className="lista-revisao">
               <Linha rotulo="Nome informado" valor={pedidoCarregado.fullName} />
               <Linha rotulo="Conta" valor={pedidoCarregado.user?.email} />

@@ -113,4 +113,28 @@ async function removeMember(organizationId, membershipId, actor) {
   return { success: true };
 }
 
-module.exports = { list, create, findById, addMember, removeMember, CLASSES_DO_CAMPEONATO };
+// A federação decide se recebe pedido espontâneo. É ato administrativo, com
+// auditoria: abrir a porta torna as filiações dela descobríveis por qualquer
+// visitante, e fechar tira todas de circulação de uma vez.
+async function setSelfRegistration(id, aberto, actor) {
+  assertCan(actor, 'organizations.manage', id);
+
+  const organization = await prisma.organization.findUnique({ where: { id }, select: { id: true, selfRegistrationOpen: true } });
+  if (!organization) throw new AppError(404, 'ORGANIZATION_NOT_FOUND', 'Organização não encontrada');
+
+  const atualizada = await prisma.organization.update({
+    where: { id },
+    data: { selfRegistrationOpen: aberto },
+    select: { id: true, name: true, slug: true, active: true, selfRegistrationOpen: true }
+  });
+
+  await audit.record({
+    actor, action: aberto ? 'ORGANIZATION_SELF_REGISTRATION_OPEN' : 'ORGANIZATION_SELF_REGISTRATION_CLOSE',
+    entity: 'Organization', entityId: id, organizationId: id,
+    metadata: { de: organization.selfRegistrationOpen, para: aberto }
+  });
+
+  return atualizada;
+}
+
+module.exports = { list, create, findById, addMember, removeMember, setSelfRegistration, CLASSES_DO_CAMPEONATO };

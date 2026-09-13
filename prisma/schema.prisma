@@ -31,15 +31,21 @@ enum AthleteProfileRequestStatus {
 }
 
 model Organization {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
+  id       String  @id @default(cuid())
+  name     String
+  slug     String  @unique
   // Fuso do tenant. Eventos podem sobrescrever; nada no código assume
   // America/Sao_Paulo por conta própria.
-  timezone  String   @default("America/Sao_Paulo")
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  timezone String  @default("America/Sao_Paulo")
+  active   Boolean @default(true)
+
+  // "Esta federação aceita que uma pessoa de fora se apresente a ela?" — é
+  // pergunta diferente de `active`, que responde "está operando?". Uma
+  // federação em operação pode não querer pedido espontâneo, e por isso o
+  // padrão é `false`: nada vira público sem alguém decidir.
+  selfRegistrationOpen Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   members                OrganizationMember[]
   affiliations           Affiliation[]
@@ -57,6 +63,7 @@ model Organization {
   athleteProfileRequests AthleteProfileRequest[]
 
   @@index([active])
+  @@index([selfRegistrationOpen])
 }
 
 model OrganizationMember {

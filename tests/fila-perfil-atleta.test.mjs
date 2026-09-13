@@ -140,7 +140,12 @@ describe('o pedido', () => {
     const antes = await comoAtor(operadorA, () => prisma.athlete.count());
     const aprovacao = await api().post(`/api/v1/athlete-requests/${pedido.body.id}/approve`).set(operadorA.auth()).send({});
 
-    expect(aprovacao.status, 'a aprovação criou um segundo atleta com o mesmo CPF').toBeGreaterThanOrEqual(400);
+    // `>= 400` era frouxo demais e deixou passar um 500: o operador recebia
+    // "erro inesperado" numa situação perfeitamente esperada, sem saber o que
+    // fazer. Medido no navegador. O desfecho certo é 409 com o motivo.
+    expect(aprovacao.status, JSON.stringify(aprovacao.body)).toBe(409);
+    expect(aprovacao.body.error.code).toBe('CPF_ALREADY_REGISTERED');
+    expect(aprovacao.body.error.message).toMatch(/já pertence a um atleta/i);
     expect(await comoAtor(operadorA, () => prisma.athlete.count())).toBe(antes);
 
     const naFila = await comoAtor(operadorA, () => prisma.athleteProfileRequest.findUnique({ where: { id: pedido.body.id } }));

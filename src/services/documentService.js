@@ -4,6 +4,7 @@ const { assertCan } = require('../utils/tenant');
 const { can } = require('../utils/permissions');
 const storage = require('./storageService');
 const audit = require('./auditService');
+const athleteRequests = require('./athleteRequestService');
 
 // Documentos de atleta (privados) e de evento (privados por padrão, públicos
 // só quando marcados). A chave de armazenamento nunca vem do cliente e o
@@ -158,6 +159,36 @@ async function downloadPostMedia(mediaId, actor) {
 // caso, porque o que o perfil privado protege é o CONTEÚDO, não a identidade.
 // Servir a foto com regra mais apertada do que a API que a anuncia produziria
 // avatar quebrado em telas que a própria API mandou exibir.
+// Entrega por ID DA ENTIDADE, nunca por chave de objeto — o mesmo padrão de
+// `downloadProfileAvatar`. Quem resolve a chave é o servidor, depois de
+// decidir quem pode ver; trocar o id na URL só alcança o que aquele id
+// autoriza, e não existe parâmetro por onde passar uma chave.
+
+const TIPO_POR_EXTENSAO = Object.freeze({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' });
+
+async function entregarImagem(chave) {
+  if (!(await storage.exists(chave))) throw new AppError(404, 'FILE_NOT_FOUND', 'Arquivo indisponível');
+  const extensao = String(chave).split('.').pop().toLowerCase();
+  return { stream: await storage.createReadStream(chave), mimeType: TIPO_POR_EXTENSAO[extensao] || 'application/octet-stream' };
+}
+
+// A foto do PEDIDO: só o dono e o operador que analisa. A decisão está no
+// serviço da fila, que já conhece a organização do pedido.
+async function downloadAthleteRequestPhoto(requestId, actor) {
+  const chave = await athleteRequests.fotoParaEntrega(requestId, actor);
+  return entregarImagem(chave);
+}
+
+// A foto do ATLETA depois de aprovado. `Athlete.photoKey` existia e era lido
+// em sete lugares — ranking, palco, pesagem, vitrine pública —, mas NENHUMA
+// rota o servia: a foto era gravada e nunca aparecia. Esta é a rota que
+// faltava.
+async function downloadAthletePhoto(athleteId) {
+  const athlete = await prisma.athlete.findUnique({ where: { id: athleteId }, select: { photoKey: true } });
+  if (!athlete || !athlete.photoKey) throw new AppError(404, 'PHOTO_NOT_FOUND', 'Atleta sem foto');
+  return entregarImagem(athlete.photoKey);
+}
+
 async function downloadProfileAvatar(profileId) {
   const profile = await prisma.socialProfile.findUnique({
     where: { id: profileId },
@@ -196,5 +227,6 @@ async function downloadStoryMedia(storyId, actor) {
 module.exports = {
   uploadAthleteDocument, listAthleteDocuments, downloadAthleteDocument, deleteAthleteDocument,
   uploadEventDocument, listEventDocuments, downloadEventDocument,
-  downloadPostMedia, downloadStoryMedia, downloadProfileAvatar
+  downloadPostMedia, downloadStoryMedia, downloadProfileAvatar,
+  downloadAthleteRequestPhoto, downloadAthletePhoto
 };

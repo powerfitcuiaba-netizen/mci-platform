@@ -1227,3 +1227,38 @@ h1, h2, h3 { margin: 0; }
      o texto "Etapa 3 de 5" no topo do cartão continua dizendo. */
   .acoes-do-passo .button { flex: 1; min-width: 0; }
 }
+
+/* --- foto da solicitação de atleta ---
+   Uma foto de identidade é para CONFERIR um rosto contra um documento: ela
+   aparece grande na análise do operador e pequena onde é só confirmação de que
+   subiu. */
+.campo-da-foto { display: grid; gap: var(--e2); margin: var(--e4) 0; }
+.rotulo-da-foto {
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--cinza-fraco); font-weight: 700;
+}
+.foto-escolha { display: flex; gap: var(--e4); align-items: flex-start; flex-wrap: wrap; }
+.foto-previa {
+  width: 96px; height: 96px; flex-shrink: 0;
+  border: 1px dashed var(--linha-forte); border-radius: var(--raio-2);
+  background: var(--superficie-2); overflow: hidden;
+  display: grid; place-items: center;
+}
+/* `cover` porque o servidor já recorta em quadrado: aqui é só não deformar. */
+.foto-previa img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.foto-vazia { font-size: 11px; color: var(--cinza-fraco); text-align: center; padding: var(--e2); }
+.foto-acoes { display: flex; flex-direction: column; gap: var(--e2); align-items: flex-start; min-width: 0; }
+/* O <label> faz as vezes do botão porque o <input type=file> nativo não tem
+   aparência configurável. Precisa parecer e responder como botão. */
+.foto-acoes label.button { cursor: pointer; }
+.foto-acoes label.button.is-disabled { opacity: .5; pointer-events: none; }
+.aviso-de-envio { margin: var(--e3) 0; font-size: 12px; }
+
+.foto-da-analise { display: grid; gap: var(--e2); justify-items: center; margin-bottom: var(--e4); }
+.foto-previa-grande { width: 168px; height: 168px; border-style: solid; }
+
+@media (max-width: 480px) {
+  .foto-escolha { gap: var(--e3); }
+  .foto-previa { width: 72px; height: 72px; }
+  .foto-previa-grande { width: 132px; height: 132px; }
+}

@@ -128,6 +128,10 @@ const cadastroCompleto = z.object({
 // Solicitação de perfil de atleta. `organizationId` NÃO existe aqui de
 // propósito: ela é derivada da filiação, no servidor. Aceitá-la do cliente
 // deixaria qualquer pessoa endereçar o pedido à federação que quisesse.
+// Só o booleano. `z.object` com `strict` implícito do projeto descarta o
+// resto, e nada mais deste corpo chega ao serviço.
+const organizationSelfRegistration = z.object({ open: z.boolean() });
+
 const athleteRequestCreate = z.object({
   fullName: texto(2, 160),
   cpf: z.string().trim().min(11).max(14),
@@ -700,7 +704,7 @@ module.exports = {
   importQuery, reportQuery, rankingPointsQuery, communityMemberAdd, handleUpdate, rejectImport,
   authRegister, cadastroCompleto, authLogin, profileUpdate, passwordChange,
   athleteRequestCreate, athleteRequestReject, athleteRequestQuery,
-  organizationCreate, organizationMemberCreate,
+  organizationCreate, organizationMemberCreate, organizationSelfRegistration,
   affiliationCreate,
   athleteCreate, athleteUpdate, athleteTeamLink, athleteTeamTransfer, athleteTeamUnlink, athleteQuery, athleteLookup, proStatusUpdate,
   eventCreate, eventUpdate, eventTransition, eventQuery,
