@@ -52,7 +52,7 @@ const uploadMidia = singleFileUpload('file', { maxBytes: storage.MAX_MEDIA_BYTES
 const uploadAvatar = singleFileUpload('file', { maxBytes: storage.MAX_AVATAR_BYTES, tipo: 'avatar' });
 
 // ============================================================ AUTENTICAÇÃO
-router.post('/auth/register', limiteAutenticacao, validate(s.authRegister), wrap(c.auth.register));
+router.post('/auth/register', limiteAutenticacao, validate(s.cadastroCompleto), wrap(c.auth.register));
 router.post('/auth/login', limiteAutenticacao, validate(s.authLogin), wrap(c.auth.login));
 router.get('/auth/me', requireAuth, wrap(c.auth.me));
 

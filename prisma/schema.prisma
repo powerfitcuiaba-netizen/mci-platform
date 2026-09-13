@@ -31,21 +31,21 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members          OrganizationMember[]
-  affiliations     Affiliation[]
-  athletes         Athlete[]
-  events           Event[]
-  teams            Team[]
-  gyms             Gym[]
-  brands           Brand[]
-  sponsors         Sponsor[]
-  seasons          RankingSeason[]
-  muscleWarImports MuscleWarImport[]
+  members           OrganizationMember[]
+  affiliations      Affiliation[]
+  athletes          Athlete[]
+  events            Event[]
+  teams             Team[]
+  gyms              Gym[]
+  brands            Brand[]
+  sponsors          Sponsor[]
+  seasons           RankingSeason[]
+  muscleWarImports  MuscleWarImport[]
+  athleteIdentities AthleteIdentity[]
+  classCatalog      ClassCatalog[]
+  companies         Company[]
 
   @@index([active])
-  athleteIdentities AthleteIdentity[]
-  classCatalog ClassCatalog[]
-  companies Company[]
 }
 
 model OrganizationMember {
@@ -104,11 +104,35 @@ model User {
   email        String     @unique
   passwordHash String
   status       UserStatus @default(ACTIVE)
+
+  // Cadastro completo. TUDO opcional: as contas que já existem foram criadas
+  // antes destes campos e continuam válidas — o cadastro novo é que exige o
+  // preenchimento, na camada de validação, e não no banco.
+  //
+  // CPF NÃO está aqui de propósito. Ele vive em `AthleteIdentity`, isolado,
+  // sob RLS e único por organização. Trazer CPF para `User` ampliaria a
+  // superfície do dado mais sensível do sistema para toda conta — inclusive
+  // mídia, marca e público, que não competem.
+  //
+  // Foto de perfil também não está aqui: `SocialProfile.avatarKey` já existe,
+  // com upload que confere o tipo pelos BYTES e grava no R2.
+  birthDate         DateTime?
+  // Telefone e WhatsApp guardados só com dígitos. Formatar é trabalho da
+  // tela; o banco guarda o que dá para comparar.
+  phone             String?
+  whatsapp          String?
+  postalCode        String?
+  addressLine       String?
+  addressNumber     String?
+  addressComplement String?
+  // UF em duas letras maiúsculas, cidade como veio do CEP ou digitada.
+  state             String?
+  city              String?
   // Papel global. Papéis por organização vivem em OrganizationMember; a
   // autorização efetiva é a união dos dois, resolvida em utils/permissions.
-  role         UserRole   @default(ATHLETE)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  role              UserRole  @default(ATHLETE)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   memberships   OrganizationMember[]
   athlete       Athlete?             @relation("AthleteUser")
@@ -117,30 +141,30 @@ model User {
   notifications Notification[]
   auditLogs     AuditLog[]           @relation("AuditActor")
 
-  createdEvents          Event[]             @relation("EventCreatedBy")
-  createdAthletes        Athlete[]           @relation("AthleteCreatedBy")
-  createdRegistrations   Registration[]      @relation("RegistrationCreatedBy")
-  cancelledRegistrations Registration[]      @relation("RegistrationCancelledBy")
-  checkInsOperated       CheckIn[]           @relation("CheckInOperator")
-  weighInsOperated       WeighIn[]           @relation("WeighInOperator")
-  credentialScans        CredentialScan[]    @relation("CredentialScanner")
+  createdEvents          Event[]                 @relation("EventCreatedBy")
+  createdAthletes        Athlete[]               @relation("AthleteCreatedBy")
+  createdRegistrations   Registration[]          @relation("RegistrationCreatedBy")
+  cancelledRegistrations Registration[]          @relation("RegistrationCancelledBy")
+  checkInsOperated       CheckIn[]               @relation("CheckInOperator")
+  weighInsOperated       WeighIn[]               @relation("WeighInOperator")
+  credentialScans        CredentialScan[]        @relation("CredentialScanner")
   panelSeats             PanelJudge[]
-  scoresGiven            JudgingScore[]      @relation("ScoreJudge")
-  resultsPublished       Result[]            @relation("ResultPublishedBy")
-  resultVersions         ResultVersion[]     @relation("ResultVersionAuthor")
-  uploadedDocuments      AthleteDocument[]   @relation("DocumentUploader")
-  eventDocuments         EventDocument[]     @relation("EventDocumentUploader")
-  muscleWarImports       MuscleWarImport[]   @relation("ImportCreatedBy")
-  muscleWarApplied       MuscleWarImport[]   @relation("ImportAppliedBy")
-  moderationActions      ContentReport[]     @relation("ReportResolver")
-  proHistoryEntries      AthleteProHistory[] @relation("ProHistoryAuthor")
+  scoresGiven            JudgingScore[]          @relation("ScoreJudge")
+  resultsPublished       Result[]                @relation("ResultPublishedBy")
+  resultVersions         ResultVersion[]         @relation("ResultVersionAuthor")
+  uploadedDocuments      AthleteDocument[]       @relation("DocumentUploader")
+  eventDocuments         EventDocument[]         @relation("EventDocumentUploader")
+  muscleWarImports       MuscleWarImport[]       @relation("ImportCreatedBy")
+  muscleWarApplied       MuscleWarImport[]       @relation("ImportAppliedBy")
+  moderationActions      ContentReport[]         @relation("ReportResolver")
+  proHistoryEntries      AthleteProHistory[]     @relation("ProHistoryAuthor")
+  rankingPointsAwarded   RankingPoint[]          @relation("RankingPointAwardedBy")
+  overallTitlesDeclared  EventOverallTitle[]     @relation("OverallDeclaredBy")
+  membershipsCreated     AthleteTeamMembership[] @relation("MembershipCreatedBy")
+  membershipsEnded       AthleteTeamMembership[] @relation("MembershipEndedBy")
 
   @@index([role])
   @@index([status])
-  rankingPointsAwarded RankingPoint[]      @relation("RankingPointAwardedBy")
-  overallTitlesDeclared EventOverallTitle[] @relation("OverallDeclaredBy")
-  membershipsCreated AthleteTeamMembership[] @relation("MembershipCreatedBy")
-  membershipsEnded   AthleteTeamMembership[] @relation("MembershipEndedBy")
 }
 
 // ============================================================================
@@ -196,18 +220,18 @@ enum ProStatus {
 }
 
 model Athlete {
-  id             String    @id @default(cuid())
-  organizationId String
-  userId         String?   @unique
-  fullName       String
-  stageName      String?
-  birthDate      DateTime?
-  sex            Sex
-  country        String    @default("BR")
-  state          String?
-  city           String?
-  phone          String?
-  email          String?
+  id                String    @id @default(cuid())
+  organizationId    String
+  userId            String?   @unique
+  fullName          String
+  stageName         String?
+  birthDate         DateTime?
+  sex               Sex
+  country           String    @default("BR")
+  state             String?
+  city              String?
+  phone             String?
+  email             String?
   /// CAMPO SEM CAMINHO DE ESCRITA — hoje é sempre nulo.
   ///
   /// É LIDO em nove lugares (check-in, chamada de palco, ranking, superfície
@@ -224,17 +248,21 @@ model Athlete {
   /// quando o atleta compete por outra federação. Por isso está documentado
   /// em vez de meio-implementado. `scripts/backup-storage.js` já o inclui
   /// genericamente, então o backup acompanha no dia em que passar a existir.
-  photoKey       String?
-  athleteNumber  String?
-  affiliationId  String?
-  teamId         String?
-  coachId        String?
-  gymId          String?
-  proStatus      ProStatus @default(NONE)
-  proSince       DateTime?
-  createdById    String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  photoKey          String?
+  athleteNumber     String?
+  affiliationId     String?
+  // Número de registro do atleta NAQUELA entidade de filiação. A entidade é o
+  // `affiliationId`; este campo é a matrícula dele dentro dela. Um sem o outro
+  // não identifica ninguém: duas federações podem emitir o mesmo número.
+  affiliationNumber String?
+  teamId            String?
+  coachId           String?
+  gymId             String?
+  proStatus         ProStatus @default(NONE)
+  proSince          DateTime?
+  createdById       String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User?        @relation("AthleteUser", fields: [userId], references: [id], onDelete: SetNull)
@@ -256,6 +284,8 @@ model Athlete {
   sponsorships      Sponsorship[]
   brandPartnerships AthleteBrandPartnership[]
   identity          AthleteIdentity?
+  overallTitles     EventOverallTitle[]
+  teamMemberships   AthleteTeamMembership[]
 
   @@unique([organizationId, athleteNumber])
   @@index([organizationId, fullName])
@@ -263,8 +293,6 @@ model Athlete {
   @@index([affiliationId])
   @@index([teamId])
   @@index([coachId])
-  overallTitles EventOverallTitle[]
-  teamMemberships AthleteTeamMembership[]
 }
 
 enum DocumentKind {
@@ -320,21 +348,21 @@ model AthleteIdentity {
 /// data, autor e motivo, e o novo é criado por quem tem permissão de operador.
 /// Assim ninguém apaga o passado do atleta.
 model AthleteTeamMembership {
-  id        String    @id @default(cuid())
-  athleteId String
-  teamId    String
+  id              String    @id @default(cuid())
+  athleteId       String
+  teamId          String
   /// Empresa da equipe no início do vínculo, registrada como estava.
-  companyId String?
-  startedAt DateTime  @default(now())
-  endedAt   DateTime?
-  reason    String?
+  companyId       String?
+  startedAt       DateTime  @default(now())
+  endedAt         DateTime?
+  reason          String?
   /// Igual a `athleteId` enquanto ativo; NULL quando encerrado. É esta coluna,
   /// e o único sobre ela, que impedem o segundo vínculo simultâneo.
-  activeAthleteId String? @unique
-  createdById String?
-  endedById   String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  activeAthleteId String?   @unique
+  createdById     String?
+  endedById       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   athlete   Athlete  @relation(fields: [athleteId], references: [id], onDelete: Cascade)
   team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
@@ -407,13 +435,13 @@ model Company {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization  Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   teams         Team[]
   rankingPoints RankingPoint[]
+  memberships   AthleteTeamMembership[]
 
   @@unique([organizationId, name])
   @@index([organizationId, active])
-  memberships AthleteTeamMembership[]
 }
 
 model Team {
@@ -428,18 +456,18 @@ model Team {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  company       Company?       @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  organization  Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  company       Company?                @relation(fields: [companyId], references: [id], onDelete: SetNull)
   athletes      Athlete[]
   socialProfile SocialProfile?
   sponsorships  Sponsorship[]
+  rankingPoints RankingPoint[]
+  memberships   AthleteTeamMembership[]
 
   @@unique([organizationId, name])
   // Criado em 20260906260000, junto com a FK para Company. Mesma razão do
   // índice de RankingPoint: declarado para não sumir num `db push`.
   @@index([companyId])
-  rankingPoints RankingPoint[]
-  memberships AthleteTeamMembership[]
 }
 
 model Coach {
@@ -527,10 +555,10 @@ model Event {
   proHistory       AthleteProHistory[]
   rankingPoints    RankingPoint[]
   muscleWarImports MuscleWarImport[]
+  overallTitles    EventOverallTitle[]
 
   @@index([organizationId, status])
   @@index([startDate])
-  overallTitles EventOverallTitle[]
 }
 
 model EventDocument {
@@ -567,9 +595,9 @@ model Category {
   criteria        ScoreCriterion[]
   rankingPoints   RankingPoint[]
   rankings        Ranking[]
+  overallTitles   EventOverallTitle[]
 
   @@index([active, sortOrder])
-  overallTitles EventOverallTitle[]
 }
 
 model EventCategory {
@@ -620,15 +648,15 @@ model Division {
 /// REGRA HOMOLOGADA: Estreante, Novice, Open e Master pontuam no campeonato;
 /// somente OPEN é elegível ao Super Overall anual.
 model ClassCatalog {
-  id             String   @id @default(cuid())
-  organizationId String
-  code           String
-  name           String
-  superOverallEligible Boolean @default(false)
-  active         Boolean  @default(true)
-  sortOrder      Int      @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                   String   @id @default(cuid())
+  organizationId       String
+  code                 String
+  name                 String
+  superOverallEligible Boolean  @default(false)
+  active               Boolean  @default(true)
+  sortOrder            Int      @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -637,33 +665,33 @@ model ClassCatalog {
 }
 
 model CompetitionClass {
-  id             String   @id @default(cuid())
-  divisionId     String
-  name           String
-  code           String
-  minAge         Int?
-  maxAge         Int?
+  id                   String   @id @default(cuid())
+  divisionId           String
+  name                 String
+  code                 String
+  minAge               Int?
+  maxAge               Int?
   // Limites de peso em gramas: inteiro evita erro de arredondamento na
   // comparação com a pesagem, que também é gravada em gramas.
-  minWeightGrams Int?
-  maxWeightGrams Int?
-  minHeightCm    Int?
+  minWeightGrams       Int?
+  maxWeightGrams       Int?
+  minHeightCm          Int?
   /// Faixa de altura tem teto como idade e peso têm. A coluna existe desde a
   /// migration 20260906120000; só a declaração aqui faltava, e a ausência
   /// derrubava com 500 a rota que aceita o campo na validação de entrada.
-  maxHeightCm    Int?
+  maxHeightCm          Int?
   /// Se os pontos desta classe entram no ranking classificatório do Super
   /// Overall anual. REGRA HOMOLOGADA: todas as classes pontuam no campeonato,
   /// mas só a OPEN alimenta o Super Overall. A distinção é ATRIBUTO DA CLASSE,
   /// nunca o código "OPEN" escrito no motor — é o que permite ao operador criar
   /// e desativar classes sem tocar em programa.
-  superOverallEligible Boolean @default(false)
+  superOverallEligible Boolean  @default(false)
   /// Classe desativada some das novas inscrições e não é oferecida, mas os
   /// resultados já apurados nela continuam válidos.
-  active         Boolean  @default(true)
-  sortOrder      Int      @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  active               Boolean  @default(true)
+  sortOrder            Int      @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   division          Division           @relation(fields: [divisionId], references: [id], onDelete: Cascade)
   rules             CategoryRule[]
@@ -671,10 +699,10 @@ model CompetitionClass {
   batches           StageBatch[]
   judgingSessions   JudgingSession[]
   results           Result[]
+  rankingPoints     RankingPoint[]
 
   @@unique([divisionId, code])
   @@index([divisionId])
-  rankingPoints RankingPoint[]
 }
 
 model CategoryRule {
@@ -1197,59 +1225,59 @@ enum PointSource {
 // Cada ponto do ranking é rastreável até a sua origem: nunca existe pontuação
 // sem linha de proveniência.
 model RankingPoint {
-  id               String      @id @default(cuid())
-  seasonId         String
-  athleteId        String
-  categoryId       String?
-  source           PointSource
-  eventId          String?
-  resultId         String?
-  externalResultId String?     @unique
-  placing          Int?
+  id                   String      @id @default(cuid())
+  seasonId             String
+  athleteId            String
+  categoryId           String?
+  source               PointSource
+  eventId              String?
+  resultId             String?
+  externalResultId     String?     @unique
+  placing              Int?
   // Decomposição obrigatória para auditoria: o total precisa ser reconstituível
   // a partir das parcelas, não apenas conferido no agregado.
   //   points = placementPoints + overallBonus
-  placementPoints  Int         @default(0)
-  overallBonus     Int         @default(0)
-  isOverallChampion Boolean    @default(false)
+  placementPoints      Int         @default(0)
+  overallBonus         Int         @default(0)
+  isOverallChampion    Boolean     @default(false)
   /// Se este lançamento entra no ranking classificatório do Super Overall.
   /// Resolvido no momento da atribuição, a partir da classe — e gravado, para
   /// que uma mudança futura na configuração da classe não reescreva a
   /// história de um campeonato já encerrado.
-  superOverallEligible Boolean @default(false)
+  superOverallEligible Boolean     @default(false)
   /// Pontos do CAMPEONATO: toda classe pontua, pela tabela da temporada.
-  points           Int
+  points               Int
   /// Pontos elegíveis ao SUPER OVERALL anual: iguais a `points` onde a classe
   /// era elegível, zero nas demais. Gravado, e não deduzido na leitura, para
   /// que as duas métricas nunca sejam confundidas uma com a outra — e para que
   /// o bônus de Overall siga a elegibilidade da participação que o originou.
-  superOverallPoints Int      @default(0)
+  superOverallPoints   Int         @default(0)
   // Equipe do atleta no momento da atribuição. Guardada aqui, e não lida do
   // cadastro na hora da consulta, para que uma troca de equipe depois do
   // evento não reescreva a história do ranking.
-  teamId           String?
+  teamId               String?
   /// Empresa da equipe no momento da atribuição. Gravada, e não deduzida na
   /// leitura: trocar a equipe de empresa depois do evento não pode reescrever
   /// a história do ranking.
-  companyId        String?
-  classId          String?
+  companyId            String?
+  classId              String?
   // Versão do resultado que originou o ponto: permite conferir que o ranking
   // reflete a versão válida, e não uma anterior.
-  resultVersion    Int?
-  awardedById      String?
-  awardedAt        DateTime    @default(now())
-  createdAt        DateTime    @default(now())
+  resultVersion        Int?
+  awardedById          String?
+  awardedAt            DateTime    @default(now())
+  createdAt            DateTime    @default(now())
 
-  season         RankingSeason   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  athlete        Athlete         @relation(fields: [athleteId], references: [id], onDelete: Cascade)
-  category       Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  event          Event?          @relation(fields: [eventId], references: [id], onDelete: SetNull)
-  result         Result?         @relation(fields: [resultId], references: [id], onDelete: SetNull)
-  externalResult ExternalResult? @relation(fields: [externalResultId], references: [id], onDelete: SetNull)
-  team           Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  company        Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  season           RankingSeason     @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  athlete          Athlete           @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  category         Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  event            Event?            @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  result           Result?           @relation(fields: [resultId], references: [id], onDelete: SetNull)
+  externalResult   ExternalResult?   @relation(fields: [externalResultId], references: [id], onDelete: SetNull)
+  team             Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  company          Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
   competitionClass CompetitionClass? @relation(fields: [classId], references: [id], onDelete: SetNull)
-  awardedBy      User?             @relation("RankingPointAwardedBy", fields: [awardedById], references: [id], onDelete: SetNull)
+  awardedBy        User?             @relation("RankingPointAwardedBy", fields: [awardedById], references: [id], onDelete: SetNull)
 
   // Um mesmo resultado de evento não pontua duas vezes para o mesmo atleta na
   // mesma temporada.
@@ -1277,17 +1305,17 @@ model RankingPoint {
 /// aqui, com autoria e data, e nunca calculado — a determinação é do
 /// regulamento esportivo, a pontuação (+10) é do sistema.
 model EventOverallTitle {
-  id          String   @id @default(cuid())
-  eventId     String
-  athleteId   String
+  id           String   @id @default(cuid())
+  eventId      String
+  athleteId    String
   /// Recorte do título. Nulo = Overall do evento inteiro. Enquanto o critério
   /// não é homologado, o campo apenas registra o que a organização declarou.
-  categoryId  String?
-  note        String?
+  categoryId   String?
+  note         String?
   declaredById String?
-  declaredAt  DateTime @default(now())
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  declaredAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   event      Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
   athlete    Athlete   @relation(fields: [athleteId], references: [id], onDelete: Cascade)
@@ -1300,28 +1328,28 @@ model EventOverallTitle {
 }
 
 model Ranking {
-  id          String   @id @default(cuid())
-  seasonId    String
-  athleteId   String
-  categoryId  String?
-  totalPoints Int      @default(0)
-  eventCount  Int      @default(0)
+  id               String   @id @default(cuid())
+  seasonId         String
+  athleteId        String
+  categoryId       String?
+  totalPoints      Int      @default(0)
+  eventCount       Int      @default(0)
   // Contadores de desempate. Ficam materializados porque a ordenação depende
   // deles: guardar só o total tornaria o ranking impossível de auditar e de
   // reordenar sem reabrir cada ponto.
-  overallWins      Int @default(0)
-  firstPlaceCount  Int @default(0)
-  secondPlaceCount Int @default(0)
-  thirdPlaceCount  Int @default(0)
-  fourthPlaceCount Int @default(0)
-  fifthPlaceCount  Int @default(0)
+  overallWins      Int      @default(0)
+  firstPlaceCount  Int      @default(0)
+  secondPlaceCount Int      @default(0)
+  thirdPlaceCount  Int      @default(0)
+  fourthPlaceCount Int      @default(0)
+  fifthPlaceCount  Int      @default(0)
   // Empate que a hierarquia oficial não resolveu: os empatados ficam sem
   // posição, como manda a regra, em vez de receberem uma ordem arbitrária.
-  tieUnresolved    Boolean @default(false)
-  position    Int?
-  state       String?
-  country     String?
-  updatedAt   DateTime @updatedAt
+  tieUnresolved    Boolean  @default(false)
+  position         Int?
+  state            String?
+  country          String?
+  updatedAt        DateTime @updatedAt
 
   season   RankingSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
   athlete  Athlete       @relation(fields: [athleteId], references: [id], onDelete: Cascade)
@@ -1392,40 +1420,40 @@ enum MatchStatus {
 }
 
 model MuscleWarImportItem {
-  id               String      @id @default(cuid())
-  importId         String
-  externalResultId String
-  rowNumber        Int
-  cpf              String?
-  athleteName      String?
-  affiliationCode  String?
-  categoryCode     String?
-  divisionName     String?
-  className        String?
-  placing          Int?
+  id                String      @id @default(cuid())
+  importId          String
+  externalResultId  String
+  rowNumber         Int
+  cpf               String?
+  athleteName       String?
+  affiliationCode   String?
+  categoryCode      String?
+  divisionName      String?
+  className         String?
+  placing           Int?
   /// Campeão Overall informado pela origem. A pontuação (+10) é regra
   /// homologada; QUEM é o campeão continua sendo dado informado, nunca
   /// deduzido pelo sistema.
-  isOverallChampion Boolean   @default(false)
+  isOverallChampion Boolean     @default(false)
   /// Equipe declarada pela origem. `className`, logo acima, é o que resolve a
   /// elegibilidade ao Super Overall contra o catálogo da organização.
-  teamName         String?
-  companyName      String?
-  points           Int?
-  eventName        String?
-  eventDate        DateTime?
-  raw              Json
-  matchStatus      MatchStatus @default(MATCH_PENDING)
-  reason           String?
+  teamName          String?
+  companyName       String?
+  points            Int?
+  eventName         String?
+  eventDate         DateTime?
+  raw               Json
+  matchStatus       MatchStatus @default(MATCH_PENDING)
+  reason            String?
   /// Divergência entre a pontuação do arquivo e a calculada pela regra oficial:
   /// { importedPoints, calculatedPoints, difference }. Preenchida junto com o
   /// CONFLICT, para que o operador veja os números e não só a frase.
-  pointsMismatch   Json?
-  athleteId        String?
-  linkedById       String?
-  linkedAt         DateTime?
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  pointsMismatch    Json?
+  athleteId         String?
+  linkedById        String?
+  linkedAt          DateTime?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
 
   import         MuscleWarImport @relation(fields: [importId], references: [id], onDelete: Cascade)
   athlete        Athlete?        @relation(fields: [athleteId], references: [id], onDelete: SetNull)
@@ -1895,24 +1923,24 @@ enum ConversationKind {
 }
 
 model Conversation {
-  id            String           @id @default(cuid())
-  kind          ConversationKind @default(DIRECT)
-  title         String?
+  id                   String           @id @default(cuid())
+  kind                 ConversationKind @default(DIRECT)
+  title                String?
   // Chave canônica de conversa direta: os dois ids ordenados. É o que impede
   // duas conversas 1:1 entre as mesmas pessoas.
-  directKey     String?          @unique
+  directKey            String?          @unique
   /// Participantes ATIVOS, na própria linha. É o que permite a política de RLS
   /// ser uma verificação local — sem consultar ConversationMember e sem, com
   /// isso, criar o ciclo que derrubava o messenger com stack depth exceeded.
   /// Invariante mantida pela aplicação: iguala os membros com leftAt nulo.
-  participantIds String[]       @default([])
+  participantIds       String[]         @default([])
   /// Quem já participou e saiu. Existe porque o PostgreSQL exige que a linha
   /// atualizada continue visível para quem a escreve: sem isto ninguém
   /// conseguiria sair de um grupo. Dá acesso à CASCA, nunca ao conteúdo.
-  formerParticipantIds String[] @default([])
-  lastMessageAt DateTime?
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  formerParticipantIds String[]         @default([])
+  lastMessageAt        DateTime?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
 
   members  ConversationMember[]
   messages Message[]
