@@ -1,6 +1,6 @@
 const prisma = require('../config/prisma');
 const { AppError } = require('../utils/errors');
-const { assertCan, organizationFilter } = require('../utils/tenant');
+const { assertCan, assertPermission, organizationFilter } = require('../utils/tenant');
 const { normalizeCpf, isValidCpf } = require('../utils/cpf');
 const audit = require('./auditService');
 
@@ -105,7 +105,21 @@ async function criar(data, actor) {
 // `organizationId` que tenha vindo do cliente.
 async function listar(filtros, actor) {
   const escopo = organizationFilter(actor, filtros.organizationId);
-  assertCan(actor, 'athletes.manage', filtros.organizationId ?? escopo.organizationId);
+
+  // A conferência depende de o cliente ter NOMEADO a organização.
+  //
+  // Nomeada: `organizationFilter` já exigiu o vínculo, e aqui se confere a
+  // permissão naquela organização.
+  //
+  // Não nomeada (o caso da tela): o escopo é o CONJUNTO das organizações do
+  // ator — `{ organizationId: { in: [...] } }` — e não existe um id único
+  // para conferir. Passar esse filtro a `assertCan` era o defeito: ele chega
+  // em `assertOrganization`, que compara um OBJETO com ids de organização,
+  // nunca casa, e a fila devolvia 403 para TODO operador que não pusesse
+  // `organizationId` na URL. Aqui a permissão é conferida sozinha — quem
+  // limita as linhas é o escopo acima, mais a RLS da tabela.
+  if (filtros.organizationId) assertCan(actor, 'athletes.manage', filtros.organizationId);
+  else assertPermission(actor, 'athletes.manage', null);
 
   const where = { ...escopo };
   if (filtros.status) where.status = filtros.status;

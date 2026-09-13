@@ -18,11 +18,25 @@ export function MeuPainel({ navegar }) {
       <AsyncSection state={estado} linhas={4}>
         {dados => {
           if (!dados.athlete) {
+            // O texto antigo dizia que o perfil nascia "no momento da
+            // inscrição". Deixou de ser verdade quando a fila de solicitação
+            // passou a existir: agora a própria pessoa pede, e a federação
+            // confirma. Um vazio que descreve um caminho que não existe mais é
+            // pior que nenhum vazio.
             return (
               <EmptyState
                 title="Você ainda não tem perfil de atleta"
-                description="O perfil de atleta é criado pela organização no momento da inscrição, a partir do seu CPF. Enquanto isso, a área social está toda disponível."
-                action={<button type="button" className="button button-primary" onClick={() => navegar('social')}>Ir para o feed</button>}
+                description="Competir exige filiação confirmada pela federação. Envie sua solicitação com CPF, entidade de filiação e número de registro — um operador analisa. Enquanto isso, a área social está toda disponível."
+                action={(
+                  <>
+                    <button type="button" className="button button-primary" onClick={() => navegar('minha-solicitacao')}>
+                      Solicitar perfil de atleta
+                    </button>
+                    <button type="button" className="button button-ghost" onClick={() => navegar('social')}>
+                      Ir para o feed
+                    </button>
+                  </>
+                )}
               />
             );
           }

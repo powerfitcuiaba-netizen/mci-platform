@@ -346,6 +346,54 @@ describe('rejeição e cancelamento', () => {
   });
 });
 
+describe('a fila sem organização nomeada', () => {
+  // A TELA do operador não manda `organizationId` — ela não tem como escolher
+  // a federação, e não deve ter: quem decide o escopo é o vínculo do ator.
+  //
+  // Todos os outros testes deste arquivo mandavam `?organizationId=`, e por
+  // isso nenhum pegou o defeito: `organizationFilter` devolve
+  // `{ organizationId: { in: [...] } }`, esse OBJETO ia para `assertCan`, e
+  // `assertOrganization` recusava sempre. A fila respondia 403 para todo
+  // operador legítimo — medido no navegador, não deduzido.
+  it('o operador lista a própria fila sem nomear a organização', async () => {
+    const pessoa = await cadastrarPessoa('Sem Org Nomeada');
+    await pedir(pessoa, pedidoValido(filiacaoA, 1));
+
+    const fila = await api().get('/api/v1/athlete-requests?status=PENDING').set(operadorA.auth());
+
+    expect(fila.status, JSON.stringify(fila.body)).toBe(200);
+    expect(fila.body.items).toHaveLength(1);
+    expect(fila.body.items[0].organizationId).toBe(orgA.id);
+  });
+
+  // O escopo continua sendo o vínculo: sem `organizationId` a fila NÃO vira
+  // uma janela para os pedidos de outra federação.
+  it('sem organização nomeada, o operador continua sem ver a fila alheia', async () => {
+    const orgB = await criarOrganizacao(admin, { name: 'Federação B' });
+    const operadorB = await criarUsuario({ name: 'Operador B' });
+    await vincular(orgB.id, operadorB, 'EVENT_DIRECTOR');
+    const filiacaoB = await criarFiliacao(operadorB, orgB.id);
+
+    const daA = await cadastrarPessoa('Pedido da A');
+    expect((await pedir(daA, pedidoValido(filiacaoA, 1))).status).toBe(201);
+    const daB = await cadastrarPessoa('Pedido da B');
+    expect((await pedir(daB, pedidoValido(filiacaoB, 2))).status).toBe(201);
+
+    const fila = await api().get('/api/v1/athlete-requests').set(operadorA.auth());
+
+    expect(fila.status).toBe(200);
+    // Duas federações têm pedido; a operadora A enxerga só o da sua.
+    expect(fila.body.items).toHaveLength(1);
+    expect(fila.body.items[0].organizationId).toBe(orgA.id);
+  });
+
+  it('quem não tem athletes.manage continua recusado sem nomear organização', async () => {
+    const pessoa = await cadastrarPessoa('Curioso');
+    const fila = await api().get('/api/v1/athlete-requests').set(pessoa.auth());
+    expect(fila.status).toBe(403);
+  });
+});
+
 describe('CPF e auditoria', () => {
   it('a listagem da fila NÃO devolve CPF', async () => {
     const pessoa = await cadastrarPessoa('Na Fila');

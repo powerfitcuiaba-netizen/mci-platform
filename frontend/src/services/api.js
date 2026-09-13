@@ -140,6 +140,20 @@ export const api = {
     changePassword: dados => post('/profile/password', dados)
   },
 
+  // Fila de perfil de atleta. Os caminhos são exatamente os que o backend
+  // publicou — nada inventado aqui.
+  athleteRequests: {
+    criar: dados => post('/athlete-requests', dados),
+    meus: () => get('/athlete-requests/me'),
+    cancelar: id => post(`/athlete-requests/${id}/cancel`, {}),
+    listar: parametros => get('/athlete-requests', parametros),
+    // O CPF sai SÓ por aqui, e sai no corpo da resposta — nunca na URL nem em
+    // parâmetro de consulta, onde ficaria em histórico e em log de servidor.
+    analisar: id => get(`/athlete-requests/${id}`),
+    aprovar: id => post(`/athlete-requests/${id}/approve`, {}),
+    rejeitar: (id, motivo) => post(`/athlete-requests/${id}/reject`, { reason: motivo })
+  },
+
   organizations: {
     list: () => get('/organizations'),
     create: dados => post('/organizations', dados),

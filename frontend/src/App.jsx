@@ -17,6 +17,8 @@ import { AdminCheckin, AdminCredenciamento, AdminEventoDetalhe, AdminEventos, Ad
 import { AdminResultados } from './pages/adminResults';
 import { AdminAuditoria, AdminConfiguracoes, AdminMuscleWar, AdminPainel, AdminRanking } from './pages/adminPlatform';
 import { MeuPainel, MinhaConta } from './pages/mePages';
+import MinhaSolicitacao from './pages/minhaSolicitacao';
+import AdminSolicitacoes from './pages/adminSolicitacoes';
 
 // A navegação é montada a partir das permissões efetivas do usuário: um item
 // que a API recusaria não aparece no menu. A autoridade continua no servidor —
@@ -38,6 +40,7 @@ const NAVEGACAO_ADMIN = [
   { rota: 'admin', rotulo: 'Painel', icone: LayoutDashboard, permissao: 'analytics.read' },
   { rota: 'admin/eventos', rotulo: 'Eventos', icone: Trophy, permissao: 'events.update' },
   { rota: 'admin/inscricoes', rotulo: 'Inscrições', icone: ClipboardCheck, permissao: 'registrations.read' },
+  { rota: 'admin/solicitacoes', rotulo: 'Solicitações', icone: UserCircle, permissao: 'athletes.manage' },
   { rota: 'admin/checkin', rotulo: 'Check-in', icone: ClipboardCheck, permissao: 'checkin.operate' },
   { rota: 'admin/pesagem', rotulo: 'Pesagem', icone: Scale, permissao: 'weighin.operate' },
   { rota: 'admin/credenciamento', rotulo: 'Credenciamento', icone: QrCode, permissao: 'credentials.read' },
@@ -54,7 +57,7 @@ const NAVEGACAO_ADMIN = [
 const PERMISSOES_POR_PAPEL = {
   SUPER_ADMIN: ['*'],
   ADMIN: ['*'],
-  EVENT_DIRECTOR: ['analytics.read', 'events.update', 'registrations.read', 'checkin.operate', 'weighin.operate', 'credentials.read', 'stage.read', 'results.read_unpublished', 'ranking.manage', 'musclewar.review', 'users.read'],
+  EVENT_DIRECTOR: ['analytics.read', 'events.update', 'athletes.manage', 'registrations.read', 'checkin.operate', 'weighin.operate', 'credentials.read', 'stage.read', 'results.read_unpublished', 'ranking.manage', 'musclewar.review', 'users.read'],
   EVENT_COORDINATOR: ['analytics.read', 'events.update', 'registrations.read', 'checkin.operate', 'weighin.operate', 'credentials.read', 'stage.read', 'results.read_unpublished'],
   JUDGE_COORDINATOR: ['stage.read', 'results.read_unpublished'],
   JUDGE: ['stage.read', 'registrations.read'],
@@ -236,6 +239,7 @@ function Shell() {
       case 'notificacoes': return <Notificacoes />;
       case 'meu-painel': return <MeuPainel navegar={navegar} />;
       case 'minha-conta': return <MinhaConta notificar={notificar} />;
+      case 'minha-solicitacao': return <MinhaSolicitacao notificar={notificar} />;
 
       case 'admin': {
         // Rota administrativa alcançada sem permissão volta para o início em
@@ -246,6 +250,7 @@ function Shell() {
         if (!segundo) return pode('analytics.read') ? <AdminPainel navegar={navegar} /> : <Inicio navegar={navegar} />;
         if (segundo === 'eventos') return terceiro ? <AdminEventoDetalhe eventId={terceiro} notificar={notificar} navegar={navegar} /> : <AdminEventos notificar={notificar} navegar={navegar} />;
         if (segundo === 'inscricoes') return <AdminInscricoes notificar={notificar} />;
+        if (segundo === 'solicitacoes') return <AdminSolicitacoes notificar={notificar} />;
         if (segundo === 'checkin') return <AdminCheckin notificar={notificar} />;
         if (segundo === 'pesagem') return <AdminPesagem notificar={notificar} />;
         if (segundo === 'credenciamento') return <AdminCredenciamento notificar={notificar} />;
