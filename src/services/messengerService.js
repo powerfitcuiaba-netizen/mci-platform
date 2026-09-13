@@ -328,7 +328,7 @@ async function mediaStream(messageId, userId) {
 
   if (!(await storage.exists(mensagem.storageKey))) throw new AppError(404, 'MEDIA_NOT_FOUND', 'Arquivo indisponível');
 
-  return { stream: storage.createReadStream(mensagem.storageKey), mimeType: mensagem.mimeType || 'application/octet-stream' };
+  return { stream: await storage.createReadStream(mensagem.storageKey), mimeType: mensagem.mimeType || 'application/octet-stream' };
 }
 
 async function markRead(conversationId, userId) {

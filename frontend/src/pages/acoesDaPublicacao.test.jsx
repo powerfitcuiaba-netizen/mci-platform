@@ -61,7 +61,7 @@ describe('nome acessível dos botões de ação', () => {
   it('o rótulo acompanha o estado: curtido vira Descurtir, salvo vira Remover dos salvos', () => {
     montar({ likedByMe: true, savedByMe: true });
     expect(screen.getByRole('button', { name: /Descurtir publicação/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Remover dos salvos/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Remover publicação dos salvos/ })).toBeTruthy();
   });
 
   it('o que alterna é anunciado como alternável, e o de comentários como expansível', () => {

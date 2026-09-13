@@ -66,7 +66,7 @@ async function downloadAthleteDocument(id, actor) {
 
   await audit.record({ actor, action: 'DOCUMENT_DOWNLOAD', entity: 'AthleteDocument', entityId: id, organizationId: documento.athlete.organizationId });
 
-  return { stream: storage.createReadStream(documento.storageKey), document: documento };
+  return { stream: await storage.createReadStream(documento.storageKey), document: documento };
 }
 
 async function deleteAthleteDocument(id, actor) {
@@ -135,7 +135,7 @@ async function downloadEventDocument(id, actor) {
 
   if (!(await storage.exists(documento.storageKey))) throw new AppError(404, 'FILE_NOT_FOUND', 'Arquivo indisponível');
 
-  return { stream: storage.createReadStream(documento.storageKey), document: documento };
+  return { stream: await storage.createReadStream(documento.storageKey), document: documento };
 }
 
 // Mídia social: a chave está no banco, mas o acesso segue a visibilidade da
@@ -150,7 +150,7 @@ async function downloadPostMedia(mediaId, actor) {
 
   if (!(await storage.exists(media.storageKey))) throw new AppError(404, 'FILE_NOT_FOUND', 'Arquivo indisponível');
 
-  return { stream: storage.createReadStream(media.storageKey), mimeType: media.mimeType };
+  return { stream: await storage.createReadStream(media.storageKey), mimeType: media.mimeType };
 }
 
 // A foto de perfil é servida a quem enxerga o perfil — inclusive quando ele é
@@ -170,7 +170,7 @@ async function downloadProfileAvatar(profileId) {
   const tipoPorExtensao = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' };
 
   return {
-    stream: storage.createReadStream(profile.avatarKey),
+    stream: await storage.createReadStream(profile.avatarKey),
     mimeType: tipoPorExtensao[extensao] || 'application/octet-stream'
   };
 }
@@ -190,7 +190,7 @@ async function downloadStoryMedia(storyId, actor) {
   }
 
   if (!(await storage.exists(story.storageKey))) throw new AppError(404, 'FILE_NOT_FOUND', 'Arquivo indisponível');
-  return { stream: storage.createReadStream(story.storageKey), mimeType: story.mimeType };
+  return { stream: await storage.createReadStream(story.storageKey), mimeType: story.mimeType };
 }
 
 module.exports = {

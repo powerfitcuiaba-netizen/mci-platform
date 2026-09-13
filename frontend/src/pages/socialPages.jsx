@@ -376,7 +376,7 @@ export function Post({ post, notificar, onMudou, navegar }) {
           type="button"
           className={`post-action${estado.savedByMe ? ' is-on-save' : ''}`}
           disabled={ocupado}
-          aria-label={`${estado.savedByMe ? 'Remover dos salvos' : 'Salvar'} publicação (${estado.counts.saves})`}
+          aria-label={`${estado.savedByMe ? 'Remover publicação dos salvos' : 'Salvar publicação'} (${estado.counts.saves})`}
           aria-pressed={estado.savedByMe}
           onClick={() => alternar(() => (estado.savedByMe ? api.social.unsave(estado.id) : api.social.save(estado.id)))}
           style={{ marginLeft: 'auto' }}

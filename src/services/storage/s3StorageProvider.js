@@ -128,6 +128,13 @@ class S3StorageProvider {
     return this.saveBuffer(key, Buffer.concat(pedacos));
   }
 
+  // ATENÇÃO ao `async`: aqui o retorno é Promise<Readable>, enquanto o
+  // provedor local devolve Readable direto. Quem chama TEM de aguardar, e os
+  // seis chamadores aguardam — `tests/contrato-dos-provedores.test.mjs` trava
+  // isso. Sem o await, o Express recebe uma Promise e morre com
+  // "stream.on is not a function": 500 em toda leitura de mídia, mas SÓ com
+  // STORAGE_DRIVER=s3. Foi assim que passou despercebido — todas as fases
+  // anteriores rodaram com storage local, onde a chamada é síncrona.
   async createReadStream(key) {
     const resposta = await this.#requisitar('GET', key);
     return Readable.fromWeb(resposta.body);
