@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+// Caminho derivado da posição DESTE arquivo, nunca escrito à mão. A primeira
+// versão embutiu /home/user/mci-platform/... — o diretório desta máquina de
+// desenvolvimento. Passava aqui e os cinco testes reprovavam na CI com
+// MODULE_NOT_FOUND, porque lá o repositório fica em /home/runner/work/...
+// Teste que só passa numa máquina não testa o código, testa a máquina.
+const RAIZ = path.resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
+const ERROR_HANDLER = path.join(RAIZ, 'src', 'middlewares', 'errorHandler.js');
 
 // ==========================================================================
 // Em produção, um erro não tratado não pode contar como a aplicação é feita.
@@ -29,7 +39,7 @@ PostgresError { code: "54001", message: "stack depth limit exceeded" }
 // arquivo usou mock, mediu o ambiente de teste e reprovou por engano.
 function responderEm(ambiente, erro) {
   const programa = `
-    const errorHandler = require('/home/user/mci-platform/src/middlewares/errorHandler.js');
+    const errorHandler = require(process.env.CAMINHO_DO_HANDLER);
     const erro = Object.assign(new Error(process.env.MENSAGEM), process.env.CODIGO ? { code: process.env.CODIGO } : {});
     if (process.env.STATUS) erro.status = Number(process.env.STATUS);
     let saida = null; let st = null;
@@ -44,6 +54,7 @@ function responderEm(ambiente, erro) {
       NODE_ENV: ambiente,
       LOG_LEVEL: 'silent',
       JWT_SECRET: 'segredo-de-teste-com-tamanho-mais-que-suficiente-para-a-guarda',
+      CAMINHO_DO_HANDLER: ERROR_HANDLER,
       MENSAGEM: erro.message,
       CODIGO: erro.code || '',
       STATUS: erro.status ? String(erro.status) : ''
