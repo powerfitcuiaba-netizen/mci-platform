@@ -72,6 +72,16 @@ async function update(id, data, actor) {
     throw new AppError(422, 'EVENT_IMMUTABLE', `Evento em ${event.status} não pode ser alterado`);
   }
 
+  // Coerência das datas contra o que JÁ está gravado. O schema cobre o corpo
+  // que traz as duas; aqui é o caso de vir só uma — mudar a data final para
+  // antes da inicial existente, ou a inicial para depois da final existente.
+  // O schema não tem como saber: só o registro atual responde.
+  const inicio = data.startDate ?? event.startDate;
+  const fim = data.endDate ?? event.endDate;
+  if (inicio && fim && new Date(fim) < new Date(inicio)) {
+    throw new AppError(422, 'EVENT_DATES_INVALID', 'A data final não pode ser anterior à inicial');
+  }
+
   const atualizado = await prisma.event.update({ where: { id }, data });
   await audit.record({ actor, action: 'EVENT_UPDATE', entity: 'Event', entityId: id, organizationId: event.organizationId, metadata: { fields: Object.keys(data) } });
   return atualizado;

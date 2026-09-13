@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CalendarDays, ClipboardCheck, Plus, QrCode, Scale, Search } from 'lucide-react';
+import { CalendarDays, ClipboardCheck, Pencil, Plus, QrCode, Scale, Search } from 'lucide-react';
 import api, { refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, CodigoQr, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead } from '../components/ui';
@@ -166,7 +166,7 @@ function NovoEvento({ notificar, onClose, onCriado }) {
           <input value={form.name} onChange={evento => definirNome(evento.target.value)} required minLength={3} maxLength={160} placeholder="Ex: Etapa Cuiabá 2026" />
         </Field>
         <Field label="Identificador na URL" required hint="Minúsculas, números e hífen.">
-          <input value={form.slug} onChange={evento => setForm({ ...form, slug: evento.target.value.toLowerCase(), slugEditado: true })} required pattern="[a-z0-9-]{3,80}" />
+          <input value={form.slug} onChange={evento => setForm({ ...form, slug: evento.target.value.toLowerCase(), slugEditado: true })} required pattern="[a-z0-9\-]{3,80}" />
         </Field>
         <Field label="Descrição">
           <textarea value={form.description} onChange={evento => setForm({ ...form, description: evento.target.value })} maxLength={4000} />
@@ -192,11 +192,107 @@ function NovoEvento({ notificar, onClose, onCriado }) {
   );
 }
 
+// Edição de evento.
+//
+// O backend sempre teve PATCH /events/:id — com autorização, validação e
+// auditoria — e o cliente da API sempre teve `events.update`. O que faltava
+// era tela: nenhum componente chamava. Um administrador conseguia CRIAR um
+// campeonato e mover o estado dele, mas não corrigir o nome, a data ou o
+// local depois. Só existia o caminho de apagar, e apagar é recusado assim que
+// houver inscrição.
+//
+// Três campos NÃO entram aqui de propósito, e cada um por um motivo distinto:
+//
+//   slug ............. é o endereço público do evento; mudar quebra link já
+//                      divulgado. O contrato de `eventUpdate` também não o
+//                      aceita.
+//   organizationId ... trocar de federação não é edição, é outra coisa. O
+//                      schema não aceita, e é assim que deve ser.
+//   status ........... existe rota própria, auditada, com máquina de estados.
+//                      Trazer o estado para cá o transformaria num campo
+//                      comum e contornaria a transição.
+// Exportado para o teste montar o editor isolado, sem precisar navegar a tela
+// inteira do evento só para chegar ao formulário.
+export function EditarEvento({ evento, notificar, onClose, onSalvo }) {
+  const temporadas = useFetch(() => api.ranking.seasons(), []);
+  // `<input type="date">` fala YYYY-MM-DD; o que vem da API é ISO completo.
+  const soData = valor => (valor ? String(valor).slice(0, 10) : '');
+  const [form, setForm] = useState({
+    name: evento.name || '',
+    description: evento.description || '',
+    startDate: soData(evento.startDate),
+    endDate: soData(evento.endDate),
+    venue: evento.venue || '',
+    city: evento.city || '',
+    state: evento.state || '',
+    seasonId: evento.season?.id || evento.seasonId || ''
+  });
+  const [salvando, setSalvando] = useState(false);
+
+  const salvar = async submissao => {
+    submissao.preventDefault();
+    if (salvando) return;            // trava o duplo envio
+    setSalvando(true);
+    try {
+      await api.events.update(evento.id, {
+        name: form.name,
+        description: form.description || null,
+        startDate: form.startDate || null,
+        endDate: form.endDate || null,
+        venue: form.venue || null,
+        city: form.city || null,
+        state: form.state || null,
+        seasonId: form.seasonId || null
+      });
+      notificar('Evento atualizado.');
+      refreshData();
+      onSalvo();
+    } catch (erro) {
+      notificar(erro.message, 'erro');
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="Editar evento"
+      description="Endereço na URL, federação e estado do evento não mudam por aqui."
+      onClose={onClose}
+    >
+      <form onSubmit={salvar}>
+        <Field label="Nome" required>
+          <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required minLength={3} maxLength={160} />
+        </Field>
+        <Field label="Descrição">
+          <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} maxLength={4000} />
+        </Field>
+        <div className="field-row">
+          <Field label="Início"><input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} /></Field>
+          <Field label="Término"><input type="date" value={form.endDate} min={form.startDate || undefined} onChange={e => setForm({ ...form, endDate: e.target.value })} /></Field>
+        </div>
+        <div className="field-row">
+          <Field label="Cidade"><input value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} maxLength={90} /></Field>
+          <Field label="UF"><input value={form.state} onChange={e => setForm({ ...form, state: e.target.value.toUpperCase().slice(0, 2) })} maxLength={2} /></Field>
+        </div>
+        <Field label="Local"><input value={form.venue} onChange={e => setForm({ ...form, venue: e.target.value })} maxLength={160} /></Field>
+        <Field label="Temporada" hint="Vincular a uma temporada é o que faz o resultado pontuar no ranking.">
+          <select value={form.seasonId} onChange={e => setForm({ ...form, seasonId: e.target.value })}>
+            <option value="">Sem temporada</option>
+            {(temporadas.data?.items || []).map(t => <option key={t.id} value={t.id}>{t.name} ({t.year})</option>)}
+          </select>
+        </Field>
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Salvar alterações" />
+      </form>
+    </Modal>
+  );
+}
+
 export function AdminEventoDetalhe({ eventId, notificar, navegar }) {
   const estado = useFetch(() => api.events.findOne(eventId), [eventId]);
   const operacao = useFetch(() => api.events.operations(eventId), [eventId]);
   const [modal, setModal] = useState(null);
   const [transicao, setTransicao] = useState(null);
+  const [editando, setEditando] = useState(false);
 
   const aplicarTransicao = async status => {
     try {
@@ -232,6 +328,15 @@ export function AdminEventoDetalhe({ eventId, notificar, navegar }) {
                   <span>{evento.season ? `Temporada ${evento.season.name}` : 'Sem temporada'}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+                  {/* Evento encerrado ou cancelado não se edita: o registro
+                      histórico é o que dá valor ao resultado publicado. O
+                      backend recusa com EVENT_IMMUTABLE; a tela não oferece o
+                      botão, para a pessoa não descobrir isso por erro. */}
+                  {!['CLOSED', 'CANCELLED'].includes(evento.status) && (
+                    <button type="button" className="button button-sm button-primary" onClick={() => setEditando(true)}>
+                      <Pencil size={14} /> Editar
+                    </button>
+                  )}
                   {proximos.length
                     ? proximos.map(status => (
                       <button
@@ -322,6 +427,14 @@ export function AdminEventoDetalhe({ eventId, notificar, navegar }) {
       {modal?.tipo === 'classe' && (
         <AdicionarClasse divisionId={modal.divisionId} notificar={notificar} onClose={() => setModal(null)} onSalvo={() => { setModal(null); estado.reload(); }} />
       )}
+      {editando && estado.data && (
+        <EditarEvento
+          evento={estado.data}
+          notificar={notificar}
+          onClose={() => setEditando(false)}
+          onSalvo={() => { setEditando(false); estado.reload(); }}
+        />
+      )}
       {transicao && (
         <ConfirmDialog
           title="Mudar o estado do evento"
@@ -391,7 +504,7 @@ function AdicionarDivisao({ eventCategoryId, notificar, onClose, onSalvo }) {
     <Modal title="Nova divisão" description="Ex.: faixa de altura, faixa de peso ou recorte definido pelo regulamento." onClose={onClose}>
       <form onSubmit={salvar}>
         <Field label="Nome" required><input value={form.name} onChange={evento => setForm({ ...form, name: evento.target.value })} required maxLength={90} placeholder="Ex: Até 163 cm" /></Field>
-        <Field label="Código" required><input value={form.code} onChange={evento => setForm({ ...form, code: evento.target.value.toUpperCase() })} required pattern="[A-Z0-9_-]{1,40}" placeholder="ATE163" /></Field>
+        <Field label="Código" required><input value={form.code} onChange={evento => setForm({ ...form, code: evento.target.value.toUpperCase() })} required pattern="[A-Z0-9_\-]{1,40}" placeholder="ATE163" /></Field>
         <ModalActions onClose={onClose} saving={salvando} confirmLabel="Criar divisão" />
       </form>
     </Modal>
@@ -431,7 +544,7 @@ function AdicionarClasse({ divisionId, notificar, onClose, onSalvo }) {
       <form onSubmit={salvar}>
         <div className="field-row">
           <Field label="Nome" required><input value={form.name} onChange={evento => setForm({ ...form, name: evento.target.value })} required maxLength={90} /></Field>
-          <Field label="Código" required><input value={form.code} onChange={evento => setForm({ ...form, code: evento.target.value.toUpperCase() })} required pattern="[A-Z0-9_-]{1,40}" /></Field>
+          <Field label="Código" required><input value={form.code} onChange={evento => setForm({ ...form, code: evento.target.value.toUpperCase() })} required pattern="[A-Z0-9_\-]{1,40}" /></Field>
         </div>
         <div className="field-row">
           <Field label="Idade mínima"><input type="number" min="0" max="120" value={form.minAge} onChange={evento => setForm({ ...form, minAge: evento.target.value })} /></Field>

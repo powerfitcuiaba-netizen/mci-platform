@@ -355,6 +355,38 @@ describe('estados do evento', () => {
     expect(repetida.status).toBe(409);
     expect(repetida.body.error.code).toBe('ALREADY_REGISTERED');
   });
+
+  // Os dois casos abaixo fechavam um buraco real da bateria: a recusa por
+  // ESTADO, por ELEGIBILIDADE e por DUPLICIDADE já era conferida logo acima,
+  // mas ninguém conferia a recusa por evento INEXISTENTE nem por evento de
+  // OUTRA organização — justamente as duas que dependem de quem o serviço
+  // consulta ANTES de decidir, e não do corpo da requisição.
+  it('inscrição em campeonato inexistente é 404, e não 500', async () => {
+    const inexistente = 'cl00000000000000000000000';
+
+    // Corpo VÁLIDO de propósito: com `classIds` vazio a resposta seria 400 na
+    // validação e o teste nunca chegaria a exercitar a busca do evento.
+    const resposta = await api().post(`/api/v1/events/${inexistente}/registrations`).set(diretorA.auth())
+      .send({ cpf: gerarCpf(535353535), athlete: { fullName: 'Sem Evento', sex: 'FEMALE' }, classIds: ['cl00000000000000000001'] });
+
+    expect(resposta.status, JSON.stringify(resposta.body)).toBe(404);
+    expect(resposta.body.error.code).toBe('EVENT_NOT_FOUND');
+  });
+
+  it('diretor de uma organização não inscreve em campeonato de outra', async () => {
+    // O evento é da B e está com inscrições ABERTAS: se a resposta fosse 422
+    // ou 201, a barreira seria o estado, não o tenant. Tem de ser 403.
+    const { event, competitionClass } = await criarEventoCompleto(diretorB, orgB.id);
+    await transicionar(diretorB, event.id, ['PLANNED', 'REGISTRATIONS_OPEN']);
+
+    const invasao = await api().post(`/api/v1/events/${event.id}/registrations`).set(diretorA.auth())
+      .send({ cpf: gerarCpf(636363636), athlete: { fullName: 'Atleta da A', sex: 'FEMALE' }, classIds: [competitionClass.id] });
+
+    expect(invasao.status, JSON.stringify(invasao.body)).toBe(403);
+
+    // E não gravou nada do outro lado da fronteira.
+    expect(await prisma.registration.count({ where: { eventId: event.id } })).toBe(0);
+  });
 });
 
 describe('respostas de erro', () => {

@@ -877,7 +877,7 @@ function NovaOrganizacao({ notificar, onClose, onSalvo }) {
     <Modal title="Nova organização" onClose={onClose}>
       <form onSubmit={salvar}>
         <Field label="Nome" required><input value={form.name} onChange={evt => setForm({ ...form, name: evt.target.value })} required maxLength={140} /></Field>
-        <Field label="Identificador" required><input value={form.slug} onChange={evt => setForm({ ...form, slug: evt.target.value.toLowerCase() })} required pattern="[a-z0-9-]{2,60}" /></Field>
+        <Field label="Identificador" required><input value={form.slug} onChange={evt => setForm({ ...form, slug: evt.target.value.toLowerCase() })} required pattern="[a-z0-9\-]{2,60}" /></Field>
         <ModalActions onClose={onClose} saving={salvando} confirmLabel="Criar" />
       </form>
     </Modal>
@@ -1035,7 +1035,7 @@ function NovaFiliacao({ organizacoes, notificar, onClose, onSalvo }) {
         </Field>
         <Field label="Nome" required><input value={form.name} onChange={evt => setForm({ ...form, name: evt.target.value })} required maxLength={140} /></Field>
         <div className="field-row">
-          <Field label="Código" required hint="Usado no matching MuscleWar."><input value={form.code} onChange={evt => setForm({ ...form, code: evt.target.value.toUpperCase() })} required pattern="[A-Z0-9-]{2,30}" placeholder="FED-MT" /></Field>
+          <Field label="Código" required hint="Usado no matching MuscleWar."><input value={form.code} onChange={evt => setForm({ ...form, code: evt.target.value.toUpperCase() })} required pattern="[A-Z0-9\-]{2,30}" placeholder="FED-MT" /></Field>
           <Field label="UF"><input value={form.state} onChange={evt => setForm({ ...form, state: evt.target.value.toUpperCase().slice(0, 2) })} maxLength={2} /></Field>
         </div>
         <Field label="Tipo">
@@ -1232,7 +1232,7 @@ function NovoParceiro({ tipo, organizacoes, empresas = [], notificar, onClose, o
         <Field label="Nome" required><input value={form.name} onChange={evt => setForm({ ...form, name: evt.target.value })} required maxLength={120} /></Field>
         {tipo === 'brand' && (
           <Field label="Identificador" required hint="Também vira o identificador do perfil social da marca.">
-            <input value={form.slug} onChange={evt => setForm({ ...form, slug: evt.target.value.toLowerCase() })} required pattern="[a-z0-9-]{2,60}" />
+            <input value={form.slug} onChange={evt => setForm({ ...form, slug: evt.target.value.toLowerCase() })} required pattern="[a-z0-9\-]{2,60}" />
           </Field>
         )}
         {tipo === 'team' && (

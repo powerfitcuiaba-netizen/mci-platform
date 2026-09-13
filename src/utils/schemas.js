@@ -170,6 +170,16 @@ const eventUpdate = z.object({
   city: opcional(texto(2, 90)),
   state: opcional(texto(2, 2)),
   seasonId: opcional(id),
+// A mesma coerência que `eventCreate` exige. Faltava aqui, e o PATCH aceitava
+// um evento que termina antes de começar — conferido contra a API: respondeu
+// 200 e gravou 10/12 -> 01/12. A data alimenta o calendário público, a ordem
+// da listagem e o selo do dia; invertida, atravessa os três em silêncio.
+//
+// Este refine só alcança o caso em que as DUAS datas vêm no corpo. Quando vem
+// só uma, a comparação depende do que já está gravado, e isso é regra de
+// domínio: fica em eventService.update.
+}).refine(data => !data.startDate || !data.endDate || data.endDate >= data.startDate, {
+  message: 'A data final não pode ser anterior à inicial', path: ['endDate']
 });
 
 const eventTransition = z.object({ status: z.enum(EVENT_STATES), reason: opcional(texto(3, 300)) });
