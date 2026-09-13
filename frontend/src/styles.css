@@ -136,9 +136,9 @@ h1, h2, h3 { margin: 0; }
 ::selection { background: var(--vermelho); color: #fff; }
 
 /* Barras de rolagem internas discretas, sem sequestrar a barra da página. */
-.table-wrap, .chat-body, .conversation-list, .stories, .modal { scrollbar-width: thin; scrollbar-color: var(--linha-forte) transparent; }
-.table-wrap::-webkit-scrollbar, .chat-body::-webkit-scrollbar, .conversation-list::-webkit-scrollbar, .stories::-webkit-scrollbar, .modal::-webkit-scrollbar { width: 8px; height: 8px; }
-.table-wrap::-webkit-scrollbar-thumb, .chat-body::-webkit-scrollbar-thumb, .conversation-list::-webkit-scrollbar-thumb, .stories::-webkit-scrollbar-thumb, .modal::-webkit-scrollbar-thumb { background: var(--linha-forte); border-radius: var(--raio-pilula); }
+.table-wrap, .chat-body, .conversation-list, .stories, .modal, .sidebar { scrollbar-width: thin; scrollbar-color: var(--linha-forte) transparent; }
+.table-wrap::-webkit-scrollbar, .chat-body::-webkit-scrollbar, .conversation-list::-webkit-scrollbar, .stories::-webkit-scrollbar, .modal::-webkit-scrollbar, .sidebar::-webkit-scrollbar { width: 8px; height: 8px; }
+.table-wrap::-webkit-scrollbar-thumb, .chat-body::-webkit-scrollbar-thumb, .conversation-list::-webkit-scrollbar-thumb, .stories::-webkit-scrollbar-thumb, .modal::-webkit-scrollbar-thumb, .sidebar::-webkit-scrollbar-thumb { background: var(--linha-forte); border-radius: var(--raio-pilula); }
 
 /* ============================================================== estrutura */
 .shell { display: flex; min-height: 100vh; }
@@ -806,11 +806,30 @@ h1, h2, h3 { margin: 0; }
 }
 
 @media (max-width: 900px) {
+  /* A barra vira gaveta: fixa, fora da tela, deslizando por cima.
+     Aqui ela PRECISA rolar. Medido num Android de 360x640 com o menu de
+     administração aberto: 1319px de conteúdo em 640px de tela. Sem rolagem,
+     679px ficavam inalcançáveis — inclusive o botão Sair, o último da lista.
+     Não era corte visual: era não conseguir sair da conta pelo celular.
+
+     `height: 100dvh` e não `100vh`: no navegador do celular a barra de
+     endereço entra e sai, e o `vh` continua medindo a tela CHEIA. Com `vh` o
+     fim da gaveta fica embaixo da barra do navegador justamente quando ela
+     está visível. `dvh` acompanha. O `100vh` antes serve de reserva para
+     quem não conhece `dvh`. */
   .sidebar {
     position: fixed; inset: 0 auto 0 0; z-index: 12; width: 272px;
+    height: 100vh; height: 100dvh;
+    overflow-y: auto; -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    padding-bottom: var(--e5);
     transform: translateX(-104%); transition: transform var(--t-calmo) var(--mola);
     box-shadow: 16px 0 48px rgba(0,0,0,.7);
   }
+  /* Com a gaveta rolando, o rodapé não pode mais ser empurrado para o fim da
+     TELA: ele tem de ficar no fim da LISTA, senão sobra um vão no meio quando
+     o conteúdo é curto e o rodapé some do alcance quando é longo. */
+  .sidebar .sidebar-foot { margin-top: var(--e5); }
   .sidebar.is-open { transform: none; }
   .mobile-toggle { display: grid; }
   .mobile-scrim { position: fixed; inset: 0; z-index: 11; background: rgba(3,5,8,.66); border: 0; backdrop-filter: blur(2px); animation: surge var(--t-base) ease-out; }
