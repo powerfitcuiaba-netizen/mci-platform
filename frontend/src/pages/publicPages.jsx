@@ -3,8 +3,9 @@ import { CalendarDays, ChevronRight, MapPin, Search, Trophy, Users } from 'lucid
 import api from '../services/api';
 import { useDebounce, useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Metric, PageHead, Paginacao } from '../components/ui';
-import { ESTADO_PRO, formatarData, formatarDataHora, seloDoEvento, estadoDaBateria } from '../lib/format';
+import { formatarData, formatarDataHora, seloDoEvento, estadoDaBateria, estadoPro } from '../lib/format';
 import { Revelacao } from '../components/experiencia';
+import { estiloDaSequencia } from '../lib/experiencia';
 
 // Vitrine pública. Tudo aqui sai da API real; nenhuma métrica é estimada e
 // nenhuma lista é fixa no código.
@@ -366,12 +367,15 @@ export function Atletas({ navegar }) {
           ? (
             <>
               <div className="grid grid-3">
-                {pagina.items.map(atleta => (
+                {pagina.items.map((atleta, indice) => (
                   <button
                     key={atleta.id}
                     type="button"
-                    className="panel"
-                    style={{ display: 'flex', gap: 12, alignItems: 'center', textAlign: 'left', cursor: 'pointer' }}
+                    className="panel cartao-atleta revela"
+                    // O teto de 360ms do motor é o que impede a página 3 de
+                    // entrar depois do usuário: sem ele, 72 cartões acumulados
+                    // fariam o último aparecer segundos depois do primeiro.
+                    style={{ display: 'flex', gap: 12, alignItems: 'center', textAlign: 'left', cursor: 'pointer', ...estiloDaSequencia(indice % 24) }}
                     onClick={() => navegar(`atletas/${atleta.id}`)}
                   >
                     <Avatar name={atleta.fullName} size="avatar-lg" />
@@ -382,7 +386,7 @@ export function Atletas({ navegar }) {
                       </small>
                       {atleta.proStatus !== 'NONE' && (
                         <span style={{ display: 'inline-block', marginTop: 8 }}>
-                          <Badge tom={ESTADO_PRO[atleta.proStatus].tom}>{ESTADO_PRO[atleta.proStatus].rotulo}</Badge>
+                          <Badge tom={estadoPro(atleta.proStatus).tom}>{estadoPro(atleta.proStatus).rotulo}</Badge>
                         </span>
                       )}
                     </span>
@@ -411,7 +415,7 @@ export function AtletaDetalhe({ id, navegar }) {
           const { athlete, results, titles, rankings } = dados;
           return (
             <>
-              <section className="hero" style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+              <Revelacao as="section" indice={0} className="hero" style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
                 <Avatar name={athlete.fullName} size="avatar-lg" />
                 <div>
                   <span className="eyebrow">{athlete.affiliation?.name || 'Sem filiação'}</span>
@@ -420,19 +424,21 @@ export function AtletaDetalhe({ id, navegar }) {
                     <span>{athlete.city || '—'}{athlete.state ? `/${athlete.state}` : ''}</span>
                     <span>{athlete.team?.name || 'Sem equipe'}</span>
                     <span>{athlete.coach?.name ? `Coach ${athlete.coach.name}` : 'Sem coach'}</span>
-                    <Badge tom={ESTADO_PRO[athlete.proStatus].tom}>{ESTADO_PRO[athlete.proStatus].rotulo}</Badge>
+                    <Badge tom={estadoPro(athlete.proStatus).tom}>{estadoPro(athlete.proStatus).rotulo}</Badge>
                   </div>
                 </div>
-              </section>
+              </Revelacao>
 
-              <div className="grid grid-4" style={{ marginTop: 18 }}>
+              {/* A ordem da revelação É a hierarquia: primeiro quem é a
+                  pessoa, depois o que ela conquistou, depois o detalhe. */}
+              <Revelacao as="div" indice={1} className="grid grid-4" style={{ marginTop: 18 }}>
                 <Metric label="Títulos" value={titles} destaque />
                 <Metric label="Resultados publicados" value={results.length} />
                 <Metric label="Temporadas no ranking" value={rankings.length} />
                 <Metric label="Pontos somados" value={rankings.reduce((total, linha) => total + linha.totalPoints, 0)} />
-              </div>
+              </Revelacao>
 
-              <div className="grid grid-main" style={{ marginTop: 18 }}>
+              <Revelacao as="div" indice={2} className="grid grid-main" style={{ marginTop: 18 }}>
                 <section className="panel">
                   <div className="panel-head"><h2>Histórico esportivo</h2></div>
                   {results.length
@@ -466,7 +472,7 @@ export function AtletaDetalhe({ id, navegar }) {
                     ))
                     : <EmptyState title="Sem pontuação de ranking" />}
                 </section>
-              </div>
+              </Revelacao>
             </>
           );
         }}

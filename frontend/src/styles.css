@@ -1626,3 +1626,35 @@ main > * { animation: tela-entra var(--t-base) var(--curva-entrada) both; }
   .list-row > .badge { margin-left: auto; }
   .list-row > .button + .button { margin-left: var(--e2); }
 }
+
+/* --- filtro ativo ---
+   Uma busca esquecida faz a lista parecer curta, e o operador vai procurar o
+   problema no lugar errado. O filtro se declara, e sai com um clique. */
+.filtro-ativo {
+  display: flex; align-items: center; gap: var(--e3);
+  margin-bottom: var(--e4); flex-wrap: wrap;
+}
+.filtro-ativo .chip { display: inline-flex; align-items: center; gap: var(--e2); }
+.filtro-ativo .chip button {
+  border: 0; background: transparent; color: var(--cinza); cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 0 2px;
+}
+.filtro-ativo .chip button:hover { color: var(--branco); }
+.filtro-ativo small { color: var(--cinza-fraco); font-size: 11.5px; }
+
+/* Linha de tabela recém-mexida: só o destaque, sem varredura. */
+tr.linha-afetada > td { background: rgba(18,184,255,.10); }
+tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro); }
+
+/* --- cartão de atleta ---
+   O cartão é um alvo clicável que leva a uma PESSOA. A elevação no ponteiro é
+   1px: o suficiente para dizer "isto abre", longe do salto que faria uma grade
+   de 24 cartões parecer instável quando o mouse a atravessa. No toque não há
+   ponteiro, então vale o afundar. */
+.cartao-atleta { transition: border-color var(--t-base) ease, transform var(--t-base) var(--mola); }
+.cartao-atleta:hover { border-color: var(--linha-forte); transform: translateY(-1px); }
+.cartao-atleta:active { transform: translateY(1px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .cartao-atleta:hover, .cartao-atleta:active { transform: none; }
+}

@@ -12,8 +12,9 @@ import { anunciar, MCIEvento } from '../lib/experiencia';
 // número solto de novo.
 const TETO_DA_LISTA = 100;
 import { ContadorVivo, PulsoAoVivo, Revelacao, useRecemAfetado } from '../components/experiencia';
+import { estiloDaSequencia } from '../lib/experiencia';
 import {
-  ESTADO_EVENTO, TRANSICOES_EVENTO, formatarData, formatarDataHora, mascararCpf, pesoEmKg, seloDoEvento, somenteDigitos, estadoDaBateria } from '../lib/format';
+  ESTADO_EVENTO, TRANSICOES_EVENTO, formatarData, formatarDataHora, mascararCpf, pesoEmKg, seloDoEvento, somenteDigitos, estadoDaBateria, estadoDaInscricao } from '../lib/format';
 
 // Área administrativa do evento. Cada tela opera contra a API real e reflete a
 // máquina de estados do servidor: o que a API recusaria, a interface não
@@ -574,9 +575,10 @@ export function AdminInscricoes({ notificar }) {
   const [busca, setBusca] = useState('');
   const [inscrevendo, setInscrevendo] = useState(false);
   const [cancelando, setCancelando] = useState(null);
+  const recem = useRecemAfetado();
 
   const estado = useFetch(
-    () => (eventId ? api.registrations.listByEvent(eventId, { limit: 100, search: busca || undefined }) : Promise.resolve({ items: [] })),
+    () => (eventId ? api.registrations.listByEvent(eventId, { limit: TETO_DA_LISTA, search: busca || undefined }) : Promise.resolve({ items: [] })),
     [eventId, busca],
     { ativo: Boolean(eventId) }
   );
@@ -604,12 +606,38 @@ export function AdminInscricoes({ notificar }) {
           <AsyncSection state={estado} linhas={4}>
             {dados => (dados.items.length
               ? (
+                <>
+                  {/* Filtro ativo declarado: sem isto, uma busca esquecida faz
+                      a lista parecer curta e o operador procura o problema no
+                      lugar errado. */}
+                  {busca && (
+                    <div className="filtro-ativo">
+                      <span className="chip">
+                        Filtrando por “{busca}”
+                        <button type="button" onClick={() => setBusca('')} aria-label="Limpar filtro">×</button>
+                      </span>
+                      <small>{dados.items.length} resultado(s)</small>
+                    </div>
+                  )}
+
+                  {/* `nextCursor` é o único sinal HONESTO de que há mais: a
+                      resposta não traz total. Um contador "Confirmadas: 100"
+                      num evento de 280 seria pior que contador nenhum. */}
+                  {dados.nextCursor && (
+                    <div className="alert alert-info" style={{ marginBottom: 16 }}>
+                      <div>
+                        <strong>Mostrando as primeiras {dados.items.length} inscrições</strong>
+                        <p>Há mais registros neste evento. Use a busca pelo nome do atleta para encontrar quem não aparece aqui.</p>
+                      </div>
+                    </div>
+                  )}
+
                 <div className="table-wrap">
                   <table className="table">
                     <thead><tr><th>Atleta</th><th>Filiação</th><th>Classes</th><th>Situação</th><th>Check-in</th><th /></tr></thead>
                     <tbody>
-                      {dados.items.map(inscricao => (
-                        <tr key={inscricao.id}>
+                      {dados.items.map((inscricao, indice) => (
+                        <tr key={inscricao.id} className={`revela ${recem.classeDeLinhaDeTabela(inscricao.id)}`.trim()} style={estiloDaSequencia(indice)}>
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                               <Avatar name={inscricao.athlete.fullName} size="avatar-sm" />
@@ -626,7 +654,7 @@ export function AdminInscricoes({ notificar }) {
                             </div>
                           </td>
                           <td>
-                            <Badge tom={inscricao.status === 'CONFIRMED' ? 'ok' : inscricao.status === 'CANCELLED' ? 'perigo' : 'alerta'}>{inscricao.status}</Badge>
+                            <Badge tom={estadoDaInscricao(inscricao.status).tom}>{estadoDaInscricao(inscricao.status).rotulo}</Badge>
                           </td>
                           <td>{inscricao.checkIn?.status === 'CHECKED_IN' ? <Badge tom="ok">Feito</Badge> : <Badge tom="neutro">Pendente</Badge>}</td>
                           <td style={{ textAlign: 'right' }}>
@@ -639,17 +667,22 @@ export function AdminInscricoes({ notificar }) {
                     </tbody>
                   </table>
                 </div>
+                </>
               )
-              : <EmptyState title="Nenhuma inscrição" description="Use “Nova inscrição” para registrar o primeiro atleta." />
+              : busca
+                ? <EmptyState title="Nada encontrado" description={`Nenhuma inscrição corresponde a “${busca}”. Verifique o nome ou limpe o filtro.`} />
+                : <EmptyState title="Nenhuma inscrição" description="Use “Nova inscrição” para registrar o primeiro atleta." />
             )}
           </AsyncSection>
         )}
 
       {inscrevendo && (
-        <NovaInscricao eventId={eventId} notificar={notificar} onClose={() => setInscrevendo(false)} onSalvo={() => { setInscrevendo(false); estado.reload(); }} />
+        <NovaInscricao eventId={eventId} notificar={notificar} onClose={() => setInscrevendo(false)}
+          onSalvo={inscricaoId => { recem.marcar(inscricaoId); setInscrevendo(false); estado.reload(); }} />
       )}
       {cancelando && (
-        <CancelarInscricao inscricao={cancelando} notificar={notificar} onClose={() => setCancelando(null)} onSalvo={() => { setCancelando(null); estado.reload(); }} />
+        <CancelarInscricao inscricao={cancelando} notificar={notificar} onClose={() => setCancelando(null)}
+          onSalvo={() => { recem.marcar(cancelando.id); setCancelando(null); estado.reload(); }} />
       )}
     </div>
   );
@@ -712,8 +745,14 @@ function NovaInscricao({ eventId, notificar, onClose, onSalvo }) {
         classIds
       });
       notificar(resposta.athleteRecognized ? 'Atleta reconhecido e inscrito.' : 'Perfil criado e atleta inscrito.');
+      // Inscrever é nível EVENTO: confirma na linha, sem tomar o centro da
+      // tela — numa abertura de inscrições isto se repete o dia inteiro.
+      anunciar(MCIEvento.SUCESSO, {
+        titulo: 'Inscrição realizada',
+        descricao: resposta.athleteRecognized ? 'Atleta reconhecido pelo CPF.' : 'Perfil criado e atleta inscrito.'
+      });
       refreshData();
-      onSalvo();
+      onSalvo(resposta.id);
     } catch (erro) {
       setErros(erro.details?.map(item => item.message) || [erro.message]);
       setSalvando(false);
@@ -827,6 +866,9 @@ function CancelarInscricao({ inscricao, notificar, onClose, onSalvo }) {
     try {
       await api.registrations.cancel(inscricao.id, { reason });
       notificar('Inscrição cancelada.');
+      // Cancelar NÃO é conquista. O operador acabou de tirar um atleta da
+      // competição — o gesto certo aqui é confirmar e sair do caminho.
+      anunciar(MCIEvento.AVISO, { titulo: 'Inscrição cancelada', descricao: inscricao.athlete.fullName });
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');

@@ -49,6 +49,15 @@ describe('Revelacao', () => {
     expect(screen.getByText('último').parentElement.style.animationDelay).toBe('360ms');
   });
 
+  it('um `style` vindo de fora NÃO apaga o atraso da sequência', () => {
+    aparelho();
+    render(<Revelacao indice={3} style={{ marginTop: 18 }}><p>bloco</p></Revelacao>);
+    const alvo = screen.getByText('bloco').parentElement;
+    // As duas coisas ao mesmo tempo: o estilo de quem chamou E o atraso.
+    expect(alvo.style.marginTop).toBe('18px');
+    expect(alvo.style.animationDelay).toBe('135ms');
+  });
+
   it('com movimento reduzido o bloco nasce PRONTO, sem classe e sem atraso', () => {
     aparelho({ movimentoReduzido: true });
     render(<Revelacao indice={3}><p>bloco</p></Revelacao>);

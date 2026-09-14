@@ -40,7 +40,12 @@ export function useRecemAfetado(duracao = DURACAO_DO_DESTAQUE) {
 
   const classeDe = useCallback(alvo => (alvo && alvo === id ? ' linha-afetada varredura' : ''), [id]);
 
-  return { marcar, classeDe, id };
+  // Em LINHA DE TABELA a varredura não serve: ela depende de `position:
+  // relative` e `overflow: hidden`, e um `<tr>` trata as duas de forma
+  // inconsistente entre navegadores. O destaque sozinho comunica igual.
+  const classeDeLinhaDeTabela = useCallback(alvo => (alvo && alvo === id ? 'linha-afetada' : ''), [id]);
+
+  return { marcar, classeDe, classeDeLinhaDeTabela, id };
 }
 
 // ---------------------------------------------------------------- Revelação
@@ -51,17 +56,23 @@ export function useRecemAfetado(duracao = DURACAO_DO_DESTAQUE) {
 // O elemento NÃO nasce invisível quando o movimento está reduzido — nasce
 // pronto. Nascer com `opacity: 0` esperando animação é como telas somem para
 // quem desligou animação.
-export function Revelacao({ indice = 0, children, className = '', as: Tag = 'div', ...resto }) {
+export function Revelacao({ indice = 0, children, className = '', style, as: Tag = 'div', ...resto }) {
   const anima = podeAnimar(NIVEL.TRANSICAO);
   // O atraso NÃO é guardado aqui de novo: `estiloDaSequencia` já devolve `{}`
   // sob a mesma condição. Um teste de mutação mostrou que a guarda duplicada
   // era inobservável — duas cópias da mesma verdade, e a segunda só serviria
   // para divergir da primeira algum dia.
+  //
+  // `style` é MESCLADO, e não recebido pelo espalhamento: com `{...resto}`
+  // depois de `style`, um `style` vindo de fora sobrescrevia o atraso da
+  // sequência e desligava o efeito EM SILÊNCIO — o componente parecia estar
+  // funcionando e não estava. Aconteceu na primeira vez que usei `Revelacao`
+  // com estilo inline.
   return (
     <Tag
       className={`${anima ? 'revela' : ''} ${className}`.trim()}
-      style={estiloDaSequencia(indice)}
       {...resto}
+      style={{ ...estiloDaSequencia(indice), ...style }}
     >
       {children}
     </Tag>

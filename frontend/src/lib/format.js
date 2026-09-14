@@ -71,6 +71,18 @@ export const ESTADO_EVENTO = {
   CANCELLED: { rotulo: 'Cancelado', tom: 'perigo' }
 };
 
+// Estado da inscrição. Mesmo defeito do estado da bateria: o enum cru
+// ("CONFIRMED", "CANCELLED") estava indo direto para a tabela de inscrições.
+export const ESTADO_INSCRICAO = {
+  PENDING: { rotulo: 'Pendente', tom: 'alerta' },
+  CONFIRMED: { rotulo: 'Confirmada', tom: 'ok' },
+  CANCELLED: { rotulo: 'Cancelada', tom: 'perigo' },
+  REJECTED: { rotulo: 'Recusada', tom: 'perigo' }
+};
+
+export const estadoDaInscricao = status =>
+  ESTADO_INSCRICAO[status] || { rotulo: status, tom: 'neutro' };
+
 // Estado da bateria de palco. Existe porque o enum cru estava sendo impresso
 // direto na tela — "CALLED", "ON_STAGE" —, inclusive na página PÚBLICA do
 // evento, que é onde o atleta e o público olham para saber quando entrar.
@@ -159,6 +171,13 @@ export const ESTADO_PRO = {
   SUSPENDED: { rotulo: 'Suspenso', tom: 'perigo' },
   RETIRED: { rotulo: 'Aposentado', tom: 'neutro' }
 };
+
+// Acesso com recuo, como `estadoDaBateria` e `estadoDaInscricao`. `ESTADO_PRO`
+// cobre hoje os cinco valores do enum, mas o acesso direto `ESTADO_PRO[x].tom`
+// derruba a PÁGINA INTEIRA do atleta no dia em que o enum ganhar um valor —
+// rótulo errado é um incômodo, tela branca é um chamado no meio do evento.
+export const estadoPro = status =>
+  ESTADO_PRO[status] || { rotulo: status || '—', tom: 'neutro' };
 
 export const ESTADO_MATCH = {
   MATCHED: { rotulo: 'Reconhecido', tom: 'ok' },
