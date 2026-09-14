@@ -42,20 +42,46 @@ export const MCIEvento = Object.freeze({
   NOVIDADE: 'novidade'
 });
 
+// ------------------------------------------------------------- onde confirmar
+//
+// O NÍVEL decide a intensidade; o nível também decide ONDE o gesto acontece.
+// Esta regra nasceu de um defeito real de operação: o check-in desenhava uma
+// caixa no CENTRO da tela, e numa competição de 280 atletas essa caixa
+// apareceria 280 vezes por cima da lista que o operador está usando — inclusive
+// por cima do contador que ela mesma está comemorando.
+//
+//   linha   nível <= EVENTO           confirma ONDE a ação aconteceu
+//   centro  nível MOMENTO             ocupa o meio da tela por alguns segundos
+//   tela    nível CINEMATOGRAFICO     toma a tela inteira
+//
+// O centro da tela é espaço caro: quem o ocupa interrompe. Operação repetida
+// nunca interrompe — ela confirma ao lado do dedo e segue.
+export const POSICAO = Object.freeze({ LINHA: 'linha', CENTRO: 'centro', TELA: 'tela' });
+
+export function posicaoDoNivel(nivel) {
+  if (nivel >= NIVEL.CINEMATOGRAFICO) return POSICAO.TELA;
+  if (nivel >= NIVEL.MOMENTO) return POSICAO.CENTRO;
+  return POSICAO.LINHA;
+}
+
 // Cada evento declara nível e tom. `nivel` decide a intensidade; `tom` decide a
-// cor, reaproveitando a paleta que o sistema já tem.
+// cor, reaproveitando a paleta que o sistema já tem. `posicao` vem do nível —
+// derivada, e não escrita à mão, para não existir evento de nível 3 que alguém
+// marcou "centro" num descuido.
+const assinatura = (nivel, tom) => ({ nivel, tom, posicao: posicaoDoNivel(nivel) });
+
 export const ASSINATURA = Object.freeze({
-  [MCIEvento.SUCESSO]: { nivel: NIVEL.EVENTO, tom: 'sucesso' },
-  [MCIEvento.AVISO]: { nivel: NIVEL.MICRO, tom: 'atencao' },
-  [MCIEvento.ERRO]: { nivel: NIVEL.MICRO, tom: 'perigo' },
-  [MCIEvento.CHECKIN]: { nivel: NIVEL.EVENTO, tom: 'sucesso' },
-  [MCIEvento.PESAGEM]: { nivel: NIVEL.EVENTO, tom: 'sucesso' },
-  [MCIEvento.CREDENCIADO]: { nivel: NIVEL.EVENTO, tom: 'sucesso' },
-  [MCIEvento.RESULTADO_PUBLICADO]: { nivel: NIVEL.MOMENTO, tom: 'ciano' },
-  [MCIEvento.AO_VIVO]: { nivel: NIVEL.MICRO, tom: 'perigo' },
+  [MCIEvento.SUCESSO]: assinatura(NIVEL.EVENTO, 'sucesso'),
+  [MCIEvento.AVISO]: assinatura(NIVEL.MICRO, 'atencao'),
+  [MCIEvento.ERRO]: assinatura(NIVEL.MICRO, 'perigo'),
+  [MCIEvento.CHECKIN]: assinatura(NIVEL.EVENTO, 'sucesso'),
+  [MCIEvento.PESAGEM]: assinatura(NIVEL.EVENTO, 'sucesso'),
+  [MCIEvento.CREDENCIADO]: assinatura(NIVEL.EVENTO, 'sucesso'),
+  [MCIEvento.RESULTADO_PUBLICADO]: assinatura(NIVEL.MOMENTO, 'ciano'),
+  [MCIEvento.AO_VIVO]: assinatura(NIVEL.MICRO, 'perigo'),
   // O único nível 5 em operação normal. Ver `MomentoCampeao`.
-  [MCIEvento.CAMPEAO]: { nivel: NIVEL.CINEMATOGRAFICO, tom: 'ouro' },
-  [MCIEvento.NOVIDADE]: { nivel: NIVEL.MICRO, tom: 'ciano' }
+  [MCIEvento.CAMPEAO]: assinatura(NIVEL.CINEMATOGRAFICO, 'ouro'),
+  [MCIEvento.NOVIDADE]: assinatura(NIVEL.MICRO, 'ciano')
 });
 
 // ------------------------------------------------------- o guarda de decência

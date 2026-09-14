@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Trophy } from 'lucide-react';
 import { Metric } from './ui';
 import {
-  NIVEL, MCIEvento, podeAnimar, ouvirExperiencia, estiloDaSequencia, prefereMenosMovimento
+  NIVEL, MCIEvento, POSICAO, podeAnimar, ouvirExperiencia, estiloDaSequencia, prefereMenosMovimento
 } from '../lib/experiencia';
 
 // ============================================================================
@@ -145,6 +145,12 @@ export function PalcoDaExperiencia() {
   useEffect(() => () => { if (relogio.current) clearTimeout(relogio.current); }, []);
 
   if (!emCena) return null;
+
+  // O palco só desenha o que MERECE o centro da tela. Confirmação de operação
+  // repetida (nível EVENTO e abaixo) confirma na própria linha, com o destaque
+  // e o selo que a tela já mostra — mais o toast de sempre. Sem isto, um
+  // check-in de 280 atletas vira 280 interrupções no meio da tela.
+  if (emCena.posicao === POSICAO.LINHA) return null;
   if (emCena.evento === MCIEvento.CAMPEAO) return <MomentoCampeao momento={emCena} />;
   return <ImpactoDeSucesso momento={emCena} />;
 }

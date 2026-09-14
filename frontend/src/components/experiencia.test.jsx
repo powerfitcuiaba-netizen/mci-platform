@@ -4,7 +4,7 @@ import {
   Revelacao, VarreduraDeEnergia, PulsoAoVivo, PalcoDaExperiencia,
   ImpactoDeSucesso, MomentoCampeao
 } from './experiencia';
-import { MCIEvento, NIVEL, anunciar } from '../lib/experiencia';
+import { ASSINATURA, MCIEvento, NIVEL, POSICAO, anunciar, posicaoDoNivel } from '../lib/experiencia';
 
 // O teto de intensidade é lido do navegador, então cada teste declara em que
 // aparelho ele está. Sem isto os testes passariam ou falhariam conforme o
@@ -93,38 +93,51 @@ describe('PulsoAoVivo', () => {
 });
 
 describe('PalcoDaExperiencia', () => {
-  it('desenha o que o motor anuncia e sai de cena sozinho', () => {
+  it('desenha o que MERECE o centro da tela, e sai de cena sozinho', () => {
     aparelho();
     render(<PalcoDaExperiencia />);
     expect(screen.queryByRole('status')).toBeNull();
 
-    act(() => { anunciar(MCIEvento.CREDENCIADO, { titulo: 'Atleta credenciado' }); });
-    expect(screen.getByText('Atleta credenciado')).toBeTruthy();
+    // Nível MOMENTO ocupa o centro.
+    act(() => { anunciar(MCIEvento.RESULTADO_PUBLICADO, { titulo: 'Resultado publicado' }); });
+    expect(screen.getByText('Resultado publicado')).toBeTruthy();
 
-    act(() => { vi.advanceTimersByTime(2300); });
-    expect(screen.queryByText('Atleta credenciado')).toBeNull();
+    act(() => { vi.advanceTimersByTime(2900); });
+    expect(screen.queryByText('Resultado publicado')).toBeNull();
+  });
+
+  it('operação repetida NÃO ocupa o centro da tela', () => {
+    aparelho();
+    render(<PalcoDaExperiencia />);
+
+    // Numa competição de 280 atletas, esta caixa apareceria 280 vezes por cima
+    // da lista que o operador está usando. Nível EVENTO confirma na linha.
+    for (const evento of [MCIEvento.CHECKIN, MCIEvento.PESAGEM, MCIEvento.CREDENCIADO, MCIEvento.SUCESSO]) {
+      act(() => { anunciar(evento, { titulo: 'Pronto' }); });
+      expect(screen.queryByRole('status')).toBeNull();
+    }
   });
 
   it('um momento novo SUBSTITUI o anterior em vez de empilhar', () => {
     aparelho();
     render(<PalcoDaExperiencia />);
 
-    act(() => { anunciar(MCIEvento.CHECKIN, { titulo: 'Check-in feito' }); });
+    act(() => { anunciar(MCIEvento.RESULTADO_PUBLICADO, { titulo: 'Primeiro resultado' }); });
     act(() => { vi.advanceTimersByTime(500); });
-    act(() => { anunciar(MCIEvento.PESAGEM, { titulo: 'Pesagem registrada' }); });
+    act(() => { anunciar(MCIEvento.RESULTADO_PUBLICADO, { titulo: 'Segundo resultado' }); });
 
-    expect(screen.queryByText('Check-in feito')).toBeNull();
+    expect(screen.queryByText('Primeiro resultado')).toBeNull();
     expect(screen.getAllByRole('status')).toHaveLength(1);
 
     // E o relógio do primeiro não pode derrubar o segundo antes da hora dele.
-    act(() => { vi.advanceTimersByTime(1800); });
-    expect(screen.getByText('Pesagem registrada')).toBeTruthy();
+    act(() => { vi.advanceTimersByTime(2400); });
+    expect(screen.getByText('Segundo resultado')).toBeTruthy();
   });
 
   it('com movimento reduzido o palco fica vazio — o toast funcional é que informa', () => {
     aparelho({ movimentoReduzido: true });
     render(<PalcoDaExperiencia />);
-    act(() => { anunciar(MCIEvento.CREDENCIADO, { titulo: 'Atleta credenciado' }); });
+    act(() => { anunciar(MCIEvento.RESULTADO_PUBLICADO, { titulo: 'Resultado publicado' }); });
     expect(screen.queryByRole('status')).toBeNull();
   });
 
@@ -132,7 +145,7 @@ describe('PalcoDaExperiencia', () => {
     aparelho();
     render(<PalcoDaExperiencia />);
 
-    act(() => { anunciar(MCIEvento.SUCESSO, { titulo: 'Salvo' }); });
+    act(() => { anunciar(MCIEvento.RESULTADO_PUBLICADO, { titulo: 'Resultado publicado' }); });
     expect(document.querySelector('.campeao')).toBeNull();
 
     act(() => { anunciar(MCIEvento.CAMPEAO, { nome: 'Ana Prado' }); });
@@ -204,5 +217,41 @@ describe('níveis', () => {
     const ordem = [NIVEL.ESTATICO, NIVEL.MICRO, NIVEL.TRANSICAO, NIVEL.EVENTO, NIVEL.MOMENTO, NIVEL.CINEMATOGRAFICO];
     expect(ordem).toEqual([...ordem].sort((a, b) => a - b));
     expect(new Set(ordem).size).toBe(ordem.length);
+  });
+});
+
+// ==========================================================================
+// ONDE O GESTO ACONTECE.
+//
+// O centro da tela é espaço caro: quem o ocupa interrompe. A regra é que o
+// NÍVEL decide a posição — e é derivada, não escrita à mão, para não existir
+// evento de nível 3 marcado "centro" num descuido.
+// ==========================================================================
+describe('posição derivada do nível', () => {
+  it('nenhum evento de nível EVENTO ou abaixo pede o centro da tela', () => {
+    for (const [nome, assinatura] of Object.entries(ASSINATURA)) {
+      if (assinatura.nivel <= NIVEL.EVENTO) {
+        expect(assinatura.posicao, nome).toBe(POSICAO.LINHA);
+      }
+    }
+  });
+
+  it('só MOMENTO ocupa o centro e só o nível 5 toma a tela', () => {
+    expect(posicaoDoNivel(NIVEL.MOMENTO)).toBe(POSICAO.CENTRO);
+    expect(posicaoDoNivel(NIVEL.CINEMATOGRAFICO)).toBe(POSICAO.TELA);
+    expect(posicaoDoNivel(NIVEL.EVENTO)).toBe(POSICAO.LINHA);
+    expect(posicaoDoNivel(NIVEL.MICRO)).toBe(POSICAO.LINHA);
+    expect(posicaoDoNivel(NIVEL.ESTATICO)).toBe(POSICAO.LINHA);
+  });
+
+  it('uma sequência de operações repetidas não interrompe uma única vez', () => {
+    aparelho();
+    render(<PalcoDaExperiencia />);
+    // 280 atletas é o número real de uma competição grande.
+    for (let i = 0; i < 280; i += 1) {
+      act(() => { anunciar(MCIEvento.CHECKIN, { titulo: 'Check-in confirmado' }); });
+    }
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(document.querySelector('.impacto')).toBeNull();
   });
 });

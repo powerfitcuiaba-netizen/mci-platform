@@ -61,9 +61,12 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 // O seletor de evento é um <select>; escolher o evento é o que destrava a tela.
+// Mesma armadilha do arquivo de operação: o `select` existe antes da lista de
+// eventos chegar, e um `change` para uma opção inexistente é no-op silencioso.
 async function abrirEvento() {
   render(<AdminResultados notificar={() => {}} />);
   const seletor = await screen.findByRole('combobox');
+  await waitFor(() => expect(seletor.querySelector('option[value="e1"]')).toBeTruthy());
   fireEvent.change(seletor, { target: { value: 'e1' } });
   return seletor;
 }
@@ -237,23 +240,23 @@ describe('o que a tela de resultados celebra', () => {
 
     // Publicação travada: o palco não pode dizer "deu certo".
     await waitFor(() => expect(screen.queryByText('Resultado lançado')).toBeNull());
+    expect(document.querySelector('.impacto')).toBeNull();
     expect(document.querySelector('.campeao')).toBeNull();
     // E o que aparece, se aparecer, é o tom de atenção — nunca o de sucesso.
     const caixa = document.querySelector('.impacto');
     if (caixa) expect(caixa.className).not.toContain('impacto-sucesso');
   });
 
-  it('lançamento limpo confirma, no nível de evento e sem bloquear o operador', async () => {
+  it('lançar resultado confirma sem tomar o centro — publicar é que é o momento', async () => {
     aparelho();
     await lancar({ hasUnresolvedTie: false });
-    expect(await screen.findByText('Resultado lançado')).toBeTruthy();
-    // Que a celebração não captura clique é propriedade de FOLHA DE ESTILO, e
-    // o jsdom não carrega a folha — afirmar isso aqui seria um teste que passa
-    // sem provar nada. A verificação real está na sonda de navegador.
-    expect(document.querySelector('.impacto').getAttribute('role')).toBe('status');
+    // Lançar é transcrição de rotina: várias classes por evento. Quem ocupa o
+    // centro da tela é a PUBLICAÇÃO, que é quando a classificação passa a
+    // valer para o público e para o ranking.
+    expect(document.querySelector('.impacto')).toBeNull();
   });
 
-  it('com movimento reduzido nada é desenhado — o toast funcional é que informa', async () => {
+  it('com movimento reduzido nem a publicação é desenhada — o toast informa', async () => {
     aparelho({ movimentoReduzido: true });
     await lancar({ hasUnresolvedTie: false });
     expect(screen.queryByText('Resultado lançado')).toBeNull();

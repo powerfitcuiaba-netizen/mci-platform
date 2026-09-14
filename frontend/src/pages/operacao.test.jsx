@@ -59,20 +59,67 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.useRealTimers(); });
 
+// Escolher o evento dispara uma busca; a lista só existe depois que ela chega.
+//
+// Esperar uma CONDIÇÃO ("o esqueleto saiu") em vez de torcer pelo relógio é o
+// que torna isto determinístico: antes, cada consulta seguinte disputava o
+// tempo-limite do findBy e a suíte falhava uma vez a cada tantas execuções, num
+// teste diferente a cada vez e sempre exatamente no tempo-limite.
+//
+// O produto nunca esteve em causa: `useFetch` já protege contra resposta fora
+// de ordem com um contador de geração. Era o teste que perguntava cedo demais.
 async function abrir(Tela) {
   render(<><Tela notificar={() => {}} /><PalcoDaExperiencia /></>);
-  fireEvent.change(await screen.findByLabelText('Selecionar evento'), { target: { value: 'e1' } });
+  const seletor = await screen.findByLabelText('Selecionar evento');
+
+  // ESPERAR A OPÇÃO EXISTIR antes de selecionar.
+  //
+  // O seletor aparece antes da lista de eventos chegar — são duas buscas. Um
+  // `change` para "e1" num `select` que ainda não tem essa opção é NO-OP
+  // silencioso: o valor não muda, o React não recebe onChange, e a tela fica
+  // para sempre em "Selecione o evento". A consulta seguinte então esperava um
+  // botão que nunca ia aparecer e falhava no tempo-limite.
+  //
+  // Era isto — e não lentidão — o que fazia a suíte falhar uma vez a cada
+  // tantas execuções, num teste diferente a cada vez. O sintoma (sempre
+  // exatamente no tempo-limite) chegou a me convencer de que era disputa de
+  // CPU; não era: o elemento nunca apareceria, com relógio nenhum.
+  await waitFor(() => expect(seletor.querySelector('option[value="e1"]')).toBeTruthy());
+  await act(async () => { fireEvent.change(seletor, { target: { value: 'e1' } }); });
 }
 
 // ------------------------------------------------------------------ CHECK-IN
 describe('check-in', () => {
-  it('confirma e desenha o momento de check-in', async () => {
+  it('confirma NA LINHA, sem ocupar o centro da tela', async () => {
     api.operations.checkIn.mockResolvedValue({});
-    await abrir(AdminCheckin);
+    const avisos = [];
+    render(<><AdminCheckin notificar={(t) => avisos.push(t)} /><PalcoDaExperiencia /></>);
+    fireEvent.change(await screen.findByLabelText('Selecionar evento'), { target: { value: 'e1' } });
     fireEvent.click(await screen.findByRole('button', { name: /Fazer check-in/i }));
     await waitFor(() => expect(api.operations.checkIn).toHaveBeenCalledWith('i1', expect.any(Object)));
-    expect(await screen.findByText('Check-in confirmado')).toBeTruthy();
+
+    // A linha afetada é o feedback: destaque onde a ação aconteceu.
+    await waitFor(() => expect(document.querySelector('.linha-afetada')).toBeTruthy());
+    // Mais o toast funcional, que nunca foi removido.
+    await waitFor(() => expect(avisos.some(t => /Check-in confirmado/i.test(t))).toBe(true));
+    // E NADA no meio da tela: 280 atletas seriam 280 interrupções.
+    expect(document.querySelector('.impacto')).toBeNull();
     expect(document.querySelector('.campeao')).toBeNull();
+  });
+
+  it('dez check-ins seguidos não interrompem o operador nenhuma vez', async () => {
+    const muitos = Array.from({ length: 10 }, (_, i) => INSCRICAO({
+      id: `i${i}`, athlete: { id: `at${i}`, fullName: `Atleta ${i}`, stageName: null, athleteNumber: String(i) }
+    }));
+    api.operations.listCheckIns.mockResolvedValue({ items: muitos, summary: { total: 10, checkedIn: 0, pending: 10 } });
+    api.operations.checkIn.mockResolvedValue({});
+    await abrir(AdminCheckin);
+    const botoes = await screen.findAllByRole('button', { name: /Fazer check-in/i });
+    for (const botao of botoes) {
+      await act(async () => { fireEvent.click(botao); });
+      expect(document.querySelector('.impacto')).toBeNull();
+    }
+    expect(api.operations.checkIn).toHaveBeenCalledTimes(10);
   });
 
   it('dois cliques seguidos mandam UMA requisição', async () => {
@@ -158,7 +205,8 @@ describe('pesagem', () => {
     confirmar();
     await waitFor(() => expect(api.operations.weighIn).toHaveBeenCalled());
     expect(api.operations.weighIn.mock.calls[0][1].weightGrams).toBe(82400);
-    expect(await screen.findByText('Pesagem registrada')).toBeTruthy();
+    // Pesagem também é operação repetida: confirma sem tomar o centro.
+    expect(document.querySelector('.impacto')).toBeNull();
   });
 
   it('peso fora da faixa NÃO é comemoração — é decisão da organização', async () => {
@@ -210,12 +258,13 @@ describe('credenciamento', () => {
     await waitFor(() => expect(api.operations.scanCredential).toHaveBeenCalled());
   }
 
-  it('credencial aceita libera e celebra', async () => {
+  it('credencial aceita libera no painel de leitura — onde o operador olha', async () => {
     await lerCodigo({ accepted: true, credential: CRED });
-    // Aparece duas vezes de propósito: no painel de leitura (fica) e no palco
-    // da experiência (passa). As duas são desejadas.
-    expect((await screen.findAllByText('Acesso liberado')).length).toBe(2);
+    expect(await screen.findByText('Acesso liberado')).toBeTruthy();
     expect(document.querySelector('.alert-ok')).toBeTruthy();
+    // O veredito fica ALI, ao lado do campo onde ele acabou de digitar, e não
+    // no meio da tela: numa portaria isso se repete a cada pessoa da fila.
+    expect(document.querySelector('.impacto')).toBeNull();
     expect(document.querySelector('.campeao')).toBeNull();
   });
 
@@ -247,9 +296,14 @@ describe('palco', () => {
     api.operations.batches.mockResolvedValue({ items: [BATERIA('SCHEDULED')] });
     api.operations.setBatchStatus.mockResolvedValue({});
     await abrir(AdminPalco);
+    const avisos = [];
+    cleanup();
+    render(<><AdminPalco notificar={t => avisos.push(t)} /><PalcoDaExperiencia /></>);
+    fireEvent.change(await screen.findByLabelText('Selecionar evento'), { target: { value: 'e1' } });
     fireEvent.click(await screen.findByRole('button', { name: /^Chamar$/i }));
     await waitFor(() => expect(api.operations.setBatchStatus).toHaveBeenCalledWith('b1', { status: 'CALLED' }));
-    expect(await screen.findByText('Bateria chamada')).toBeTruthy();
+    await waitFor(() => expect(avisos.some(t => /Bateria chamada/i.test(t))).toBe(true));
+    await waitFor(() => expect(document.querySelector('.linha-afetada')).toBeTruthy());
     expect(document.querySelector('.campeao')).toBeNull();
   });
 
@@ -275,7 +329,7 @@ describe('palco', () => {
     await abrir(AdminPalco);
     fireEvent.click(await screen.findByRole('button', { name: /^Encerrar$/i }));
     await waitFor(() => expect(api.operations.setBatchStatus).toHaveBeenCalledWith('b1', { status: 'DONE' }));
-    expect(screen.queryByText('Bateria chamada')).toBeNull();
+    expect(document.querySelector('.impacto')).toBeNull();
     expect(document.querySelector('.campeao')).toBeNull();
   });
 
