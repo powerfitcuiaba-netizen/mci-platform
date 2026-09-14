@@ -2,6 +2,7 @@ const prisma = require('../config/prisma');
 const { AppError } = require('../utils/errors');
 const { organizationFilter } = require('../utils/tenant');
 const { can } = require('../utils/permissions');
+const { profilePublic, athleteFor } = require('../utils/visibility');
 
 // Painéis. Toda métrica sai de contagem real no banco — nenhum número aqui é
 // estimado, arredondado ou fabricado para preencher tela.
@@ -59,7 +60,10 @@ async function athleteOverview(actor) {
   if (!athlete) {
     // Usuário com conta mas sem perfil de atleta: a resposta diz isso em vez
     // de fingir um painel vazio.
-    return { athlete: null, profile, registrations: [], upcoming: [], results: [], rankings: [], unreadMessages: 0 };
+    // `profilePublic` e não a linha crua: ela carrega `avatarKey` e
+    // `coverKey`, que são caminhos dentro do bucket. Encontrado pela varredura
+    // ampla da FASE 1.3 — nenhum teste anterior olhava esta rota.
+    return { athlete: null, profile: profilePublic(profile), registrations: [], upcoming: [], results: [], rankings: [], unreadMessages: 0 };
   }
 
   const [registrations, resultados, rankings, naoLidas] = await Promise.all([
@@ -105,8 +109,13 @@ async function athleteOverview(actor) {
   const titulos = resultados.filter(item => item.placing === 1).length;
 
   return {
-    athlete,
-    profile,
+    // `athleteFor` e não a linha crua: ela carrega `photoKey`, caminho dentro
+    // do bucket. Quem é dono do atleta continua vendo os campos restritos que
+    // essa função concede — o que sai é só a CHAVE. Encontrado pela varredura
+    // ampla da FASE 1.3, ao cobrir o ramo COM atleta: o ramo sem atleta já
+    // estava corrigido e escondia este.
+    athlete: athleteFor(athlete, actor, athlete.organizationId),
+    profile: profilePublic(profile),
     registrations,
     upcoming: agenda,
     batches: registrations.flatMap(item => item.items.flatMap(sub => sub.stageOrders.map(order => ({ position: order.position, status: order.status, batch: order.batch })))),

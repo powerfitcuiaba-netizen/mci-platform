@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import zlib from 'node:zlib';
 import {
   api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, comoAtor, unico, gerarCpf, criarAtleta
+  vincular, comoAtor, unico, gerarCpf, criarAtleta, criarEventoCompleto
 } from './helpers.mjs';
 
 // ==========================================================================
@@ -18,7 +18,20 @@ import {
 // Uma rota nova que volte a devolver a chave quebra aqui, e não em produção.
 // ==========================================================================
 
-const CAMPOS_PROIBIDOS = ['photoKey', 'avatarKey', 'coverKey', 'storageKey', 'objectKey', 'bucket', 'r2Key', 's3Key', 'storagePath'];
+const CAMPOS_PROIBIDOS = [
+  'photoKey', 'avatarKey', 'coverKey', 'storageKey', 'objectKey', 'storagePath',
+  'bucket', 'r2Key', 's3Key', 'signedUrl', 'presignedUrl', 'endpoint',
+  'accessKey', 'accessKeyId', 'secretAccessKey', 'secret'
+];
+
+// Valores que denunciam credencial ou endereço interno de armazenamento,
+// mesmo sob nome de campo inocente.
+const VALOR_SUSPEITO = [
+  [/\bAKIA[0-9A-Z]{12,}/, 'chave de acesso AWS'],
+  [/X-Amz-Signature=/i, 'URL assinada S3'],
+  [/[a-z0-9.-]+\.r2\.cloudflarestorage\.com/i, 'endpoint R2'],
+  [/[a-z0-9.-]*\.s3[.-][a-z0-9-]*\.amazonaws\.com/i, 'endpoint S3']
+];
 
 // Uma chave tem a forma `escopo/uuid.ext` — é o que `storage.buildKey` monta.
 // Procurar o FORMATO pega o caso em que alguém renomeia o campo e continua
@@ -29,7 +42,11 @@ function acharVazamento(valor, caminho = '$') {
   if (valor === null || valor === undefined) return null;
 
   if (typeof valor === 'string') {
-    return PARECE_CHAVE.test(valor) ? `${caminho} tem cara de chave de armazenamento: ${valor}` : null;
+    if (PARECE_CHAVE.test(valor)) return `${caminho} tem cara de chave de armazenamento: ${valor}`;
+    for (const [padrao, oque] of VALOR_SUSPEITO) {
+      if (padrao.test(valor)) return `${caminho} contém ${oque}: ${valor.slice(0, 60)}`;
+    }
+    return null;
   }
   if (Array.isArray(valor)) {
     for (let i = 0; i < valor.length; i += 1) {
@@ -207,6 +224,55 @@ describe('rotas autenticadas', () => {
     semVazamento(mensagens, 'GET /messenger/conversations/:id/messages');
   });
 
+  // RISCO A da FASE 1.2: publicação COM MÍDIA compartilhada DENTRO de uma
+  // mensagem. É o caminho de terceira ordem — post → mídia → compartilhamento
+  // → mensagem → resposta — e era o único que continuava sem cobertura de
+  // mutação, porque nenhum dublê chegava até lá.
+  it('publicação com mídia compartilhada em mensagem não devolve chave nenhuma', async () => {
+    const outro = await api().post('/api/v1/auth/register').send({ ...CONTATO, name: 'Outra Pessoa', email: `${unico('p')}@mci.test` });
+    const outroAuth = () => ({ Authorization: `Bearer ${outro.body.token}` });
+    const perfilOutro = await api().get('/api/v1/social/me').set(outroAuth());
+
+    // 1. publicação com mídia
+    const post = await api().post('/api/v1/social/posts').set(pessoa.auth()).send({ content: 'Para compartilhar' });
+    expect(post.status).toBe(201);
+    const midia = await api().post(`/api/v1/social/posts/${post.body.id}/media`).set(pessoa.auth())
+      .attach('file', png(), { filename: 'p.png', contentType: 'image/png' });
+    expect(midia.status).toBe(201);
+
+    // 2. conversa e 3. compartilhamento da publicação dentro dela
+    const conversa = await api().post('/api/v1/messenger/conversations').set(pessoa.auth())
+      .send({ kind: 'DIRECT', participantIds: [perfilOutro.body.id] });
+    expect(conversa.status, JSON.stringify(conversa.body)).toBe(201);
+
+    const envio = await api().post(`/api/v1/messenger/conversations/${conversa.body.id}/messages`).set(pessoa.auth())
+      .send({ body: 'olha isto', sharedPostId: post.body.id });
+    expect(envio.status, JSON.stringify(envio.body)).toBe(201);
+    semVazamento(envio, 'POST /messenger/conversations/:id/messages (compartilhando post)');
+
+    // 4. a mídia compartilhada PRECISA estar na resposta — senão o teste não
+    // examina o caminho que veio cobrir.
+    expect(envio.body.sharedPost, 'a publicação compartilhada não voltou').toBeTruthy();
+    expect(envio.body.sharedPost.media.length, 'a mídia compartilhada não voltou: o teste não provaria nada').toBeGreaterThan(0);
+
+    // 5. e na leitura da conversa, pelos DOIS lados
+    for (const [quem, auth] of [['remetente', pessoa.auth()], ['destinatário', outroAuth()]]) {
+      const lista = await api().get(`/api/v1/messenger/conversations/${conversa.body.id}/messages`).set(auth);
+      expect(lista.status, quem).toBe(200);
+      const comPost = lista.body.items.find(m => m.sharedPost);
+      expect(comPost, `${quem} não recebeu a publicação compartilhada`).toBeTruthy();
+      expect(comPost.sharedPost.media.length).toBeGreaterThan(0);
+      semVazamento(lista, `GET /messenger/conversations/:id/messages (${quem})`);
+    }
+
+    // 6. e o perfil compartilhado, que carrega o avatar
+    const comPerfil = await api().post(`/api/v1/messenger/conversations/${conversa.body.id}/messages`).set(pessoa.auth())
+      .send({ body: 'e este perfil', sharedProfileId: perfilOutro.body.id });
+    expect(comPerfil.status).toBe(201);
+    expect(comPerfil.body.sharedProfile, 'o perfil compartilhado não voltou').toBeTruthy();
+    semVazamento(comPerfil, 'POST /messenger (compartilhando perfil)');
+  });
+
   it('atletas, perfil social e busca não devolvem chave', async () => {
     const rotas = [
       ['/api/v1/athletes', operador.auth()],
@@ -239,5 +305,93 @@ describe('a peneira funciona', () => {
 
   it('não acusa resposta limpa', () => {
     expect(acharVazamento({ id: 'abc', hasPhoto: true, items: [{ nome: 'Maria', url: '/media/athletes/abc/photo' }] })).toBeNull();
+  });
+});
+
+// ==========================================================================
+// VARREDURA AMPLA — FASE 1.3, seção 5.
+//
+// Percorre TODAS as superfícies que devolvem dado ao cliente, incluindo as
+// operacionais (palco, pesagem, credenciamento) e as de erro. O objetivo não é
+// repetir os testes acima: é garantir que uma rota que ninguém lembrou de
+// auditar também está limpa.
+// ==========================================================================
+describe('varredura ampla de superfícies', () => {
+  it('rotas operacionais e de competição não devolvem referência de armazenamento', async () => {
+    const evento = await criarEventoCompleto(operador, org.id);
+
+    // Uma conta LIGADA a um atleta, para o painel entrar no ramo com atleta.
+    const dono = await api().post('/api/v1/auth/register').send({ ...CONTATO, name: 'Dono do Atleta', email: `${unico('p')}@mci.test` });
+    const comAtleta = { auth: () => ({ Authorization: `Bearer ${dono.body.token}` }) };
+    await comoAtor(operador, () => prisma.athlete.update({ where: { id: atleta.id }, data: { userId: dono.body.user.id } }));
+
+    const rotas = [
+      ['/api/v1/events', operador.auth()],
+      [`/api/v1/events/${evento.event.id}`, operador.auth()],
+      [`/api/v1/events/${evento.event.id}/registrations`, operador.auth()],
+      [`/api/v1/events/${evento.event.id}/checkins`, operador.auth()],
+      [`/api/v1/events/${evento.event.id}/credentials`, operador.auth()],
+      [`/api/v1/events/${evento.event.id}/batches`, operador.auth()],
+      [`/api/v1/events/${evento.event.id}/results`, operador.auth()],
+      ['/api/v1/ranking', operador.auth()],
+      ['/api/v1/ranking/teams', operador.auth()],
+      ['/api/v1/ranking/companies', operador.auth()],
+      ['/api/v1/athletes/pro', operador.auth()],
+      ['/api/v1/teams', operador.auth()],
+      ['/api/v1/coaches', operador.auth()],
+      ['/api/v1/gyms', operador.auth()],
+      ['/api/v1/brands', operador.auth()],
+      ['/api/v1/sponsors', operador.auth()],
+      ['/api/v1/companies', operador.auth()],
+      ['/api/v1/messenger/conversations', pessoa.auth()],
+      ['/api/v1/communities', pessoa.auth()],
+      ['/api/v1/notifications', pessoa.auth()],
+      ['/api/v1/social/saved', pessoa.auth()],
+      ['/api/v1/social/stories', pessoa.auth()],
+      ['/api/v1/dashboard/summary', operador.auth()],
+      ['/api/v1/dashboard/athlete', pessoa.auth()],
+      // O painel tem DOIS ramos — com e sem atleta vinculado — e cada um monta
+      // a resposta por conta própria. Medido: mutar só um deles não fazia o
+      // teste falhar, porque a varredura percorria apenas o outro.
+      ['/api/v1/dashboard/athlete', comAtleta.auth()],
+      ['/api/v1/audit', admin.auth()],
+      ['/api/v1/organizations', operador.auth()],
+      ['/api/v1/affiliations', operador.auth()],
+      ['/api/v1/categories', operador.auth()]
+    ];
+
+    let examinadas = 0;
+    for (const [rota, auth] of rotas) {
+      const r = await api().get(rota).set(auth);
+      expect([200, 403, 404], `${rota} respondeu ${r.status}`).toContain(r.status);
+      if (r.status === 200) { semVazamento(r, rota); examinadas += 1; }
+    }
+    // Se quase nada respondesse 200, a varredura não teria examinado nada.
+    expect(examinadas, 'poucas rotas responderam 200: a varredura não provaria nada').toBeGreaterThan(20);
+  });
+
+  // Mensagem de erro é a superfície mais esquecida — e a que mais entrega
+  // caminho interno quando o servidor devolve stack trace.
+  it('respostas de ERRO não vazam chave, caminho de disco nem stack trace', async () => {
+    const tentativas = [
+      ['get', '/api/v1/media/athlete-requests/cl00000000000000000000000/photo', pessoa.auth()],
+      ['get', '/api/v1/media/athletes/cl00000000000000000000000/photo', pessoa.auth()],
+      ['get', '/api/v1/media/profiles/cl00000000000000000000000/avatar', pessoa.auth()],
+      ['get', '/api/v1/documents/athlete/cl00000000000000000000000/download', operador.auth()],
+      ['get', '/api/v1/athletes/cl00000000000000000000000', operador.auth()],
+      ['post', '/api/v1/athlete-requests', pessoa.auth()]
+    ];
+
+    for (const [metodo, rota, auth] of tentativas) {
+      const r = await api()[metodo](rota).set(auth).send({});
+      expect(r.status).toBeGreaterThanOrEqual(400);
+      semVazamento(r, `${metodo.toUpperCase()} ${rota}`);
+
+      const texto = JSON.stringify(r.body);
+      expect(texto, 'a resposta de erro trouxe stack trace').not.toMatch(/at\s+\w+\s+\(/);
+      expect(texto, 'a resposta de erro trouxe caminho de disco').not.toMatch(/\/(home|var|usr|root)\//);
+      expect(texto).not.toMatch(/node_modules/);
+      expect(texto).not.toMatch(/prisma\./i);
+    }
   });
 });
