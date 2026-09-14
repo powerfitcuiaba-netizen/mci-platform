@@ -51,8 +51,11 @@ beforeEach(() => {
   api.events.list.mockResolvedValue({ items: [EVENTO] });
   api.events.findOne.mockResolvedValue(EVENTO);
   api.results.listByEvent.mockResolvedValue({ items: [] });
+  // FORMA REAL conferida contra o servidor: o item traz `competitionClass.id`,
+  // e NÃO `classId`. O mock antigo inventava `classId` — e um mock que inventa
+  // a forma dos dados faz o teste passar justamente quando o produto quebra.
   api.registrations.listByEvent.mockResolvedValue({
-    items: [{ athlete: { id: 'at1', fullName: 'Carlos Mendes' }, items: [{ classId: 'c1' }] }]
+    items: [{ athlete: { id: 'at1', fullName: 'Carlos Mendes' }, items: [{ id: 'ri1', competitionClass: { id: 'c1', name: 'Até 172cm' } }] }]
   });
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -87,7 +90,7 @@ describe('lançar resultado oficial', () => {
     // inscrito. O operador precisa distinguir "carregando" de "ninguém".
     expect(screen.queryByText(/Nenhum inscrito nesta classe/i)).toBeNull();
 
-    liberar({ items: [{ athlete: { id: 'at1', fullName: 'Carlos Mendes' }, items: [{ classId: 'c1' }] }] });
+    liberar({ items: [{ athlete: { id: 'at1', fullName: 'Carlos Mendes' }, items: [{ id: 'ri1', competitionClass: { id: 'c1', name: 'Até 172cm' } }] }] });
     expect(await screen.findByText('Carlos Mendes')).toBeTruthy();
   });
 
@@ -137,8 +140,8 @@ describe('a plataforma transcreve, não julga', () => {
   it('a colocação enviada é exatamente a digitada, na ordem em que o operador a deu', async () => {
     api.registrations.listByEvent.mockResolvedValue({
       items: [
-        { athlete: { id: 'at1', fullName: 'Carlos Mendes' }, items: [{ classId: 'c1' }] },
-        { athlete: { id: 'at2', fullName: 'Ana Prado' }, items: [{ classId: 'c1' }] }
+        { athlete: { id: 'at1', fullName: 'Carlos Mendes' }, items: [{ id: 'ri1', competitionClass: { id: 'c1', name: 'Até 172cm' } }] },
+        { athlete: { id: 'at2', fullName: 'Ana Prado' }, items: [{ id: 'ri2', competitionClass: { id: 'c1', name: 'Até 172cm' } }] }
       ]
     });
     api.results.receive.mockResolvedValue({ hasUnresolvedTie: false });

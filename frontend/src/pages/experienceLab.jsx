@@ -131,6 +131,21 @@ export default function ExperienceLab() {
           <button type="button" className="chip" onClick={() => disparar(MCIEvento.RESULTADO_PUBLICADO, { titulo: 'Resultado oficial publicado', descricao: 'Bikini Open — resultado recebido da federação' })}>
             Resultado (nível 4)
           </button>
+          <button type="button" className="chip" onClick={() => disparar(MCIEvento.NOVIDADE, { titulo: 'Bateria chamada', descricao: 'Bateria 1 · 6 atleta(s) notificado(s)' })}>
+            Bateria chamada (nível 1)
+          </button>
+          <button type="button" className="chip" onClick={() => disparar(MCIEvento.AO_VIVO, { titulo: 'No palco', descricao: 'Bateria 1' })}>
+            Atleta no palco (nível 1)
+          </button>
+          {/* Os dois casos que a operação NÃO comemora. Estão aqui de propósito:
+              é preciso conseguir ver, lado a lado, que eles saem diferentes do
+              gesto de êxito — senão a regra existe só no texto. */}
+          <button type="button" className="chip" onClick={() => disparar(MCIEvento.ERRO, { titulo: 'Acesso recusado', descricao: 'Credencial revogada' })}>
+            Acesso recusado (nível 1)
+          </button>
+          <button type="button" className="chip" onClick={() => disparar(MCIEvento.AVISO, { titulo: 'Peso fora da faixa', descricao: 'A reclassificação é decisão da organização.' })}>
+            Peso fora da faixa (nível 1)
+          </button>
           <button type="button" className="chip" onClick={() => disparar(MCIEvento.CAMPEAO, { titulo: 'Campeão geral', nome: 'Carlos Mendes', descricao: 'Muscle Contest Brasil 2026' })}>
             Campeão geral (nível 5)
           </button>

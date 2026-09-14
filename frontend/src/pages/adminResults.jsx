@@ -150,8 +150,13 @@ function LancarResultado({ classe, eventId, notificar, onClose, onSalvo }) {
   const inscricoes = useFetch(() => api.registrations.listByEvent(eventId, { limit: 100 }), [eventId]);
 
   useEffect(() => {
+    // A API devolve `items[].competitionClass.id` — não existe `classId` no
+    // item. O filtro antigo comparava com um campo inexistente, dava sempre
+    // falso, e o diálogo listava ZERO inscritos: não havia como lançar
+    // resultado nenhum. "Ordem de palco" já lia o campo certo, no mesmo
+    // arquivo vizinho, o que mostra que era engano e não contrato diferente.
     const itens = (inscricoes.data?.items || [])
-      .filter(inscricao => (inscricao.items || []).some(item => item.classId === classe.id))
+      .filter(inscricao => (inscricao.items || []).some(item => item.competitionClass?.id === classe.id))
       .map(inscricao => ({
         athleteId: inscricao.athlete.id,
         nome: inscricao.athlete.fullName,

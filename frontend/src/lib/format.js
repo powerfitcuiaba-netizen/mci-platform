@@ -71,6 +71,19 @@ export const ESTADO_EVENTO = {
   CANCELLED: { rotulo: 'Cancelado', tom: 'perigo' }
 };
 
+// Estado da bateria de palco. Existe porque o enum cru estava sendo impresso
+// direto na tela — "CALLED", "ON_STAGE" —, inclusive na página PÚBLICA do
+// evento, que é onde o atleta e o público olham para saber quando entrar.
+export const ESTADO_BATERIA = {
+  SCHEDULED: { rotulo: 'Agendada', tom: 'info' },
+  CALLED: { rotulo: 'Chamada', tom: 'alerta' },
+  ON_STAGE: { rotulo: 'No palco', tom: 'perigo' },
+  DONE: { rotulo: 'Encerrada', tom: 'neutro' }
+};
+
+export const estadoDaBateria = status =>
+  ESTADO_BATERIA[status] || { rotulo: status, tom: 'neutro' };
+
 // ==========================================================================
 // O dia do evento.
 //

@@ -473,6 +473,10 @@ h1, h2, h3 { margin: 0; }
 .alert-erro   { border-left-color: var(--vermelho); background: #1c0d10; border-color: var(--vermelho-borda); }
 .alert-alerta { border-left-color: var(--ambar);    background: #1c1608; border-color: var(--ambar-borda); }
 .alert-info   { border-left-color: var(--ciano-puro); background: #071a24; border-color: var(--ciano-borda); }
+/* Faltava o estado de ÊXITO. Sem ele, "acesso liberado" na portaria era
+   pintado de `info` — a mesma cor de um aviso qualquer —, e liberado e
+   recusado só se distinguiam lendo o texto. Numa fila, ninguém lê. */
+.alert-ok     { border-left-color: var(--verde);     background: #08190f; border-color: var(--verde-borda); }
 .alert strong { display: block; margin-bottom: var(--e1); }
 .alert p { margin: 0; color: var(--cinza); }
 .alert ul { margin: var(--e2) 0 0; padding-left: var(--e5); color: var(--cinza); }
@@ -1567,4 +1571,58 @@ main > * { animation: tela-entra var(--t-base) var(--curva-entrada) both; }
 @media (prefers-reduced-motion: reduce) {
   /* O destaque FICA (é informação), só não varre. */
   .linha-afetada.varredura::after { display: none; }
+}
+
+/* --- indicador de atualização ao vivo numa tela de operação --- */
+.toolbar-ao-vivo { display: flex; justify-content: flex-end; margin-bottom: var(--e2); }
+
+/* --- contador que mudou ---
+   Um lampejo curto no número, e nada mais. O valor NÃO conta de 0 até ele:
+   contagem animada mostra números que nunca foram verdade e atrasa a leitura
+   de quem precisa do valor agora. */
+@keyframes contador-lampeja {
+  0%   { color: var(--branco); text-shadow: none; }
+  25%  { color: var(--ciano-puro); text-shadow: 0 0 16px rgba(18,184,255,.5); }
+  100% { color: var(--branco); text-shadow: none; }
+}
+.contador-mudou .metric strong { animation: contador-lampeja 900ms var(--curva-entrada) both; }
+.contador-mudou .metric { border-color: var(--ciano-borda); }
+
+@media (prefers-reduced-motion: reduce) {
+  .contador-mudou .metric strong { animation: none; }
+}
+
+/* --- a bateria que está no palco ---
+   O painel ganha um trilho vermelho aceso e um leve halo. É a única coisa da
+   tela que precisa ser encontrada de longe, com o operador em pé e o telefone
+   na mão. NÃO tem partícula, NÃO tem brilho em laço e NÃO tem animação
+   contínua: o Palco continua sendo tela de trabalho, e bateria dura minutos —
+   qualquer efeito perpétuo aqui é bateria de celular indo embora. */
+.painel-bateria.esta-no-palco {
+  border-color: var(--vermelho-borda);
+  box-shadow: 0 0 0 1px rgba(227,30,36,.18), 0 14px 40px -22px rgba(227,30,36,.55);
+}
+.painel-bateria.esta-no-palco::before {
+  content: ''; position: absolute; inset: 0 auto 0 0; width: 3px;
+  background: linear-gradient(180deg, var(--vermelho-claro) 0, var(--vermelho) 100%);
+  border-radius: var(--raio) 0 0 var(--raio);
+}
+.painel-bateria { position: relative; }
+
+/* --- linhas de lista em tela estreita ---
+   A linha é flex sem quebra: num celular de 320px, avatar + selo com data +
+   botão de ação não cabem, e a página inteira passava a rolar de lado. Rolagem
+   horizontal numa tela de operação é o operador perdendo o botão bem na hora
+   da fila.
+
+   Só aparece quando a linha tem ação E selo ao mesmo tempo — por isso passou
+   despercebido enquanto ninguém tinha check-in feito. */
+@media (max-width: 480px) {
+  .list-row { flex-wrap: wrap; }
+  /* Força a quebra antes de espremer o nome do atleta até o ilegível. */
+  .list-row .info { flex: 1 1 60%; min-width: 55%; }
+  /* As ações descem juntas para a segunda linha, alinhadas à direita. */
+  .list-row > .button,
+  .list-row > .badge { margin-left: auto; }
+  .list-row > .button + .button { margin-left: var(--e2); }
 }

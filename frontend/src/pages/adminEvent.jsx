@@ -3,9 +3,17 @@ import { CalendarDays, ClipboardCheck, Pencil, Plus, QrCode, Scale, Search } fro
 import api, { refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, CodigoQr, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead } from '../components/ui';
+import { anunciar, MCIEvento } from '../lib/experiencia';
+
+// A API recusa `limit` acima de 100 com 400 VALIDATION_ERROR. Quatro telas
+// pediam 200 e por isso não listavam NADA — check-in e pesagem caíam inteiras
+// no estado de erro, e as listas de atleta de "emitir credencial" e "ordem de
+// palco" vinham sempre vazias. Fica em constante para ninguém reescrever o
+// número solto de novo.
+const TETO_DA_LISTA = 100;
+import { ContadorVivo, PulsoAoVivo, Revelacao, useRecemAfetado } from '../components/experiencia';
 import {
-  ESTADO_EVENTO, TRANSICOES_EVENTO, formatarData, formatarDataHora, mascararCpf, pesoEmKg, seloDoEvento, somenteDigitos
-} from '../lib/format';
+  ESTADO_EVENTO, TRANSICOES_EVENTO, formatarData, formatarDataHora, mascararCpf, pesoEmKg, seloDoEvento, somenteDigitos, estadoDaBateria } from '../lib/format';
 
 // Área administrativa do evento. Cada tela opera contra a API real e reflete a
 // máquina de estados do servidor: o que a API recusaria, a interface não
@@ -842,21 +850,44 @@ function CancelarInscricao({ inscricao, notificar, onClose, onSalvo }) {
 export function AdminCheckin({ notificar }) {
   const [eventId, setEventId] = useState('');
   const [busca, setBusca] = useState('');
+  const recem = useRecemAfetado();
 
+  // Recarga periódica só com evento escolhido — o mesmo padrão já usado em
+  // "minha solicitação". É isto que torna o contador REALMENTE ao vivo e, por
+  // consequência, torna honesto o indicador de ao vivo ao lado dele. Sem dado
+  // que muda sozinho, um pulso de "ao vivo" seria mentira com animação.
   const estado = useFetch(
-    () => (eventId ? api.operations.listCheckIns(eventId, { limit: 200, search: busca || undefined }) : Promise.resolve({ items: [], summary: null })),
+    () => (eventId ? api.operations.listCheckIns(eventId, { limit: TETO_DA_LISTA, search: busca || undefined }) : Promise.resolve({ items: [], summary: null })),
     [eventId, busca],
-    { ativo: Boolean(eventId) }
+    { ativo: Boolean(eventId), recarregarACada: eventId ? 20000 : 0 }
   );
 
+  // Uma inscrição por vez. O backend recusa o segundo check-in com 409
+  // ALREADY_CHECKED_IN, então o duplo clique na portaria mostrava um erro
+  // vermelho logo depois do sucesso — o operador via "falhou" numa operação
+  // que tinha dado certo. A trava fecha a janela entre o envio e a resposta.
+  const [emOperacao, setEmOperacao] = useState(null);
+
   const operar = async (inscricao, cancelar) => {
+    if (emOperacao) return;
+    setEmOperacao(inscricao.id);
     try {
       if (cancelar) await api.operations.cancelCheckIn(inscricao.id);
       else await api.operations.checkIn(inscricao.id, { device: navigator.userAgent.slice(0, 100) });
       notificar(cancelar ? 'Check-in cancelado.' : 'Check-in confirmado.');
+      recem.marcar(inscricao.id);
+      // Desfazer é correção, não conquista: confirma sem celebrar.
+      if (!cancelar) {
+        anunciar(MCIEvento.CHECKIN, {
+          titulo: 'Check-in confirmado',
+          descricao: inscricao.athlete.stageName || inscricao.athlete.fullName
+        });
+      }
       estado.reload();
     } catch (erro) {
       notificar(erro.message, 'erro');
+    } finally {
+      setEmOperacao(null);
     }
   };
 
@@ -879,19 +910,38 @@ export function AdminCheckin({ notificar }) {
             {dados => (
               <>
                 {dados.summary && (
-                  <div className="grid grid-3" style={{ marginBottom: 16 }}>
-                    <Metric label="Inscritos" value={dados.summary.total} />
-                    <Metric label="Check-in feito" value={dados.summary.checkedIn} destaque />
-                    <Metric label="Pendentes" value={dados.summary.pending} />
-                  </div>
+                  <>
+                    <div className="toolbar-ao-vivo">
+                      <PulsoAoVivo rotulo="Atualizando ao vivo" />
+                    </div>
+                    <div className="grid grid-3" style={{ marginBottom: 16 }}>
+                      <Metric label="Inscritos" value={dados.summary.total} />
+                      <ContadorVivo label="Check-in feito" value={dados.summary.checkedIn} destaque />
+                      <ContadorVivo label="Pendentes" value={dados.summary.pending} />
+                    </div>
+
+                    {/* A lista para em 100 por limite da API. Num evento de
+                        280 atletas, mostrar 100 sem dizer nada faria o
+                        operador procurar alguém que existe e concluir que a
+                        pessoa não está inscrita. */}
+                    {dados.items.length < dados.summary.total && (
+                      <div className="alert alert-info" style={{ marginBottom: 16 }}>
+                        <div>
+                          <strong>Mostrando os primeiros {dados.items.length} de {dados.summary.total} inscritos</strong>
+                          <p>Use a busca acima pelo nome ou número para encontrar quem não aparece aqui.</p>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 <section className="panel">
                   {dados.items.length
-                    ? dados.items.map(inscricao => {
+                    ? dados.items.map((inscricao, indice) => {
                       const feito = inscricao.checkIn?.status === 'CHECKED_IN';
+                      const ocupada = emOperacao === inscricao.id;
                       return (
-                        <div className="list-row" key={inscricao.id}>
+                        <Revelacao as="div" indice={indice} key={inscricao.id} className={`list-row${recem.classeDe(inscricao.id)}`}>
                           <Avatar name={inscricao.athlete.fullName} />
                           <span className="info">
                             <strong>{inscricao.athlete.stageName || inscricao.athlete.fullName}</strong>
@@ -905,11 +955,17 @@ export function AdminCheckin({ notificar }) {
                             ? (
                               <>
                                 <Badge tom="ok"><ClipboardCheck size={12} /> {formatarDataHora(inscricao.checkIn.checkedInAt)}</Badge>
-                                <button type="button" className="button button-secondary button-sm" onClick={() => operar(inscricao, true)}>Desfazer</button>
+                                <button type="button" className="button button-secondary button-sm" disabled={ocupada} onClick={() => operar(inscricao, true)}>
+                                  {ocupada ? 'Desfazendo…' : 'Desfazer'}
+                                </button>
                               </>
                             )
-                            : <button type="button" className="button button-primary button-sm" onClick={() => operar(inscricao, false)}>Fazer check-in</button>}
-                        </div>
+                            : (
+                              <button type="button" className="button button-primary button-sm" disabled={ocupada} onClick={() => operar(inscricao, false)}>
+                                {ocupada ? 'Confirmando…' : 'Fazer check-in'}
+                              </button>
+                            )}
+                        </Revelacao>
                       );
                     })
                     : <EmptyState title="Nenhum inscrito confirmado" />}
@@ -927,9 +983,10 @@ export function AdminPesagem({ notificar }) {
   const [eventId, setEventId] = useState('');
   const [busca, setBusca] = useState('');
   const [pesando, setPesando] = useState(null);
+  const recem = useRecemAfetado();
 
   const estado = useFetch(
-    () => (eventId ? api.operations.listCheckIns(eventId, { limit: 200, search: busca || undefined }) : Promise.resolve({ items: [] })),
+    () => (eventId ? api.operations.listCheckIns(eventId, { limit: TETO_DA_LISTA, search: busca || undefined }) : Promise.resolve({ items: [] })),
     [eventId, busca],
     { ativo: Boolean(eventId) }
   );
@@ -953,8 +1010,8 @@ export function AdminPesagem({ notificar }) {
             {dados => (
               <section className="panel">
                 {dados.items.length
-                  ? dados.items.map(inscricao => (
-                    <div className="list-row" key={inscricao.id}>
+                  ? dados.items.map((inscricao, indice) => (
+                    <Revelacao as="div" indice={indice} key={inscricao.id} className={`list-row${recem.classeDe(inscricao.id)}`}>
                       <Avatar name={inscricao.athlete.fullName} />
                       <span className="info">
                         <strong>{inscricao.athlete.stageName || inscricao.athlete.fullName}</strong>
@@ -967,7 +1024,7 @@ export function AdminPesagem({ notificar }) {
                       <button type="button" className="button button-primary button-sm" onClick={() => setPesando(inscricao)}>
                         <Scale size={13} /> Registrar
                       </button>
-                    </div>
+                    </Revelacao>
                   ))
                   : <EmptyState title="Nenhum inscrito confirmado" />}
               </section>
@@ -976,7 +1033,8 @@ export function AdminPesagem({ notificar }) {
         )}
 
       {pesando && (
-        <RegistrarPesagem inscricao={pesando} notificar={notificar} onClose={() => setPesando(null)} onSalvo={() => { setPesando(null); estado.reload(); }} />
+        <RegistrarPesagem inscricao={pesando} notificar={notificar} onClose={() => setPesando(null)}
+          onSalvo={() => { recem.marcar(pesando.id); setPesando(null); estado.reload(); }} />
       )}
     </div>
   );
@@ -986,6 +1044,7 @@ function RegistrarPesagem({ inscricao, notificar, onClose, onSalvo }) {
   const [form, setForm] = useState({ peso: '', altura: '', notes: '' });
   const [salvando, setSalvando] = useState(false);
   const [foraDeFaixa, setForaDeFaixa] = useState(null);
+  const [falha, setFalha] = useState(null);
 
   const salvar = async evento => {
     evento.preventDefault();
@@ -1003,11 +1062,30 @@ function RegistrarPesagem({ inscricao, notificar, onClose, onSalvo }) {
       if (resposta.outOfRange?.length) {
         setForaDeFaixa(resposta.outOfRange);
         notificar('Pesagem registrada. Há classe fora da faixa de peso.', 'info');
+        // O peso ENTROU, mas há classe fora da faixa e a reclassificação é
+        // decisão da organização. Confirmar com ar de "deu tudo certo" aqui
+        // faria o operador passar batido pelo caso que precisa de decisão.
+        anunciar(MCIEvento.AVISO, {
+          titulo: 'Peso fora da faixa',
+          descricao: 'A pesagem foi gravada. A reclassificação é decisão da organização.'
+        });
       } else {
         notificar('Pesagem registrada.');
+        anunciar(MCIEvento.PESAGEM, { titulo: 'Pesagem registrada', descricao: inscricao.athlete.fullName });
         onSalvo();
       }
     } catch (erro) {
+      // Erro de pesagem NÃO vai para o palco da experiência, e isto é
+      // decisão, não esquecimento: a pessoa está com o diálogo aberto, lendo
+      // o motivo e corrigindo o campo. Uma caixa centralizada piscando por
+      // cima do formulário que ela precisa ler é exatamente a "animação
+      // dramática" que atrapalha. O motivo fica À VISTA no diálogo, ao lado
+      // do campo, e o toast continua.
+      //
+      // A recusa de credencial é o caso oposto — lá o operador está em pé na
+      // portaria, olhando o leitor e não a tela —, e por isso lá o anúncio
+      // existe.
+      setFalha(erro.message);
       notificar(erro.message, 'erro');
     } finally {
       setSalvando(false);
@@ -1033,6 +1111,17 @@ function RegistrarPesagem({ inscricao, notificar, onClose, onSalvo }) {
         )
         : (
           <form onSubmit={salvar}>
+            {/* O motivo fica À VISTA no diálogo, e não só num toast que some:
+                quem errou o peso precisa do motivo enquanto corrige o campo. */}
+            {falha && (
+              <div className="alert alert-erro" style={{ marginBottom: 14 }}>
+                <div>
+                  <strong>Pesagem não registrada</strong>
+                  <p>{falha}</p>
+                  <p>Confira o valor e registre de novo. Nada foi gravado.</p>
+                </div>
+              </div>
+            )}
             <div className="field-row">
               <Field label="Peso (kg)" required>
                 <input type="number" step="0.01" min="20" max="400" value={form.peso} onChange={evento => setForm({ ...form, peso: evento.target.value })} required autoFocus />
@@ -1056,6 +1145,7 @@ export function AdminCredenciamento({ notificar }) {
   const [codigo, setCodigo] = useState('');
   const [leitura, setLeitura] = useState(null);
   const [lendo, setLendo] = useState(false);
+  const recem = useRecemAfetado();
 
   const estado = useFetch(
     () => (eventId ? api.operations.credentials(eventId) : Promise.resolve({ items: [] })),
@@ -1075,6 +1165,16 @@ export function AdminCredenciamento({ notificar }) {
       const resposta = await api.operations.scanCredential(eventId, { code: codigo.trim(), gate: 'Portaria' });
       setLeitura(resposta);
       setCodigo('');
+      recem.marcar(resposta.credential?.id ?? null);
+      // Recusa NÃO comemora. Uma credencial revogada chegando na portaria é
+      // justamente o momento em que o operador precisa parar e olhar — dar a
+      // ela o mesmo gesto verde de um acesso liberado treinaria o contrário.
+      anunciar(
+        resposta.accepted ? MCIEvento.CREDENCIADO : MCIEvento.ERRO,
+        resposta.accepted
+          ? { titulo: 'Acesso liberado', descricao: `${resposta.credential.holderName} · ${resposta.credential.type}` }
+          : { titulo: 'Acesso recusado', descricao: resposta.reason || resposta.credential?.holderName || 'Credencial não aceita.' }
+      );
       estado.reload();
     } catch (erro) {
       setLeitura(null);
@@ -1105,8 +1205,8 @@ export function AdminCredenciamento({ notificar }) {
               <div className="panel-head"><h2>Credenciais emitidas</h2></div>
               <AsyncSection state={estado} linhas={4}>
                 {dados => (dados.items.length
-                  ? dados.items.map(credencial => (
-                    <div className="list-row" key={credencial.id}>
+                  ? dados.items.map((credencial, indice) => (
+                    <Revelacao as="div" indice={indice} key={credencial.id} className={`list-row${recem.classeDe(credencial.id)}`}>
                       {/* O QR desenha o código que a credencial já carrega — o
                           mesmo que a portaria lê. Só faz sentido para credencial
                           ativa: revogada não deve ser apresentável no portão. */}
@@ -1133,7 +1233,7 @@ export function AdminCredenciamento({ notificar }) {
                           Revogar
                         </button>
                       )}
-                    </div>
+                    </Revelacao>
                   ))
                   : <EmptyState title="Nenhuma credencial emitida" />
                 )}
@@ -1152,7 +1252,10 @@ export function AdminCredenciamento({ notificar }) {
               </form>
 
               {leitura && (
-                <div className={`alert ${leitura.accepted ? 'alert-info' : 'alert-erro'}`} style={{ marginTop: 14 }}>
+                /* Aceito era pintado de "info" — a mesma cor de um aviso
+                   qualquer. Na portaria, liberado e recusado precisam ser
+                   distinguíveis de relance, sem ler. */
+                <div className={`alert ${leitura.accepted ? 'alert-ok' : 'alert-erro'} varredura`} style={{ marginTop: 14 }}>
                   <div>
                     <strong>{leitura.accepted ? 'Acesso liberado' : 'Acesso recusado'}</strong>
                     <p>{leitura.credential.holderName} · {leitura.credential.type}</p>
@@ -1175,7 +1278,7 @@ export function AdminCredenciamento({ notificar }) {
 }
 
 function EmitirCredencial({ eventId, notificar, onClose, onSalvo }) {
-  const inscritos = useFetch(() => api.registrations.listByEvent(eventId, { limit: 200, status: 'CONFIRMED' }), [eventId]);
+  const inscritos = useFetch(() => api.registrations.listByEvent(eventId, { limit: TETO_DA_LISTA, status: 'CONFIRMED' }), [eventId]);
   const [form, setForm] = useState({ type: 'ATHLETE', holderName: '', registrationId: '' });
   const [salvando, setSalvando] = useState(false);
 
@@ -1189,6 +1292,7 @@ function EmitirCredencial({ eventId, notificar, onClose, onSalvo }) {
         registrationId: form.registrationId || null
       });
       notificar(`Credencial ${credencial.code} emitida.`);
+      anunciar(MCIEvento.SUCESSO, { titulo: 'Credencial emitida', descricao: form.holderName });
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -1232,6 +1336,10 @@ export function AdminPalco({ notificar }) {
   const [eventId, setEventId] = useState('');
   const [criando, setCriando] = useState(false);
   const [ordenando, setOrdenando] = useState(null);
+  const recem = useRecemAfetado();
+  // Uma bateria por vez: dois cliques em "Chamar" mandariam duas transições
+  // de estado para a mesma bateria.
+  const [mudando, setMudando] = useState(null);
 
   const estado = useFetch(
     () => (eventId ? api.operations.batches(eventId) : Promise.resolve({ items: [] })),
@@ -1240,12 +1348,29 @@ export function AdminPalco({ notificar }) {
   );
 
   const mudarStatus = async (bateria, status) => {
+    if (mudando) return;
+    setMudando(bateria.id);
     try {
       await api.operations.setBatchStatus(bateria.id, { status });
       notificar(status === 'CALLED' ? 'Bateria chamada. Os atletas foram notificados.' : 'Bateria atualizada.');
+      recem.marcar(bateria.id);
+
+      // Só DUAS transições ganham gesto, porque só duas mudam o mundo do
+      // atleta: ser chamado (saia de onde estiver e venha) e entrar no palco.
+      // "Encerrar" é fim de expediente da bateria — confirma e segue.
+      if (status === 'CALLED') {
+        anunciar(MCIEvento.NOVIDADE, {
+          titulo: 'Bateria chamada',
+          descricao: `${bateria.name} · ${bateria._count.orders} atleta(s) notificado(s)`
+        });
+      } else if (status === 'ON_STAGE') {
+        anunciar(MCIEvento.AO_VIVO, { titulo: 'No palco', descricao: bateria.name });
+      }
       estado.reload();
     } catch (erro) {
       notificar(erro.message, 'erro');
+    } finally {
+      setMudando(null);
     }
   };
 
@@ -1265,8 +1390,13 @@ export function AdminPalco({ notificar }) {
         : (
           <AsyncSection state={estado} linhas={4}>
             {dados => (dados.items.length
-              ? dados.items.map(bateria => (
-                <section className="panel" key={bateria.id} style={{ marginBottom: 12 }}>
+              ? dados.items.map((bateria, indice) => (
+                <Revelacao
+                  as="section"
+                  indice={indice}
+                  key={bateria.id}
+                  className={`panel painel-bateria${bateria.status === 'ON_STAGE' ? ' esta-no-palco' : ''}${recem.classeDe(bateria.id)}`}
+                >
                   <div className="panel-head">
                     <div>
                       <h2>{bateria.name}</h2>
@@ -1277,14 +1407,31 @@ export function AdminPalco({ notificar }) {
                       </small>
                     </div>
                     <div className="actions">
-                      <Badge tom={bateria.status === 'DONE' ? 'neutro' : bateria.status === 'ON_STAGE' ? 'perigo' : bateria.status === 'CALLED' ? 'alerta' : 'info'} aoVivo={bateria.status === 'ON_STAGE'}>{bateria.status}</Badge>
+                      {/* ON_STAGE é estado REAL da operação — esta bateria
+                          está no palco agora. Por isso o pulso aqui é honesto:
+                          não é enfeite fingindo tempo real. */}
+                      {bateria.status === 'ON_STAGE'
+                        ? <PulsoAoVivo rotulo="No palco" />
+                        : <Badge tom={estadoDaBateria(bateria.status).tom}>{estadoDaBateria(bateria.status).rotulo}</Badge>}
                       <button type="button" className="button button-secondary button-sm" onClick={() => setOrdenando(bateria)}>Ordem</button>
-                      {bateria.status === 'SCHEDULED' && <button type="button" className="button button-primary button-sm" onClick={() => mudarStatus(bateria, 'CALLED')}>Chamar</button>}
-                      {bateria.status === 'CALLED' && <button type="button" className="button button-primary button-sm" onClick={() => mudarStatus(bateria, 'ON_STAGE')}>No palco</button>}
-                      {bateria.status === 'ON_STAGE' && <button type="button" className="button button-secondary button-sm" onClick={() => mudarStatus(bateria, 'DONE')}>Encerrar</button>}
+                      {bateria.status === 'SCHEDULED' && (
+                        <button type="button" className="button button-primary button-sm" disabled={mudando === bateria.id} onClick={() => mudarStatus(bateria, 'CALLED')}>
+                          {mudando === bateria.id ? 'Chamando…' : 'Chamar'}
+                        </button>
+                      )}
+                      {bateria.status === 'CALLED' && (
+                        <button type="button" className="button button-primary button-sm" disabled={mudando === bateria.id} onClick={() => mudarStatus(bateria, 'ON_STAGE')}>
+                          {mudando === bateria.id ? 'Entrando…' : 'No palco'}
+                        </button>
+                      )}
+                      {bateria.status === 'ON_STAGE' && (
+                        <button type="button" className="button button-secondary button-sm" disabled={mudando === bateria.id} onClick={() => mudarStatus(bateria, 'DONE')}>
+                          {mudando === bateria.id ? 'Encerrando…' : 'Encerrar'}
+                        </button>
+                      )}
                     </div>
                   </div>
-                </section>
+                </Revelacao>
               ))
               : <EmptyState title="Nenhuma bateria" description="Crie a primeira bateria para montar a ordem de palco." />
             )}
@@ -1344,7 +1491,7 @@ function NovaBateria({ eventId, notificar, onClose, onSalvo }) {
 
 function OrdemDePalco({ bateria, notificar, onClose, onSalvo }) {
   const ordem = useFetch(() => api.operations.stageOrder(bateria.id), [bateria.id]);
-  const inscritos = useFetch(() => api.registrations.listByEvent(bateria.eventId, { limit: 200, status: 'CONFIRMED', classId: bateria.classId }), [bateria.eventId, bateria.classId]);
+  const inscritos = useFetch(() => api.registrations.listByEvent(bateria.eventId, { limit: TETO_DA_LISTA, status: 'CONFIRMED', classId: bateria.classId }), [bateria.eventId, bateria.classId]);
   const [itens, setItens] = useState(null);
   const [salvando, setSalvando] = useState(false);
 

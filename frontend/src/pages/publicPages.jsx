@@ -3,7 +3,7 @@ import { CalendarDays, ChevronRight, MapPin, Search, Trophy, Users } from 'lucid
 import api from '../services/api';
 import { useDebounce, useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Metric, PageHead, Paginacao } from '../components/ui';
-import { ESTADO_PRO, formatarData, formatarDataHora, seloDoEvento } from '../lib/format';
+import { ESTADO_PRO, formatarData, formatarDataHora, seloDoEvento, estadoDaBateria } from '../lib/format';
 import { Revelacao } from '../components/experiencia';
 
 // Vitrine pública. Tudo aqui sai da API real; nenhuma métrica é estimada e
@@ -273,8 +273,8 @@ export function CampeonatoDetalhe({ slug, navegar }) {
                           <strong>{bateria.name} — {bateria.competitionClass.name}</strong>
                           <small>{bateria.scheduledAt ? formatarDataHora(bateria.scheduledAt, event.timezone) : 'Horário a definir'}</small>
                         </span>
-                        <Badge tom={bateria.status === 'DONE' ? 'neutro' : bateria.status === 'ON_STAGE' ? 'perigo' : bateria.status === 'CALLED' ? 'alerta' : 'info'} aoVivo={bateria.status === 'ON_STAGE'}>
-                          {bateria.status}
+                        <Badge tom={estadoDaBateria(bateria.status).tom} aoVivo={bateria.status === 'ON_STAGE'}>
+                          {estadoDaBateria(bateria.status).rotulo}
                         </Badge>
                       </div>
                     ))

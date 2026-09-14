@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Trophy } from 'lucide-react';
+import { Metric } from './ui';
 import {
   NIVEL, MCIEvento, podeAnimar, ouvirExperiencia, estiloDaSequencia, prefereMenosMovimento
 } from '../lib/experiencia';
@@ -11,6 +12,36 @@ import {
 // componente ainda RENDERIZA A INFORMAÇÃO — só sem o teatro. Nenhum efeito aqui
 // é a única forma de o usuário saber o que aconteceu.
 // ============================================================================
+
+// ------------------------------------------------------- Registro recém-mexido
+//
+// "Qual linha eu acabei de alterar?" — a pergunta que o operador faz sozinho
+// depois de cada ação numa lista de 200 atletas. O destaque dura pouco e sai
+// sozinho: destaque permanente vira ruído na próxima operação, e destacar a
+// lista inteira a cada recarga esconde exatamente o que mudou.
+//
+// Fica aqui, e não copiado em cada tela, porque as cinco telas operacionais
+// fazem a mesma coisa — e cinco cópias divergem.
+export const DURACAO_DO_DESTAQUE = 2600;
+
+export function useRecemAfetado(duracao = DURACAO_DO_DESTAQUE) {
+  const [id, setId] = useState(null);
+  const relogio = useRef(null);
+
+  const marcar = useCallback(alvo => {
+    if (relogio.current) clearTimeout(relogio.current);
+    setId(alvo);
+    relogio.current = setTimeout(() => setId(null), duracao);
+  }, [duracao]);
+
+  // Sair da tela no meio do destaque não pode deixar um timer pendurado
+  // tentando desenhar num componente que já saiu.
+  useEffect(() => () => { if (relogio.current) clearTimeout(relogio.current); }, []);
+
+  const classeDe = useCallback(alvo => (alvo && alvo === id ? ' linha-afetada varredura' : ''), [id]);
+
+  return { marcar, classeDe, id };
+}
 
 // ---------------------------------------------------------------- Revelação
 //
@@ -61,6 +92,34 @@ export function PulsoAoVivo({ rotulo = 'AO VIVO', className = '' }) {
       <span className="pulso-ponto" aria-hidden="true" />
       {rotulo}
     </span>
+  );
+}
+
+// ------------------------------------------------------------- Contador vivo
+//
+// Um número que muda sozinho precisa AVISAR que mudou — senão a pessoa olha a
+// tela, vê 143 e não sabe se já era 143 quando ela desviou o olhar.
+//
+// Anima só a MUDANÇA REAL, nunca a contagem: nada de correr de 0 a 143. Contar
+// devagar até o número é enfeite que atrasa a leitura de quem precisa do valor
+// agora, e ainda mostra números que nunca foram verdade.
+export function ContadorVivo({ label, value, ...resto }) {
+  const anterior = useRef(value);
+  const [mudou, setMudou] = useState(false);
+
+  useEffect(() => {
+    if (anterior.current === value) return undefined;
+    anterior.current = value;
+    if (!podeAnimar(NIVEL.MICRO)) return undefined;
+    setMudou(true);
+    const relogio = setTimeout(() => setMudou(false), 900);
+    return () => clearTimeout(relogio);
+  }, [value]);
+
+  return (
+    <div className={mudou ? 'contador-mudou' : undefined}>
+      <Metric label={label} value={value} {...resto} />
+    </div>
   );
 }
 
