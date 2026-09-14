@@ -1464,3 +1464,74 @@ main > * { animation: tela-entra var(--t-base) var(--curva-entrada) both; }
   .varredura::after, .campeao-particulas { display: none; }
   .pulso-ponto { animation: none; box-shadow: 0 0 0 3px rgba(255,90,95,.25); }
 }
+
+/* ===========================================================================
+   MOTOR APLICADO AO CASCO — navegação, barra lateral e cabeçalho
+   ===========================================================================
+   O casco é o que o operador vê em TODAS as telas, o dia inteiro. Por isso
+   aqui o motor entra no nível mais baixo que ainda comunica: MICRO para toque
+   e TRANSIÇÃO para a troca de seção. Nada no casco chega a EVENTO — um menu
+   que comemora a própria abertura cansa na terceira vez.
+   =========================================================================== */
+
+/* --- o trilho da seção ativa ---
+   Antes o trilho vermelho simplesmente aparecia no item novo. Agora ele
+   ACENDE: cresce do centro e o brilho assenta. É o que dá a sensação de que a
+   navegação respondeu, sem mover nada de lugar. */
+@keyframes trilho-acende {
+  from { transform: scaleY(.15); opacity: 0; }
+  to   { transform: scaleY(1); opacity: 1; }
+}
+.nav-item.is-active::before {
+  transform-origin: center;
+  animation: trilho-acende var(--t-calmo) var(--curva-impacto) both;
+}
+
+/* O fundo da seção ativa NÃO ganha animação própria. Ele e o trilho estão no
+   mesmo elemento, e `animation` é atalho: a segunda declaração apagaria a
+   primeira em silêncio — o efeito viraria código morto sem ninguém notar.
+   Além disso são um gesto só. O trilho acende; o fundo é o rastro dele. */
+
+/* --- toque ---
+   O item afunda 1px. É quase invisível de propósito: o operador não deve
+   notar o efeito, deve notar que o sistema respondeu. */
+.nav-item { transition: background var(--t-rapido) ease, color var(--t-rapido) ease, transform var(--t-rapido) var(--curva-saida); }
+.nav-item:active { transform: translateY(1px); }
+.icon-button { transition: color var(--t-rapido) ease, border-color var(--t-rapido) ease, background var(--t-rapido) ease, transform var(--t-rapido) var(--curva-saida); }
+.icon-button:active { transform: translateY(1px) scale(.97); }
+.session-card:active { transform: translateY(1px); }
+
+/* --- contadores ---
+   O ponto de notificação e o contador de mensagens NASCEM com um pulo curto.
+   Só na entrada: um badge pulsando em laço vira ansiedade na barra de topo. */
+@keyframes badge-nasce {
+  from { opacity: 0; transform: scale(.4); }
+  60%  { transform: scale(1.12); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.icon-button .dot,
+.nav-item .badge-count { animation: badge-nasce var(--t-calmo) var(--curva-impacto) both; }
+
+/* --- entrada do casco ---
+   Uma vez por carga da aplicação. A barra lateral e o cabeçalho assentam
+   juntos, e os itens do menu entram em sequência com o atraso do motor
+   (--passo, calculado por estiloDaSequencia e com teto). */
+@keyframes casco-lateral { from { opacity: 0; transform: translate3d(-10px, 0, 0); } to { opacity: 1; transform: none; } }
+@keyframes casco-topo    { from { opacity: 0; transform: translate3d(0, -8px, 0); } to { opacity: 1; transform: none; } }
+.sidebar { animation: casco-lateral var(--t-amplo) var(--curva-entrada) both; }
+.topbar  { animation: casco-topo    var(--t-amplo) var(--curva-entrada) both; }
+.nav-item.revela { animation: revela-entrada var(--t-base) var(--curva-entrada) both; }
+
+/* A gaveta no celular NÃO herda a entrada do casco: ela já tem a própria
+   transição de transform, e duas regras sobre a mesma propriedade brigariam
+   justamente no aparelho mais fraco. */
+@media (max-width: 1040px) {
+  .sidebar { animation: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-item.is-active::before,
+  .icon-button .dot, .nav-item .badge-count,
+  .sidebar, .topbar, .nav-item.revela { animation: none; }
+  .nav-item:active, .icon-button:active, .session-card:active { transform: none; }
+}

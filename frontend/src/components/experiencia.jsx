@@ -22,10 +22,14 @@ import {
 // quem desligou animação.
 export function Revelacao({ indice = 0, children, className = '', as: Tag = 'div', ...resto }) {
   const anima = podeAnimar(NIVEL.TRANSICAO);
+  // O atraso NÃO é guardado aqui de novo: `estiloDaSequencia` já devolve `{}`
+  // sob a mesma condição. Um teste de mutação mostrou que a guarda duplicada
+  // era inobservável — duas cópias da mesma verdade, e a segunda só serviria
+  // para divergir da primeira algum dia.
   return (
     <Tag
       className={`${anima ? 'revela' : ''} ${className}`.trim()}
-      style={anima ? estiloDaSequencia(indice) : undefined}
+      style={estiloDaSequencia(indice)}
       {...resto}
     >
       {children}

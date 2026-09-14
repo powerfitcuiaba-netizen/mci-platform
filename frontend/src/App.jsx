@@ -12,6 +12,7 @@ import { caminhoDoAvatar } from './lib/format';
 import LimiteDeErro from './components/limiteDeErro';
 import AberturaMci, { aberturaJaFoiVista } from './components/aberturaMci';
 import { PalcoDaExperiencia } from './components/experiencia';
+import { estiloDaSequencia } from './lib/experiencia';
 import ExperienceLab from './pages/experienceLab';
 import { direcaoDeAudio, preferenciaDeAudio, definirPreferenciaDeAudio } from './lib/audioDirector';
 import Auth from './pages/authPages';
@@ -300,12 +301,12 @@ function Shell() {
 
         <div className="nav-group">
           <span className="nav-label">Plataforma</span>
-          {NAVEGACAO_PRINCIPAL.map(item => {
+          {NAVEGACAO_PRINCIPAL.map((item, indice) => {
             const Icone = item.icone;
             const ativo = item.rota === ativoPrincipal;
             const contador = item.contador === 'mensagens' ? mensagensNaoLidas : 0;
             return (
-              <button key={item.rota} type="button" className={`nav-item${ativo ? ' is-active' : ''}`} onClick={() => navegar(item.rota)}>
+              <button key={item.rota} type="button" className={`nav-item revela${ativo ? ' is-active' : ''}`} style={estiloDaSequencia(indice)} onClick={() => navegar(item.rota)}>
                 <Icone size={16} /> {item.rotulo}
                 {contador > 0 && <span className="badge-count">{contador}</span>}
               </button>
@@ -316,11 +317,11 @@ function Shell() {
         {itensAdmin.length > 0 && (
           <div className="nav-group">
             <span className="nav-label">Administração</span>
-            {itensAdmin.map(item => {
+            {itensAdmin.map((item, indice) => {
               const Icone = item.icone;
               const ativo = item.rota === ativoAdmin;
               return (
-                <button key={item.rota} type="button" className={`nav-item${ativo ? ' is-active' : ''}`} onClick={() => navegar(item.rota)}>
+                <button key={item.rota} type="button" className={`nav-item revela${ativo ? ' is-active' : ''}`} style={estiloDaSequencia(NAVEGACAO_PRINCIPAL.length + indice)} onClick={() => navegar(item.rota)}>
                   <Icone size={16} /> {item.rotulo}
                 </button>
               );
