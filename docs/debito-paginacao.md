@@ -53,8 +53,18 @@ Estes serviços já devolvem `nextCursor`:
 | `athleteRequestService` | Fila de solicitações |
 | `adminService` | Usuários |
 
-**Hoje apenas UMA tela do sistema inteiro usa cursor** (`adminSolicitacoes.jsx`).
-Todas as outras pedem uma página e ignoram que existe uma segunda.
+**Quem já usa o cursor, e quem ignora** — conferido arquivo a arquivo:
+
+| Usa cursor | Ignora o cursor |
+|---|---|
+| `publicPages.jsx` (Atletas, Campeonatos, Ranking) | Inscrições |
+| `socialPages.jsx` (feed, comentários, seguidores) | Emitir credencial |
+| `adminSolicitacoes.jsx` (fila de solicitações) | Ordem de palco |
+| | Lançar resultado |
+
+A divisão não é aleatória: **a superfície pública pagina; a de operação não.**
+Atletas, por exemplo, já carrega de 24 em 24 com "carregar mais". Quem está no
+piso do evento, com a fila andando, é justamente quem ficou sem.
 
 ### 3.2 Backend AUSENTE — exige trabalho de servidor
 
