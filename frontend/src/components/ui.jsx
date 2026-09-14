@@ -11,6 +11,12 @@ import { fetchMediaObjectUrl, releaseMediaObjectUrl } from '../services/api';
 // Assim quem tem o arquivo só precisa soltá-lo em frontend/public/ — nada de
 // código muda, e nada quebra se ele faltar.
 const CAMINHO_DA_MARCA = '/marca-mci.png';
+// O MESMO desenho, em WebP sem perda: 125 kB no lugar de 197 kB. Conferido
+// pixel a pixel contra o original — ZERO pixel visível alterado. Não é
+// recompressão com perda nem versão "quase igual" da marca; é o mesmo arquivo
+// noutro empacotamento. O PNG continua como reserva para quem não abre WebP,
+// e continua sendo a fonte da verdade da identidade.
+const CAMINHO_DA_MARCA_WEBP = '/marca-mci.webp';
 
 // A ausência do arquivo é lembrada uma vez por sessão. Sem isto, cada troca de
 // tela pede a imagem de novo e leva a mesma falha — barulho no console e uma
@@ -33,15 +39,18 @@ export function MarcaMci({ largura = 120, titulo = 'Muscle Contest International
 
   return (
     <span className={`brand-plate ${className}`.trim()} style={{ width: largura }}>
-      <img
-        className="brand-logo"
-        src={CAMINHO_DA_MARCA}
-        alt={titulo}
-        width={500}
-        height={500}
-        decoding="async"
-        onError={() => { marcaIndisponivel = true; setTemArquivo(false); }}
-      />
+      <picture>
+        <source srcSet={CAMINHO_DA_MARCA_WEBP} type="image/webp" />
+        <img
+          className="brand-logo"
+          src={CAMINHO_DA_MARCA}
+          alt={titulo}
+          width={500}
+          height={500}
+          decoding="async"
+          onError={() => { marcaIndisponivel = true; setTemArquivo(false); }}
+        />
+      </picture>
     </span>
   );
 }
@@ -67,15 +76,18 @@ export function BlocoDaMarca({ largura = 132 }) {
 
   return (
     <span className="brand-plate brand-plate-bloco" style={{ width: largura }}>
-      <img
-        className="brand-logo"
-        src={CAMINHO_DA_MARCA}
-        alt="Muscle Contest International"
-        width={500}
-        height={500}
-        decoding="async"
-        onError={() => { marcaIndisponivel = true; setTemArquivo(false); }}
-      />
+      <picture>
+        <source srcSet={CAMINHO_DA_MARCA_WEBP} type="image/webp" />
+        <img
+          className="brand-logo"
+          src={CAMINHO_DA_MARCA}
+          alt="Muscle Contest International"
+          width={500}
+          height={500}
+          decoding="async"
+          onError={() => { marcaIndisponivel = true; setTemArquivo(false); }}
+        />
+      </picture>
     </span>
   );
 }

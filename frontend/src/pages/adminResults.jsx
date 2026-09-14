@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Trophy } from 'lucide-react';
 import api, { refreshData } from '../services/api';
-import { useFetch } from '../lib/hooks';
-import { AsyncSection, Badge, EmptyState, Field, Modal, ModalActions, PageHead } from '../components/ui';
+import { useFetch, useListaPaginada } from '../lib/hooks';
+import { AsyncSection, Badge, EmptyState, Field, Modal, ModalActions, PageHead, Paginacao } from '../components/ui';
 import { formatarDataHora, estadoDaEntrada } from '../lib/format';
-import { SeletorDeEvento } from './adminEvent';
+import { SeletorDeEvento, POR_PAGINA } from './adminEvent';
 import { anunciar, MCIEvento } from '../lib/experiencia';
 import { Revelacao } from '../components/experiencia';
 
@@ -214,7 +214,10 @@ function LancarResultado({ classe, eventId, notificar, onClose, onSalvo }) {
   const [linhas, setLinhas] = useState([]);
   const [salvando, setSalvando] = useState(false);
 
-  const inscricoes = useFetch(() => api.registrations.listByEvent(eventId, { limit: 100 }), [eventId]);
+  const inscricoes = useListaPaginada(
+    cursor => api.registrations.listByEvent(eventId, { limit: POR_PAGINA, cursor: cursor || undefined }),
+    [eventId]
+  );
 
   useEffect(() => {
     // A API devolve `items[].competitionClass.id` — não existe `classId` no
@@ -222,7 +225,7 @@ function LancarResultado({ classe, eventId, notificar, onClose, onSalvo }) {
     // falso, e o diálogo listava ZERO inscritos: não havia como lançar
     // resultado nenhum. "Ordem de palco" já lia o campo certo, no mesmo
     // arquivo vizinho, o que mostra que era engano e não contrato diferente.
-    const itens = (inscricoes.data?.items || [])
+    const itens = inscricoes.items
       .filter(inscricao => (inscricao.items || []).some(item => item.competitionClass?.id === classe.id))
       .map(inscricao => ({
         athleteId: inscricao.athlete.id,
@@ -230,8 +233,12 @@ function LancarResultado({ classe, eventId, notificar, onClose, onSalvo }) {
         placing: '',
         status: 'RANKED'
       }));
-    setLinhas(itens);
-  }, [inscricoes.data, classe.id]);
+    // MESCLA, não substitui. A lista cresce quando o operador pede a próxima
+    // página e volta a chegar quando outra tela grava algo — e em nenhum dos
+    // dois casos o que ele já digitou pode ser apagado. Trocar por `setLinhas`
+    // direto faria o "carregar mais" zerar as colocações da classe inteira.
+    setLinhas(atual => itens.map(novo => atual.find(linha => linha.athleteId === novo.athleteId) || novo));
+  }, [inscricoes.items, classe.id]);
 
   const alterar = (athleteId, campo, valor) =>
     setLinhas(atual => atual.map(linha => (linha.athleteId === athleteId ? { ...linha, [campo]: valor } : linha)));
@@ -299,6 +306,9 @@ function LancarResultado({ classe, eventId, notificar, onClose, onSalvo }) {
             ))
             : <EmptyState title="Nenhum inscrito nesta classe" />)}
         </AsyncSection>
+        {/* "Nenhum inscrito nesta classe" pode ser só a página 1: a lista vem
+            do evento inteiro e é filtrada por classe DEPOIS de chegar. */}
+        <Paginacao nextCursor={inscricoes.nextCursor} onMore={inscricoes.carregarMais} loading={inscricoes.carregandoMais} />
         {/* `ModalActions` NÃO renderiza filhos — ela monta os próprios botões
             a partir das props. Os botões escritos aqui dentro eram descartados
             em silêncio, e o diálogo real saía com "Cancelar" sem handler
@@ -489,7 +499,10 @@ function HistoricoDeVersoes({ resultado, onClose }) {
 // inscritos do evento, e acontece uma vez por evento. É isso que mantém o
 // nível 5 raro — a raridade vem do FATO, não de uma regra de interface.
 function DeclararOverall({ eventId, notificar, onClose, onSalvo }) {
-  const inscricoes = useFetch(() => api.registrations.listByEvent(eventId, { limit: 100 }), [eventId]);
+  const inscricoes = useListaPaginada(
+    cursor => api.registrations.listByEvent(eventId, { limit: POR_PAGINA, cursor: cursor || undefined }),
+    [eventId]
+  );
   const evento = useFetch(() => api.events.findOne(eventId), [eventId]);
   const [athleteId, setAthleteId] = useState('');
   const [categoryId, setCategoryId] = useState('');
@@ -497,7 +510,7 @@ function DeclararOverall({ eventId, notificar, onClose, onSalvo }) {
   const [salvando, setSalvando] = useState(false);
   const [falha, setFalha] = useState(null);
 
-  const atletas = (inscricoes.data?.items || []).map(item => ({
+  const atletas = inscricoes.items.map(item => ({
     id: item.athlete.id,
     nome: item.athlete.stageName || item.athlete.fullName
   }));
@@ -557,6 +570,9 @@ function DeclararOverall({ eventId, notificar, onClose, onSalvo }) {
             {atletas.map(item => <option key={item.id} value={item.id}>{item.nome}</option>)}
           </select>
         </Field>
+        {/* O campeão Overall não pode ser inalcançável por estar na página 2
+            da lista de inscritos. */}
+        <Paginacao nextCursor={inscricoes.nextCursor} onMore={inscricoes.carregarMais} loading={inscricoes.carregandoMais} />
 
         <Field label="Recorte" hint="Sem recorte, é o Overall do evento inteiro.">
           <select value={categoryId} onChange={evt => setCategoryId(evt.target.value)}>

@@ -1,17 +1,42 @@
 # Marca oficial
 
 O arquivo oficial **já está aqui**: `marca-mci.png` — 500 × 500, RGBA,
-197 kB. Este documento explica como ele é usado e o que observar antes de
-substituí-lo.
+197 kB. Ele continua sendo a **fonte da verdade da identidade**. Este documento
+explica como ele é usado e o que observar antes de substituí-lo.
 
 ## Onde ela aparece
 
 Um único caminho no código inteiro: `CAMINHO_DA_MARCA`, em
 `src/components/ui.jsx`. De lá saem a tela de entrada (168 px), a barra
-lateral (132 px), a gaveta do celular, o favicon e o apple-touch-icon.
+lateral (132 px) e a gaveta do celular.
 
-Não existe segunda cópia no repositório, nem variante WebP, nem versão
-recortada. Substituir a marca é trocar este arquivo — e só ele.
+## Os três arquivos derivados (FASE 2.4)
+
+Todos saem do MESMO original, sem recorte e sem recolorir. Nenhum deles é uma
+segunda versão da marca; são empacotamentos do mesmo desenho.
+
+| Arquivo | Para quê | Peso |
+|---|---|---|
+| `marca-mci.png` | fonte da verdade e reserva de quem não abre WebP | 197 kB |
+| `marca-mci.webp` | o que a interface realmente entrega | 125 kB |
+| `marca-mci-32.png` | ícone da aba | 1,7 kB |
+| `marca-mci-180.png` | ícone do iOS | 11,1 kB |
+
+**Por que existem.** O arquivo oficial é grande porque precisa ser: a interface
+o desenha a 168 px, e num aparelho de densidade 3 isso pede 504 px reais. O
+problema não era o tamanho — era usá-lo TAMBÉM como ícone da aba, fazendo o
+navegador baixar 197 kB para desenhar 16 px.
+
+**O WebP é sem perda, e isso foi medido, não suposto.** Comparação pixel a
+pixel contra o original: **zero** pixel visível alterado. Fica registrado
+também o que NÃO serviu: a recompressão PNG do `sharp` chega a 47 kB, mas
+**altera pixels visíveis** (pior canal 41/255 sobre a plaqueta) — é
+recompressão com perda apresentada como otimização, e por isso foi recusada.
+
+**Medido no navegador**, primeira visita: 201,8 kB antes, 130,3 kB depois
+(−35 %).
+
+Ao substituir a marca, regere os quatro arquivos a partir do novo original.
 
 ## A plaqueta clara não é enfeite
 

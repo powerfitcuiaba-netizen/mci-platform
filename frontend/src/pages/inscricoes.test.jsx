@@ -89,14 +89,14 @@ describe('o operador lê português, não enum', () => {
 });
 
 describe('a lista nunca corta em silêncio', () => {
-  it('com mais registros adiante, avisa', async () => {
+  it('com mais registros adiante, avisa E oferece a página seguinte', async () => {
     api.registrations.listByEvent.mockResolvedValue({
       items: Array.from({ length: 100 }, (_, i) => INSCRICAO({ id: `r${i}`, athlete: { id: `a${i}`, fullName: `Atleta ${i}`, cpf: null, affiliation: null } })),
       nextCursor: 'r99'
     });
     await abrir();
     expect(await screen.findByText(/Mostrando as primeiras 100 inscrições/i)).toBeTruthy();
-    expect(screen.getByText(/Use a busca pelo nome/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Carregar mais/i })).toBeTruthy();
   });
 
   it('sem mais registros, nenhum aviso', async () => {

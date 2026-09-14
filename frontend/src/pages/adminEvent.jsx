@@ -1,16 +1,15 @@
 import { useState } from 'react';
 import { CalendarDays, ClipboardCheck, Pencil, Plus, QrCode, Scale, Search } from 'lucide-react';
 import api, { refreshData } from '../services/api';
-import { useFetch } from '../lib/hooks';
-import { AsyncSection, Avatar, Badge, CodigoQr, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead } from '../components/ui';
+import { useFetch, useListaPaginada } from '../lib/hooks';
+import { AsyncSection, Avatar, Badge, CodigoQr, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead, Paginacao } from '../components/ui';
 import { anunciar, MCIEvento } from '../lib/experiencia';
 
-// A API recusa `limit` acima de 100 com 400 VALIDATION_ERROR. Quatro telas
-// pediam 200 e por isso não listavam NADA — check-in e pesagem caíam inteiras
-// no estado de erro, e as listas de atleta de "emitir credencial" e "ordem de
-// palco" vinham sempre vazias. Fica em constante para ninguém reescrever o
-// número solto de novo.
-const TETO_DA_LISTA = 100;
+// O tamanho da PÁGINA, não o teto da lista. Enquanto era teto, a operação
+// enxergava 100 de 280 inscritos; agora é de quanto em quanto a tela pede.
+// O valor é o máximo que a API aceita (`src/utils/schemas.js`): menos páginas
+// para o operador percorrer no dia da competição.
+export const POR_PAGINA = 100;
 import { ContadorVivo, PulsoAoVivo, Revelacao, useRecemAfetado } from '../components/experiencia';
 import { estiloDaSequencia } from '../lib/experiencia';
 import {
@@ -577,8 +576,8 @@ export function AdminInscricoes({ notificar }) {
   const [cancelando, setCancelando] = useState(null);
   const recem = useRecemAfetado();
 
-  const estado = useFetch(
-    () => (eventId ? api.registrations.listByEvent(eventId, { limit: TETO_DA_LISTA, search: busca || undefined }) : Promise.resolve({ items: [] })),
+  const estado = useListaPaginada(
+    cursor => api.registrations.listByEvent(eventId, { limit: POR_PAGINA, search: busca || undefined, cursor: cursor || undefined }),
     [eventId, busca],
     { ativo: Boolean(eventId) }
   );
@@ -620,14 +619,14 @@ export function AdminInscricoes({ notificar }) {
                     </div>
                   )}
 
-                  {/* `nextCursor` é o único sinal HONESTO de que há mais: a
-                      resposta não traz total. Um contador "Confirmadas: 100"
-                      num evento de 280 seria pior que contador nenhum. */}
+                  {/* `nextCursor` é o único sinal HONESTO de que há mais:
+                      esta resposta não traz total. Mas agora o aviso não é um
+                      beco: há para onde ir no fim da lista. */}
                   {dados.nextCursor && (
                     <div className="alert alert-info" style={{ marginBottom: 16 }}>
                       <div>
                         <strong>Mostrando as primeiras {dados.items.length} inscrições</strong>
-                        <p>Há mais registros neste evento. Use a busca pelo nome do atleta para encontrar quem não aparece aqui.</p>
+                        <p>Há mais registros neste evento. Use “Carregar mais” no fim da lista, ou a busca pelo nome do atleta.</p>
                       </div>
                     </div>
                   )}
@@ -667,6 +666,7 @@ export function AdminInscricoes({ notificar }) {
                     </tbody>
                   </table>
                 </div>
+                <Paginacao nextCursor={dados.nextCursor} onMore={estado.carregarMais} loading={estado.carregandoMais} />
                 </>
               )
               : busca
@@ -898,8 +898,8 @@ export function AdminCheckin({ notificar }) {
   // "minha solicitação". É isto que torna o contador REALMENTE ao vivo e, por
   // consequência, torna honesto o indicador de ao vivo ao lado dele. Sem dado
   // que muda sozinho, um pulso de "ao vivo" seria mentira com animação.
-  const estado = useFetch(
-    () => (eventId ? api.operations.listCheckIns(eventId, { limit: TETO_DA_LISTA, search: busca || undefined }) : Promise.resolve({ items: [], summary: null })),
+  const estado = useListaPaginada(
+    cursor => api.operations.listCheckIns(eventId, { limit: POR_PAGINA, search: busca || undefined, cursor: cursor || undefined }),
     [eventId, busca],
     { ativo: Boolean(eventId), recarregarACada: eventId ? 20000 : 0 }
   );
@@ -962,15 +962,14 @@ export function AdminCheckin({ notificar }) {
                       <ContadorVivo label="Pendentes" value={dados.summary.pending} />
                     </div>
 
-                    {/* A lista para em 100 por limite da API. Num evento de
-                        280 atletas, mostrar 100 sem dizer nada faria o
-                        operador procurar alguém que existe e concluir que a
-                        pessoa não está inscrita. */}
+                    {/* Agora a lista não para: diz onde está e continua. O
+                        aviso vira posição ("100 de 280"), e quem falta está a
+                        um clique, não atrás de uma busca obrigatória. */}
                     {dados.items.length < dados.summary.total && (
                       <div className="alert alert-info" style={{ marginBottom: 16 }}>
                         <div>
-                          <strong>Mostrando os primeiros {dados.items.length} de {dados.summary.total} inscritos</strong>
-                          <p>Use a busca acima pelo nome ou número para encontrar quem não aparece aqui.</p>
+                          <strong>Mostrando {dados.items.length} de {dados.summary.total} inscritos</strong>
+                          <p>Use “Carregar mais” no fim da lista, ou a busca pelo nome ou número do atleta.</p>
                         </div>
                       </div>
                     )}
@@ -1012,6 +1011,7 @@ export function AdminCheckin({ notificar }) {
                     })
                     : <EmptyState title="Nenhum inscrito confirmado" />}
                 </section>
+                <Paginacao nextCursor={estado.nextCursor} onMore={estado.carregarMais} loading={estado.carregandoMais} />
               </>
             )}
           </AsyncSection>
@@ -1027,8 +1027,8 @@ export function AdminPesagem({ notificar }) {
   const [pesando, setPesando] = useState(null);
   const recem = useRecemAfetado();
 
-  const estado = useFetch(
-    () => (eventId ? api.operations.listCheckIns(eventId, { limit: TETO_DA_LISTA, search: busca || undefined }) : Promise.resolve({ items: [] })),
+  const estado = useListaPaginada(
+    cursor => api.operations.listCheckIns(eventId, { limit: POR_PAGINA, search: busca || undefined, cursor: cursor || undefined }),
     [eventId, busca],
     { ativo: Boolean(eventId) }
   );
@@ -1069,6 +1069,7 @@ export function AdminPesagem({ notificar }) {
                     </Revelacao>
                   ))
                   : <EmptyState title="Nenhum inscrito confirmado" />}
+                <Paginacao nextCursor={estado.nextCursor} onMore={estado.carregarMais} loading={estado.carregandoMais} />
               </section>
             )}
           </AsyncSection>
@@ -1189,8 +1190,8 @@ export function AdminCredenciamento({ notificar }) {
   const [lendo, setLendo] = useState(false);
   const recem = useRecemAfetado();
 
-  const estado = useFetch(
-    () => (eventId ? api.operations.credentials(eventId) : Promise.resolve({ items: [] })),
+  const estado = useListaPaginada(
+    cursor => api.operations.credentials(eventId, { limit: POR_PAGINA, cursor: cursor || undefined }),
     [eventId],
     { ativo: Boolean(eventId) }
   );
@@ -1280,6 +1281,7 @@ export function AdminCredenciamento({ notificar }) {
                   : <EmptyState title="Nenhuma credencial emitida" />
                 )}
               </AsyncSection>
+              <Paginacao nextCursor={estado.nextCursor} onMore={estado.carregarMais} loading={estado.carregandoMais} />
             </section>
 
             <section className="panel">
@@ -1320,7 +1322,13 @@ export function AdminCredenciamento({ notificar }) {
 }
 
 function EmitirCredencial({ eventId, notificar, onClose, onSalvo }) {
-  const inscritos = useFetch(() => api.registrations.listByEvent(eventId, { limit: TETO_DA_LISTA, status: 'CONFIRMED' }), [eventId]);
+  // Dentro de um <select> não cabe "carregar mais". O botão fica logo abaixo
+  // do campo: sem ele, o atleta nº 101 simplesmente não existia para quem
+  // emite credencial, e a tela não dava sinal nenhum disso.
+  const inscritos = useListaPaginada(
+    cursor => api.registrations.listByEvent(eventId, { limit: POR_PAGINA, status: 'CONFIRMED', cursor: cursor || undefined }),
+    [eventId]
+  );
   const [form, setForm] = useState({ type: 'ATHLETE', holderName: '', registrationId: '' });
   const [salvando, setSalvando] = useState(false);
 
@@ -1358,14 +1366,17 @@ function EmitirCredencial({ eventId, notificar, onClose, onSalvo }) {
             <select
               value={form.registrationId}
               onChange={evento => {
-                const inscricao = (inscritos.data?.items || []).find(item => item.id === evento.target.value);
+                const inscricao = inscritos.items.find(item => item.id === evento.target.value);
                 setForm({ ...form, registrationId: evento.target.value, holderName: inscricao?.athlete.fullName || form.holderName });
               }}
             >
               <option value="">Sem vínculo</option>
-              {(inscritos.data?.items || []).map(inscricao => <option key={inscricao.id} value={inscricao.id}>{inscricao.athlete.fullName}</option>)}
+              {inscritos.items.map(inscricao => <option key={inscricao.id} value={inscricao.id}>{inscricao.athlete.fullName}</option>)}
             </select>
           </Field>
+        )}
+        {form.type === 'ATHLETE' && (
+          <Paginacao nextCursor={inscritos.nextCursor} onMore={inscritos.carregarMais} loading={inscritos.carregandoMais} />
         )}
         <ModalActions onClose={onClose} saving={salvando} confirmLabel="Emitir" />
       </form>
@@ -1533,7 +1544,10 @@ function NovaBateria({ eventId, notificar, onClose, onSalvo }) {
 
 function OrdemDePalco({ bateria, notificar, onClose, onSalvo }) {
   const ordem = useFetch(() => api.operations.stageOrder(bateria.id), [bateria.id]);
-  const inscritos = useFetch(() => api.registrations.listByEvent(bateria.eventId, { limit: TETO_DA_LISTA, status: 'CONFIRMED', classId: bateria.classId }), [bateria.eventId, bateria.classId]);
+  const inscritos = useListaPaginada(
+    cursor => api.registrations.listByEvent(bateria.eventId, { limit: POR_PAGINA, status: 'CONFIRMED', classId: bateria.classId, cursor: cursor || undefined }),
+    [bateria.eventId, bateria.classId]
+  );
   const [itens, setItens] = useState(null);
   const [salvando, setSalvando] = useState(false);
 
@@ -1542,7 +1556,7 @@ function OrdemDePalco({ bateria, notificar, onClose, onSalvo }) {
     nome: item.registrationItem.registration.athlete.fullName
   }));
 
-  const disponiveis = (inscritos.data?.items || [])
+  const disponiveis = inscritos.items
     .flatMap(inscricao => inscricao.items
       .filter(item => item.competitionClass.id === bateria.classId)
       .map(item => ({ registrationItemId: item.id, nome: inscricao.athlete.fullName })))
@@ -1598,6 +1612,10 @@ function OrdemDePalco({ bateria, notificar, onClose, onSalvo }) {
               </div>
             ))
             : <p style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>Todos os inscritos já estão na ordem.</p>}
+          {/* "Todos os inscritos já estão na ordem" é uma frase perigosa quando
+              a lista parou na página 1: ela afirma uma coisa que o sistema não
+              sabe. Enquanto houver página seguinte, há para onde ir. */}
+          <Paginacao nextCursor={inscritos.nextCursor} onMore={inscritos.carregarMais} loading={inscritos.carregandoMais} />
         </section>
       </div>
 

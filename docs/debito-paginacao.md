@@ -1,6 +1,10 @@
-# Débito operacional — paginação de listas
+# Paginação de listas — do débito à correção
 
-**Status:** aberto · **Prioridade:** alta · **Levantado em:** FASE 2.1 · **Documentado em:** FASE 2.2
+**Status:** RESOLVIDO na FASE 2.4 · **Levantado em:** FASE 2.1 · **Documentado em:** FASE 2.2
+
+> Este documento continua contando a história inteira, inclusive o que eu
+> escrevi errado nele. Apagar o engano deixaria o texto mais limpo e o projeto
+> mais burro.
 
 Este documento existe para que a decisão seja tomada com dados, e não no meio de
 uma competição. **Nada aqui foi resolvido em silêncio no frontend**: a correção
@@ -76,10 +80,27 @@ piso do evento, com a fila andando, é justamente quem ficou sem.
 cursor nenhum. **Check-in e Pesagem não têm como paginar sem mudança de
 backend.**
 
-Detalhe que importa: o `summary` (`total`, `checkedIn`, `pending`) é calculado
-sobre o conjunto inteiro, não sobre a página. Ou seja, os contadores estão
-certos mesmo com a lista cortada — é exatamente isso que permite à interface
-saber que cortou, e avisar.
+~~Detalhe que importa: o `summary` (`total`, `checkedIn`, `pending`) é
+calculado sobre o conjunto inteiro, não sobre a página.~~
+
+**ISSO ESTAVA ERRADO, e o erro era grave.** O código era:
+
+```js
+take: filtros.limit
+...
+const total = registrations.length;   // o tamanho da PÁGINA
+```
+
+`registrations` já vem recortado pelo `take`. Então, num evento de 280
+inscritos com limite 100:
+
+- a tela anunciava **"Inscritos: 100"** — número operacional errado;
+- e, pior, o aviso de corte que eu havia escrito na FASE 2.1 comparava
+  `items.length < summary.total`, ou seja, `100 < 100`: **nunca aparecia**.
+
+A lista cortava em silêncio — exatamente o comportamento que o §9 deste
+documento chamava de pior caso — enquanto o documento afirmava o contrário.
+Descoberto na FASE 2.4, lendo o código em vez de reler o documento.
 
 ## 4. Telas afetadas e impacto
 
@@ -119,7 +140,67 @@ evento** — quase o triplo do teto. Enquanto o número oficial não é confirma
 4. Telas de operação continuam com busca servidora — em 280 atletas, procurar
    pelo nome é mais rápido que rolar, mesmo com paginação.
 
-## 8. Decisão
+## 8. O que foi feito (FASE 2.4)
+
+### 8.1 Servidor
+
+| Mudança | Onde |
+|---|---|
+| `summary` passou a ser contado no banco, sobre o conjunto inteiro | `operationsService.listCheckIns` |
+| `nextCursor` no check-in, com desempate por `id` na ordenação | idem |
+| `listCredentials` deixou de ser consulta **sem `take` nenhum** | `operationsService.listCredentials` |
+
+A terceira linha é um achado próprio da auditoria: `listCredentials` devolvia
+TODAS as credenciais do evento numa resposta só, cada uma com a contagem de
+leituras. Não mentia — mas também não tinha tamanho, e o teto de 100 existe
+para que o banco nunca receba pedido sem tamanho.
+
+### 8.2 Interface
+
+Um hook compartilhado, `useListaPaginada` (`frontend/src/lib/hooks.js`), e o
+componente `Paginacao` que já existia. **Não** foi criada uma segunda
+arquitetura de paginação: as telas públicas que já paginavam continuam como
+estavam.
+
+Telas convertidas: Inscrições, Check-in, Pesagem, Credenciamento,
+Emitir credencial, Ordem de palco, Lançar resultado, Declarar Overall.
+
+O hook existe por causa de três defeitos que só aparecem com lista grande:
+
+1. **trocar o filtro sem zerar** — a página 1 do filtro novo era anexada ao
+   resto do filtro velho;
+2. **resposta atrasada de um filtro abandonado** — emendava o resultado errado
+   no fim da lista certa;
+3. **recarga que perde o lugar** — um check-in bem-sucedido jogava o operador
+   de volta à página 1 no meio da fila.
+
+Os três têm teste, e os três têm mutante morto.
+
+### 8.3 O que foi medido
+
+Servidor, com 101 inscritos reais: o total é 101 com qualquer limite; percorrer
+com limite 1, 25 e 100 devolve 101 linhas distintas, sem repetir nem perder; a
+ordem é igual entre execuções; a busca continua valendo em todas as páginas.
+
+Navegador, pacote de produção, com 100 / 200 / 500 inscritos:
+
+| volume | render | páginas | requisições | duplicadas | nós DOM | heap |
+|---|---|---|---|---|---|---|
+| 100 | 89 ms | 1 | 9 | 0 | 1.498 | 4,3 MB |
+| 200 | 85 ms | 2 | 10 | 0 | 2.596 | 4,9 MB |
+| 500 | 86 ms | 5 | 13 | 0 | 5.896 | 6,3 MB |
+
+A lista chega **inteira** nos três volumes.
+
+### 8.4 O que continua em aberto
+
+`auditService.list` também devolve `total: items.length` — mesma classe de
+engano. Impacto menor (a tela não exibe o total, e o limite de 200 é o próprio
+teto), mas é dívida da mesma família e está registrada aqui para não se perder.
+
+---
+
+## 9. Decisão original (FASE 2.2)
 
 - **Exige backend:** sim, para `listCheckIns` (Check-in e Pesagem), que são
   justamente as de maior impacto.
@@ -129,7 +210,7 @@ evento** — quase o triplo do teto. Enquanto o número oficial não é confirma
   emendar páginas por conta própria, criaria uma segunda verdade sobre a ordem
   dos dados e quebraria na primeira mudança de ordenação.
 
-## 9. Enquanto isso
+## 10. Enquanto isso (texto da FASE 2.2, mantido como registro)
 
 A interface **declara** o corte onde ele acontece. Uma lista incompleta que se
 anuncia é um inconveniente; uma lista incompleta silenciosa é o operador

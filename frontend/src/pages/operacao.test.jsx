@@ -415,14 +415,39 @@ describe('nenhuma tela pede mais do que a API aceita', () => {
   });
 });
 
-describe('quando a lista é cortada pelo teto, o operador sabe', () => {
-  it('check-in avisa que há mais gente do que cabe na lista', async () => {
-    const muitos = Array.from({ length: 100 }, (_, i) => INSCRICAO({ id: `i${i}`, athlete: { id: `at${i}`, fullName: `Atleta ${i}`, stageName: null, athleteNumber: String(i) } }));
-    api.operations.listCheckIns.mockResolvedValue({ items: muitos, summary: { total: 280, checkedIn: 0, pending: 280 } });
+const pagina = (inicio, quantos) => Array.from({ length: quantos }, (_, i) => INSCRICAO({
+  id: `i${inicio + i}`,
+  athlete: { id: `at${inicio + i}`, fullName: `Atleta ${inicio + i}`, stageName: null, athleteNumber: String(inicio + i) }
+}));
+
+describe('a lista não para mais no centésimo', () => {
+  it('check-in diz onde está no evento — e não só quantos coube na tela', async () => {
+    api.operations.listCheckIns.mockResolvedValue({
+      items: pagina(0, 100), summary: { total: 280, checkedIn: 0, pending: 280 }, nextCursor: 'i99'
+    });
     await abrir(AdminCheckin);
-    // 100 na tela, 280 no evento: quem não aparece precisa ser encontrável.
-    expect(await screen.findByText(/Mostrando os primeiros 100 de 280 inscritos/i)).toBeTruthy();
-    expect(screen.getByText(/Use a busca acima/i)).toBeTruthy();
+    expect(await screen.findByText(/Mostrando 100 de 280 inscritos/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Carregar mais/i })).toBeTruthy();
+  });
+
+  // O que importa não é o botão existir: é a próxima página CHEGAR e o atleta
+  // que estava fora do primeiro lote passar a existir na tela.
+  it('“Carregar mais” traz de fato o atleta 101', async () => {
+    api.operations.listCheckIns
+      .mockResolvedValueOnce({ items: pagina(0, 100), summary: { total: 280, checkedIn: 0, pending: 280 }, nextCursor: 'i99' })
+      .mockResolvedValue({ items: pagina(100, 30), summary: { total: 280, checkedIn: 0, pending: 280 }, nextCursor: null });
+
+    await abrir(AdminCheckin);
+    await screen.findByText('Atleta 0');
+    expect(screen.queryByText('Atleta 100'), 'o atleta 101 apareceu antes de ser pedido').toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /Carregar mais/i }));
+    expect(await screen.findByText('Atleta 100')).toBeTruthy();
+    // E o que já estava não some: a página nova EMENDA, não substitui.
+    expect(screen.getByText('Atleta 0')).toBeTruthy();
+    // Acabou a lista, acabou o botão.
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Carregar mais/i })).toBeNull());
+    expect(api.operations.listCheckIns.mock.calls.at(-1)[1].cursor).toBe('i99');
   });
 
   it('sem corte, nenhum aviso aparece', async () => {

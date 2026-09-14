@@ -4,10 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#06080b" />
-    <!-- Marca oficial como ícone da aba. É o mesmo arquivo usado na interface:
-         nenhuma segunda cópia, nenhum recorte. -->
-    <link rel="icon" type="image/png" href="/marca-mci.png" />
-    <link rel="apple-touch-icon" href="/marca-mci.png" />
+    <!-- Ícones dedicados, e o motivo é peso, não estética.
+         O arquivo oficial da marca tem 500x500 e 197 kB porque a interface o
+         desenha a 168 px num aparelho de densidade 3. Usá-lo TAMBÉM como
+         ícone da aba fazia o navegador baixar 197 kB para desenhar 16 px.
+         Os dois arquivos abaixo saem do MESMO original, sem recorte e sem
+         recolorir: 1,7 kB para a aba, 11,1 kB para o iOS. -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/marca-mci-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/marca-mci-180.png" />
     <meta name="description" content="Plataforma do Campeonato Brasileiro Muscle Contest: competição, julgamento, ranking e comunidade do fisiculturismo." />
     <title>MCI Platform — Campeonato Brasileiro Muscle Contest</title>
   </head>

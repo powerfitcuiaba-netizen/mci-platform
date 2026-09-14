@@ -156,7 +156,7 @@ router.route('/registrations/:id/weighins')
   .post(requireAuth, validate(s.paramsWithId, 'params'), validate(s.weighInCreate), wrap(c.operations.weighIn));
 
 router.route('/events/:id/credentials')
-  .get(requireAuth, validate(s.paramsWithId, 'params'), wrap(c.operations.listCredentials))
+  .get(requireAuth, validate(s.paramsWithId, 'params'), validate(s.paginacao, 'query'), wrap(c.operations.listCredentials))
   .post(requireAuth, validate(s.paramsWithId, 'params'), validate(s.credentialCreate), wrap(c.operations.issueCredential));
 router.post('/events/:id/credentials/scan', requireAuth, validate(s.paramsWithId, 'params'), validate(s.credentialScan), wrap(c.operations.scanCredential));
 router.post('/credentials/:id/revoke', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.operations.revokeCredential));
