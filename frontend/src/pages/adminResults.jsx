@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Trophy } from 'lucide-react';
 import api, { refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
 import { AsyncSection, Badge, EmptyState, Field, Modal, ModalActions, PageHead } from '../components/ui';
@@ -38,6 +39,13 @@ export function AdminResultados({ notificar }) {
   // Qual classe acabou de receber ou publicar resultado. Serve para dar UM
   // destaque na linha afetada — e só nela. Destacar a lista inteira a cada
   // recarga faria o operador perder de vista o que realmente mudou.
+  const [declarando, setDeclarando] = useState(false);
+  const titulos = useFetch(
+    () => (eventId ? api.ranking.listarOverall(eventId) : Promise.resolve([])),
+    [eventId],
+    { ativo: Boolean(eventId) }
+  );
+
   const [recemMudada, setRecemMudada] = useState(null);
   useEffect(() => {
     if (!recemMudada) return undefined;
@@ -95,6 +103,54 @@ export function AdminResultados({ notificar }) {
                 : <EmptyState title="Sem classes cadastradas" />}
             </section>
 
+            {/* O TÍTULO OVERALL.
+                O MCI não julga: o Overall é DECLARADO pela organização, e o
+                servidor registra a declaração em auditoria. O endpoint existia
+                desde sempre e nenhuma tela o chamava — o bônus não tinha como
+                ser concedido pelo produto, e o momento do campeão não tinha
+                gatilho nenhum fora do laboratório. */}
+            <section className="panel" style={{ marginBottom: 16 }}>
+              <div className="panel-head">
+                <div>
+                  <h2>Título Overall</h2>
+                  <small style={{ color: 'var(--cinza-fraco)', fontSize: 11.5 }}>
+                    Declarado pela organização. A plataforma registra — não decide.
+                  </small>
+                </div>
+                <button type="button" className="button button-primary button-sm" onClick={() => setDeclarando(true)}>
+                  <Trophy size={14} /> Declarar Overall
+                </button>
+              </div>
+
+              {/* A rota devolve `{ items: [...] }`, e não um array puro. Eu havia
+                  assumido array — e o mock do teste repetiu a mesma suposição,
+                  então o teste concordou comigo em vez de me contradizer. O
+                  título era gravado no banco e simplesmente não aparecia.
+
+                  O comentário fica AQUI FORA: dentro de `AsyncSection` ele
+                  viraria um segundo filho, e o componente exige que o filho
+                  seja uma função — o mesmo contrato que já derrubou esta tela
+                  uma vez. */}
+              <AsyncSection state={titulos} linhas={1}>
+                {resposta => ((resposta.items || []).length
+                  ? resposta.items.map((titulo, indice) => (
+                    <Revelacao as="div" indice={indice} key={titulo.id} className="list-row">
+                      <span className="placing placing-1"><Trophy size={14} /></span>
+                      <span className="info">
+                        <strong>{titulo.athlete.stageName || titulo.athlete.fullName}</strong>
+                        <small>
+                          {titulo.category?.name || 'Overall do evento'}
+                          {titulo.declaredAt ? ` · declarado em ${formatarDataHora(titulo.declaredAt)}` : ''}
+                          {titulo.note ? ` · ${titulo.note}` : ''}
+                        </small>
+                      </span>
+                    </Revelacao>
+                  ))
+                  : <EmptyState title="Nenhum título Overall declarado" description="O Overall é decidido pela comissão e registrado aqui." />
+                )}
+              </AsyncSection>
+            </section>
+
             <AsyncSection state={resultados} linhas={3}>
               {dados => dados.items.map(resultado => (
                 <section className="panel" key={resultado.id} style={{ marginBottom: 12 }}>
@@ -140,6 +196,11 @@ export function AdminResultados({ notificar }) {
           onSalvo={() => { setRecemMudada(corrigindo.classId); setCorrigindo(null); resultados.reload(); }} />
       )}
       {versoes && <HistoricoDeVersoes resultado={versoes} onClose={() => setVersoes(null)} />}
+      {declarando && (
+        <DeclararOverall eventId={eventId} notificar={notificar}
+          onClose={() => setDeclarando(false)}
+          onSalvo={() => { setDeclarando(false); titulos.reload(); }} />
+      )}
     </div>
   );
 }
@@ -412,6 +473,105 @@ function HistoricoDeVersoes({ resultado, onClose }) {
       <div className="modal-actions">
         <button type="button" className="button button-secondary" onClick={onClose}>Fechar</button>
       </div>
+    </Modal>
+  );
+}
+
+// ============================================================ TÍTULO OVERALL
+//
+// O MCI NÃO JULGA. O Overall é decidido pela comissão, fora da plataforma, e
+// DECLARADO aqui — o servidor registra em auditoria como OVERALL_DECLARE e
+// repontua os resultados já publicados do evento, porque declarar o título é
+// um fato novo sobre resultados que já existiam.
+//
+// Esta é a única porta do produto para o Momento Campeão. Ela é estreita de
+// propósito: exige permissão de ranking, exige escolher a pessoa numa lista de
+// inscritos do evento, e acontece uma vez por evento. É isso que mantém o
+// nível 5 raro — a raridade vem do FATO, não de uma regra de interface.
+function DeclararOverall({ eventId, notificar, onClose, onSalvo }) {
+  const inscricoes = useFetch(() => api.registrations.listByEvent(eventId, { limit: 100 }), [eventId]);
+  const evento = useFetch(() => api.events.findOne(eventId), [eventId]);
+  const [athleteId, setAthleteId] = useState('');
+  const [categoryId, setCategoryId] = useState('');
+  const [note, setNote] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  const [falha, setFalha] = useState(null);
+
+  const atletas = (inscricoes.data?.items || []).map(item => ({
+    id: item.athlete.id,
+    nome: item.athlete.stageName || item.athlete.fullName
+  }));
+  const categorias = (evento.data?.eventCategories || []).map(ec => ({
+    id: ec.category.id, nome: ec.category.name
+  }));
+  const escolhido = atletas.find(item => item.id === athleteId);
+
+  const declarar = async evt => {
+    evt.preventDefault();
+    if (salvando || !athleteId) return;
+    setSalvando(true);
+    setFalha(null);
+    try {
+      await api.ranking.declararOverall(eventId, {
+        athleteId,
+        categoryId: categoryId || undefined,
+        note: note.trim() || undefined
+      });
+      notificar('Título Overall declarado. Os resultados publicados foram repontuados.');
+
+      // O ÚNICO nível 5 da operação, e o único lugar do produto que o dispara.
+      anunciar(MCIEvento.CAMPEAO, {
+        titulo: categorias.find(c => c.id === categoryId)?.nome || 'Campeão Overall',
+        nome: escolhido?.nome,
+        descricao: evento.data?.name
+      });
+      refreshData();
+      onSalvo();
+    } catch (erro) {
+      setFalha(erro.message);
+      notificar(erro.message, 'erro');
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="Declarar título Overall"
+      description="A comissão decide; a plataforma registra. A declaração fica na auditoria e repontua os resultados já publicados."
+      onClose={onClose}
+    >
+      <form onSubmit={declarar}>
+        {falha && (
+          <div className="alert alert-erro" style={{ marginBottom: 14 }}>
+            <div>
+              <strong>Título não declarado</strong>
+              <p>{falha}</p>
+              <p>Nada foi registrado. Confira a escolha e tente de novo.</p>
+            </div>
+          </div>
+        )}
+
+        <Field label="Atleta" required hint="Somente inscritos neste evento.">
+          <select value={athleteId} onChange={evt => setAthleteId(evt.target.value)} required>
+            <option value="">Selecione…</option>
+            {atletas.map(item => <option key={item.id} value={item.id}>{item.nome}</option>)}
+          </select>
+        </Field>
+
+        <Field label="Recorte" hint="Sem recorte, é o Overall do evento inteiro.">
+          <select value={categoryId} onChange={evt => setCategoryId(evt.target.value)}>
+            <option value="">Overall do evento</option>
+            {categorias.map(item => <option key={item.id} value={item.id}>{item.nome}</option>)}
+          </select>
+        </Field>
+
+        <Field label="Observação" hint="Fica registrada junto da declaração.">
+          <textarea value={note} onChange={evt => setNote(evt.target.value)} maxLength={300}
+            placeholder="Ex: decisão da comissão técnica em 14/09" />
+        </Field>
+
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Declarar Overall" disabled={!athleteId} />
+      </form>
     </Modal>
   );
 }

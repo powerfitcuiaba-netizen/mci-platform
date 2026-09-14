@@ -253,6 +253,13 @@ export const api = {
     // Estreante, Novice e Master do pódio do campeonato.
     list: params => get('/ranking', params),
     superOverall: params => get('/ranking/super-overall', params),
+
+    // Título Overall do evento. O critério de determinação NÃO é do sistema: o
+    // título é declarado pela organização, e o servidor registra em auditoria
+    // como OVERALL_DECLARE. O endpoint existia desde sempre e nenhuma tela o
+    // chamava — o bônus Overall não tinha como ser concedido pelo produto.
+    listarOverall: eventId => get(`/events/${eventId}/overall`),
+    declararOverall: (eventId, dados) => post(`/events/${eventId}/overall`, dados),
     teams: params => get('/ranking/teams', params),
     companies: params => get('/ranking/companies', params),
     athletePoints: (id, params) => get(`/athletes/${id}/ranking-points`, params),

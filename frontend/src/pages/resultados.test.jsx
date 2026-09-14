@@ -17,6 +17,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 const api = {
   events: { findOne: vi.fn(), list: vi.fn() },
   results: { listByEvent: vi.fn(), receive: vi.fn(), publish: vi.fn(), override: vi.fn(), versions: vi.fn() },
+  ranking: { listarOverall: vi.fn(), declararOverall: vi.fn() },
   registrations: { listByEvent: vi.fn() }
 };
 
@@ -51,6 +52,10 @@ beforeEach(() => {
   api.events.list.mockResolvedValue({ items: [EVENTO] });
   api.events.findOne.mockResolvedValue(EVENTO);
   api.results.listByEvent.mockResolvedValue({ items: [] });
+  // FORMA REAL conferida contra o servidor: a rota devolve `{ items: [...] }`,
+  // e não um array puro. Meu mock devolvia array — e o teste concordou com a
+  // suposição errada em vez de me contradizer. Terceira vez nesta fase.
+  api.ranking.listarOverall.mockResolvedValue({ items: [] });
   // FORMA REAL conferida contra o servidor: o item traz `competitionClass.id`,
   // e NÃO `classId`. O mock antigo inventava `classId` — e um mock que inventa
   // a forma dos dados faz o teste passar justamente quando o produto quebra.
@@ -261,5 +266,102 @@ describe('o que a tela de resultados celebra', () => {
     await lancar({ hasUnresolvedTie: false });
     expect(screen.queryByText('Resultado lançado')).toBeNull();
     expect(document.querySelector('.impacto')).toBeNull();
+  });
+});
+
+// ==========================================================================
+// O TÍTULO OVERALL — a única porta do produto para o Momento Campeão.
+//
+// O endpoint existia desde sempre no servidor, com permissão e auditoria, e
+// NENHUMA tela o chamava. Consequência dupla e silenciosa: o bônus Overall não
+// tinha como ser concedido pelo produto, e o efeito de nível 5 era código
+// morto fora do laboratório.
+//
+// O MCI não julga: o Overall é decidido pela comissão e apenas REGISTRADO
+// aqui. A raridade do nível 5 vem do fato — uma declaração por evento —, e não
+// de uma regra de interface.
+// ==========================================================================
+describe('título Overall', () => {
+  const abrirDeclaracao = async () => {
+    render(<><AdminResultados notificar={() => {}} /><PalcoDaExperiencia /></>);
+    const seletor = await screen.findByRole('combobox');
+    await waitFor(() => expect(seletor.querySelector('option[value="e1"]')).toBeTruthy());
+    fireEvent.change(seletor, { target: { value: 'e1' } });
+    fireEvent.click(await screen.findByRole('button', { name: /Declarar Overall/i }));
+    return screen.findByLabelText(/Atleta/i);
+  };
+
+  it('o título declarado APARECE na lista', async () => {
+    aparelho();
+    api.ranking.listarOverall.mockResolvedValue({
+      items: [{
+        id: 't1', declaredAt: new Date().toISOString(), note: 'Decisão da comissão',
+        athlete: { id: 'at1', fullName: 'Carlos Mendes', stageName: null },
+        category: { id: 'cat1', name: 'Men’s Physique' }
+      }]
+    });
+    render(<AdminResultados notificar={() => {}} />);
+    const seletor = await screen.findByRole('combobox');
+    await waitFor(() => expect(seletor.querySelector('option[value="e1"]')).toBeTruthy());
+    fireEvent.change(seletor, { target: { value: 'e1' } });
+    expect(await screen.findByText('Carlos Mendes')).toBeTruthy();
+    expect(screen.getByText(/Decisão da comissão/)).toBeTruthy();
+    expect(screen.queryByText(/Nenhum título Overall declarado/i)).toBeNull();
+  });
+
+  it('a tela diz que a plataforma REGISTRA, não decide', async () => {
+    aparelho();
+    render(<AdminResultados notificar={() => {}} />);
+    const seletor = await screen.findByRole('combobox');
+    await waitFor(() => expect(seletor.querySelector('option[value="e1"]')).toBeTruthy());
+    fireEvent.change(seletor, { target: { value: 'e1' } });
+    expect(await screen.findByText(/Declarado pela organização/i)).toBeTruthy();
+    expect(screen.getByText(/não decide/i)).toBeTruthy();
+  });
+
+  it('declarar dispara o Momento Campeão — o único nível 5 do produto', async () => {
+    aparelho();
+    api.ranking.declararOverall.mockResolvedValue({});
+    const campo = await abrirDeclaracao();
+    fireEvent.change(campo, { target: { value: 'at1' } });
+    // Dois botões com o mesmo nome: o do painel abre, o do diálogo confirma.
+    fireEvent.click(screen.getAllByRole('button', { name: /^Declarar Overall$/i }).at(-1));
+
+    await waitFor(() => expect(api.ranking.declararOverall).toHaveBeenCalled());
+    expect(api.ranking.declararOverall.mock.calls[0][0]).toBe('e1');
+    expect(api.ranking.declararOverall.mock.calls[0][1].athleteId).toBe('at1');
+    await waitFor(() => expect(document.querySelector('.campeao')).toBeTruthy());
+    expect(screen.getByText('Carlos Mendes')).toBeTruthy();
+  });
+
+  it('sem atleta escolhido não dá para declarar', async () => {
+    aparelho();
+    await abrirDeclaracao();
+    const confirmar = screen.getAllByRole('button', { name: /^Declarar Overall$/i }).at(-1);
+    expect(confirmar.disabled).toBe(true);
+    fireEvent.click(confirmar);
+    expect(api.ranking.declararOverall).not.toHaveBeenCalled();
+  });
+
+  it('falha ao declarar NÃO desenha campeão nenhum', async () => {
+    aparelho();
+    api.ranking.declararOverall.mockRejectedValue(new Error('Sem permissão de ranking'));
+    const campo = await abrirDeclaracao();
+    fireEvent.change(campo, { target: { value: 'at1' } });
+    fireEvent.click(screen.getAllByRole('button', { name: /^Declarar Overall$/i }).at(-1));
+
+    expect(await screen.findByText('Título não declarado')).toBeTruthy();
+    expect(screen.getByText(/Nada foi registrado/i)).toBeTruthy();
+    expect(document.querySelector('.campeao')).toBeNull();
+  });
+
+  it('com movimento reduzido o título é declarado igual — sem o teatro', async () => {
+    aparelho({ movimentoReduzido: true });
+    api.ranking.declararOverall.mockResolvedValue({});
+    const campo = await abrirDeclaracao();
+    fireEvent.change(campo, { target: { value: 'at1' } });
+    fireEvent.click(screen.getAllByRole('button', { name: /^Declarar Overall$/i }).at(-1));
+    await waitFor(() => expect(api.ranking.declararOverall).toHaveBeenCalled());
+    expect(document.querySelector('.campeao')).toBeNull();
   });
 });

@@ -174,6 +174,22 @@ inventa o seu".
 | `ContadorVivo` | 1 | lampejo no número que mudou — nunca contagem de 0 até ele |
 | `MomentoCampeao` | 5 | campeão geral, e nada mais |
 
+**O gatilho do nível 5 é um só, e é um fato humano.** O Momento Campeão só
+acontece quando a organização **declara** um título Overall
+(`POST /events/:id/overall`, permissão `ranking.manage`, auditado como
+`OVERALL_DECLARE`). O MCI não julga: a comissão decide fora da plataforma e a
+plataforma registra.
+
+É isso que mantém o nível 5 raro — **a raridade vem do fato, não de uma regra de
+interface**. Uma declaração por evento, por uma pessoa com permissão, com
+registro em auditoria. Não há outro caminho no produto para acionar o efeito, e
+há teste garantindo que os demais eventos não o acionam.
+
+> Por muito tempo esse gatilho **não existia**: o endpoint estava pronto no
+> servidor e nenhuma tela o chamava. O efeito mais cuidado do motor era código
+> morto fora do laboratório, e o bônus Overall não tinha como ser concedido pelo
+> produto.
+
 As partículas do momento campeão são **14 e finitas**. Partícula em laço numa
 tela de trabalho é bateria indo embora durante a pesagem.
 
