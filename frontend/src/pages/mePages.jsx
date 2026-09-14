@@ -4,7 +4,7 @@ import api from '../services/api';
 import { useAuth } from '../AuthContext';
 import { useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Field, Metric, Modal, ModalActions, PageHead } from '../components/ui';
-import { ESTADO_PRO, formatarData, formatarDataHora, pesoEmKg, seloDoEvento } from '../lib/format';
+import { ESTADO_PRO, formatarData, formatarDataHora, pesoEmKg, seloDoEvento, estadoDaBateria, estadoDaInscricao, papel, estadoDoUsuario } from '../lib/format';
 
 // Painel do atleta e conta do usuário.
 
@@ -104,7 +104,7 @@ export function MeuPainel({ navegar }) {
                             <strong>{ordem.batch.name}</strong>
                             <small>{ordem.batch.scheduledAt ? formatarDataHora(ordem.batch.scheduledAt) : 'horário a definir'}</small>
                           </span>
-                          <Badge tom={ordem.status === 'CALLED' ? 'alerta' : 'neutro'}>{ordem.status}</Badge>
+                          <Badge tom={estadoDaBateria(ordem.status).tom}>{estadoDaBateria(ordem.status).rotulo}</Badge>
                         </div>
                       ))}
                     </>
@@ -157,7 +157,7 @@ export function MeuPainel({ navegar }) {
                         </small>
                       </span>
                       {inscricao.checkIn?.status === 'CHECKED_IN' && <Badge tom="ok">Check-in feito</Badge>}
-                      <Badge tom={inscricao.status === 'CONFIRMED' ? 'ok' : inscricao.status === 'CANCELLED' ? 'perigo' : 'alerta'}>{inscricao.status}</Badge>
+                      <Badge tom={estadoDaInscricao(inscricao.status).tom}>{estadoDaInscricao(inscricao.status).rotulo}</Badge>
                     </div>
                   ))
                   : <EmptyState title="Nenhuma inscrição" />}
@@ -188,8 +188,8 @@ export function MinhaConta({ notificar }) {
           <dl className="kv">
             <dt>Nome</dt><dd>{user?.name}</dd>
             <dt>Email</dt><dd>{user?.email}</dd>
-            <dt>Papel global</dt><dd><Badge tom="info">{user?.role}</Badge></dd>
-            <dt>Situação</dt><dd><Badge tom={user?.status === 'ACTIVE' ? 'ok' : 'perigo'}>{user?.status}</Badge></dd>
+            <dt>Papel global</dt><dd><Badge tom={papel(user?.role).tom}>{papel(user?.role).rotulo}</Badge></dd>
+            <dt>Situação</dt><dd><Badge tom={estadoDoUsuario(user?.status).tom}>{estadoDoUsuario(user?.status).rotulo}</Badge></dd>
           </dl>
           <button type="button" className="button button-secondary" style={{ marginTop: 16 }} onClick={() => setTrocandoSenha(true)}>
             <KeyRound size={14} /> Trocar senha
@@ -205,7 +205,7 @@ export function MinhaConta({ notificar }) {
                   <strong>{vinculo.name || vinculo.organizationId}</strong>
                   <small>{vinculo.slug}</small>
                 </span>
-                <Badge tom="info">{vinculo.role}</Badge>
+                <Badge tom={papel(vinculo.role).tom}>{papel(vinculo.role).rotulo}</Badge>
               </div>
             ))
             : <EmptyState title="Sem vínculo" description="Papéis operacionais são concedidos por organização." />}

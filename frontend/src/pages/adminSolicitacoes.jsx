@@ -3,6 +3,7 @@ import { api } from '../services/api';
 import { useAuth } from '../AuthContext';
 import { useFetch } from '../lib/hooks';
 import { PageHead, Badge, AsyncSection, Modal, Field, Paginacao, ProtectedMedia } from '../components/ui';
+import { anunciar, MCIEvento } from '../lib/experiencia';
 import { mascararCpf, formatarData, formatarDataHora } from '../lib/format';
 
 // ============================================================================
@@ -165,9 +166,15 @@ function Analise({ id, onClose, aoDecidir, notificar }) {
       if (acao === 'aprovar') {
         await api.athleteRequests.aprovar(id);
         notificar?.('Solicitação aprovada. O atleta foi criado.');
+        // Aprovar cria um atleta — é o momento em que alguém passa a existir na
+        // plataforma. Nível EVENTO: confirma sem tomar o centro da tela, porque
+        // uma fila de solicitações se analisa uma atrás da outra.
+        anunciar(MCIEvento.SUCESSO, { titulo: 'Solicitação aprovada', descricao: 'O perfil de atleta foi criado.' });
       } else {
         await api.athleteRequests.rejeitar(id, motivo.trim());
         notificar?.('Solicitação recusada.');
+        // Recusar NÃO comemora: do outro lado há uma pessoa esperando.
+        anunciar(MCIEvento.AVISO, { titulo: 'Solicitação recusada', descricao: 'O motivo foi registrado e enviado.' });
       }
       aoDecidir();
     } catch (problema) {

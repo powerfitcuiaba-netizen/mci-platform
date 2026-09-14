@@ -14,7 +14,7 @@ const TETO_DA_LISTA = 100;
 import { ContadorVivo, PulsoAoVivo, Revelacao, useRecemAfetado } from '../components/experiencia';
 import { estiloDaSequencia } from '../lib/experiencia';
 import {
-  ESTADO_EVENTO, TRANSICOES_EVENTO, formatarData, formatarDataHora, mascararCpf, pesoEmKg, seloDoEvento, somenteDigitos, estadoDaBateria, estadoDaInscricao } from '../lib/format';
+  ESTADO_EVENTO, TRANSICOES_EVENTO, formatarData, formatarDataHora, mascararCpf, pesoEmKg, seloDoEvento, somenteDigitos, estadoDaBateria, estadoDaInscricao, tipoDeCredencial } from '../lib/format';
 
 // Área administrativa do evento. Cada tela opera contra a API real e reflete a
 // máquina de estados do servidor: o que a API recusaria, a interface não
@@ -1214,7 +1214,7 @@ export function AdminCredenciamento({ notificar }) {
       anunciar(
         resposta.accepted ? MCIEvento.CREDENCIADO : MCIEvento.ERRO,
         resposta.accepted
-          ? { titulo: 'Acesso liberado', descricao: `${resposta.credential.holderName} · ${resposta.credential.type}` }
+          ? { titulo: 'Acesso liberado', descricao: `${resposta.credential.holderName} · ${tipoDeCredencial(resposta.credential.type).rotulo}` }
           : { titulo: 'Acesso recusado', descricao: resposta.reason || resposta.credential?.holderName || 'Credencial não aceita.' }
       );
       estado.reload();
@@ -1257,7 +1257,7 @@ export function AdminCredenciamento({ notificar }) {
                         : <span className="avatar"><QrCode size={16} /></span>}
                       <span className="info">
                         <strong>{credencial.holderName}</strong>
-                        <small>{credencial.type} · {credencial.code} · {credencial._count.scans} leitura(s)</small>
+                        <small>{tipoDeCredencial(credencial.type).rotulo} · {credencial.code} · {credencial._count.scans} leitura(s)</small>
                       </span>
                       <Badge tom={credencial.status === 'ACTIVE' ? 'ok' : 'perigo'}>{credencial.status === 'ACTIVE' ? 'Ativa' : 'Revogada'}</Badge>
                       {credencial.status === 'ACTIVE' && (
@@ -1300,7 +1300,7 @@ export function AdminCredenciamento({ notificar }) {
                 <div className={`alert ${leitura.accepted ? 'alert-ok' : 'alert-erro'} varredura`} style={{ marginTop: 14 }}>
                   <div>
                     <strong>{leitura.accepted ? 'Acesso liberado' : 'Acesso recusado'}</strong>
-                    <p>{leitura.credential.holderName} · {leitura.credential.type}</p>
+                    <p>{leitura.credential.holderName} · {tipoDeCredencial(leitura.credential.type).rotulo}</p>
                     {leitura.reason && <p>{leitura.reason}</p>}
                     {leitura.credential.athlete && (
                       <p>{leitura.credential.checkedIn ? 'Check-in confirmado.' : 'Atleta ainda sem check-in.'}</p>
@@ -1347,7 +1347,7 @@ function EmitirCredencial({ eventId, notificar, onClose, onSalvo }) {
       <form onSubmit={salvar}>
         <Field label="Tipo" required>
           <select value={form.type} onChange={evento => setForm({ ...form, type: evento.target.value })} required>
-            {['ATHLETE', 'COACH', 'STAFF', 'JUDGE', 'MEDIA', 'PHOTOGRAPHER', 'SPONSOR', 'GUEST'].map(tipo => <option key={tipo} value={tipo}>{tipo}</option>)}
+            {['ATHLETE', 'COACH', 'STAFF', 'JUDGE', 'MEDIA', 'PHOTOGRAPHER', 'SPONSOR', 'GUEST'].map(tipo => <option key={tipo} value={tipo}>{tipoDeCredencial(tipo).rotulo}</option>)}
           </select>
         </Field>
         <Field label="Nome do portador" required>

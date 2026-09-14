@@ -3,7 +3,9 @@ import { AlertTriangle, Building2, Plus, Upload, Users } from 'lucide-react';
 import api, { refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
 import { AsyncSection, AtualizadoEm, Avatar, Badge, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead } from '../components/ui';
-import { ESTADO_MATCH, formatarDataHora } from '../lib/format';
+// Só a classe de cartão clicável é usada aqui — é CSS, não precisa do motor
+// em JS. Importar o que não se usa é ruído que o lint acusa e o leitor não.
+import { ESTADO_MATCH, formatarDataHora, papel, estadoDoUsuario, tipoDeFiliacao, estadoDaImportacao } from '../lib/format';
 
 // Painel administrativo, ranking, importação MuscleWar, auditoria e
 // configurações da plataforma.
@@ -56,17 +58,17 @@ export function AdminPainel({ navegar }) {
             <AtualizadoEm quando={estado.atualizadoEm} />
 
             <div className="grid grid-3" style={{ marginTop: 18 }}>
-              <button type="button" className="panel" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => navegar('admin/eventos')}>
+              <button type="button" className="panel cartao-clicavel" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => navegar('admin/eventos')}>
                 <h2 className="display" style={{ fontSize: 20 }}>Eventos</h2>
                 <p style={{ color: 'var(--cinza)', fontSize: 12.5, margin: '6px 0 0' }}>Criar etapas, montar o quadro de categorias e mover estados.</p>
               </button>
-              <button type="button" className="panel" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => navegar('admin/musclewar')}>
+              <button type="button" className="panel cartao-clicavel" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => navegar('admin/musclewar')}>
                 <h2 className="display" style={{ fontSize: 20 }}>MuscleWar</h2>
                 <p style={{ color: 'var(--cinza)', fontSize: 12.5, margin: '6px 0 0' }}>
                   {dados.muscleWarImports} importação(ões) registrada(s).
                 </p>
               </button>
-              <button type="button" className="panel" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => navegar('admin/auditoria')}>
+              <button type="button" className="panel cartao-clicavel" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => navegar('admin/auditoria')}>
                 <h2 className="display" style={{ fontSize: 20 }}>Auditoria</h2>
                 <p style={{ color: 'var(--cinza)', fontSize: 12.5, margin: '6px 0 0' }}>Trilha das ações críticas da plataforma.</p>
               </button>
@@ -470,7 +472,7 @@ export function AdminMuscleWar({ notificar }) {
                         </small>
                       </td>
                       <td>
-                        <Badge tom={lote.status === 'APPLIED' ? 'ok' : lote.status === 'REJECTED' ? 'perigo' : 'alerta'}>{lote.status}</Badge>
+                        <Badge tom={estadoDaImportacao(lote.status).tom}>{estadoDaImportacao(lote.status).rotulo}</Badge>
                       </td>
                       <td className="num">{lote.totalRecords}</td>
                       <td className="num">{lote.matchedCount}</td>
@@ -790,7 +792,7 @@ export function AdminAuditoria() {
                       <td style={{ whiteSpace: 'nowrap' }}>{formatarDataHora(linha.createdAt)}</td>
                       <td>
                         {linha.user?.name || linha.userEmail || 'sistema'}
-                        {linha.user?.role && <small style={{ display: 'block', color: 'var(--cinza-fraco)' }}>{linha.user.role}</small>}
+                        {linha.user?.role && <small style={{ display: 'block', color: 'var(--cinza-fraco)' }}>{papel(linha.user.role).rotulo}</small>}
                       </td>
                       <td><Badge tom="info">{linha.action}</Badge></td>
                       <td>{linha.entity}{linha.entityId ? <small style={{ display: 'block', color: 'var(--cinza-fraco)' }}>{linha.entityId.slice(0, 12)}…</small> : null}</td>
@@ -946,7 +948,9 @@ function MembrosDaOrganizacao({ organizacao, notificar, onClose }) {
         </Field>
         <Field label="Papel" required>
           <select value={form.role} onChange={evt => setForm({ ...form, role: evt.target.value })} required>
-            {PAPEIS.map(papel => <option key={papel} value={papel}>{papel}</option>)}
+            {/* `codigo` e não `papel`: o parâmetro sombrearia a função de rótulo
+                importada e o select voltaria a mostrar o enum cru. */}
+            {PAPEIS.map(codigo => <option key={codigo} value={codigo}>{papel(codigo).rotulo}</option>)}
           </select>
         </Field>
         <button type="submit" className="button button-primary" disabled={salvando} style={{ marginBottom: 13 }}>Conceder</button>
@@ -960,7 +964,7 @@ function MembrosDaOrganizacao({ organizacao, notificar, onClose }) {
               <strong>{membro.user.name}</strong>
               <small>{membro.user.email}</small>
             </span>
-            <Badge tom="info">{membro.role}</Badge>
+            <Badge tom={papel(membro.role).tom}>{papel(membro.role).rotulo}</Badge>
             <button type="button" className="button button-danger button-sm" onClick={() => remover(membro)}>Remover</button>
           </div>
         ))}
@@ -994,7 +998,7 @@ function Filiacoes({ notificar }) {
               <div className="list-row" key={filiacao.id}>
                 <span className="info">
                   <strong>{filiacao.name}</strong>
-                  <small>{filiacao.code} · {filiacao.kind} · {filiacao._count.athletes} atleta(s)</small>
+                  <small>{filiacao.code} · {tipoDeFiliacao(filiacao.kind).rotulo} · {filiacao._count.athletes} atleta(s)</small>
                 </span>
                 <Badge tom={filiacao.active ? 'ok' : 'neutro'}>{filiacao.active ? 'Ativa' : 'Inativa'}</Badge>
                 <button
@@ -1055,7 +1059,7 @@ function NovaFiliacao({ organizacoes, notificar, onClose, onSalvo }) {
         </div>
         <Field label="Tipo">
           <select value={form.kind} onChange={evt => setForm({ ...form, kind: evt.target.value })}>
-            {['FEDERATION', 'ENTITY', 'ASSOCIATION', 'TEAM', 'OTHER'].map(tipo => <option key={tipo} value={tipo}>{tipo}</option>)}
+            {['FEDERATION', 'ENTITY', 'ASSOCIATION', 'TEAM', 'OTHER'].map(codigo => <option key={codigo} value={codigo}>{tipoDeFiliacao(codigo).rotulo}</option>)}
           </select>
         </Field>
         <ModalActions onClose={onClose} saving={salvando} confirmLabel="Criar filiação" />
@@ -1464,8 +1468,8 @@ function Usuarios({ notificar }) {
                 <strong>{usuario.name}</strong>
                 <small>{usuario.email} · {usuario.organizations.length} vínculo(s)</small>
               </span>
-              <Badge tom="info">{usuario.role}</Badge>
-              <Badge tom={usuario.status === 'ACTIVE' ? 'ok' : 'perigo'}>{usuario.status}</Badge>
+              <Badge tom={papel(usuario.role).tom}>{papel(usuario.role).rotulo}</Badge>
+              <Badge tom={estadoDoUsuario(usuario.status).tom}>{estadoDoUsuario(usuario.status).rotulo}</Badge>
               <button type="button" className="button button-secondary button-sm" onClick={() => setEditando(usuario)}>Editar</button>
             </div>
           ))}
@@ -1499,7 +1503,9 @@ function EditarUsuario({ usuario, notificar, onClose, onSalvo }) {
       <form onSubmit={salvar}>
         <Field label="Papel global" hint="Papel privilegiado só é concedido por SUPER_ADMIN.">
           <select value={form.role} onChange={evt => setForm({ ...form, role: evt.target.value })}>
-            {PAPEIS.map(papel => <option key={papel} value={papel}>{papel}</option>)}
+            {/* `codigo` e não `papel`: o parâmetro sombrearia a função de rótulo
+                importada e o select voltaria a mostrar o enum cru. */}
+            {PAPEIS.map(codigo => <option key={codigo} value={codigo}>{papel(codigo).rotulo}</option>)}
           </select>
         </Field>
         <Field label="Situação">

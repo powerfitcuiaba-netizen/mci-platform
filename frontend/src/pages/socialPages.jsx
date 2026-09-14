@@ -6,7 +6,7 @@ import api, { refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Lightbox, Modal, ModalActions, PageHead, Paginacao, ProtectedMedia, Field } from '../components/ui';
 import { anunciar, MCIEvento } from '../lib/experiencia';
-import { caminhoDoAvatar, desde, ESTADO_PRO, formatarData } from '../lib/format';
+import { caminhoDoAvatar, desde, ESTADO_PRO, formatarData, tipoDePerfil } from '../lib/format';
 
 // MCI Social. Toda interação chama a API: não existe contador local que não
 // tenha sido confirmado pelo servidor.
@@ -524,7 +524,7 @@ export function Perfil({ handle, notificar, navegar }) {
               <section className="hero" style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
                 <Avatar name={profile.displayName} mediaPath={caminhoDoAvatar(profile)} size="avatar-lg" />
                 <div style={{ flex: 1, minWidth: 220 }}>
-                  <span className="eyebrow">{profile.kind}</span>
+                  <span className="eyebrow">{tipoDePerfil(profile.kind).rotulo}</span>
                   <h1 style={{ marginTop: 6 }}>{profile.displayName}</h1>
                   <p style={{ margin: '4px 0 0' }}>@{profile.handle}</p>
                   {profile.bio && <p style={{ marginTop: 8 }}>{profile.bio}</p>}

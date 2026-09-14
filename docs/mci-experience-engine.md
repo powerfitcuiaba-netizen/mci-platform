@@ -70,6 +70,25 @@ resultado, ele deixa de significar *campeão* e passa a significar *salvou*. Há
 teste garantindo que `CAMPEAO` é o único evento de nível 5 e que nenhuma
 operação rotineira passa de `EVENTO`.
 
+**O nível decide também ONDE o gesto acontece.** A regra é derivada, nunca
+escrita à mão, para não existir evento de nível 3 marcado "centro" num descuido:
+
+| Posição | Níveis | O que significa |
+|---|---|---|
+| `linha` | até `EVENTO` | confirma **onde a ação aconteceu** |
+| `centro` | `MOMENTO` | ocupa o meio da tela por alguns segundos |
+| `tela` | `CINEMATOGRAFICO` | toma a tela inteira |
+
+O centro da tela é espaço caro: quem o ocupa **interrompe**. Operação repetida
+nunca interrompe — confirma ao lado do dedo e segue. A regra nasceu de um
+defeito real: o check-in desenhava uma caixa no centro, e numa competição de
+280 atletas essa caixa apareceria 280 vezes por cima da lista que o operador
+está usando — inclusive por cima do contador que ela mesma comemorava.
+
+Confirmar "na linha" não é confirmar menos. É o destaque na linha afetada, o
+selo de estado, o contador que muda e o toast de sempre — tudo junto, e nada no
+caminho de quem está trabalhando.
+
 ---
 
 ## 4. O teto de intensidade
@@ -150,7 +169,9 @@ inventa o seu".
 | `Revelacao` | 2 | blocos de uma tela entrando em sequência |
 | `VarreduraDeEnergia` | 1 | uma passada de luz no que é **novo** — nunca em laço |
 | `PulsoAoVivo` | 1 | só dado **realmente** em tempo real |
-| `ImpactoDeSucesso` | 3–4 | reconhecimento por cima do toast, não no lugar dele |
+| `ImpactoDeSucesso` | 4 | reconhecimento por cima do toast, não no lugar dele |
+| `useRecemAfetado` | 1 | destaque curto na linha que a pessoa acabou de mexer |
+| `ContadorVivo` | 1 | lampejo no número que mudou — nunca contagem de 0 até ele |
 | `MomentoCampeao` | 5 | campeão geral, e nada mais |
 
 As partículas do momento campeão são **14 e finitas**. Partícula em laço numa
@@ -183,6 +204,30 @@ quebra em duas linhas; valor nunca é cortado.
 **Entrelinha apertada rapa acento.** Com a fonte de display, `1.0` de
 entrelinha fazia o acento de `Á` passar da caixa e ser raspado. Corte de texto se
 **mede** com `scrollWidth`/`scrollHeight`, não se olha.
+
+**`animation` some quando o `style` vem de fora.** `Revelacao` espalhava
+`{...resto}` depois de `style`: passar estilo inline sobrescrevia o atraso da
+sequência e desligava o efeito **em silêncio** — o componente parecia funcionar
+e não funcionava. Estilos são mesclados, nunca substituídos.
+
+**Classe de animação escrita à mão passa por cima do teto.** Fixar `"revela"`
+no `className` faz o elemento animar mesmo com `prefers-reduced-motion`. Quem
+revela é o componente `Revelacao`, justamente para essa decisão não ser repetida
+— e repetida errado — em cada tela.
+
+**CSS de uma classe que não existe é efeito que não existe e parece existir.**
+`.chat-body .bubble` foi escrito para um elemento cuja classe real é
+`.chat-msg`. A varredura `styles.animacao.test.js` confere que toda classe com
+`animation` aparece de fato em algum componente — e na primeira execução achou
+`.progress-bar`, inexistente no código, com uma animação em **laço infinito**.
+
+**Enum cru na tela.** Apareceu em onze lugares: `CONFIRMED` na tabela de
+inscrições, `ON_STAGE` na página pública do evento, `CALLED` no painel do
+próprio atleta, `TIE_UNRESOLVED` na apuração oficial, `SUPER_ADMIN` na lista de
+usuários. Todo enum passa por um mapa em `lib/format.js`, todo mapa tem recuo
+para o código, e `lib/rotulos.test.js` confere duas coisas: que nenhuma tela
+renderiza um campo de enum direto, e que **os mapas batem com o schema** — sem
+valor faltando e sem valor inventado.
 
 **Véu claro no centro é véu ao contrário.** O momento campeão nascia com o
 gradiente mais claro justo onde o nome fica — o texto da página lia-se através do

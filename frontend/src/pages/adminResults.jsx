@@ -2,10 +2,16 @@ import { useEffect, useState } from 'react';
 import api, { refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
 import { AsyncSection, Badge, EmptyState, Field, Modal, ModalActions, PageHead } from '../components/ui';
-import { formatarDataHora } from '../lib/format';
+import { formatarDataHora, estadoDaEntrada } from '../lib/format';
 import { SeletorDeEvento } from './adminEvent';
 import { anunciar, MCIEvento } from '../lib/experiencia';
 import { Revelacao } from '../components/experiencia';
+
+// O resultado inteiro tem dois estados; a entrada de cada atleta tem outros
+// quatro. Misturar os dois mapas mostraria "Classificado" onde se lê
+// "Publicado", então cada um tem o seu.
+const estadoDaInscricaoDoResultado = codigo =>
+  ({ PUBLISHED: 'Publicado', DRAFT: 'Rascunho' })[codigo] || codigo || '—';
 
 // Resultados. O MCI NÃO julga: o julgamento acontece fora, e esta tela LANÇA a
 // colocação oficial recebida. Não há ficha de juiz, nota nem apuração — o
@@ -111,7 +117,7 @@ export function AdminResultados({ notificar }) {
                         <strong>{entrada.athlete.stageName || entrada.athlete.fullName}</strong>
                         <small>soma {entrada.score} · bruta {entrada.rawScore} · {entrada.breakdown?.judgeVotes ?? 0} voto(s)</small>
                       </span>
-                      {entrada.status !== 'RANKED' && <Badge tom="perigo">{entrada.status}</Badge>}
+                      {entrada.status !== 'RANKED' && <Badge tom={estadoDaEntrada(entrada.status).tom}>{estadoDaEntrada(entrada.status).rotulo}</Badge>}
                     </div>
                   ))}
                 </section>
@@ -387,14 +393,14 @@ function HistoricoDeVersoes({ resultado, onClose }) {
                 <div style={{ flex: 1 }}>
                   <strong style={{ display: 'block', fontSize: 13 }}>{versao.reason}</strong>
                   <small style={{ color: 'var(--cinza-fraco)' }}>
-                    {versao.createdBy?.name || 'sistema'} · {formatarDataHora(versao.createdAt)} · {versao.snapshot.status}
+                    {versao.createdBy?.name || 'sistema'} · {formatarDataHora(versao.createdAt)} · {estadoDaInscricaoDoResultado(versao.snapshot.status)}
                   </small>
                 </div>
               </div>
               <div className="chips" style={{ marginTop: 8 }}>
                 {(versao.snapshot.entries || []).map(entrada => (
                   <span className="chip" key={entrada.registrationItemId}>
-                    {entrada.placing ?? '—'}º · {entrada.status}
+                    {entrada.placing ?? '—'}º · {estadoDaEntrada(entrada.status).rotulo}
                   </span>
                 ))}
               </div>
