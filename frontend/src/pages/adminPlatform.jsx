@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { AlertTriangle, Building2, Plus, Upload, Users } from 'lucide-react';
 import api, { refreshData } from '../services/api';
-import { useFetch } from '../lib/hooks';
-import { AsyncSection, AtualizadoEm, Avatar, Badge, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead } from '../components/ui';
+import { useFetch, useListaPaginada } from '../lib/hooks';
+import { AsyncSection, AtualizadoEm, Avatar, Badge, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead, Paginacao } from '../components/ui';
 // Só a classe de cartão clicável é usada aqui — é CSS, não precisa do motor
 // em JS. Importar o que não se usa é ruído que o lint acusa e o leitor não.
 import { ESTADO_MATCH, formatarDataHora, papel, estadoDoUsuario, tipoDeFiliacao, estadoDaImportacao } from '../lib/format';
@@ -757,7 +757,18 @@ function VincularAtleta({ item, organizationId, notificar, onClose, onSalvo }) {
 // ============================================================== AUDITORIA
 export function AdminAuditoria() {
   const [filtros, setFiltros] = useState({ entity: '', action: '' });
-  const estado = useFetch(() => api.audit({ entity: filtros.entity || undefined, action: filtros.action || undefined, limit: 200 }), [filtros.entity, filtros.action]);
+  // 200 é o teto da própria rota de auditoria, e aqui ele é PÁGINA, não fim da
+  // trilha: auditoria se lê em varredura, então vale trazer bastante de uma
+  // vez — e continuar depois, em vez de parar.
+  const estado = useListaPaginada(
+    cursor => api.audit({
+      entity: filtros.entity || undefined,
+      action: filtros.action || undefined,
+      limit: 200,
+      cursor: cursor || undefined
+    }),
+    [filtros.entity, filtros.action]
+  );
 
   return (
     <div className="page">
@@ -783,6 +794,14 @@ export function AdminAuditoria() {
       <AsyncSection state={estado} linhas={6}>
         {dados => (dados.items.length
           ? (
+            <>
+              {/* O total agora é o da TRILHA, não o da página. Enquanto era o
+                  tamanho da página, esse número respondia sempre a mesma coisa
+                  — e auditoria existe justamente para responder "quantas
+                  vezes isto aconteceu?". */}
+              <p className="muted" style={{ marginBottom: 12 }}>
+                Mostrando {dados.items.length} de {dados.total} registro(s).
+              </p>
             <div className="table-wrap">
               <table className="table">
                 <thead><tr><th>Quando</th><th>Ator</th><th>Ação</th><th>Entidade</th><th>Detalhe</th></tr></thead>
@@ -806,6 +825,8 @@ export function AdminAuditoria() {
                 </tbody>
               </table>
             </div>
+            <Paginacao nextCursor={estado.nextCursor} onMore={estado.carregarMais} loading={estado.carregandoMais} />
+            </>
           )
           : <EmptyState title="Sem registros" description="Nenhuma ação corresponde ao filtro." />
         )}

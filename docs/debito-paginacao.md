@@ -1,6 +1,7 @@
 # Paginação de listas — do débito à correção
 
-**Status:** RESOLVIDO na FASE 2.4 · **Levantado em:** FASE 2.1 · **Documentado em:** FASE 2.2
+**Status:** RESOLVIDO — operação na FASE 2.4, auditoria na FASE 2.5
+**Levantado em:** FASE 2.1 · **Documentado em:** FASE 2.2
 
 > Este documento continua contando a história inteira, inclusive o que eu
 > escrevi errado nele. Apagar o engano deixaria o texto mais limpo e o projeto
@@ -197,6 +198,83 @@ A lista chega **inteira** nos três volumes.
 `auditService.list` também devolve `total: items.length` — mesma classe de
 engano. Impacto menor (a tela não exibe o total, e o limite de 200 é o próprio
 teto), mas é dívida da mesma família e está registrada aqui para não se perder.
+
+---
+
+## 8.5 Auditoria: fechado na FASE 2.5
+
+O último `total: items.length` do repositório morreu. Medido com 140 registros
+reais e limite 100, a API devolvia **total 100**. Numa trilha de auditoria isso
+é pior que numa lista comum: auditoria existe para responder "isto aconteceu
+quantas vezes?", e um total que na verdade é o teto responde sempre a mesma
+coisa.
+
+| Mudança | Onde |
+|---|---|
+| `total` contado no banco, respeitando o filtro | `auditService.list` |
+| `nextCursor`, com desempate por `id` na ordenação | idem |
+| `cursor` declarado no esquema | `auditQuery` |
+| tela passa a exibir "200 de 1430" e a continuar a trilha | `AdminAuditoria` |
+
+O `cursor` faltando no esquema tinha um efeito próprio: o zod descarta campo
+não declarado, então um cursor de 5.000 caracteres era **aceito e
+silenciosamente ignorado**. Parecia validação e não era.
+
+Sete mutantes, sete mortos (quatro no servidor, três na interface).
+
+## 8.6 Inventário das consultas ainda sem `take`
+
+Levantado na FASE 2.5 para que a decisão seja informada, e não omissão. Uma
+consulta sem `take` só é aceitável quando o DOMÍNIO limita o conjunto; onde o
+limite é "o usuário não costuma ter muitos", não é limite, é torcida.
+
+| Consulta | O que limita | Veredito |
+|---|---|---|
+| `listWeighIns` | pesagens de UMA inscrição | limitado pelo domínio |
+| `listStageOrder` | atletas de UMA bateria | limitado pelo domínio |
+| `listBatches` | baterias de um evento (dezenas) | limitado pelo domínio |
+| `setStageOrder` / `updateBatchStatus` | escrita, não listagem | não se aplica |
+| `listAthleteDocuments` | documentos de UM atleta | limitado pelo domínio |
+| `membershipService.history` | histórico de UM atleta | limitado pelo domínio |
+| `organizationService.list` | organizações da federação | limitado pelo domínio |
+| `usersOfProfiles` / `addMembers` / `createConversation` | conjunto já recebido como argumento | limitado pela entrada |
+
+**Nenhuma dessas é lista de atleta de evento**, que era a família do problema.
+Ficam registradas, não corrigidas: mexer em consulta que está correta, sem
+evidência de que cresce, é trocar risco conhecido por risco novo.
+
+---
+
+## 8.7 O desempate por `id` — determinismo por contrato
+
+Registrado aqui como decisão fechada, para não ser reaberto a cada fase.
+
+**O que é.** Toda ordenação usada com `cursor` termina em `{ id }`:
+`[{ athlete: { fullName: 'asc' } }, { id: 'asc' }]` no check-in,
+`[{ createdAt: 'desc' }, { id: 'desc' }]` na auditoria.
+
+**Por quê.** Para `cursor` o Prisma emite `campo >= (valor da linha do cursor)`
+seguido de `OFFSET 1`. Com chaves empatadas, o `>=` traz todos os empatados e o
+`OFFSET 1` descarta exatamente um — o que só está certo se os empatados
+voltarem sempre na mesma ordem. O PostgreSQL não promete isso para chaves
+iguais.
+
+**O que foi medido.** Neste banco, com 101 inscrições e até com a chave de
+ordenação IDÊNTICA nas 101 linhas, a travessia com limite 1, 3 e 25 devolveu
+tudo certo **com e sem** o desempate. O plano do PostgreSQL é estável aqui.
+
+**Classificação:**
+
+> **DETERMINISMO POR CONTRATO** — o desempate garante a ordem por definição da
+> consulta, e não pela estabilidade do plano.
+>
+> **MUTANTE NÃO SENSÍVEL AO DATASET UTILIZADO** — removê-lo não reprova a
+> suíte, porque este conjunto de dados não expõe a diferença.
+
+O desempate **fica**. Custa nada e troca uma garantia frágil por uma explícita.
+E o mutante sobrevivente **fica registrado como sobrevivente** — não se fabrica
+um dataset artificial só para exibir 15/15. Um número de mutação inflado vale
+menos que um número honesto com a ressalva escrita ao lado.
 
 ---
 

@@ -1,6 +1,6 @@
 # Compatibilidade entre navegadores — estado e procedimento
 
-**Levantado em:** FASE 2.4 · **Status:** gate ABERTO
+**Levantado em:** FASE 2.4 · **Reconferido em:** FASE 2.5 · **Status:** gate ABERTO
 
 ---
 
@@ -35,13 +35,20 @@ firefox  FALHOU: Executable doesn't exist at /opt/pw-browsers/firefox-1495/firef
 webkit   FALHOU: Executable doesn't exist at /opt/pw-browsers/webkit-2215/pw_run.sh
 ```
 
-E a instalação é barrada pela política de rede do ambiente:
+E a instalação é barrada pela política de rede do ambiente. Reconferido na
+FASE 2.5, agora com o motivo exato:
 
 ```
-$ npx playwright install firefox
-Failed to install browsers
-Error: Failed to download Firefox 142.0.1 (playwright build v1495)
+$ npx playwright install firefox webkit
+Error: Download failed: server returned code 403 body 'request blocked:
+  no rule or allowlist entry allows host "cdn.playwright.dev"'
+Error: Download failed: server returned code 403 body 'request blocked:
+  no rule or allowlist entry allows host "playwright.download.prss.microsoft.com"'
 ```
+
+Não é falta de espaço, nem versão errada, nem rede instável: os dois hosts de
+distribuição do Playwright estão fora da lista permitida deste ambiente. É uma
+decisão de infraestrutura, e não algo que se contorne de dentro da sessão.
 
 Fica o registro do método, porque ele vale para qualquer gate futuro:
 **confira o motor abrindo o motor.** Um caminho anunciado não é um binário
@@ -85,19 +92,43 @@ Funcional:
 8. Credenciamento
 9. Palco
 10. Resultados
-11. Overall / Momento Campeão
-12. Social
-13. Messenger
+11. Overall
+12. Momento Campeão
+13. Social
+14. Messenger
 
 Transversal:
 
-14. abertura e áudio (incluindo recusa de autoplay)
-15. diálogos (abrir, Escape, foco)
-16. avisos e confirmações não bloqueantes
-17. navegação no celular (gaveta)
+15. abertura
+16. áudio (incluindo recusa de autoplay)
+17. silenciar o som e a preferência sobreviver à recarga
 18. `prefers-reduced-motion: reduce`
-19. paginação: “Carregar mais” em lista longa
-20. larguras 320 / 390 / 768 / 1024 / 1440 / 2560
+19. diálogos (abrir, Escape, foco, empilhamento)
+20. navegação (gaveta no celular, barra lateral no desktop)
+21. toque: alvo mínimo, rolagem, sem atraso de 300 ms
+22. viewport e `safe-area` (entalhe e barra inferior)
+23. tela cheia do Momento Campeão
+24. paginação: “Carregar mais” em lista longa
+25. larguras 320 / 390 / 768 / 1024 / 1440 / 2560
+
+## 4.1 Atenção especial no Safari iOS
+
+Estes são os pontos onde o Safari iOS diverge dos outros motores de forma que
+importa para ESTE produto. Nenhum deles é coberto pelo WebKit do Playwright:
+
+| Ponto | Onde bate no MCI | O que conferir |
+|---|---|---|
+| **autoplay** | trilha da abertura | a recusa não pode travar a abertura; o convite para ativar som precisa aparecer |
+| **AudioContext** | não usado de propósito | confirmar que continua sem `AudioContext` — a trilha é um `<audio>` só |
+| **abertura** | primeira impressão | sequência completa sem salto nem tela preta |
+| **tela cheia** | Momento Campeão | o véu cobre a tela inteira, inclusive sob a barra de endereço |
+| **`safe-area`** | entalhe e barra inferior | nada de conteúdo sob o entalhe nem sob a barra |
+| **viewport mobile** | altura que muda ao rolar | `100vh` cresce e encolhe no iOS; conferir o véu do campeão e os diálogos |
+| **scroll** | listas longas paginadas | rolagem elástica não pode disparar “carregar mais” sozinha |
+| **touch** | operação de check-in | alvo de toque, duplo toque, e o gesto de voltar não pode fechar diálogo aberto |
+
+**NÃO declarar Safari PASS sem Safari real.** O WebKit do Playwright cobre o
+motor; ele não cobre o navegador, e é o navegador que o operador usa.
 
 ## 5. O que se sabe de risco, sem medir
 

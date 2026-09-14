@@ -636,7 +636,12 @@ const auditQuery = z.object({
   userId: id.optional(),
   action: z.string().trim().max(60).optional(),
   organizationId: id.optional(),
-  limit: z.coerce.number().int().min(1).max(200).default(100)
+  // O teto da auditoria é 200, e não 100 como o resto: a trilha é lida em
+  // varredura, não em navegação. O `cursor` tem o mesmo formato das demais
+  // listas — sem ele declarado, um cursor de 5.000 caracteres era ACEITO e
+  // silenciosamente descartado pelo zod, o que parecia validação e não era.
+  limit: z.coerce.number().int().min(1).max(200).default(100),
+  cursor: z.string().min(1).max(60).optional()
 });
 
 // ---------------------------------------------------------------- documentos

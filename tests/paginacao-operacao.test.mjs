@@ -160,6 +160,34 @@ describe('check-in: a paginação percorre o evento inteiro', () => {
 });
 
 describe('check-in: os extremos', () => {
+  // 99 é a fronteira que mais engana: a página não se completa, então NÃO
+  // pode haver `nextCursor`. Um cursor devolvido aqui faria a interface
+  // oferecer uma próxima página que não existe — e o operador clicaria nela
+  // no meio da fila para não receber nada.
+  it('99 de 99: página incompleta NÃO promete continuação', async () => {
+    const resposta = await listar('?limit=100&search=Atleta');
+    expect(resposta.status).toBe(200);
+    expect(resposta.body.items.length, 'o cenário deixou de ter 99 correspondências').toBe(99);
+    expect(resposta.body.summary.total).toBe(99);
+    expect(resposta.body.nextCursor, 'prometeu página seguinte numa lista que acabou').toBeNull();
+  });
+
+  it('1 de 1: a menor lista possível também não promete continuação', async () => {
+    const resposta = await listar('?limit=100&search=Atleta 050');
+    expect(resposta.status).toBe(200);
+    expect(resposta.body.items.length).toBe(1);
+    expect(resposta.body.summary.total).toBe(1);
+    expect(resposta.body.nextCursor).toBeNull();
+  });
+
+  it('0 de 0: busca sem correspondência é vazia, e não a lista inteira', async () => {
+    const resposta = await listar('?limit=100&search=NinguemComEsseNome');
+    expect(resposta.status).toBe(200);
+    expect(resposta.body.items).toEqual([]);
+    expect(resposta.body.summary.total).toBe(0);
+    expect(resposta.body.nextCursor).toBeNull();
+  });
+
   it('evento sem inscrito: lista vazia, total zero, sem cursor', async () => {
     const outro = await criarEventoCompleto(diretor, organizacao.id, { categoryCode: 'WELLNESS' });
     await transicionar(diretor, outro.event.id, ['PLANNED', 'REGISTRATIONS_OPEN']);
