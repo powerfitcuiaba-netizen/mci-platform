@@ -354,9 +354,18 @@ h1, h2, h3 { margin: 0; }
 .metric:hover { border-color: var(--linha-forte); transform: translateY(-1px); }
 .metric:hover::before { background: var(--ciano-puro); }
 .metric span { display: block; font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--cinza-fraco); font-weight: 700; }
+/* O valor QUEBRA em vez de ser cortado. O card foi desenhado para número, mas
+   `overflow: hidden` no card fazia qualquer valor longo sumir pela borda sem
+   aviso — visto na própria FASE 2, com "CINEMATOGRÁFICO" virando
+   "CINEMATOGRÁ". Cortar informação é sempre pior que ocupar duas linhas.
+
+   A entrelinha é 1.15 e não 1: com a fonte de display, o acento de "Á" passa
+   da caixa de linha apertada e era raspado pelo `overflow: hidden` do card.
+   Medido com scrollHeight, não olhado. */
 .metric strong {
-  display: block; font: 400 34px/1 var(--fonte-display); letter-spacing: 1px;
+  display: block; font: 400 34px/1.15 var(--fonte-display); letter-spacing: 1px;
   margin-top: var(--e2); color: var(--branco); font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 .metric small { display: block; font-size: 11.5px; color: var(--cinza); margin-top: var(--e1); }
 .metric.destaque { border-color: var(--vermelho-borda); }
@@ -1422,10 +1431,22 @@ main > * { animation: tela-entra var(--t-base) var(--curva-entrada) both; }
 .campeao {
   position: fixed; inset: 0; z-index: 195; display: grid; place-items: center;
   pointer-events: none; padding: var(--e5);
-  background: radial-gradient(110% 80% at 50% 45%, rgba(53,41,10,.55) 0%, rgba(3,5,8,.9) 72%);
+  /* O véu é OPACO embaixo e o dourado vem por cima. A primeira versão fazia o
+     contrário — o radial era mais claro justo no centro, e o nome do campeão
+     saía por cima do texto da página, que continuava legível atrás dele. Num
+     momento que existe para ter um nome só na tela, isso é o defeito mais caro
+     possível. Visto no preview, medido pelo contraste, corrigido aqui. */
+  background: rgba(3, 5, 8, .93);
+  backdrop-filter: blur(7px);
   animation: surge var(--t-enfase) ease-out both;
 }
+/* O halo dourado é camada separada: assim ele ilumina sem clarear o véu. */
+.campeao::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(90% 65% at 50% 45%, rgba(245,207,90,.16) 0%, transparent 68%);
+}
 .campeao-caixa {
+  position: relative;
   display: grid; justify-items: center; gap: var(--e2); text-align: center;
   color: var(--ouro-luz); padding: var(--e7) var(--e8);
   animation: campeao-entra var(--t-cinema) var(--curva-impacto) both;
