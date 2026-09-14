@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { MarcaMci } from './ui';
 import { direcaoDeAudio, definirPreferenciaDeAudio } from '../lib/audioDirector';
+import { NIVEL, podeAnimar } from '../lib/experiencia';
 
 // ============================================================================
 // ABERTURA DO MCI.
@@ -41,19 +42,28 @@ function marcarComoVista() {
   try { sessionStorage.setItem(CHAVE_DA_SESSAO, 'true'); } catch { /* aba anônima */ }
 }
 
-const prefereMenosMovimento = () => {
-  try {
-    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  } catch {
-    return false;
-  }
-};
-
 export default function AberturaMci({ aoTerminar }) {
   const [saindo, setSaindo] = useState(false);
   const [audio, setAudio] = useState('parado');
   const encerrada = useRef(false);
-  const reduzido = useRef(prefereMenosMovimento());
+
+  // A ABERTURA CONSULTA O TETO DO MOTOR, como qualquer outro efeito.
+  //
+  // Ela nasceu antes do motor e tinha a própria cópia de
+  // `prefereMenosMovimento` — segunda verdade sobre a mesma pergunta. Pior: só
+  // olhava a preferência de movimento, e NÃO a capacidade do aparelho. Isso
+  // deixava a animação mais cara do produto inteiro (um `filter: blur`
+  // animado sobre a marca em tamanho grande) rodando justamente no celular
+  // fraco, que é onde ela dói.
+  //
+  // Medido: capturar um quadro DURANTE a abertura custa ~12s contra ~0,2s com
+  // a tela parada, e o custo não muda com a resolução — é a composição do
+  // desfoque, não o número de pixels.
+  //
+  // A abertura é nível CINEMATOGRÁFICO. Quem não alcança esse teto — seja por
+  // preferência, seja por aparelho — recebe a versão curta e sem desfoque, que
+  // continua sendo a abertura: a marca, o nome e a entrada no sistema.
+  const reduzido = useRef(!podeAnimar(NIVEL.CINEMATOGRAFICO));
   const duracao = reduzido.current ? DURACAO_REDUZIDA_MS : DURACAO_MS;
 
   // Encerrar é idempotente: o tempo pode acabar enquanto a pessoa clica em

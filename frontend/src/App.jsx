@@ -8,7 +8,7 @@ import { AuthProvider, useAuth } from './AuthContext';
 import api from './services/api';
 import { useDebounce, useFetch, useHashRoute, useToasts } from './lib/hooks';
 import { Avatar, BlocoDaMarca, Toasts } from './components/ui';
-import { caminhoDoAvatar } from './lib/format';
+import { caminhoDoAvatar, papel } from './lib/format';
 import LimiteDeErro from './components/limiteDeErro';
 import AberturaMci, { aberturaJaFoiVista } from './components/aberturaMci';
 import { PalcoDaExperiencia } from './components/experiencia';
@@ -193,6 +193,23 @@ function Shell() {
   // `aberturaJaFoiVista` é lido na inicialização do estado — não num efeito —
   // para a abertura não piscar em quem já a viu.
   const [abertura, setAbertura] = useState(() => !aberturaJaFoiVista());
+
+  // CONTINUIDADE DA ABERTURA.
+  //
+  // Quem acabou de ver a abertura entra no sistema; quem já a viu apenas
+  // recarregou uma página. São duas coisas diferentes, e o corte seco entre a
+  // abertura e a primeira tela fazia as duas parecerem iguais — a abertura
+  // terminava e o casco aparecia, sem ligação nenhuma entre os dois gestos.
+  //
+  // A marca dura só a primeira entrada e sai sozinha: alongar a entrada de
+  // TODA navegação deixaria o sistema lento pelo resto da sessão, que é o
+  // oposto do que esta fase inteira busca.
+  const [entradaContinua, setEntradaContinua] = useState(false);
+  useEffect(() => {
+    if (!entradaContinua) return undefined;
+    const relogio = setTimeout(() => setEntradaContinua(false), 1400);
+    return () => clearTimeout(relogio);
+  }, [entradaContinua]);
   const [somLigado, setSomLigado] = useState(() => preferenciaDeAudio());
   const { rota, partes, navegar } = useHashRoute();
   const { toasts, notificar, remover } = useToasts();
@@ -224,16 +241,27 @@ function Shell() {
 
   useEffect(() => { setMenuAberto(false); }, [rota]);
 
+  // Tocar num item do menu SEMPRE fecha a gaveta — inclusive quando o item é o
+  // da tela em que já se está. Fechar só na troca de rota deixava a gaveta
+  // aberta nesse caso, e no celular isso parece que o toque não registrou.
+  const navegarEFechar = destino => { setMenuAberto(false); navegar(destino); };
+
   // A abertura vem ANTES do estado de carregamento: ela é a primeira coisa que
   // a pessoa vê, e enquanto ela roda a sessão termina de ser verificada em
   // segundo plano. Nada da abertura espera rede.
-  if (abertura) return <AberturaMci aoTerminar={() => setAbertura(false)} />;
+  if (abertura) {
+    return <AberturaMci aoTerminar={() => { setAbertura(false); setEntradaContinua(true); }} />;
+  }
 
   if (loading) {
     return <div className="auth-shell"><div className="auth-card"><p>Carregando…</p></div></div>;
   }
 
-  if (!authenticated) return <Auth />;
+  // A primeira tela depois da abertura costuma ser a de ENTRADA, e não o
+  // casco: quem chega precisa fazer login. Marcar só o casco fazia a
+  // continuidade nunca acontecer para a maioria das pessoas — a marca expirava
+  // enquanto elas digitavam a senha.
+  if (!authenticated) return <Auth entradaContinua={entradaContinua} />;
 
   const itensAdmin = NAVEGACAO_ADMIN.filter(item => pode(item.permissao));
   const ativoPrincipal = rotaAtiva(NAVEGACAO_PRINCIPAL, rota);
@@ -291,7 +319,7 @@ function Shell() {
   const mensagensNaoLidas = mensagens.data?.totalUnread ?? 0;
 
   return (
-    <div className="shell">
+    <div className={`shell${entradaContinua ? ' entrada-continua' : ''}`}>
       {menuAberto && <button type="button" className="mobile-scrim" aria-label="Fechar menu" onClick={() => setMenuAberto(false)} />}
 
       <nav className={`sidebar${menuAberto ? ' is-open' : ''}`} aria-label="Navegação principal">
@@ -306,7 +334,7 @@ function Shell() {
             const ativo = item.rota === ativoPrincipal;
             const contador = item.contador === 'mensagens' ? mensagensNaoLidas : 0;
             return (
-              <button key={item.rota} type="button" className={`nav-item revela${ativo ? ' is-active' : ''}`} style={estiloDaSequencia(indice)} onClick={() => navegar(item.rota)}>
+              <button key={item.rota} type="button" className={`nav-item revela${ativo ? ' is-active' : ''}`} style={estiloDaSequencia(indice)} onClick={() => navegarEFechar(item.rota)}>
                 <Icone size={16} /> {item.rotulo}
                 {contador > 0 && <span className="badge-count">{contador}</span>}
               </button>
@@ -321,7 +349,7 @@ function Shell() {
               const Icone = item.icone;
               const ativo = item.rota === ativoAdmin;
               return (
-                <button key={item.rota} type="button" className={`nav-item revela${ativo ? ' is-active' : ''}`} style={estiloDaSequencia(NAVEGACAO_PRINCIPAL.length + indice)} onClick={() => navegar(item.rota)}>
+                <button key={item.rota} type="button" className={`nav-item revela${ativo ? ' is-active' : ''}`} style={estiloDaSequencia(NAVEGACAO_PRINCIPAL.length + indice)} onClick={() => navegarEFechar(item.rota)}>
                   <Icone size={16} /> {item.rotulo}
                 </button>
               );
@@ -334,7 +362,7 @@ function Shell() {
             <Avatar name={user?.name} mediaPath={caminhoDoAvatar(perfilSocial.data)} size="avatar-sm" />
             <span className="info">
               <strong>{user?.name}</strong>
-              <small>{user?.role}</small>
+              <small>{papel(user?.role).rotulo}</small>
             </span>
           </button>
           <button type="button" className="nav-item" onClick={logout}><LogOut size={16} /> Sair</button>

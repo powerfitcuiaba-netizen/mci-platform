@@ -13,7 +13,7 @@ import CadastroWizard from './cadastroWizard';
 // decide é o servidor (`PAPEIS_DE_CADASTRO_ABERTO` em src/utils/roles.js entra
 // num `z.enum` e é reconferido em authService.register).
 
-export default function Auth() {
+export default function Auth({ entradaContinua = false }) {
   const { login } = useAuth();
   const [modo, setModo] = useState('login');
   const [form, setForm] = useState({ email: '', password: '' });
@@ -38,7 +38,7 @@ export default function Auth() {
   };
 
   return (
-    <div className="auth-shell">
+    <div className={`auth-shell${entradaContinua ? ' entrada-continua' : ''}`}>
       <div className="auth-card">
         <MarcaMci largura={168} className="marca-na-entrada" />
         <span className="eyebrow">MCI Platform</span>

@@ -1686,3 +1686,32 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
 @media (prefers-reduced-motion: reduce) {
   .post-action.is-on svg, .chat-msg { animation: none; }
 }
+
+/* --- continuidade da abertura ---
+   A abertura termina e o sistema APARECE — em vez de a abertura sair e o
+   casco surgir do nada, como dois programas diferentes. Só na primeira
+   entrada da sessão: alongar a entrada de toda navegação deixaria o sistema
+   lento pelo resto do dia, que é o oposto do que esta fase busca.
+
+   O casco e a primeira tela usam a mesma duração e a mesma curva, com a tela
+   entrando logo depois do casco. É a ORDEM que faz parecer um gesto só. */
+.shell.entrada-continua .sidebar { animation-duration: var(--t-enfase); }
+.shell.entrada-continua .topbar  { animation-duration: var(--t-enfase); animation-delay: 60ms; }
+.shell.entrada-continua main > * {
+  animation: tela-entra var(--t-enfase) var(--curva-entrada) 140ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell.entrada-continua .sidebar,
+  .shell.entrada-continua .topbar,
+  .shell.entrada-continua main > * { animation: none; }
+}
+
+/* A continuidade vale para a PRIMEIRA tela depois da abertura, e para a
+   maioria das pessoas essa tela é a de entrada — não o casco. */
+.auth-shell.entrada-continua .auth-card {
+  animation: tela-entra var(--t-enfase) var(--curva-entrada) 80ms both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-shell.entrada-continua .auth-card { animation: none; }
+}

@@ -159,6 +159,34 @@ describe('sem sessão', () => {
   });
 });
 
+describe('a gaveta do celular', () => {
+  it('fecha ao tocar num item, mesmo sendo o da tela atual', async () => {
+    const usuario = userEvent.setup();
+    montarComo(ATLETA);
+    await screen.findByRole('navigation', { name: /navegação principal/i });
+
+    await usuario.click(screen.getByRole('button', { name: /abrir menu/i }));
+    expect(document.querySelector('.sidebar.is-open')).toBeTruthy();
+
+    // "Início" já é a tela atual: não há troca de rota, e fechar só na troca
+    // deixava a gaveta aberta — no celular isso parece toque não registrado.
+    await usuario.click(within(screen.getByRole('navigation', { name: /navegação principal/i }))
+      .getByRole('button', { name: 'Início' }));
+    await waitFor(() => expect(document.querySelector('.sidebar.is-open')).toBeNull());
+  });
+
+  it('fecha também quando a rota muda de verdade', async () => {
+    const usuario = userEvent.setup();
+    montarComo(ATLETA);
+    await screen.findByRole('navigation', { name: /navegação principal/i });
+
+    await usuario.click(screen.getByRole('button', { name: /abrir menu/i }));
+    await usuario.click(within(screen.getByRole('navigation', { name: /navegação principal/i }))
+      .getByRole('button', { name: 'Atletas' }));
+    await waitFor(() => expect(document.querySelector('.sidebar.is-open')).toBeNull());
+  });
+});
+
 describe('a abertura precede o sistema', () => {
   it('numa sessão nova a abertura aparece antes de qualquer tela', async () => {
     sessionStorage.removeItem('mci-abertura-vista');
@@ -167,6 +195,43 @@ describe('a abertura precede o sistema', () => {
     expect(await screen.findByRole('dialog', { name: /abertura do mci/i })).toBeInTheDocument();
     // E o sistema ainda não está montado por trás dela.
     expect(screen.queryByRole('navigation', { name: /navegação principal/i })).not.toBeInTheDocument();
+  });
+
+  it('quem ACABOU de ver a abertura entra com continuidade; quem recarregou, não', async () => {
+    // São duas coisas diferentes: entrar no sistema e recarregar uma página.
+    // O corte seco fazia as duas parecerem iguais.
+    sessionStorage.removeItem('mci-abertura-vista');
+    const usuario = userEvent.setup();
+    montarComo(ATLETA);
+    await usuario.click(await screen.findByRole('button', { name: /entrar agora/i }));
+    await screen.findByRole('navigation', { name: /navegação principal/i });
+    expect(document.querySelector('.shell.entrada-continua')).toBeTruthy();
+
+    cleanup();
+
+    // Segunda montagem: a abertura já foi vista, então é recarga — entrada
+    // normal, sem alongar nada.
+    sessionStorage.setItem('mci-abertura-vista', 'true');
+    montarComo(ATLETA);
+    await screen.findByRole('navigation', { name: /navegação principal/i });
+    expect(document.querySelector('.shell.entrada-continua')).toBeNull();
+  });
+
+  it('a continuidade sai sozinha — não alonga a navegação pelo resto da sessão', async () => {
+    // Relógio REAL aqui. Com relógio falso o teste media o adiantamento do
+    // tempo, não o comportamento: o que importa é que a marca some sem
+    // ninguém tirar — senão toda navegação do resto do dia ficaria lenta.
+    sessionStorage.removeItem('mci-abertura-vista');
+    const usuario = userEvent.setup();
+    montarComo(ATLETA);
+    await usuario.click(await screen.findByRole('button', { name: /entrar agora/i }));
+    await screen.findByRole('navigation', { name: /navegação principal/i });
+    expect(document.querySelector('.shell.entrada-continua')).toBeTruthy();
+
+    await waitFor(
+      () => expect(document.querySelector('.shell.entrada-continua')).toBeNull(),
+      { timeout: 4000 }
+    );
   });
 
   it('depois de "Entrar agora", o sistema aparece', async () => {

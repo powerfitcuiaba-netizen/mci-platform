@@ -162,3 +162,57 @@ describe('movimento reduzido', () => {
     }
   });
 });
+
+// ==========================================================================
+// A ABERTURA CONSULTA O TETO DO MOTOR.
+//
+// Ela nasceu antes do motor e só olhava a preferência de movimento — nunca a
+// capacidade do aparelho. Isso deixava a animação mais cara do produto (um
+// `filter: blur` animado sobre a marca em tamanho grande) rodando justamente
+// no celular fraco, que é onde ela dói.
+// ==========================================================================
+describe('a abertura respeita o aparelho, e não só a preferência', () => {
+  const semMatchMedia = () => {
+    window.matchMedia = () => ({
+      matches: false, media: '', onchange: null,
+      addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {},
+      dispatchEvent: () => false
+    });
+  };
+
+  afterEach(() => {
+    delete navigator.deviceMemory;
+    delete navigator.hardwareConcurrency;
+  });
+
+  it('aparelho com pouca memória recebe a abertura curta, sem desfoque', () => {
+    semMatchMedia();
+    Object.defineProperty(navigator, 'deviceMemory', { value: 2, configurable: true });
+    render(<AberturaMci aoTerminar={() => {}} />);
+    expect(document.querySelector('.abertura.is-reduzida')).toBeTruthy();
+  });
+
+  it('poucos núcleos também', () => {
+    semMatchMedia();
+    Object.defineProperty(navigator, 'hardwareConcurrency', { value: 2, configurable: true });
+    render(<AberturaMci aoTerminar={() => {}} />);
+    expect(document.querySelector('.abertura.is-reduzida')).toBeTruthy();
+  });
+
+  it('aparelho capaz recebe a abertura inteira', () => {
+    semMatchMedia();
+    Object.defineProperty(navigator, 'deviceMemory', { value: 8, configurable: true });
+    Object.defineProperty(navigator, 'hardwareConcurrency', { value: 8, configurable: true });
+    render(<AberturaMci aoTerminar={() => {}} />);
+    expect(document.querySelector('.abertura.is-reduzida')).toBeNull();
+    expect(document.querySelector('.abertura')).toBeTruthy();
+  });
+
+  it('mesmo reduzida, a abertura ainda é a abertura — marca e caminho de entrada', () => {
+    semMatchMedia();
+    Object.defineProperty(navigator, 'deviceMemory', { value: 1, configurable: true });
+    render(<AberturaMci aoTerminar={() => {}} />);
+    expect(screen.getByText(/Campeonato Brasileiro Muscle Contest/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /entrar agora/i })).toBeTruthy();
+  });
+});

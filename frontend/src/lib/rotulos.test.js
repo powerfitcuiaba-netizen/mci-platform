@@ -19,10 +19,19 @@ import {
 // Corrigir seis lugares não impede o sétimo. Esta varredura impede.
 // ==========================================================================
 
-const TELAS = resolve(process.cwd(), 'src/pages');
-const fontes = readdirSync(TELAS)
-  .filter(nome => /\.jsx$/.test(nome) && !nome.includes('.test.'))
-  .map(nome => ({ nome, texto: readFileSync(resolve(TELAS, nome), 'utf8') }));
+// A varredura olhava SÓ `src/pages` — e deixou passar `{user?.role}` no rodapé
+// da barra lateral, que fica em `App.jsx` e aparece em TODAS as telas. Uma
+// varredura com ponto cego é pior que nenhuma: dá confiança sem cobertura.
+const PASTAS = ['src/pages', 'src/components'];
+const fontes = [
+  ...PASTAS.flatMap(pasta => {
+    const base = resolve(process.cwd(), pasta);
+    return readdirSync(base)
+      .filter(nome => /\.jsx$/.test(nome) && !nome.includes('.test.'))
+      .map(nome => ({ nome: `${pasta}/${nome}`, texto: readFileSync(resolve(base, nome), 'utf8') }));
+  }),
+  { nome: 'src/App.jsx', texto: readFileSync(resolve(process.cwd(), 'src/App.jsx'), 'utf8') }
+];
 
 // Campos cujo valor é um enum do banco. Renderizá-los direto mostra o código.
 const CAMPOS_DE_ENUM = ['status', 'role', 'proStatus', 'kind'];
@@ -30,7 +39,8 @@ const CAMPOS_DE_ENUM = ['status', 'role', 'proStatus', 'kind'];
 describe('nenhum enum chega cru à tela', () => {
   it('a varredura enxerga as telas de verdade', () => {
     expect(fontes.length).toBeGreaterThan(5);
-    expect(fontes.some(f => f.nome === 'adminEvent.jsx')).toBe(true);
+    expect(fontes.some(f => f.nome === 'src/App.jsx')).toBe(true);
+    expect(fontes.some(f => f.nome.endsWith('adminEvent.jsx'))).toBe(true);
   });
 
   it('a varredura RECONHECE um enum cru — controle contra padrão quebrado', () => {
