@@ -42,6 +42,42 @@ export const MCIEvento = Object.freeze({
   NOVIDADE: 'novidade'
 });
 
+// ------------------------------------------------------------------- os atos
+//
+// O ATO é o estado narrativo da tela, derivado da rota. Ele NÃO é um efeito:
+// serve para dizer quanta presença aquele momento merece.
+//
+//   ENTRAR      abertura e login — a chegada
+//   OPERAR      o dia de trabalho: rápido, preciso, sem cerimônia
+//   COMPETIR    o piso do evento: palco e resultados
+//   CONSAGRAR   a declaração do campeão
+//
+// REGRA DE SEGURANÇA: o ato só pode BAIXAR a intensidade, nunca subir. O teto
+// (`tetoDeIntensidade`) continua sendo a autoridade — preferência de movimento
+// e capacidade do aparelho vencem o ato sempre. Um ato capaz de elevar o nível
+// viraria porta lateral para burlar a acessibilidade.
+//
+// Por isso o Ato III não sobe efeito nenhum: ele acrescenta PROFUNDIDADE, uma
+// luz estática que não se move e não custa quadro. A diferença entre operar e
+// competir se sente pelo ambiente, não por mais coisa piscando.
+export const ATO = Object.freeze({
+  ENTRAR: 'entrar',
+  OPERAR: 'operar',
+  COMPETIR: 'competir',
+  CONSAGRAR: 'consagrar'
+});
+
+// As rotas do piso do evento. Curta de propósito: se metade do sistema fosse
+// "competir", competir não significaria nada.
+const ROTAS_DE_COMPETICAO = Object.freeze(['admin/palco', 'admin/resultados']);
+
+export function atoDaRota(rota) {
+  if (!rota) return ATO.OPERAR;
+  return ROTAS_DE_COMPETICAO.some(alvo => rota === alvo || rota.startsWith(`${alvo}/`))
+    ? ATO.COMPETIR
+    : ATO.OPERAR;
+}
+
 // ------------------------------------------------------------- onde confirmar
 //
 // O NÍVEL decide a intensidade; o nível também decide ONDE o gesto acontece.

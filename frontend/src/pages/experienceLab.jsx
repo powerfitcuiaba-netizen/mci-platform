@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PageHead, Badge, Metric, Skeleton, Modal, ModalActions } from '../components/ui';
 import { Revelacao, VarreduraDeEnergia, PulsoAoVivo } from '../components/experiencia';
 import {
@@ -19,7 +19,53 @@ import {
 
 const NOME_DO_NIVEL = ['ESTÁTICO', 'MICRO', 'TRANSIÇÃO', 'EVENTO', 'MOMENTO', 'CINEMATOGRÁFICO'];
 
+// O roteiro. Cada passo é um evento REAL do produto — nenhum inventado para a
+// demonstração. `espera` é o tempo até o próximo passo, não a duração do efeito.
+const ROTEIRO = [
+  { ato: 'II', rotulo: 'Inscrição realizada', evento: MCIEvento.SUCESSO, espera: 1400,
+    detalhe: { titulo: 'Inscrição realizada', descricao: 'Atleta reconhecido pelo CPF.' },
+    nota: 'confirma na linha' },
+  { ato: 'II', rotulo: 'Check-in confirmado', evento: MCIEvento.CHECKIN, espera: 1200,
+    detalhe: { titulo: 'Check-in confirmado', descricao: 'Carlos Mendes' }, nota: 'confirma na linha' },
+  { ato: 'II', rotulo: 'Pesagem registrada', evento: MCIEvento.PESAGEM, espera: 1200,
+    detalhe: { titulo: 'Pesagem registrada', descricao: '84,20 kg' }, nota: 'confirma na linha' },
+  { ato: 'II', rotulo: 'Atleta credenciado', evento: MCIEvento.CREDENCIADO, espera: 1400,
+    detalhe: { titulo: 'Acesso liberado', descricao: 'Carlos Mendes · Atleta' }, nota: 'confirma na linha' },
+  { ato: 'III', rotulo: 'Bateria chamada', evento: MCIEvento.NOVIDADE, espera: 1400,
+    detalhe: { titulo: 'Bateria chamada', descricao: 'Bateria 1 · 6 atleta(s)' }, nota: 'o piso do evento' },
+  { ato: 'III', rotulo: 'No palco', evento: MCIEvento.AO_VIVO, espera: 1600,
+    detalhe: { titulo: 'No palco', descricao: 'Bateria 1' }, nota: 'estado real, ao vivo' },
+  { ato: 'III', rotulo: 'Resultado publicado', evento: MCIEvento.RESULTADO_PUBLICADO, espera: 3400,
+    detalhe: { titulo: 'Resultado publicado', descricao: '5 atleta(s) pontuaram no ranking.' },
+    nota: 'ocupa o centro — nível 4' },
+  { ato: 'IV', rotulo: 'Campeão geral', evento: MCIEvento.CAMPEAO, espera: 5600,
+    detalhe: { titulo: 'Campeão Overall', nome: 'Carlos Mendes', descricao: 'Muscle Contest Brasil 2026' },
+    nota: 'declarado pela organização — toma a tela' }
+];
+
 export default function ExperienceLab() {
+  const [passoDoCinema, setPassoDoCinema] = useState(null);
+  const [cinemaEmCurso, setCinemaEmCurso] = useState(false);
+  const cancelado = useRef(false);
+
+  // Sai de cena junto com a tela: sem isto, sair do laboratório no meio da
+  // narrativa deixaria uma sequência de relógios disparando no vazio.
+  useEffect(() => () => { cancelado.current = true; }, []);
+
+  const rodarCinema = async () => {
+    if (cinemaEmCurso) return;
+    cancelado.current = false;
+    setCinemaEmCurso(true);
+    for (const passo of ROTEIRO) {
+      if (cancelado.current) break;
+      setPassoDoCinema(passo.rotulo);
+      anunciar(passo.evento, passo.detalhe);
+      await new Promise(resolve => { setTimeout(resolve, passo.espera); });
+    }
+    setPassoDoCinema(null);
+    setCinemaEmCurso(false);
+  };
+
   // A linha recém-mexida, calibrada no mesmo lugar que os outros efeitos —
   // senão a confirmação de operação repetida seria o único gesto do sistema
   // sem lugar de ajuste.
@@ -160,6 +206,42 @@ export default function ExperienceLab() {
             Campeão geral (nível 5)
           </button>
         </div>
+      </section>
+
+      {/* ------------------------------------------------------------------
+          MCI CINEMA — a narrativa inteira, em ordem.
+
+          Não é um efeito novo: é a mesma sequência que o produto dispara,
+          encadeada aqui para se poder VER o arco. Ato II confirma na linha e
+          não interrompe; Ato III sobe a presença; Ato IV é o único que ocupa a
+          tela. Ver de ponta a ponta é o que permite dizer "aqui está demais"
+          antes de estar demais em produção.
+          ------------------------------------------------------------------ */}
+      <section className="card" style={{ marginTop: 18 }}>
+        <h2>MCI Cinema</h2>
+        <p className="muted">
+          A narrativa em ordem, com os mesmos eventos que o produto dispara.
+          Repare que os oito primeiros passos NÃO interrompem: só a publicação
+          ocupa o centro, e só a declaração do Overall toma a tela.
+        </p>
+        <div className="chips" style={{ marginTop: 12 }}>
+          <button type="button" className="chip" disabled={cinemaEmCurso} onClick={rodarCinema}>
+            {cinemaEmCurso ? `Em cena: ${passoDoCinema}` : '▶ Rodar a narrativa inteira'}
+          </button>
+          {cinemaEmCurso && (
+            <button type="button" className="chip" onClick={() => { cancelado.current = true; }}>
+              Interromper
+            </button>
+          )}
+        </div>
+        <ol className="cinema-roteiro">
+          {ROTEIRO.map(passo => (
+            <li key={passo.rotulo} className={passoDoCinema === passo.rotulo ? 'is-agora' : ''}>
+              <strong>{passo.ato}</strong> {passo.rotulo}
+              <small>{passo.nota}</small>
+            </li>
+          ))}
+        </ol>
       </section>
 
       <section className="card" style={{ marginTop: 18 }}>

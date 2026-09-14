@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   NIVEL, MCIEvento, ASSINATURA, podeAnimar, tetoDeIntensidade, prefereMenosMovimento,
-  anunciar, ouvirExperiencia, atrasoDaSequencia, estiloDaSequencia, TETO_DE_ATRASO
+  anunciar, ouvirExperiencia, atrasoDaSequencia, estiloDaSequencia, TETO_DE_ATRASO,
+  ATO, atoDaRota
 } from './experiencia';
 
 // ==========================================================================
@@ -165,5 +166,47 @@ describe('as assinaturas', () => {
     for (const evento of [MCIEvento.SUCESSO, MCIEvento.CHECKIN, MCIEvento.PESAGEM, MCIEvento.CREDENCIADO, MCIEvento.AVISO, MCIEvento.ERRO, MCIEvento.NOVIDADE, MCIEvento.AO_VIVO]) {
       expect(ASSINATURA[evento].nivel, `${evento} está caro demais`).toBeLessThanOrEqual(NIVEL.EVENTO);
     }
+  });
+});
+
+// ==========================================================================
+// OS ATOS.
+//
+// A regra que mais importa aqui não é qual rota é qual ato — é que o ato SÓ
+// PODE BAIXAR a intensidade. Um ato capaz de elevar o nível viraria porta
+// lateral para burlar a preferência de movimento e o aparelho fraco.
+// ==========================================================================
+describe('os atos', () => {
+  it('palco e resultados são o piso do evento', () => {
+    expect(atoDaRota('admin/palco')).toBe(ATO.COMPETIR);
+    expect(atoDaRota('admin/resultados')).toBe(ATO.COMPETIR);
+    expect(atoDaRota('admin/palco/b1')).toBe(ATO.COMPETIR);
+  });
+
+  it('o resto do sistema é operar — e isso é de propósito', () => {
+    for (const rota of ['', 'inicio', 'campeonatos', 'atletas', 'admin', 'admin/checkin',
+                        'admin/pesagem', 'admin/credenciamento', 'admin/inscricoes',
+                        'social', 'messenger', 'ranking']) {
+      expect(atoDaRota(rota), rota).toBe(ATO.OPERAR);
+    }
+  });
+
+  it('uma rota que só COMEÇA parecida não vira competição', () => {
+    // "admin/resultados-antigos" não é a tela de resultados.
+    expect(atoDaRota('admin/resultados-antigos')).toBe(ATO.OPERAR);
+    expect(atoDaRota('admin/palcox')).toBe(ATO.OPERAR);
+  });
+
+  it('rota ausente não quebra', () => {
+    expect(atoDaRota(undefined)).toBe(ATO.OPERAR);
+    expect(atoDaRota(null)).toBe(ATO.OPERAR);
+  });
+
+  it('o ato NÃO participa do teto de intensidade — só o motor decide', () => {
+    // A garantia estrutural: `atoDaRota` é função pura da rota e não toca em
+    // `tetoDeIntensidade`. Se um dia alguém ligar os dois, este teste é o lugar
+    // onde a conversa acontece.
+    const fonte = atoDaRota.toString();
+    expect(fonte).not.toMatch(/teto|podeAnimar|NIVEL/i);
   });
 });

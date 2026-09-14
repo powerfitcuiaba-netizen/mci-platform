@@ -42,8 +42,12 @@ function aparelho({ movimentoReduzido = false } = {}) {
 const EVENTO = {
   id: 'e1',
   name: 'Muscle Contest Curitiba',
+  // `category.id` NÃO é enfeite do dublê: é o `value` da opção de recorte, e
+  // é ele que vai no corpo da declaração. A API sempre o devolve
+  // (eventService.ESTRUTURA seleciona id, code, name, sex). Sem ele aqui, o
+  // teste passava com `key={undefined}` e o recorte nunca seria enviado.
   eventCategories: [{
-    category: { name: 'Men’s Physique' },
+    category: { id: 'cat1', name: 'Men’s Physique' },
     divisions: [{ name: 'Open', classes: [{ id: 'c1', name: 'Até 172cm' }] }]
   }]
 };
@@ -332,6 +336,27 @@ describe('título Overall', () => {
     expect(api.ranking.declararOverall.mock.calls[0][1].athleteId).toBe('at1');
     await waitFor(() => expect(document.querySelector('.campeao')).toBeTruthy());
     expect(screen.getByText('Carlos Mendes')).toBeTruthy();
+  });
+
+  // O recorte é OPCIONAL, mas quando é escolhido tem de CHEGAR. A opção existir
+  // na tela não prova nada: o que vai no corpo da declaração é o `value` dela.
+  // Um dublê sem `category.id` desenhava a opção certinha, com `value=""`, e o
+  // título viraria Overall do evento inteiro sem ninguém perceber.
+  it('o recorte escolhido chega no corpo da declaração', async () => {
+    aparelho();
+    api.ranking.declararOverall.mockResolvedValue({});
+    const campo = await abrirDeclaracao();
+    fireEvent.change(campo, { target: { value: 'at1' } });
+
+    const recorte = screen.getByLabelText(/Recorte/i);
+    const opcao = [...recorte.options].find(o => o.textContent.includes('Physique'));
+    expect(opcao, 'a categoria do evento não apareceu como recorte').toBeTruthy();
+    expect(opcao.value, 'a opção de recorte não carrega id de categoria').toBeTruthy();
+    fireEvent.change(recorte, { target: { value: opcao.value } });
+    fireEvent.click(screen.getAllByRole('button', { name: /^Declarar Overall$/i }).at(-1));
+
+    await waitFor(() => expect(api.ranking.declararOverall).toHaveBeenCalled());
+    expect(api.ranking.declararOverall.mock.calls[0][1].categoryId).toBe('cat1');
   });
 
   it('sem atleta escolhido não dá para declarar', async () => {

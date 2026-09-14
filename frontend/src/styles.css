@@ -1715,3 +1715,41 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
 @media (prefers-reduced-motion: reduce) {
   .auth-shell.entrada-continua .auth-card { animation: none; }
 }
+
+/* ===========================================================================
+   OS ATOS — a espinha narrativa
+   ===========================================================================
+   O ato não acrescenta EFEITO: acrescenta PRESENÇA. "Operar" é o padrão e não
+   ganha nada — é o dia de trabalho, e ele precisa ser rápido.
+
+   "Competir" é o piso do evento: palco e resultados. Ganha uma luz de palco no
+   topo do conteúdo. ESTÁTICA — não se move, não pisca, não consome quadro.
+   Bateria dura minutos e o operador está em pé com o telefone na mão; qualquer
+   coisa perpétua aqui é bateria indo embora.
+
+   E o ato NUNCA sobe o nível de um efeito. Só o teto do motor decide isso. */
+.shell[data-ato="competir"] main {
+  position: relative;
+}
+.shell[data-ato="competir"] main::before {
+  content: ''; position: absolute; inset: 0 0 auto 0; height: 180px;
+  pointer-events: none; z-index: 0;
+  background: radial-gradient(120% 100% at 50% 0%, rgba(227,30,36,.10) 0%, transparent 70%);
+}
+.shell[data-ato="competir"] main > * { position: relative; z-index: 1; }
+
+/* No celular a luz encolhe: a tela é menor e o conteúdo precisa dela inteira. */
+@media (max-width: 640px) {
+  .shell[data-ato="competir"] main::before { height: 96px; }
+}
+
+/* --- roteiro do MCI Cinema (laboratório) --- */
+.cinema-roteiro { list-style: none; margin: var(--e4) 0 0; padding: 0; display: grid; gap: 2px; }
+.cinema-roteiro li {
+  display: grid; grid-template-columns: 28px 1fr; gap: var(--e3); align-items: baseline;
+  padding: var(--e2) var(--e3); border-radius: var(--raio); font-size: 13px;
+}
+.cinema-roteiro li strong { color: var(--cinza-fraco); font-size: 11px; letter-spacing: .1em; }
+.cinema-roteiro li small { grid-column: 2; color: var(--cinza-fraco); font-size: 11.5px; }
+.cinema-roteiro li.is-agora { background: var(--superficie-2); }
+.cinema-roteiro li.is-agora strong { color: var(--vermelho-claro); }

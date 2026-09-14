@@ -12,7 +12,7 @@ import { caminhoDoAvatar, papel } from './lib/format';
 import LimiteDeErro from './components/limiteDeErro';
 import AberturaMci, { aberturaJaFoiVista } from './components/aberturaMci';
 import { PalcoDaExperiencia } from './components/experiencia';
-import { estiloDaSequencia } from './lib/experiencia';
+import { atoDaRota, estiloDaSequencia } from './lib/experiencia';
 import ExperienceLab from './pages/experienceLab';
 import { direcaoDeAudio, preferenciaDeAudio, definirPreferenciaDeAudio } from './lib/audioDirector';
 import Auth from './pages/authPages';
@@ -319,7 +319,7 @@ function Shell() {
   const mensagensNaoLidas = mensagens.data?.totalUnread ?? 0;
 
   return (
-    <div className={`shell${entradaContinua ? ' entrada-continua' : ''}`}>
+    <div className={`shell${entradaContinua ? ' entrada-continua' : ''}`} data-ato={atoDaRota(rota)}>
       {menuAberto && <button type="button" className="mobile-scrim" aria-label="Fechar menu" onClick={() => setMenuAberto(false)} />}
 
       <nav className={`sidebar${menuAberto ? ' is-open' : ''}`} aria-label="Navegação principal">
