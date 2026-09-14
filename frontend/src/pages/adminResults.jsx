@@ -4,6 +4,8 @@ import { useFetch } from '../lib/hooks';
 import { AsyncSection, Badge, EmptyState, Field, Modal, ModalActions, PageHead } from '../components/ui';
 import { formatarDataHora } from '../lib/format';
 import { SeletorDeEvento } from './adminEvent';
+import { anunciar, MCIEvento } from '../lib/experiencia';
+import { Revelacao } from '../components/experiencia';
 
 // Resultados. O MCI NÃO julga: o julgamento acontece fora, e esta tela LANÇA a
 // colocação oficial recebida. Não há ficha de juiz, nota nem apuração — o
@@ -27,6 +29,16 @@ export function AdminResultados({ notificar }) {
 
   const [lancando, setLancando] = useState(null);
 
+  // Qual classe acabou de receber ou publicar resultado. Serve para dar UM
+  // destaque na linha afetada — e só nela. Destacar a lista inteira a cada
+  // recarga faria o operador perder de vista o que realmente mudou.
+  const [recemMudada, setRecemMudada] = useState(null);
+  useEffect(() => {
+    if (!recemMudada) return undefined;
+    const relogio = setTimeout(() => setRecemMudada(null), 2600);
+    return () => clearTimeout(relogio);
+  }, [recemMudada]);
+
   return (
     <div className="page">
       <PageHead eyebrow="Competição" title="Resultados" description="Lançamento do resultado oficial recebido, publicação protegida e correção versionada." />
@@ -40,10 +52,16 @@ export function AdminResultados({ notificar }) {
             <section className="panel" style={{ marginBottom: 16 }}>
               <div className="panel-head"><h2>Resultado oficial por classe</h2></div>
               {classes.length
-                ? classes.map(classe => {
+                ? classes.map((classe, indice) => {
                   const existente = (resultados.data?.items || []).find(item => item.classId === classe.id);
+                  const destacada = recemMudada === classe.id;
                   return (
-                    <div className="list-row" key={classe.id}>
+                    <Revelacao
+                      as="div"
+                      indice={indice}
+                      key={classe.id}
+                      className={`list-row${destacada ? ' linha-afetada varredura' : ''}`}
+                    >
                       <span className="info">
                         <strong>{classe.rotulo}</strong>
                         <small>
@@ -65,7 +83,7 @@ export function AdminResultados({ notificar }) {
                           <button type="button" className="button button-ghost button-sm" onClick={() => setVersoes(existente)}>Versões</button>
                         </>
                       )}
-                    </div>
+                    </Revelacao>
                   );
                 })
                 : <EmptyState title="Sem classes cadastradas" />}
@@ -104,13 +122,16 @@ export function AdminResultados({ notificar }) {
 
       {lancando && (
         <LancarResultado classe={lancando} eventId={eventId} notificar={notificar}
-          onClose={() => setLancando(null)} onSalvo={() => { setLancando(null); resultados.reload(); }} />
+          onClose={() => setLancando(null)}
+          onSalvo={() => { setRecemMudada(lancando.id); setLancando(null); resultados.reload(); }} />
       )}
       {publicando && (
-        <PublicarResultado resultado={publicando} notificar={notificar} onClose={() => setPublicando(null)} onSalvo={() => { setPublicando(null); resultados.reload(); }} />
+        <PublicarResultado resultado={publicando} notificar={notificar} onClose={() => setPublicando(null)}
+          onSalvo={() => { setRecemMudada(publicando.classId); setPublicando(null); resultados.reload(); }} />
       )}
       {corrigindo && (
-        <CorrigirResultado resultado={corrigindo} notificar={notificar} onClose={() => setCorrigindo(null)} onSalvo={() => { setCorrigindo(null); resultados.reload(); }} />
+        <CorrigirResultado resultado={corrigindo} notificar={notificar} onClose={() => setCorrigindo(null)}
+          onSalvo={() => { setRecemMudada(corrigindo.classId); setCorrigindo(null); resultados.reload(); }} />
       )}
       {versoes && <HistoricoDeVersoes resultado={versoes} onClose={() => setVersoes(null)} />}
     </div>
@@ -159,6 +180,15 @@ function LancarResultado({ classe, eventId, notificar, onClose, onSalvo }) {
           : 'Resultado oficial lançado.',
         resultado.hasUnresolvedTie ? 'info' : 'ok'
       );
+      // Empate não é conquista: a publicação ficou TRAVADA. Celebrar aqui
+      // ensinaria o operador a ignorar justamente o caso que precisa de
+      // atenção humana. O toast acima continua igual nos dois caminhos.
+      anunciar(
+        resultado.hasUnresolvedTie ? MCIEvento.AVISO : MCIEvento.SUCESSO,
+        resultado.hasUnresolvedTie
+          ? { titulo: 'Empate não resolvido', descricao: 'A publicação fica travada até a comissão decidir.' }
+          : { titulo: 'Resultado lançado', descricao: `${classe.rotulo}` }
+      );
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -174,8 +204,13 @@ function LancarResultado({ classe, eventId, notificar, onClose, onSalvo }) {
           O julgamento é externo. Transcreva a colocação oficial recebida; a
           plataforma não recalcula nem desempata.
         </p>
-        <AsyncSection estado={inscricoes}>
-          {linhas.length
+        {/* `AsyncSection` recebe os filhos como FUNÇÃO — ela chama
+            `children(state.data)`. Este bloco passava JSX direto e o nome da
+            prop também estava errado (`estado`), então o diálogo estourava de
+            duas formas diferentes. A lista vem de `linhas`, derivada por
+            efeito, e não do argumento; por isso a função o ignora. */}
+        <AsyncSection state={inscricoes}>
+          {() => (linhas.length
             ? linhas.map(linha => (
               <div className="list-row" key={linha.athleteId}>
                 <span className="info"><strong>{linha.nome}</strong></span>
@@ -190,14 +225,19 @@ function LancarResultado({ classe, eventId, notificar, onClose, onSalvo }) {
                 </select>
               </div>
             ))
-            : <EmptyState title="Nenhum inscrito nesta classe" />}
+            : <EmptyState title="Nenhum inscrito nesta classe" />)}
         </AsyncSection>
-        <ModalActions>
-          <button type="button" className="button button-ghost" onClick={onClose}>Cancelar</button>
-          <button type="submit" className="button button-primary" disabled={salvando || !linhas.length}>
-            {salvando ? 'Lançando…' : 'Lançar resultado oficial'}
-          </button>
-        </ModalActions>
+        {/* `ModalActions` NÃO renderiza filhos — ela monta os próprios botões
+            a partir das props. Os botões escritos aqui dentro eram descartados
+            em silêncio, e o diálogo real saía com "Cancelar" sem handler
+            nenhum, rótulo "Salvar" no lugar de "Lançar resultado oficial" e
+            sem a trava de lista vazia. Nada disso dava erro. */}
+        <ModalActions
+          onClose={onClose}
+          saving={salvando}
+          confirmLabel="Lançar resultado oficial"
+          disabled={!linhas.length}
+        />
       </form>
     </Modal>
   );
@@ -212,7 +252,16 @@ function PublicarResultado({ resultado, notificar, onClose, onSalvo }) {
     setSalvando(true);
     try {
       const resposta = await api.results.publish(resultado.classId, { reason: reason || null });
-      notificar(`Resultado publicado. ${resposta.ranking?.awarded ? `${resposta.ranking.awarded} atleta(s) pontuaram no ranking.` : 'Sem pontuação de ranking (evento sem temporada).'}`);
+      const pontuaram = resposta.ranking?.awarded;
+      notificar(`Resultado publicado. ${pontuaram ? `${pontuaram} atleta(s) pontuaram no ranking.` : 'Sem pontuação de ranking (evento sem temporada).'}`);
+      // Publicar é o instante em que a classificação deixa de ser rascunho e
+      // passa a valer para o público e para o ranking. É o nível MOMENTO — e
+      // NÃO o nível do campeão, que continua reservado. Nada aqui bloqueia o
+      // operador: a celebração passa por cima e sai sozinha.
+      anunciar(MCIEvento.RESULTADO_PUBLICADO, {
+        titulo: 'Resultado publicado',
+        descricao: pontuaram ? `${pontuaram} atleta(s) pontuaram no ranking.` : 'Classificação agora é pública.'
+      });
       refreshData();
       onSalvo();
     } catch (erro) {
@@ -261,6 +310,8 @@ function CorrigirResultado({ resultado, notificar, onClose, onSalvo }) {
         }))
       });
       notificar('Correção registrada como nova versão.');
+      // Correção é conserto, não conquista: confirmação sóbria, nível EVENTO.
+      anunciar(MCIEvento.SUCESSO, { titulo: 'Correção registrada', descricao: 'A versão anterior foi preservada.' });
       refreshData();
       onSalvo();
     } catch (erro) {

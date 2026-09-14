@@ -1556,3 +1556,15 @@ main > * { animation: tela-entra var(--t-base) var(--curva-entrada) both; }
   .sidebar, .topbar, .nav-item.revela { animation: none; }
   .nav-item:active, .icon-button:active, .session-card:active { transform: none; }
 }
+
+/* --- linha recém-afetada ---
+   UMA linha destacada, por 2,6s, depois volta ao normal. Não é a lista que
+   pisca: é o registro que a pessoa acabou de mexer dizendo "fui eu". */
+.linha-afetada {
+  background: linear-gradient(90deg, rgba(18,184,255,.12) 0, transparent 70%);
+  box-shadow: inset 2px 0 0 0 var(--ciano-puro);
+}
+@media (prefers-reduced-motion: reduce) {
+  /* O destaque FICA (é informação), só não varre. */
+  .linha-afetada.varredura::after { display: none; }
+}

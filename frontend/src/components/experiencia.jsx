@@ -96,9 +96,15 @@ export function PalcoDaExperiencia() {
 // NÃO substitui o feedback funcional — o toast continua, a lista continua
 // atualizando. Isto é o reconhecimento por cima.
 export function ImpactoDeSucesso({ momento }) {
+  // Nível MOMENTO (resultado publicado) ganha a varredura de energia POR CIMA
+  // da caixa — o mesmo efeito que já existe, não um segundo. É o que separa
+  // "confirmou" de "isto agora é oficial e público", sem chegar perto do
+  // nível 5, que continua sendo só do campeão.
+  const comVarredura = momento.nivel >= NIVEL.MOMENTO && podeAnimar(NIVEL.MOMENTO);
+
   return (
     <div className={`impacto impacto-${momento.tom}`} role="status" aria-live="polite">
-      <div className="impacto-caixa">
+      <div className={`impacto-caixa${comVarredura ? ' varredura' : ''}`}>
         <span className="impacto-marca" aria-hidden="true"><Check size={26} strokeWidth={3} /></span>
         <strong>{momento.titulo || 'Pronto'}</strong>
         {momento.descricao && <p>{momento.descricao}</p>}

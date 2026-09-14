@@ -1,0 +1,259 @@
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+
+// ==========================================================================
+// RESULTADOS — a tela de maior consequência do sistema.
+//
+// Ela não tinha NENHUM teste de componente. Foi assim que um defeito de
+// digitação sobreviveu desde 23ae79e: `<AsyncSection estado={...}>` num lugar
+// onde o componente recebe `state`. Com `state` indefinido, a primeira linha
+// de AsyncSection lê `state.error` e estoura — o diálogo de lançar resultado
+// derrubava a tela inteira para o limite de erro.
+//
+// Não aparecia em lint (prop desconhecida é válida em JSX), não aparecia em
+// build, e não aparecia em teste porque não havia teste.
+// ==========================================================================
+
+const api = {
+  events: { findOne: vi.fn(), list: vi.fn() },
+  results: { listByEvent: vi.fn(), receive: vi.fn(), publish: vi.fn(), override: vi.fn(), versions: vi.fn() },
+  registrations: { listByEvent: vi.fn() }
+};
+
+vi.mock('../services/api', () => ({
+  default: api,
+  refreshData: vi.fn()
+}));
+
+const { AdminResultados } = await import('./adminResults');
+const { PalcoDaExperiencia } = await import('../components/experiencia');
+
+// O motor lê a preferência do navegador de verdade; jsdom não traz matchMedia.
+function aparelho({ movimentoReduzido = false } = {}) {
+  window.matchMedia = consulta => ({
+    matches: consulta.includes('prefers-reduced-motion') ? movimentoReduzido : false,
+    media: consulta, onchange: null,
+    addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {},
+    dispatchEvent: () => false
+  });
+}
+
+const EVENTO = {
+  id: 'e1',
+  name: 'Muscle Contest Curitiba',
+  eventCategories: [{
+    category: { name: 'Men’s Physique' },
+    divisions: [{ name: 'Open', classes: [{ id: 'c1', name: 'Até 172cm' }] }]
+  }]
+};
+
+beforeEach(() => {
+  api.events.list.mockResolvedValue({ items: [EVENTO] });
+  api.events.findOne.mockResolvedValue(EVENTO);
+  api.results.listByEvent.mockResolvedValue({ items: [] });
+  api.registrations.listByEvent.mockResolvedValue({
+    items: [{ athlete: { id: 'at1', fullName: 'Carlos Mendes' }, items: [{ classId: 'c1' }] }]
+  });
+});
+afterEach(() => { cleanup(); vi.clearAllMocks(); });
+
+// O seletor de evento é um <select>; escolher o evento é o que destrava a tela.
+async function abrirEvento() {
+  render(<AdminResultados notificar={() => {}} />);
+  const seletor = await screen.findByRole('combobox');
+  fireEvent.change(seletor, { target: { value: 'e1' } });
+  return seletor;
+}
+
+describe('lançar resultado oficial', () => {
+  it('o diálogo abre e lista quem está inscrito na classe', async () => {
+    await abrirEvento();
+    const botao = await screen.findByRole('button', { name: /Lançar resultado/i });
+    fireEvent.click(botao);
+
+    // É aqui que a tela estourava: AsyncSection recebia `estado` em vez de
+    // `state`, lia `undefined.error` e derrubava tudo.
+    expect(await screen.findByText('Carlos Mendes')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Lançar resultado oficial/i })).toBeTruthy();
+  });
+
+  it('o diálogo mostra o esqueleto enquanto as inscrições não chegam, em vez de quebrar', async () => {
+    let liberar;
+    api.registrations.listByEvent.mockReturnValue(new Promise(r => { liberar = r; }));
+    await abrirEvento();
+    fireEvent.click(await screen.findByRole('button', { name: /Lançar resultado/i }));
+
+    // Estado de carregamento: nem crash, nem lista vazia mentindo que não há
+    // inscrito. O operador precisa distinguir "carregando" de "ninguém".
+    expect(screen.queryByText(/Nenhum inscrito nesta classe/i)).toBeNull();
+
+    liberar({ items: [{ athlete: { id: 'at1', fullName: 'Carlos Mendes' }, items: [{ classId: 'c1' }] }] });
+    expect(await screen.findByText('Carlos Mendes')).toBeTruthy();
+  });
+
+  it('sem inscrito na classe, diz isso — e não some em silêncio', async () => {
+    api.registrations.listByEvent.mockResolvedValue({ items: [] });
+    await abrirEvento();
+    fireEvent.click(await screen.findByRole('button', { name: /Lançar resultado/i }));
+    expect(await screen.findByText(/Nenhum inscrito nesta classe/i)).toBeTruthy();
+  });
+
+  it('a falha ao carregar inscrições é mostrada, com caminho de volta', async () => {
+    api.registrations.listByEvent.mockRejectedValue(new Error('Falha de rede'));
+    await abrirEvento();
+    fireEvent.click(await screen.findByRole('button', { name: /Lançar resultado/i }));
+    await waitFor(() => expect(screen.getByText(/Falha de rede/i)).toBeTruthy());
+  });
+});
+
+describe('os botões do diálogo de lançamento', () => {
+  it('"Cancelar" realmente fecha — não é um botão morto', async () => {
+    await abrirEvento();
+    fireEvent.click(await screen.findByRole('button', { name: /^Lançar resultado$/i }));
+    expect(await screen.findByText('Carlos Mendes')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /Cancelar/i }));
+    await waitFor(() => expect(screen.queryByText('Carlos Mendes')).toBeNull());
+  });
+
+  it('o botão de confirmar diz o que faz, e não "Salvar"', async () => {
+    await abrirEvento();
+    fireEvent.click(await screen.findByRole('button', { name: /^Lançar resultado$/i }));
+    await screen.findByText('Carlos Mendes');
+    expect(screen.getByRole('button', { name: /Lançar resultado oficial/i })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Salvar$/i })).toBeNull();
+  });
+
+  it('sem ninguém inscrito, não dá para lançar', async () => {
+    api.registrations.listByEvent.mockResolvedValue({ items: [] });
+    await abrirEvento();
+    fireEvent.click(await screen.findByRole('button', { name: /^Lançar resultado$/i }));
+    await screen.findByText(/Nenhum inscrito nesta classe/i);
+    expect(screen.getByRole('button', { name: /Lançar resultado oficial/i }).disabled).toBe(true);
+  });
+});
+
+describe('a plataforma transcreve, não julga', () => {
+  it('a colocação enviada é exatamente a digitada, na ordem em que o operador a deu', async () => {
+    api.registrations.listByEvent.mockResolvedValue({
+      items: [
+        { athlete: { id: 'at1', fullName: 'Carlos Mendes' }, items: [{ classId: 'c1' }] },
+        { athlete: { id: 'at2', fullName: 'Ana Prado' }, items: [{ classId: 'c1' }] }
+      ]
+    });
+    api.results.receive.mockResolvedValue({ hasUnresolvedTie: false });
+    await abrirEvento();
+    fireEvent.click(await screen.findByRole('button', { name: /^Lançar resultado$/i }));
+    await screen.findByText('Carlos Mendes');
+
+    const campos = screen.getAllByPlaceholderText('Colocação');
+    // Carlos em 2º, Ana em 1º: a interface NÃO pode reordenar nem "corrigir".
+    fireEvent.change(campos[0], { target: { value: '2' } });
+    fireEvent.change(campos[1], { target: { value: '1' } });
+    fireEvent.click(screen.getByRole('button', { name: /Lançar resultado oficial/i }));
+
+    await waitFor(() => expect(api.results.receive).toHaveBeenCalled());
+    const [classId, corpo] = api.results.receive.mock.calls[0];
+    expect(classId).toBe('c1');
+    expect(corpo.entries).toEqual([
+      { athleteId: 'at1', placing: 2, status: 'RANKED' },
+      { athleteId: 'at2', placing: 1, status: 'RANKED' }
+    ]);
+  });
+
+  it('empate recebido é enviado como empate, sem colocação inventada', async () => {
+    api.results.receive.mockResolvedValue({ hasUnresolvedTie: true });
+    const avisos = [];
+    render(<AdminResultados notificar={(texto, tom) => avisos.push({ texto, tom })} />);
+    fireEvent.change(await screen.findByRole('combobox'), { target: { value: 'e1' } });
+    fireEvent.click(await screen.findByRole('button', { name: /^Lançar resultado$/i }));
+    await screen.findByText('Carlos Mendes');
+
+    fireEvent.change(screen.getByRole('combobox', { name: '' }) || screen.getAllByRole('combobox')[1],
+      { target: { value: 'TIE_UNRESOLVED' } });
+    fireEvent.click(screen.getByRole('button', { name: /Lançar resultado oficial/i }));
+
+    await waitFor(() => expect(api.results.receive).toHaveBeenCalled());
+    const corpo = api.results.receive.mock.calls[0][1];
+    expect(corpo.entries[0].status).toBe('TIE_UNRESOLVED');
+    expect(corpo.entries[0].placing).toBeNull();
+    // E o operador precisa SABER que a publicação ficou travada.
+    await waitFor(() => expect(avisos.some(a => /empate/i.test(a.texto) && /trava/i.test(a.texto))).toBe(true));
+  });
+});
+
+// ==========================================================================
+// O MOTOR DE EXPERIÊNCIA NESTA TELA.
+//
+// Estes testes montam o palco de verdade e olham o DOM: provam a corrente
+// inteira (a tela anuncia → o motor decide → o palco desenha), e não só que
+// uma função foi chamada.
+// ==========================================================================
+describe('o que a tela de resultados celebra', () => {
+  const montarComPalco = () => render(<><AdminResultados notificar={() => {}} /><PalcoDaExperiencia /></>);
+
+  async function lancar({ hasUnresolvedTie }) {
+    api.results.receive.mockResolvedValue({ hasUnresolvedTie });
+    montarComPalco();
+    fireEvent.change(await screen.findByRole('combobox'), { target: { value: 'e1' } });
+    fireEvent.click(await screen.findByRole('button', { name: /^Lançar resultado$/i }));
+    await screen.findByText('Carlos Mendes');
+    fireEvent.change(screen.getByPlaceholderText('Colocação'), { target: { value: '1' } });
+    fireEvent.click(screen.getByRole('button', { name: /Lançar resultado oficial/i }));
+    await waitFor(() => expect(api.results.receive).toHaveBeenCalled());
+  }
+
+  it('publicar desenha o momento de resultado publicado — e NÃO o do campeão', async () => {
+    aparelho();
+    api.results.listByEvent.mockResolvedValue({
+      items: [{ id: 'r1', classId: 'c1', status: 'DRAFT', version: 1, checksum: 'abc1234567', entries: [],
+                competitionClass: { name: 'Até 172cm', division: { eventCategory: { category: { name: 'Men’s Physique' } } } },
+                computedAt: new Date().toISOString() }]
+    });
+    api.results.publish.mockResolvedValue({ ranking: { awarded: 5 } });
+    montarComPalco();
+    fireEvent.change(await screen.findByRole('combobox'), { target: { value: 'e1' } });
+    // A linha da classe tem "Publicar"; o diálogo tem outro "Publicar". Pegar
+    // o primeiro abre, e depois o do diálogo confirma.
+    // Esperar a lista chegar: antes disso a linha ainda nem tem o botão.
+    const abrir = await screen.findByRole('button', { name: /^Publicar$/i });
+    fireEvent.click(abrir);
+    await screen.findByText(/Publicar torna a classificação pública/i);
+    const confirmar = screen.getAllByRole('button', { name: /^Publicar$/i }).at(-1);
+    fireEvent.click(confirmar);
+
+    await waitFor(() => expect(api.results.publish).toHaveBeenCalled());
+    expect(await screen.findByText('Resultado publicado')).toBeTruthy();
+    // O nível 5 continua sendo só do campeão.
+    expect(document.querySelector('.campeao')).toBeNull();
+  });
+
+  it('empate não resolvido NÃO vira comemoração', async () => {
+    aparelho();
+    await lancar({ hasUnresolvedTie: true });
+
+    // Publicação travada: o palco não pode dizer "deu certo".
+    await waitFor(() => expect(screen.queryByText('Resultado lançado')).toBeNull());
+    expect(document.querySelector('.campeao')).toBeNull();
+    // E o que aparece, se aparecer, é o tom de atenção — nunca o de sucesso.
+    const caixa = document.querySelector('.impacto');
+    if (caixa) expect(caixa.className).not.toContain('impacto-sucesso');
+  });
+
+  it('lançamento limpo confirma, no nível de evento e sem bloquear o operador', async () => {
+    aparelho();
+    await lancar({ hasUnresolvedTie: false });
+    expect(await screen.findByText('Resultado lançado')).toBeTruthy();
+    // Que a celebração não captura clique é propriedade de FOLHA DE ESTILO, e
+    // o jsdom não carrega a folha — afirmar isso aqui seria um teste que passa
+    // sem provar nada. A verificação real está na sonda de navegador.
+    expect(document.querySelector('.impacto').getAttribute('role')).toBe('status');
+  });
+
+  it('com movimento reduzido nada é desenhado — o toast funcional é que informa', async () => {
+    aparelho({ movimentoReduzido: true });
+    await lancar({ hasUnresolvedTie: false });
+    expect(screen.queryByText('Resultado lançado')).toBeNull();
+    expect(document.querySelector('.impacto')).toBeNull();
+  });
+});
