@@ -5,6 +5,7 @@ import {
 import api, { refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Lightbox, Modal, ModalActions, PageHead, Paginacao, ProtectedMedia, Field } from '../components/ui';
+import { anunciar, MCIEvento } from '../lib/experiencia';
 import { caminhoDoAvatar, desde, ESTADO_PRO, formatarData } from '../lib/format';
 
 // MCI Social. Toda interação chama a API: não existe contador local que não
@@ -113,6 +114,9 @@ function Composer({ notificar, onPublicado }) {
       setConteudo('');
       setArquivo(null);
       notificar('Publicação criada.');
+      // Nível EVENTO: confirma sem tomar o centro da tela. Publicar é coisa
+      // que se faz muitas vezes; interromper a cada vez cansaria.
+      anunciar(MCIEvento.SUCESSO, { titulo: 'Publicação criada', descricao: 'Já está no seu perfil.' });
       onPublicado();
     } catch (erro) {
       notificar(erro.message, 'erro');

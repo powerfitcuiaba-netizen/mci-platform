@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 // ============================================================================
@@ -24,7 +24,11 @@ const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
 
 // Fora de qualquer @media/@keyframes, pega `seletor { ... }` e o corpo.
 function regrasComAnimacao(fonte) {
-  const semKeyframes = fonte.replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '');
+  // Comentários saem ANTES de qualquer coisa: um comentário com ponto e
+  // chaves dentro era lido como seletor, e a varredura acusava uma "classe"
+  // que na verdade era prosa.
+  const semComentarios = fonte.replace(/\/\*[\s\S]*?\*\//g, '');
+  const semKeyframes = semComentarios.replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '');
   const regras = [];
   const padrao = /([^{}@]+)\{([^{}]*)\}/g;
   let achado;
@@ -53,6 +57,38 @@ function composto(seletor) {
 }
 
 const contem = (a, b) => [...b].every(c => a.has(c));
+
+// Um seletor de animação que não casa com nada é efeito que NÃO existe e
+// parece existir. Aconteceu aqui: escrevi `.chat-body .bubble` para a bolha de
+// mensagem, e a classe real é `.chat-msg` — a regra ficou no arquivo, bonita e
+// morta. A varredura confere que cada classe animada aparece de fato no JSX.
+describe('classes animadas existem no código', () => {
+  const fonte = ['src/pages', 'src/components', 'src/App.jsx']
+    .flatMap(alvo => {
+      const caminho = resolve(process.cwd(), alvo);
+      if (!statSync(caminho).isDirectory()) return [readFileSync(caminho, 'utf8')];
+      return readdirSync(caminho)
+        .filter(nome => /\.jsx?$/.test(nome) && !nome.includes('.test.'))
+        .map(nome => readFileSync(resolve(caminho, nome), 'utf8'));
+    })
+    .join('\n');
+
+  it('toda classe que recebe `animation` é usada em algum componente', () => {
+    const orfas = [];
+    for (const seletor of regrasComAnimacao(css)) {
+      // Só classes simples; pseudo-elemento e estado não aparecem no JSX.
+      const classes = seletor.replace(/::?[a-z-]+(\([^)]*\))?/g, '').match(/\.[A-Za-z0-9_-]+/g);
+      if (!classes) continue;
+      for (const classe of classes) {
+        const nome = classe.slice(1);
+        // Classes do próprio motor são montadas em JS a partir de variáveis.
+        if (['revela', 'varredura', 'linha-afetada', 'impacto', 'campeao'].some(base => nome.startsWith(base))) continue;
+        if (!fonte.includes(nome)) orfas.push(`${seletor} → classe "${nome}" não aparece em nenhum componente`);
+      }
+    }
+    expect([...new Set(orfas)]).toEqual([]);
+  });
+});
 
 describe('animação no CSS', () => {
   const compostos = regrasComAnimacao(css)

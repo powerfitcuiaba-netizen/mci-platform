@@ -77,7 +77,10 @@ export default function Messenger({ notificar }) {
   );
 }
 
-function Conversa({ conversationId, notificar, onVoltar, onMudou }) {
+// Exportada para teste: a recuperação de um envio que falhou é justamente o
+// comportamento que precisa de prova, e ele não é alcançável pela casca sem
+// montar a lista de conversas inteira.
+export function Conversa({ conversationId, notificar, onVoltar, onMudou }) {
   const [texto, setTexto] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [ampliada, setAmpliada] = useState(null);
@@ -98,17 +101,31 @@ function Conversa({ conversationId, notificar, onVoltar, onMudou }) {
     fim.current?.scrollIntoView({ block: 'end' });
   }, [mensagens.data]);
 
+  // O texto NÃO é limpo antes da confirmação do servidor: quem escreveu três
+  // parágrafos e perdeu a conexão não pode perder o que escreveu. Em caso de
+  // falha, a mensagem continua no campo e a razão fica à vista, com o caminho
+  // de volta — um toast que some não serve para isso.
+  const [falhaDoEnvio, setFalhaDoEnvio] = useState(null);
+
   const enviar = async evento => {
-    evento.preventDefault();
-    if (!texto.trim()) return;
+    evento?.preventDefault?.();
+    // `enviando` aqui é defesa, e não o que segura o duplo clique na prática:
+    // o botão de enviar fica `disabled` durante o envio, e "Tentar de novo"
+    // desaparece assim que o aviso de falha é limpo. Teste de mutação confirma
+    // que remover esta condição não muda nada pela interface — ela fica porque
+    // `enviar` tem DOIS pontos de chamada e é assíncrona, e o próximo ponto de
+    // chamada pode não ter nenhuma das duas proteções.
+    if (!texto.trim() || enviando) return;
 
     setEnviando(true);
+    setFalhaDoEnvio(null);
     try {
       await api.messenger.send(conversationId, { body: texto.trim() });
       setTexto('');
       await mensagens.reload();
       onMudou();
     } catch (erro) {
+      setFalhaDoEnvio(erro.message);
       notificar(erro.message, 'erro');
     } finally {
       setEnviando(false);
@@ -234,11 +251,24 @@ function Conversa({ conversationId, notificar, onVoltar, onMudou }) {
         <div ref={fim} />
       </div>
 
+      {falhaDoEnvio && (
+        <div className="alert alert-erro falha-do-envio" role="alert">
+          <div>
+            <strong>Não foi possível enviar</strong>
+            <p>{falhaDoEnvio}</p>
+          </div>
+          <button type="button" className="button button-secondary button-sm" onClick={() => enviar()}>
+            Tentar de novo
+          </button>
+        </div>
+      )}
       <form className="chat-foot" onSubmit={enviar}>
         <button type="button" className="icon-button" onClick={() => inputArquivo.current?.click()} aria-label="Enviar mídia"><ImagePlus size={16} /></button>
         <input ref={inputArquivo} type="file" accept="image/*,video/*" hidden onChange={enviarMidia} />
         <input type="text" value={texto} onChange={evento => setTexto(evento.target.value)} placeholder="Escreva uma mensagem…" aria-label="Mensagem" maxLength={4000} />
-        <button type="submit" className="button button-primary" disabled={enviando || !texto.trim()}><Send size={15} /></button>
+        <button type="submit" className="button button-primary" disabled={enviando || !texto.trim()} aria-label={enviando ? 'Enviando mensagem' : 'Enviar mensagem'}>
+          <Send size={15} />
+        </button>
       </form>
     </>
   );

@@ -747,13 +747,6 @@ h1, h2, h3 { margin: 0; }
   text-align: center; padding: 0 2px; box-shadow: none;
 }
 
-.progress-bar { height: 6px; background: var(--superficie-3); border-radius: var(--raio-pilula); overflow: hidden; border: 1px solid var(--linha); }
-.progress-bar i {
-  display: block; height: 100%; border-radius: var(--raio-pilula);
-  background: linear-gradient(90deg, var(--vermelho) 0, var(--vermelho-claro) 100%);
-  transition: width var(--t-amplo) var(--mola);
-}
-
 .import-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: var(--e3); margin-bottom: var(--e4); }
 .import-summary .metric { padding: var(--e3) var(--e4); }
 .import-summary .metric strong { font-size: 28px; }
@@ -999,14 +992,11 @@ h1, h2, h3 { margin: 0; }
 /* Publicação e conversa: a mídia entra sem salto de layout. */
 .post-media img, .post-media video, .chat-msg img { background: var(--superficie-2); }
 
-/* Barra de progresso em movimento ganha um brilho que percorre — só durante a
-   importação, onde a espera é real. */
-.progress-bar i::after {
-  content: ''; display: block; height: 100%; width: 40%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,.28), transparent);
-  animation: varre 1.6s linear infinite;
-}
-@keyframes varre { from { transform: translateX(-100%); } to { transform: translateX(320%); } }
+/* `.progress-bar` foi REMOVIDA: a classe não aparece em nenhum componente. A
+   barra de progresso da importação deixou de existir em algum momento e o CSS
+   ficou — inclusive uma animação `varre` em LAÇO INFINITO, para um elemento
+   que nunca é renderizado. Encontrado pela varredura de classes órfãs logo na
+   primeira vez que ela rodou, não por leitura. */
 
 /* Avatar dentro de linha clicável acompanha o realce. */
 .list-row:hover .avatar, .conversation-item:hover .avatar { border-color: var(--linha-forte); }
@@ -1669,4 +1659,30 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
 
 @media (prefers-reduced-motion: reduce) {
   .cartao-clicavel:hover, .cartao-clicavel:active { transform: none; }
+}
+
+/* --- curtir ---
+   Um pulso curto no coração, só quando LIGA. Desligar não comemora. */
+@keyframes coracao-pulsa {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.28); }
+  100% { transform: scale(1); }
+}
+.post-action.is-on svg { animation: coracao-pulsa var(--t-calmo) var(--curva-impacto); }
+
+/* --- mensagem que chega --- */
+@keyframes mensagem-entra {
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+.chat-msg { animation: mensagem-entra var(--t-base) var(--curva-entrada) both; }
+
+/* --- falha de envio ---
+   Fica ACIMA do campo, com o texto ainda escrito nele e o caminho de volta ao
+   lado. Um toast que some não serve para um erro que precisa de decisão. */
+.falha-do-envio { display: flex; align-items: center; gap: var(--e3); margin: 0 var(--e4) var(--e2); }
+.falha-do-envio .button { flex-shrink: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .post-action.is-on svg, .chat-msg { animation: none; }
 }
