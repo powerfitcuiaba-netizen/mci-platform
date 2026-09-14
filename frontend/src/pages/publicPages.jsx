@@ -4,6 +4,7 @@ import api from '../services/api';
 import { useDebounce, useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Metric, PageHead, Paginacao } from '../components/ui';
 import { ESTADO_PRO, formatarData, formatarDataHora, seloDoEvento } from '../lib/format';
+import { Revelacao } from '../components/experiencia';
 
 // Vitrine pública. Tudo aqui sai da API real; nenhuma métrica é estimada e
 // nenhuma lista é fixa no código.
@@ -14,7 +15,7 @@ export function Inicio({ navegar }) {
 
   return (
     <div className="page">
-      <section className="hero">
+      <Revelacao as="section" className="hero" indice={0}>
         <span className="eyebrow">Muscle Contest</span>
         <h1>Campeonato Brasileiro Muscle Contest</h1>
         <p>
@@ -26,16 +27,20 @@ export function Inicio({ navegar }) {
           <span><Users size={14} /> Atletas, coaches, equipes e academias</span>
           <span><CalendarDays size={14} /> Temporadas e ranking nacional</span>
         </div>
-      </section>
+      </Revelacao>
 
       <div className="grid grid-4" style={{ marginTop: 18 }}>
         <AsyncSection state={resumo} linhas={1}>
           {dados => (
             <>
-              <Metric label="Campeonatos" value={dados.events} />
-              <Metric label="Atletas" value={dados.athletes} />
-              <Metric label="Atletas PRO" value={dados.proAthletes} destaque />
-              <Metric label="Resultados publicados" value={dados.publishedResults} />
+              {/* Cada número leva ao módulo que o produz. `Metric` já vira
+                  botão acessível quando recebe `onClick` — o que faltava era
+                  ligar o número ao seu destino. A entrada é em sequência, com
+                  atraso calculado pelo motor (teto de 360ms). */}
+              <Revelacao indice={0}><Metric label="Campeonatos" value={dados.events} onClick={() => navegar('campeonatos')} destino="os campeonatos" /></Revelacao>
+              <Revelacao indice={1}><Metric label="Atletas" value={dados.athletes} onClick={() => navegar('atletas')} destino="os atletas" /></Revelacao>
+              <Revelacao indice={2}><Metric label="Atletas PRO" value={dados.proAthletes} destaque onClick={() => navegar('atletas')} destino="os atletas" /></Revelacao>
+              <Revelacao indice={3}><Metric label="Resultados publicados" value={dados.publishedResults} onClick={() => navegar('ranking')} destino="o ranking" /></Revelacao>
             </>
           )}
         </AsyncSection>

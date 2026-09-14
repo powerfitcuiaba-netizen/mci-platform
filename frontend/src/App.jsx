@@ -11,6 +11,8 @@ import { Avatar, BlocoDaMarca, Toasts } from './components/ui';
 import { caminhoDoAvatar } from './lib/format';
 import LimiteDeErro from './components/limiteDeErro';
 import AberturaMci, { aberturaJaFoiVista } from './components/aberturaMci';
+import { PalcoDaExperiencia } from './components/experiencia';
+import ExperienceLab from './pages/experienceLab';
 import { direcaoDeAudio, preferenciaDeAudio, definirPreferenciaDeAudio } from './lib/audioDirector';
 import Auth from './pages/authPages';
 import { AtletaDetalhe, Atletas, CampeonatoDetalhe, Campeonatos, Inicio, Ranking } from './pages/publicPages';
@@ -253,6 +255,10 @@ function Shell() {
       case 'meu-painel': return <MeuPainel navegar={navegar} />;
       case 'minha-conta': return <MinhaConta notificar={notificar} />;
       case 'minha-solicitacao': return <MinhaSolicitacao notificar={notificar} />;
+      // Laboratório de experiência: existe para calibrar os efeitos num lugar
+      // só, antes de espalhá-los. Fica FORA do pacote de produção (ver o
+      // `import.meta.env.DEV` abaixo) — não é tela de usuário.
+      case 'experience-lab': return import.meta.env.DEV ? <ExperienceLab /> : <Inicio navegar={navegar} />;
 
       case 'admin': {
         // Rota administrativa alcançada sem permissão volta para o início em
@@ -371,6 +377,10 @@ function Shell() {
         <main><LimiteDeErro key={rota}>{conteudo()}</LimiteDeErro></main>
       </div>
 
+      {/* Um único palco de experiência no aplicativo inteiro. Ele NÃO substitui
+          os toasts: o feedback funcional continua igual, e a celebração entra
+          por cima apenas quando o motor libera o nível. */}
+      <PalcoDaExperiencia />
       <Toasts toasts={toasts} onDismiss={remover} />
     </div>
   );

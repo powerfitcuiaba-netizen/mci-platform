@@ -1311,3 +1311,156 @@ h1, h2, h3 { margin: 0; }
   .abertura { gap: var(--e6); padding: var(--e5); }
   .abertura-legenda { font-size: 10.5px; letter-spacing: .16em; }
 }
+
+/* ===========================================================================
+   MCI EXPERIENCE ENGINE
+   ===========================================================================
+   A escala de movimento ESTENDE a que o sistema já tinha (--t-rapido/base/
+   calmo/amplo). Criar um segundo vocabulário em paralelo deixaria duas
+   verdades sobre a mesma coisa — o baseline mediu que a escala existia, então
+   ela ganhou os dois degraus que faltavam e nomes de papel.
+
+   instantâneo  120ms   já existia como --t-rapido
+   micro        180ms   já existia como --t-base
+   rápido       240ms   já existia como --t-calmo
+   padrão       320ms   já existia como --t-amplo
+   ênfase       460ms   NOVO
+   cinema       760ms   NOVO
+   =========================================================================== */
+:root {
+  --t-enfase:  460ms;
+  --t-cinema:  760ms;
+
+  /* Curvas com papel definido. `--mola` já existia e continua sendo a de
+     entrada; as outras nomeiam o que antes era `ease-out` solto. */
+  --curva-entrada: cubic-bezier(.2, .7, .3, 1);
+  --curva-saida:   cubic-bezier(.4, 0, 1, 1);
+  --curva-impacto: cubic-bezier(.2, 1.25, .4, 1);
+
+  --ouro-luz: #f5cf5a;
+}
+
+/* --- revelação em sequência ---
+   Deslocamento pequeno de propósito: 10px lê como "assentou", 40px lê como
+   "a página está montando" e faz o sistema parecer lento. */
+@keyframes revela-entrada {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+.revela { animation: revela-entrada var(--t-calmo) var(--curva-entrada) both; }
+
+/* --- transição entre telas ---
+   Curta de propósito: a navegação precisa PARECER instantânea. Animação nunca
+   é usada aqui para esconder lentidão de API — para isso existe o esqueleto. */
+@keyframes tela-entra {
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+main > * { animation: tela-entra var(--t-base) var(--curva-entrada) both; }
+
+/* --- varredura de energia (uma passada, não em laço) --- */
+.varredura { position: relative; overflow: hidden; }
+.varredura::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.16) 50%, transparent 65%);
+  transform: translateX(-120%);
+  animation: varre-uma-vez var(--t-cinema) var(--curva-entrada) 1 both;
+}
+@keyframes varre-uma-vez { to { transform: translateX(120%); } }
+
+/* --- pulso ao vivo --- */
+.pulso-ao-vivo {
+  display: inline-flex; align-items: center; gap: var(--e2);
+  font-size: 10.5px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--vermelho-claro);
+}
+.pulso-ponto {
+  width: 7px; height: 7px; border-radius: var(--raio-pilula);
+  background: var(--vermelho-claro); box-shadow: 0 0 0 0 rgba(255,90,95,.6);
+  animation: pulso-vivo 2.2s var(--curva-entrada) infinite;
+}
+@keyframes pulso-vivo {
+  0%   { box-shadow: 0 0 0 0 rgba(255,90,95,.55); }
+  70%  { box-shadow: 0 0 0 7px rgba(255,90,95,0); }
+  100% { box-shadow: 0 0 0 0 rgba(255,90,95,0); }
+}
+
+/* --- impacto de êxito --- */
+.impacto {
+  position: fixed; inset: 0; z-index: 190; display: grid; place-items: center;
+  pointer-events: none; padding: var(--e5);
+}
+.impacto-caixa {
+  display: grid; justify-items: center; gap: var(--e3); text-align: center;
+  padding: var(--e7) var(--e8); border-radius: var(--raio-2);
+  background: rgba(11,16,22,.94); border: 1px solid var(--linha-forte);
+  box-shadow: var(--sombra-3);
+  animation: impacto-entra var(--t-enfase) var(--curva-impacto) both;
+  max-width: min(92vw, 420px);
+}
+.impacto-caixa strong { font-size: 16px; }
+.impacto-caixa p { margin: 0; color: var(--cinza); font-size: 12.5px; }
+.impacto-marca {
+  width: 58px; height: 58px; border-radius: var(--raio-pilula); display: grid; place-items: center;
+  color: var(--verde); background: var(--verde-fundo); border: 1px solid var(--verde-borda);
+  animation: halo 900ms var(--curva-entrada) both;
+}
+.impacto-perigo .impacto-marca { color: var(--vermelho-claro); background: var(--vermelho-fundo); border-color: var(--vermelho-borda); }
+.impacto-ciano .impacto-marca  { color: var(--ciano); background: var(--ciano-fundo); border-color: var(--ciano-borda); }
+.impacto-atencao .impacto-marca{ color: var(--ambar); background: var(--ambar-fundo); border-color: var(--ambar-borda); }
+
+@keyframes impacto-entra {
+  from { opacity: 0; transform: scale(.965) translate3d(0, 8px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes halo {
+  from { box-shadow: 0 0 0 0 rgba(43,217,138,.42); }
+  to   { box-shadow: 0 0 0 18px rgba(43,217,138,0); }
+}
+
+/* --- momento campeão: o único nível 5 da operação --- */
+.campeao {
+  position: fixed; inset: 0; z-index: 195; display: grid; place-items: center;
+  pointer-events: none; padding: var(--e5);
+  background: radial-gradient(110% 80% at 50% 45%, rgba(53,41,10,.55) 0%, rgba(3,5,8,.9) 72%);
+  animation: surge var(--t-enfase) ease-out both;
+}
+.campeao-caixa {
+  display: grid; justify-items: center; gap: var(--e2); text-align: center;
+  color: var(--ouro-luz); padding: var(--e7) var(--e8);
+  animation: campeao-entra var(--t-cinema) var(--curva-impacto) both;
+  max-width: min(94vw, 520px);
+}
+.campeao-titulo { font-size: 11px; letter-spacing: .3em; text-transform: uppercase; color: var(--ouro); }
+.campeao-nome {
+  font-size: clamp(22px, 5.5vw, 38px); line-height: 1.1; color: var(--branco);
+  text-shadow: 0 0 26px rgba(245,207,90,.45);
+}
+.campeao-legenda { margin: 0; color: var(--cinza); font-size: 12.5px; }
+
+@keyframes campeao-entra {
+  from { opacity: 0; transform: scale(.94) translate3d(0, 16px, 0); filter: blur(5px); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+
+/* Partículas FINITAS e poucas: 14, cada uma com uma subida só. Partícula em
+   laço numa tela de trabalho é bateria indo embora durante a pesagem. */
+.campeao-particulas { position: absolute; inset: 0; overflow: hidden; }
+.campeao-particulas span {
+  position: absolute; bottom: -12px; width: 4px; height: 4px; border-radius: var(--raio-pilula);
+  background: var(--ouro-luz); opacity: 0;
+  animation: faisca 2600ms var(--curva-entrada) both;
+  animation-delay: calc(var(--i) * 90ms);
+}
+@keyframes faisca {
+  0%   { opacity: 0; transform: translate3d(0, 0, 0) scale(.6); }
+  18%  { opacity: .9; }
+  100% { opacity: 0; transform: translate3d(0, -62vh, 0) scale(1); }
+}
+
+/* --- movimento reduzido: a informação fica, o teatro sai --- */
+@media (prefers-reduced-motion: reduce) {
+  .revela, main > *, .impacto-caixa, .campeao, .campeao-caixa { animation: none; }
+  .varredura::after, .campeao-particulas { display: none; }
+  .pulso-ponto { animation: none; box-shadow: 0 0 0 3px rgba(255,90,95,.25); }
+}
