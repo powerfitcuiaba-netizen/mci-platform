@@ -77,7 +77,7 @@ async function eventPage(slug) {
       competitionClass: { include: { division: { include: { eventCategory: { include: { category: true } } } } } },
       entries: {
         where: { status: 'RANKED' },
-        include: { athlete: { select: { id: true, fullName: true, stageName: true, photoKey: true, state: true, city: true, team: { select: { id: true, name: true } } } } },
+        include: { athlete: { select: { id: true, fullName: true, stageName: true, state: true, city: true, team: { select: { id: true, name: true } } } } },
         orderBy: { placing: 'asc' }
       }
     },
@@ -86,7 +86,7 @@ async function eventPage(slug) {
 
   const atletas = await prisma.registration.findMany({
     where: { eventId: event.id, status: 'CONFIRMED' },
-    select: { athlete: { select: { id: true, fullName: true, stageName: true, photoKey: true, state: true, city: true, proStatus: true, team: { select: { id: true, name: true } } } } },
+    select: { athlete: { select: { id: true, fullName: true, stageName: true, state: true, city: true, proStatus: true, team: { select: { id: true, name: true } } } } },
     orderBy: { athlete: { fullName: 'asc' } },
     take: 500
   });
@@ -114,10 +114,55 @@ async function eventPage(slug) {
       id: post.id,
       content: post.content,
       createdAt: post.createdAt,
-      author: { id: post.author.id, handle: post.author.handle, displayName: post.author.displayName, avatarKey: post.author.avatarKey },
+      author: { id: post.author.id, handle: post.author.handle, displayName: post.author.displayName, hasAvatar: Boolean(post.author.avatarKey) },
       media: post.media.map(item => ({ id: item.id, kind: item.kind }))
     }))
   };
+}
+
+// ============================================================================
+// FILIAÇÕES ABERTAS A AUTOCADASTRO.
+//
+// Existe porque `GET /affiliations` é escopado ao VÍNCULO do ator, e quem
+// acaba de criar conta não tem vínculo nenhum: a lista voltava vazia sempre, e
+// a fila de perfil de atleta ficava inalcançável para quem ela atende. Medido
+// na API, não deduzido.
+//
+// A exposição é decidida por TRÊS condições, e nenhuma delas vem do cliente:
+//
+//   organization.selfRegistrationOpen  a federação decidiu receber pedido
+//                                      espontâneo (padrão: false)
+//   organization.active                a federação está operando
+//   affiliation.active                 a filiação está válida
+//
+// O que sai daqui é só o necessário para escolher numa lista: id, nome,
+// código, tipo e UF, mais o nome da federação para contexto. NÃO sai o
+// `organizationId` — a solicitação deriva a federação da filiação escolhida,
+// no servidor, e devolver o id aqui só serviria para alguém tentar mandá-lo
+// de volta.
+// ============================================================================
+async function listAffiliations(filtros = {}) {
+  const termo = (filtros.search || '').trim();
+
+  return prisma.affiliation.findMany({
+    where: {
+      active: true,
+      organization: { active: true, selfRegistrationOpen: true },
+      ...(termo
+        ? { OR: [{ name: { contains: termo, mode: 'insensitive' } }, { code: { contains: termo.toUpperCase() } }] }
+        : {})
+    },
+    select: {
+      id: true,
+      name: true,
+      code: true,
+      kind: true,
+      state: true,
+      organization: { select: { name: true } }
+    },
+    orderBy: [{ name: 'asc' }],
+    take: Math.min(filtros.limit || 100, 200)
+  });
 }
 
 async function athletePage(id) {
@@ -128,7 +173,7 @@ async function athletePage(id) {
       coach: { select: { id: true, name: true } },
       gym: { select: { id: true, name: true } },
       affiliation: { select: { id: true, name: true, code: true } },
-      socialProfile: { select: { id: true, handle: true, displayName: true, avatarKey: true, bio: true, isPrivate: true } }
+      socialProfile: { select: { id: true, handle: true, displayName: true, bio: true, isPrivate: true } }
     }
   });
   if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
@@ -175,4 +220,4 @@ async function listAthletes(filtros) {
   return { items: items.map(athletePublic), nextCursor: items.length === filtros.limit ? items[items.length - 1].id : null };
 }
 
-module.exports = { summary, listEvents, eventPage, athletePage, listAthletes, EVENTOS_VISIVEIS };
+module.exports = { summary, listEvents, eventPage, athletePage, listAthletes, listAffiliations, EVENTOS_VISIVEIS };

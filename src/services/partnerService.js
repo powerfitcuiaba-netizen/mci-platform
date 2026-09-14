@@ -92,7 +92,7 @@ async function listBrands(filtros, actor) {
   const escopo = actor ? organizationFilter(actor, filtros.organizationId) : {};
   return prisma.brand.findMany({
     where: { ...escopo, active: true },
-    include: { socialProfile: { select: { id: true, handle: true, avatarKey: true } }, _count: { select: { partnerships: true } } },
+    include: { socialProfile: { select: { id: true, handle: true } }, _count: { select: { partnerships: true } } },
     orderBy: { name: 'asc' },
     take: filtros.limit || 50
   });
@@ -223,7 +223,7 @@ async function listPartnerships(filtros) {
   return prisma.athleteBrandPartnership.findMany({
     where,
     include: {
-      athlete: { select: { id: true, fullName: true, stageName: true, photoKey: true } },
+      athlete: { select: { id: true, fullName: true, stageName: true } },
       brand: { select: { id: true, name: true, slug: true } }
     },
     orderBy: { createdAt: 'desc' },

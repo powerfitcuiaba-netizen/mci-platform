@@ -401,7 +401,7 @@ async function listByEvent(eventId, actor) {
     include: {
       competitionClass: { include: { division: { include: { eventCategory: { include: { category: true } } } } } },
       entries: {
-        include: { athlete: { select: { id: true, fullName: true, stageName: true, photoKey: true, state: true, city: true } } },
+        include: { athlete: { select: { id: true, fullName: true, stageName: true, state: true, city: true } } },
         orderBy: [{ placing: 'asc' }, { score: 'asc' }]
       }
     },

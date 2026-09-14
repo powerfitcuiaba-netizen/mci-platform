@@ -27,7 +27,7 @@ const publicacao = {
   content: 'Treino de hoje',
   visibility: 'PUBLIC',
   createdAt: new Date().toISOString(),
-  author: { id: 'a1', handle: 'atleta', displayName: 'Atleta', kind: 'ATHLETE', avatarKey: null },
+  author: { id: 'a1', handle: 'atleta', displayName: 'Atleta', kind: 'ATHLETE', hasAvatar: false },
   media: [],
   counts: { likes: 3, comments: 2, shares: 1, saves: 0 },
   likedByMe: false,

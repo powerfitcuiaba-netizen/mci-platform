@@ -86,6 +86,24 @@ module.exports = [
     rules: { 'no-console': 'off' }
   },
 
+  // Scripts de QA de navegador: além do Node, eles carregam funções que são
+  // SERIALIZADAS e executadas dentro da página (`addInitScript`, `evaluate`).
+  // Esse código roda em navegador de verdade — `window` e `document` existem
+  // lá. Declarar os dois ambientes é descrever o que o arquivo é, e não
+  // afrouxar a regra: `no-undef` continua valendo para tudo o mais.
+  {
+    files: ['scripts/qa/**/*.mjs'],
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: 'module',
+      globals: { ...globals.node, ...globals.browser }
+    },
+    rules: {
+      ...js.configs.recommended.rules,
+      ...REGRAS_DE_DEFEITO
+    }
+  },
+
   // ------------------------------------------------------------- scripts
   {
     files: ['scripts/**/*.mjs'],

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import sharp from 'sharp';
-import { api, prisma, limparBanco, garantirCatalogo, criarUsuario } from './helpers.mjs';
+import { api, prisma, comoAtor, limparBanco, garantirCatalogo, criarUsuario } from './helpers.mjs';
 
 // ==========================================================================
 // Normalização de imagem na entrada.
@@ -53,7 +53,11 @@ describe('foto de perfil é recortada e encolhida', () => {
   it('4000x3000 vira um quadrado de 512, em WebP', async () => {
     const envio = await enviarAvatar(await jpegGrande());
     expect(envio.status, JSON.stringify(envio.body)).toBe(200);
-    expect(envio.body.avatarKey.endsWith('.webp'), envio.body.avatarKey).toBe(true);
+    // A chave não sai na resposta; o teste a lê do banco, que é onde ela vive.
+    const chave = (await comoAtor(ana, () => prisma.socialProfile.findUnique({
+      where: { userId: ana.id }, select: { avatarKey: true }
+    })))?.avatarKey;
+    expect(chave.endsWith('.webp'), chave).toBe(true);
 
     const perfil = await api().get('/api/v1/social/me').set(ana.auth());
     const arquivo = await baixarAvatar(perfil.body.id);
@@ -127,6 +131,7 @@ describe('o que NÃO é processado, de propósito', () => {
 
     expect(resposta.status, JSON.stringify(resposta.body)).toBe(201);
     expect(resposta.body.mimeType).toBe('image/gif');
-    expect(resposta.body.storageKey.endsWith('.gif')).toBe(true);
+    const midia = await prisma.postMedia.findUnique({ where: { id: resposta.body.id }, select: { storageKey: true } });
+    expect(midia.storageKey.endsWith('.gif')).toBe(true);
   });
 });

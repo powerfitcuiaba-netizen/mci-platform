@@ -108,29 +108,59 @@ async function listCheckIns(eventId, filtros, actor) {
   if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Evento não encontrado');
   assertCan(actor, 'checkin.read', event.organizationId);
 
+  const alvo = {
+    eventId,
+    status: 'CONFIRMED',
+    ...(filtros.search ? { athlete: { OR: [
+      { fullName: { contains: filtros.search, mode: 'insensitive' } },
+      { athleteNumber: { contains: filtros.search, mode: 'insensitive' } }
+    ] } } : {})
+  };
+
   const registrations = await prisma.registration.findMany({
-    where: {
-      eventId,
-      status: 'CONFIRMED',
-      ...(filtros.search ? { athlete: { OR: [
-        { fullName: { contains: filtros.search, mode: 'insensitive' } },
-        { athleteNumber: { contains: filtros.search, mode: 'insensitive' } }
-      ] } } : {})
-    },
+    where: alvo,
     include: {
-      athlete: { select: { id: true, fullName: true, stageName: true, athleteNumber: true, photoKey: true } },
+      athlete: { select: { id: true, fullName: true, stageName: true, athleteNumber: true } },
       checkIn: true,
       weighIns: { orderBy: { measuredAt: 'desc' }, take: 1 },
       items: { include: { competitionClass: { select: { id: true, name: true } } } }
     },
-    orderBy: { athlete: { fullName: 'asc' } },
-    take: filtros.limit
+    // O `id` no fim do critério é desempate, e vale explicar por quê — com o
+    // que foi medido, e não com o que soa convincente.
+    //
+    // Para `cursor` o Prisma emite `fullName >= (o nome da linha do cursor)`
+    // seguido de `OFFSET 1`. Com nomes empatados, o `>=` traz TODOS os
+    // empatados e o `OFFSET 1` descarta exatamente um — o que só está certo se
+    // os empatados voltarem sempre na mesma ordem. O Postgres não promete isso
+    // para chaves iguais.
+    //
+    // MEDIDO: neste banco, com 101 inscrições e até com a chave de ordenação
+    // IDÊNTICA nas 101 linhas, percorrer tudo com limite 1, 3 e 25 devolveu as
+    // 101 linhas sem repetir nem perder, COM e SEM o desempate. Ou seja: aqui o
+    // plano do Postgres é estável e o desempate não muda o resultado. Ele fica
+    // porque torna a ordem determinística por contrato em vez de por sorte do
+    // plano, e custa nada. O mutante que o remove NÃO é morto pela suíte —
+    // está registrado assim no relatório, e não como prova que não existe.
+    orderBy: [{ athlete: { fullName: 'asc' } }, { id: 'asc' }],
+    take: filtros.limit,
+    ...(filtros.cursor ? { cursor: { id: filtros.cursor }, skip: 1 } : {})
   });
 
-  const total = registrations.length;
-  const feitos = registrations.filter(item => item.checkIn?.status === 'CHECKED_IN').length;
+  // O resumo é do EVENTO, não da página. Contar o array recortado fazia a tela
+  // anunciar "100 inscritos" num evento de 280 — e, pior, desligava o aviso de
+  // corte, que compara o tamanho da lista com o total. Lista incompleta que se
+  // anuncia é inconveniente; lista incompleta silenciosa é o operador
+  // procurando um atleta que o sistema já tinha.
+  const [total, feitos] = await Promise.all([
+    prisma.registration.count({ where: alvo }),
+    prisma.registration.count({ where: { ...alvo, checkIn: { status: 'CHECKED_IN' } } })
+  ]);
 
-  return { items: registrations, summary: { total, checkedIn: feitos, pending: total - feitos } };
+  return {
+    items: registrations,
+    summary: { total, checkedIn: feitos, pending: total - feitos },
+    nextCursor: registrations.length === filtros.limit ? registrations[registrations.length - 1].id : null
+  };
 }
 
 // ---------------------------------------------------------------------- PESAGEM
@@ -229,7 +259,7 @@ async function scanCredential(eventId, { code, gate }, actor) {
 
   const credential = await prisma.credential.findUnique({
     where: { code },
-    include: { registration: { include: { athlete: { select: { id: true, fullName: true, athleteNumber: true, photoKey: true } }, checkIn: true } } }
+    include: { registration: { include: { athlete: { select: { id: true, fullName: true, athleteNumber: true } }, checkIn: true } } }
   });
 
   if (!credential) throw new AppError(404, 'CREDENTIAL_NOT_FOUND', 'Credencial não encontrada');
@@ -264,16 +294,30 @@ async function scanCredential(eventId, { code, gate }, actor) {
   };
 }
 
-async function listCredentials(eventId, actor) {
+async function listCredentials(eventId, filtros, actor) {
   const event = await prisma.event.findUnique({ where: { id: eventId } });
   if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Evento não encontrado');
   assertCan(actor, 'credentials.read', event.organizationId);
 
-  return prisma.credential.findMany({
+  // Esta consulta não tinha `take` nenhum: devolvia TODAS as credenciais do
+  // evento de uma vez. Num evento grande são os atletas mais equipe, juízes,
+  // imprensa e convidados — e cada linha ainda carrega a contagem de leituras.
+  // O teto de 100 existe justamente para o banco não receber pedido sem
+  // tamanho; um endereço que escapava dele não estava "sem limite", estava
+  // sem proteção.
+  const items = await prisma.credential.findMany({
     where: { eventId },
     include: { _count: { select: { scans: true } } },
-    orderBy: [{ type: 'asc' }, { holderName: 'asc' }]
+    orderBy: [{ type: 'asc' }, { holderName: 'asc' }, { id: 'asc' }],
+    take: filtros.limit,
+    ...(filtros.cursor ? { cursor: { id: filtros.cursor }, skip: 1 } : {})
   });
+
+  return {
+    items,
+    total: await prisma.credential.count({ where: { eventId } }),
+    nextCursor: items.length === filtros.limit ? items[items.length - 1].id : null
+  };
 }
 
 // -------------------------------------------------------------- ORDEM DE PALCO
@@ -339,7 +383,7 @@ async function listStageOrder(batchId, actor) {
     include: {
       registrationItem: {
         include: {
-          registration: { include: { athlete: { select: { id: true, fullName: true, stageName: true, athleteNumber: true, photoKey: true } } } }
+          registration: { include: { athlete: { select: { id: true, fullName: true, stageName: true, athleteNumber: true } } } }
         }
       }
     },

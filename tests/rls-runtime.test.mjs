@@ -43,7 +43,7 @@ beforeEach(async () => {
 });
 
 describe('FORCE ROW LEVEL SECURITY — o dono da tabela também é filtrado', () => {
-  it('as 21 tabelas protegidas estão com FORCE ligado', async () => {
+  it('as 22 tabelas protegidas estão com FORCE ligado', async () => {
     const linhas = await prisma.$queryRaw`
       SELECT c.relname::text AS tabela, c.relforcerowsecurity AS forcado
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -52,7 +52,12 @@ describe('FORCE ROW LEVEL SECURITY — o dono da tabela também é filtrado', ()
 
     // O número é conferido de propósito: tabela protegida nova precisa ser
     // decisão consciente, e tabela que sai da lista, idem.
-    expect(linhas.length).toBe(21);
+    //
+    // Passou de 21 para 22 com `AthleteProfileRequest`, a fila de perfil de
+    // atleta. Ela guarda CPF entre o pedido e a análise, então nasceu com RLS
+    // FORÇADA e política estreita: enxergam a linha apenas o dono do pedido e
+    // os operadores da organização.
+    expect(linhas.length).toBe(22);
     const semForce = linhas.filter(linha => !linha.forcado).map(linha => linha.tabela);
     expect(semForce, 'tabela com RLS mas sem FORCE volta a isentar o dono').toEqual([]);
   });

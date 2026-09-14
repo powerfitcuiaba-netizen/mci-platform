@@ -57,14 +57,22 @@ describe('autenticação', () => {
   });
 
   it('cadastro aberto não concede papel privilegiado', async () => {
+    // Contato e endereço entram porque o cadastro passou a exigi-los; o que
+    // este caso mede continua sendo o papel, não a validação nova.
+    const contato = {
+      password: 'senha-de-teste-123', birthDate: '1995-03-10',
+      phone: '65999991234', whatsapp: '65988884321', postalCode: '78000000',
+      addressLine: 'Rua de Teste', addressNumber: '100', state: 'MT', city: 'Cuiabá'
+    };
+
     const resposta = await api().post('/api/v1/auth/register')
-      .send({ name: 'Esperto', email: 'esperto@mci.test', password: 'senha-de-teste-123', role: 'ADMIN' });
+      .send({ ...contato, name: 'Esperto', email: 'esperto@mci.test', role: 'ADMIN' });
 
     // O schema recusa antes mesmo de chegar ao service.
     expect(resposta.status).toBe(400);
 
     const criado = await api().post('/api/v1/auth/register')
-      .send({ name: 'Comum', email: 'comum@mci.test', password: 'senha-de-teste-123' });
+      .send({ ...contato, name: 'Comum', email: 'comum@mci.test' });
     expect(criado.body.user.role).toBe('ATHLETE');
   });
 

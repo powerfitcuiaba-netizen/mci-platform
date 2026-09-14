@@ -30,7 +30,12 @@ function athletePublic(athlete) {
     country: athlete.country ?? null,
     state: athlete.state ?? null,
     city: athlete.city ?? null,
-    photoKey: athlete.photoKey ?? null,
+    // A CHAVE de armazenamento NÃO sai daqui. Ela é referência interna do
+    // provedor (caminho dentro do bucket) e não serve a nenhum cliente: a foto
+    // é buscada por `GET /media/athletes/:id/photo`, que decide quem pode vê-la.
+    // Devolver a chave só entregava a estrutura interna do armazenamento a
+    // quem abrisse a vitrine pública.
+    hasPhoto: Boolean(athlete.photoKey),
     athleteNumber: athlete.athleteNumber ?? null,
     proStatus: athlete.proStatus,
     proSince: athlete.proSince ?? null,
@@ -103,8 +108,10 @@ function profilePublic(profile) {
     displayName: profile.displayName,
     kind: profile.kind,
     bio: profile.bio ?? null,
-    avatarKey: profile.avatarKey ?? null,
-    coverKey: profile.coverKey ?? null,
+    // Mesma regra da foto de atleta: a chave é interna, a entrega é por rota
+    // com id (`GET /media/profiles/:id/avatar`). `coverKey` saiu junto — é a
+    // mesma classe de referência e nenhuma tela a consumia.
+    hasAvatar: Boolean(profile.avatarKey),
     isPrivate: profile.isPrivate,
     athleteId: profile.athleteId ?? null,
     createdAt: profile.createdAt

@@ -1,9 +1,18 @@
 import { useEffect, useState } from 'react';
+import { Trophy } from 'lucide-react';
 import api, { refreshData } from '../services/api';
-import { useFetch } from '../lib/hooks';
-import { AsyncSection, Badge, EmptyState, Field, Modal, ModalActions, PageHead } from '../components/ui';
-import { formatarDataHora } from '../lib/format';
-import { SeletorDeEvento } from './adminEvent';
+import { useFetch, useListaPaginada } from '../lib/hooks';
+import { AsyncSection, Badge, EmptyState, Field, Modal, ModalActions, PageHead, Paginacao } from '../components/ui';
+import { formatarDataHora, estadoDaEntrada } from '../lib/format';
+import { SeletorDeEvento, POR_PAGINA } from './adminEvent';
+import { anunciar, MCIEvento } from '../lib/experiencia';
+import { Revelacao } from '../components/experiencia';
+
+// O resultado inteiro tem dois estados; a entrada de cada atleta tem outros
+// quatro. Misturar os dois mapas mostraria "Classificado" onde se lê
+// "Publicado", então cada um tem o seu.
+const estadoDaInscricaoDoResultado = codigo =>
+  ({ PUBLISHED: 'Publicado', DRAFT: 'Rascunho' })[codigo] || codigo || '—';
 
 // Resultados. O MCI NÃO julga: o julgamento acontece fora, e esta tela LANÇA a
 // colocação oficial recebida. Não há ficha de juiz, nota nem apuração — o
@@ -27,6 +36,23 @@ export function AdminResultados({ notificar }) {
 
   const [lancando, setLancando] = useState(null);
 
+  // Qual classe acabou de receber ou publicar resultado. Serve para dar UM
+  // destaque na linha afetada — e só nela. Destacar a lista inteira a cada
+  // recarga faria o operador perder de vista o que realmente mudou.
+  const [declarando, setDeclarando] = useState(false);
+  const titulos = useFetch(
+    () => (eventId ? api.ranking.listarOverall(eventId) : Promise.resolve([])),
+    [eventId],
+    { ativo: Boolean(eventId) }
+  );
+
+  const [recemMudada, setRecemMudada] = useState(null);
+  useEffect(() => {
+    if (!recemMudada) return undefined;
+    const relogio = setTimeout(() => setRecemMudada(null), 2600);
+    return () => clearTimeout(relogio);
+  }, [recemMudada]);
+
   return (
     <div className="page">
       <PageHead eyebrow="Competição" title="Resultados" description="Lançamento do resultado oficial recebido, publicação protegida e correção versionada." />
@@ -40,10 +66,16 @@ export function AdminResultados({ notificar }) {
             <section className="panel" style={{ marginBottom: 16 }}>
               <div className="panel-head"><h2>Resultado oficial por classe</h2></div>
               {classes.length
-                ? classes.map(classe => {
+                ? classes.map((classe, indice) => {
                   const existente = (resultados.data?.items || []).find(item => item.classId === classe.id);
+                  const destacada = recemMudada === classe.id;
                   return (
-                    <div className="list-row" key={classe.id}>
+                    <Revelacao
+                      as="div"
+                      indice={indice}
+                      key={classe.id}
+                      className={`list-row${destacada ? ' linha-afetada varredura' : ''}`}
+                    >
                       <span className="info">
                         <strong>{classe.rotulo}</strong>
                         <small>
@@ -65,10 +97,58 @@ export function AdminResultados({ notificar }) {
                           <button type="button" className="button button-ghost button-sm" onClick={() => setVersoes(existente)}>Versões</button>
                         </>
                       )}
-                    </div>
+                    </Revelacao>
                   );
                 })
                 : <EmptyState title="Sem classes cadastradas" />}
+            </section>
+
+            {/* O TÍTULO OVERALL.
+                O MCI não julga: o Overall é DECLARADO pela organização, e o
+                servidor registra a declaração em auditoria. O endpoint existia
+                desde sempre e nenhuma tela o chamava — o bônus não tinha como
+                ser concedido pelo produto, e o momento do campeão não tinha
+                gatilho nenhum fora do laboratório. */}
+            <section className="panel" style={{ marginBottom: 16 }}>
+              <div className="panel-head">
+                <div>
+                  <h2>Título Overall</h2>
+                  <small style={{ color: 'var(--cinza-fraco)', fontSize: 11.5 }}>
+                    Declarado pela organização. A plataforma registra — não decide.
+                  </small>
+                </div>
+                <button type="button" className="button button-primary button-sm" onClick={() => setDeclarando(true)}>
+                  <Trophy size={14} /> Declarar Overall
+                </button>
+              </div>
+
+              {/* A rota devolve `{ items: [...] }`, e não um array puro. Eu havia
+                  assumido array — e o mock do teste repetiu a mesma suposição,
+                  então o teste concordou comigo em vez de me contradizer. O
+                  título era gravado no banco e simplesmente não aparecia.
+
+                  O comentário fica AQUI FORA: dentro de `AsyncSection` ele
+                  viraria um segundo filho, e o componente exige que o filho
+                  seja uma função — o mesmo contrato que já derrubou esta tela
+                  uma vez. */}
+              <AsyncSection state={titulos} linhas={1}>
+                {resposta => ((resposta.items || []).length
+                  ? resposta.items.map((titulo, indice) => (
+                    <Revelacao as="div" indice={indice} key={titulo.id} className="list-row">
+                      <span className="placing placing-1"><Trophy size={14} /></span>
+                      <span className="info">
+                        <strong>{titulo.athlete.stageName || titulo.athlete.fullName}</strong>
+                        <small>
+                          {titulo.category?.name || 'Overall do evento'}
+                          {titulo.declaredAt ? ` · declarado em ${formatarDataHora(titulo.declaredAt)}` : ''}
+                          {titulo.note ? ` · ${titulo.note}` : ''}
+                        </small>
+                      </span>
+                    </Revelacao>
+                  ))
+                  : <EmptyState title="Nenhum título Overall declarado" description="O Overall é decidido pela comissão e registrado aqui." />
+                )}
+              </AsyncSection>
             </section>
 
             <AsyncSection state={resultados} linhas={3}>
@@ -93,7 +173,7 @@ export function AdminResultados({ notificar }) {
                         <strong>{entrada.athlete.stageName || entrada.athlete.fullName}</strong>
                         <small>soma {entrada.score} · bruta {entrada.rawScore} · {entrada.breakdown?.judgeVotes ?? 0} voto(s)</small>
                       </span>
-                      {entrada.status !== 'RANKED' && <Badge tom="perigo">{entrada.status}</Badge>}
+                      {entrada.status !== 'RANKED' && <Badge tom={estadoDaEntrada(entrada.status).tom}>{estadoDaEntrada(entrada.status).rotulo}</Badge>}
                     </div>
                   ))}
                 </section>
@@ -104,15 +184,23 @@ export function AdminResultados({ notificar }) {
 
       {lancando && (
         <LancarResultado classe={lancando} eventId={eventId} notificar={notificar}
-          onClose={() => setLancando(null)} onSalvo={() => { setLancando(null); resultados.reload(); }} />
+          onClose={() => setLancando(null)}
+          onSalvo={() => { setRecemMudada(lancando.id); setLancando(null); resultados.reload(); }} />
       )}
       {publicando && (
-        <PublicarResultado resultado={publicando} notificar={notificar} onClose={() => setPublicando(null)} onSalvo={() => { setPublicando(null); resultados.reload(); }} />
+        <PublicarResultado resultado={publicando} notificar={notificar} onClose={() => setPublicando(null)}
+          onSalvo={() => { setRecemMudada(publicando.classId); setPublicando(null); resultados.reload(); }} />
       )}
       {corrigindo && (
-        <CorrigirResultado resultado={corrigindo} notificar={notificar} onClose={() => setCorrigindo(null)} onSalvo={() => { setCorrigindo(null); resultados.reload(); }} />
+        <CorrigirResultado resultado={corrigindo} notificar={notificar} onClose={() => setCorrigindo(null)}
+          onSalvo={() => { setRecemMudada(corrigindo.classId); setCorrigindo(null); resultados.reload(); }} />
       )}
       {versoes && <HistoricoDeVersoes resultado={versoes} onClose={() => setVersoes(null)} />}
+      {declarando && (
+        <DeclararOverall eventId={eventId} notificar={notificar}
+          onClose={() => setDeclarando(false)}
+          onSalvo={() => { setDeclarando(false); titulos.reload(); }} />
+      )}
     </div>
   );
 }
@@ -126,19 +214,31 @@ function LancarResultado({ classe, eventId, notificar, onClose, onSalvo }) {
   const [linhas, setLinhas] = useState([]);
   const [salvando, setSalvando] = useState(false);
 
-  const inscricoes = useFetch(() => api.registrations.listByEvent(eventId, { limit: 100 }), [eventId]);
+  const inscricoes = useListaPaginada(
+    cursor => api.registrations.listByEvent(eventId, { limit: POR_PAGINA, cursor: cursor || undefined }),
+    [eventId]
+  );
 
   useEffect(() => {
-    const itens = (inscricoes.data?.items || [])
-      .filter(inscricao => (inscricao.items || []).some(item => item.classId === classe.id))
+    // A API devolve `items[].competitionClass.id` — não existe `classId` no
+    // item. O filtro antigo comparava com um campo inexistente, dava sempre
+    // falso, e o diálogo listava ZERO inscritos: não havia como lançar
+    // resultado nenhum. "Ordem de palco" já lia o campo certo, no mesmo
+    // arquivo vizinho, o que mostra que era engano e não contrato diferente.
+    const itens = inscricoes.items
+      .filter(inscricao => (inscricao.items || []).some(item => item.competitionClass?.id === classe.id))
       .map(inscricao => ({
         athleteId: inscricao.athlete.id,
         nome: inscricao.athlete.fullName,
         placing: '',
         status: 'RANKED'
       }));
-    setLinhas(itens);
-  }, [inscricoes.data, classe.id]);
+    // MESCLA, não substitui. A lista cresce quando o operador pede a próxima
+    // página e volta a chegar quando outra tela grava algo — e em nenhum dos
+    // dois casos o que ele já digitou pode ser apagado. Trocar por `setLinhas`
+    // direto faria o "carregar mais" zerar as colocações da classe inteira.
+    setLinhas(atual => itens.map(novo => atual.find(linha => linha.athleteId === novo.athleteId) || novo));
+  }, [inscricoes.items, classe.id]);
 
   const alterar = (athleteId, campo, valor) =>
     setLinhas(atual => atual.map(linha => (linha.athleteId === athleteId ? { ...linha, [campo]: valor } : linha)));
@@ -159,6 +259,15 @@ function LancarResultado({ classe, eventId, notificar, onClose, onSalvo }) {
           : 'Resultado oficial lançado.',
         resultado.hasUnresolvedTie ? 'info' : 'ok'
       );
+      // Empate não é conquista: a publicação ficou TRAVADA. Celebrar aqui
+      // ensinaria o operador a ignorar justamente o caso que precisa de
+      // atenção humana. O toast acima continua igual nos dois caminhos.
+      anunciar(
+        resultado.hasUnresolvedTie ? MCIEvento.AVISO : MCIEvento.SUCESSO,
+        resultado.hasUnresolvedTie
+          ? { titulo: 'Empate não resolvido', descricao: 'A publicação fica travada até a comissão decidir.' }
+          : { titulo: 'Resultado lançado', descricao: `${classe.rotulo}` }
+      );
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -174,8 +283,13 @@ function LancarResultado({ classe, eventId, notificar, onClose, onSalvo }) {
           O julgamento é externo. Transcreva a colocação oficial recebida; a
           plataforma não recalcula nem desempata.
         </p>
-        <AsyncSection estado={inscricoes}>
-          {linhas.length
+        {/* `AsyncSection` recebe os filhos como FUNÇÃO — ela chama
+            `children(state.data)`. Este bloco passava JSX direto e o nome da
+            prop também estava errado (`estado`), então o diálogo estourava de
+            duas formas diferentes. A lista vem de `linhas`, derivada por
+            efeito, e não do argumento; por isso a função o ignora. */}
+        <AsyncSection state={inscricoes}>
+          {() => (linhas.length
             ? linhas.map(linha => (
               <div className="list-row" key={linha.athleteId}>
                 <span className="info"><strong>{linha.nome}</strong></span>
@@ -190,14 +304,22 @@ function LancarResultado({ classe, eventId, notificar, onClose, onSalvo }) {
                 </select>
               </div>
             ))
-            : <EmptyState title="Nenhum inscrito nesta classe" />}
+            : <EmptyState title="Nenhum inscrito nesta classe" />)}
         </AsyncSection>
-        <ModalActions>
-          <button type="button" className="button button-ghost" onClick={onClose}>Cancelar</button>
-          <button type="submit" className="button button-primary" disabled={salvando || !linhas.length}>
-            {salvando ? 'Lançando…' : 'Lançar resultado oficial'}
-          </button>
-        </ModalActions>
+        {/* "Nenhum inscrito nesta classe" pode ser só a página 1: a lista vem
+            do evento inteiro e é filtrada por classe DEPOIS de chegar. */}
+        <Paginacao nextCursor={inscricoes.nextCursor} onMore={inscricoes.carregarMais} loading={inscricoes.carregandoMais} />
+        {/* `ModalActions` NÃO renderiza filhos — ela monta os próprios botões
+            a partir das props. Os botões escritos aqui dentro eram descartados
+            em silêncio, e o diálogo real saía com "Cancelar" sem handler
+            nenhum, rótulo "Salvar" no lugar de "Lançar resultado oficial" e
+            sem a trava de lista vazia. Nada disso dava erro. */}
+        <ModalActions
+          onClose={onClose}
+          saving={salvando}
+          confirmLabel="Lançar resultado oficial"
+          disabled={!linhas.length}
+        />
       </form>
     </Modal>
   );
@@ -212,7 +334,16 @@ function PublicarResultado({ resultado, notificar, onClose, onSalvo }) {
     setSalvando(true);
     try {
       const resposta = await api.results.publish(resultado.classId, { reason: reason || null });
-      notificar(`Resultado publicado. ${resposta.ranking?.awarded ? `${resposta.ranking.awarded} atleta(s) pontuaram no ranking.` : 'Sem pontuação de ranking (evento sem temporada).'}`);
+      const pontuaram = resposta.ranking?.awarded;
+      notificar(`Resultado publicado. ${pontuaram ? `${pontuaram} atleta(s) pontuaram no ranking.` : 'Sem pontuação de ranking (evento sem temporada).'}`);
+      // Publicar é o instante em que a classificação deixa de ser rascunho e
+      // passa a valer para o público e para o ranking. É o nível MOMENTO — e
+      // NÃO o nível do campeão, que continua reservado. Nada aqui bloqueia o
+      // operador: a celebração passa por cima e sai sozinha.
+      anunciar(MCIEvento.RESULTADO_PUBLICADO, {
+        titulo: 'Resultado publicado',
+        descricao: pontuaram ? `${pontuaram} atleta(s) pontuaram no ranking.` : 'Classificação agora é pública.'
+      });
       refreshData();
       onSalvo();
     } catch (erro) {
@@ -261,6 +392,8 @@ function CorrigirResultado({ resultado, notificar, onClose, onSalvo }) {
         }))
       });
       notificar('Correção registrada como nova versão.');
+      // Correção é conserto, não conquista: confirmação sóbria, nível EVENTO.
+      anunciar(MCIEvento.SUCESSO, { titulo: 'Correção registrada', descricao: 'A versão anterior foi preservada.' });
       refreshData();
       onSalvo();
     } catch (erro) {
@@ -331,14 +464,14 @@ function HistoricoDeVersoes({ resultado, onClose }) {
                 <div style={{ flex: 1 }}>
                   <strong style={{ display: 'block', fontSize: 13 }}>{versao.reason}</strong>
                   <small style={{ color: 'var(--cinza-fraco)' }}>
-                    {versao.createdBy?.name || 'sistema'} · {formatarDataHora(versao.createdAt)} · {versao.snapshot.status}
+                    {versao.createdBy?.name || 'sistema'} · {formatarDataHora(versao.createdAt)} · {estadoDaInscricaoDoResultado(versao.snapshot.status)}
                   </small>
                 </div>
               </div>
               <div className="chips" style={{ marginTop: 8 }}>
                 {(versao.snapshot.entries || []).map(entrada => (
                   <span className="chip" key={entrada.registrationItemId}>
-                    {entrada.placing ?? '—'}º · {entrada.status}
+                    {entrada.placing ?? '—'}º · {estadoDaEntrada(entrada.status).rotulo}
                   </span>
                 ))}
               </div>
@@ -350,6 +483,111 @@ function HistoricoDeVersoes({ resultado, onClose }) {
       <div className="modal-actions">
         <button type="button" className="button button-secondary" onClick={onClose}>Fechar</button>
       </div>
+    </Modal>
+  );
+}
+
+// ============================================================ TÍTULO OVERALL
+//
+// O MCI NÃO JULGA. O Overall é decidido pela comissão, fora da plataforma, e
+// DECLARADO aqui — o servidor registra em auditoria como OVERALL_DECLARE e
+// repontua os resultados já publicados do evento, porque declarar o título é
+// um fato novo sobre resultados que já existiam.
+//
+// Esta é a única porta do produto para o Momento Campeão. Ela é estreita de
+// propósito: exige permissão de ranking, exige escolher a pessoa numa lista de
+// inscritos do evento, e acontece uma vez por evento. É isso que mantém o
+// nível 5 raro — a raridade vem do FATO, não de uma regra de interface.
+function DeclararOverall({ eventId, notificar, onClose, onSalvo }) {
+  const inscricoes = useListaPaginada(
+    cursor => api.registrations.listByEvent(eventId, { limit: POR_PAGINA, cursor: cursor || undefined }),
+    [eventId]
+  );
+  const evento = useFetch(() => api.events.findOne(eventId), [eventId]);
+  const [athleteId, setAthleteId] = useState('');
+  const [categoryId, setCategoryId] = useState('');
+  const [note, setNote] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  const [falha, setFalha] = useState(null);
+
+  const atletas = inscricoes.items.map(item => ({
+    id: item.athlete.id,
+    nome: item.athlete.stageName || item.athlete.fullName
+  }));
+  const categorias = (evento.data?.eventCategories || []).map(ec => ({
+    id: ec.category.id, nome: ec.category.name
+  }));
+  const escolhido = atletas.find(item => item.id === athleteId);
+
+  const declarar = async evt => {
+    evt.preventDefault();
+    if (salvando || !athleteId) return;
+    setSalvando(true);
+    setFalha(null);
+    try {
+      await api.ranking.declararOverall(eventId, {
+        athleteId,
+        categoryId: categoryId || undefined,
+        note: note.trim() || undefined
+      });
+      notificar('Título Overall declarado. Os resultados publicados foram repontuados.');
+
+      // O ÚNICO nível 5 da operação, e o único lugar do produto que o dispara.
+      anunciar(MCIEvento.CAMPEAO, {
+        titulo: categorias.find(c => c.id === categoryId)?.nome || 'Campeão Overall',
+        nome: escolhido?.nome,
+        descricao: evento.data?.name
+      });
+      refreshData();
+      onSalvo();
+    } catch (erro) {
+      setFalha(erro.message);
+      notificar(erro.message, 'erro');
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="Declarar título Overall"
+      description="A comissão decide; a plataforma registra. A declaração fica na auditoria e repontua os resultados já publicados."
+      onClose={onClose}
+    >
+      <form onSubmit={declarar}>
+        {falha && (
+          <div className="alert alert-erro" style={{ marginBottom: 14 }}>
+            <div>
+              <strong>Título não declarado</strong>
+              <p>{falha}</p>
+              <p>Nada foi registrado. Confira a escolha e tente de novo.</p>
+            </div>
+          </div>
+        )}
+
+        <Field label="Atleta" required hint="Somente inscritos neste evento.">
+          <select value={athleteId} onChange={evt => setAthleteId(evt.target.value)} required>
+            <option value="">Selecione…</option>
+            {atletas.map(item => <option key={item.id} value={item.id}>{item.nome}</option>)}
+          </select>
+        </Field>
+        {/* O campeão Overall não pode ser inalcançável por estar na página 2
+            da lista de inscritos. */}
+        <Paginacao nextCursor={inscricoes.nextCursor} onMore={inscricoes.carregarMais} loading={inscricoes.carregandoMais} />
+
+        <Field label="Recorte" hint="Sem recorte, é o Overall do evento inteiro.">
+          <select value={categoryId} onChange={evt => setCategoryId(evt.target.value)}>
+            <option value="">Overall do evento</option>
+            {categorias.map(item => <option key={item.id} value={item.id}>{item.nome}</option>)}
+          </select>
+        </Field>
+
+        <Field label="Observação" hint="Fica registrada junto da declaração.">
+          <textarea value={note} onChange={evt => setNote(evt.target.value)} maxLength={300}
+            placeholder="Ex: decisão da comissão técnica em 14/09" />
+        </Field>
+
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Declarar Overall" disabled={!athleteId} />
+      </form>
     </Modal>
   );
 }

@@ -215,7 +215,9 @@ function serializarMensagem(mensagem, viewerProfileId) {
     id: mensagem.id,
     body: apagada ? null : mensagem.body,
     deleted: apagada,
-    storageKey: apagada ? null : mensagem.storageKey,
+    // A tela só precisa saber SE existe mídia; o arquivo vem por
+    // `/messenger/messages/:id/media`, que confere participação na conversa.
+    hasMedia: !apagada && Boolean(mensagem.storageKey),
     mimeType: apagada ? null : mensagem.mimeType,
     mediaKind: apagada ? null : mensagem.mediaKind,
     createdAt: mensagem.createdAt,
@@ -226,7 +228,7 @@ function serializarMensagem(mensagem, viewerProfileId) {
       id: mensagem.sharedPost.id,
       content: mensagem.sharedPost.content,
       author: profilePublic(mensagem.sharedPost.author),
-      media: mensagem.sharedPost.media.map(item => ({ id: item.id, kind: item.kind, storageKey: item.storageKey }))
+      media: mensagem.sharedPost.media.map(item => ({ id: item.id, kind: item.kind }))
     },
     sharedProfile: apagada ? null : profilePublic(mensagem.sharedProfile),
     reactions: (mensagem.reactions || []).map(reacao => ({ emoji: reacao.emoji, profile: reacao.profile }))

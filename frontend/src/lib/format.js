@@ -72,6 +72,131 @@ export const ESTADO_EVENTO = {
 };
 
 // ==========================================================================
+// RÓTULOS DE ENUM.
+//
+// Todo enum que chega à tela passa por aqui. A regra nasceu de um defeito que
+// apareceu em SEIS lugares diferentes nesta fase — "CONFIRMED", "ON_STAGE",
+// "TIE_UNRESOLVED", "SUPER_ADMIN" — inclusive na página pública do evento e no
+// painel do próprio atleta.
+//
+// Todos têm recuo para o código: rótulo faltando é incômodo, informação sumida
+// é engano. E `rotulo()` devolve o código quando o enum ganhar um valor novo,
+// em vez de deixar a tela em branco.
+// ==========================================================================
+const rotulo = (mapa, codigo, tomPadrao = 'neutro') =>
+  mapa[codigo] || { rotulo: codigo || '—', tom: tomPadrao };
+
+// Situação do atleta dentro de um resultado. Aparece na apuração oficial.
+export const ESTADO_DA_ENTRADA = {
+  RANKED: { rotulo: 'Classificado', tom: 'ok' },
+  TIE_UNRESOLVED: { rotulo: 'Empate não resolvido', tom: 'alerta' },
+  DISQUALIFIED: { rotulo: 'Desclassificado', tom: 'perigo' },
+  ABSENT: { rotulo: 'Ausente', tom: 'neutro' }
+};
+export const estadoDaEntrada = codigo => rotulo(ESTADO_DA_ENTRADA, codigo);
+
+// Tipo de credencial. É lido na portaria, em pé, com fila andando.
+export const TIPO_DE_CREDENCIAL = {
+  ATHLETE: { rotulo: 'Atleta', tom: 'info' },
+  COACH: { rotulo: 'Coach', tom: 'info' },
+  STAFF: { rotulo: 'Staff', tom: 'neutro' },
+  JUDGE: { rotulo: 'Juiz', tom: 'alerta' },
+  MEDIA: { rotulo: 'Imprensa', tom: 'neutro' },
+  PHOTOGRAPHER: { rotulo: 'Fotógrafo', tom: 'neutro' },
+  SPONSOR: { rotulo: 'Patrocinador', tom: 'neutro' },
+  GUEST: { rotulo: 'Convidado', tom: 'neutro' }
+};
+export const tipoDeCredencial = codigo => rotulo(TIPO_DE_CREDENCIAL, codigo);
+
+// Papéis. Aparecem para quem administra, e mesmo aí "REGISTRATION_OPERATOR"
+// não é o nome que ninguém usa para falar da pessoa.
+export const PAPEL = {
+  SUPER_ADMIN: { rotulo: 'Super administrador', tom: 'perigo' },
+  ADMIN: { rotulo: 'Administrador', tom: 'perigo' },
+  EVENT_DIRECTOR: { rotulo: 'Diretor de evento', tom: 'alerta' },
+  EVENT_COORDINATOR: { rotulo: 'Coordenador de evento', tom: 'alerta' },
+  JUDGE_COORDINATOR: { rotulo: 'Coordenador de arbitragem', tom: 'alerta' },
+  JUDGE: { rotulo: 'Juiz', tom: 'info' },
+  STAFF: { rotulo: 'Staff', tom: 'neutro' },
+  REGISTRATION_OPERATOR: { rotulo: 'Operador de inscrições', tom: 'info' },
+  CHECKIN_OPERATOR: { rotulo: 'Operador de check-in', tom: 'info' },
+  WEIGHIN_OPERATOR: { rotulo: 'Operador de pesagem', tom: 'info' },
+  RESULTS_OPERATOR: { rotulo: 'Operador de resultados', tom: 'info' },
+  RANKING_MANAGER: { rotulo: 'Gestor de ranking', tom: 'info' },
+  SOCIAL_ADMIN: { rotulo: 'Administrador do social', tom: 'info' },
+  MODERATOR: { rotulo: 'Moderador', tom: 'info' },
+  ATHLETE: { rotulo: 'Atleta', tom: 'neutro' },
+  COACH: { rotulo: 'Coach', tom: 'neutro' },
+  GYM: { rotulo: 'Academia', tom: 'neutro' },
+  TEAM: { rotulo: 'Equipe', tom: 'neutro' },
+  BRAND: { rotulo: 'Marca', tom: 'neutro' },
+  SPONSOR: { rotulo: 'Patrocinador', tom: 'neutro' },
+  MEDIA: { rotulo: 'Imprensa', tom: 'neutro' }
+};
+export const papel = codigo => rotulo(PAPEL, codigo);
+
+export const ESTADO_DO_USUARIO = {
+  ACTIVE: { rotulo: 'Ativo', tom: 'ok' },
+  SUSPENDED: { rotulo: 'Suspenso', tom: 'alerta' },
+  DISABLED: { rotulo: 'Desativado', tom: 'perigo' }
+};
+export const estadoDoUsuario = codigo => rotulo(ESTADO_DO_USUARIO, codigo);
+
+export const TIPO_DE_FILIACAO = {
+  FEDERATION: { rotulo: 'Federação', tom: 'info' },
+  ENTITY: { rotulo: 'Entidade', tom: 'neutro' },
+  ASSOCIATION: { rotulo: 'Associação', tom: 'neutro' },
+  TEAM: { rotulo: 'Equipe', tom: 'neutro' },
+  OTHER: { rotulo: 'Outro', tom: 'neutro' }
+};
+export const tipoDeFiliacao = codigo => rotulo(TIPO_DE_FILIACAO, codigo);
+
+export const ESTADO_DA_IMPORTACAO = {
+  PENDING: { rotulo: 'Pendente', tom: 'alerta' },
+  PREVIEWED: { rotulo: 'Pré-visualizado', tom: 'info' },
+  APPLIED: { rotulo: 'Aplicado', tom: 'ok' },
+  REJECTED: { rotulo: 'Rejeitado', tom: 'perigo' }
+};
+export const estadoDaImportacao = codigo => rotulo(ESTADO_DA_IMPORTACAO, codigo);
+
+// Tipo de perfil social. Aparece como sobrelinha no perfil PÚBLICO.
+export const TIPO_DE_PERFIL = {
+  ATHLETE: { rotulo: 'Atleta', tom: 'neutro' },
+  COACH: { rotulo: 'Coach', tom: 'neutro' },
+  GYM: { rotulo: 'Academia', tom: 'neutro' },
+  TEAM: { rotulo: 'Equipe', tom: 'neutro' },
+  BRAND: { rotulo: 'Marca', tom: 'neutro' },
+  SPONSOR: { rotulo: 'Patrocinador', tom: 'neutro' },
+  FAN: { rotulo: 'Torcedor', tom: 'neutro' },
+  MEDIA: { rotulo: 'Imprensa', tom: 'neutro' }
+};
+export const tipoDePerfil = codigo => rotulo(TIPO_DE_PERFIL, codigo);
+
+// Estado da inscrição. Mesmo defeito do estado da bateria: o enum cru
+// ("CONFIRMED", "CANCELLED") estava indo direto para a tabela de inscrições.
+export const ESTADO_INSCRICAO = {
+  PENDING: { rotulo: 'Pendente', tom: 'alerta' },
+  CONFIRMED: { rotulo: 'Confirmada', tom: 'ok' },
+  CANCELLED: { rotulo: 'Cancelada', tom: 'perigo' },
+  REJECTED: { rotulo: 'Recusada', tom: 'perigo' }
+};
+
+export const estadoDaInscricao = codigo => rotulo(ESTADO_INSCRICAO, codigo);
+
+// Estado da bateria de palco. Existe porque o enum cru estava sendo impresso
+// direto na tela — "CALLED", "ON_STAGE" —, inclusive na página PÚBLICA do
+// evento, que é onde o atleta e o público olham para saber quando entrar.
+export const ESTADO_BATERIA = {
+  SCHEDULED: { rotulo: 'Agendada', tom: 'info' },
+  CALLED: { rotulo: 'Chamada', tom: 'alerta' },
+  ON_STAGE: { rotulo: 'No palco', tom: 'perigo' },
+  DONE: { rotulo: 'Encerrada', tom: 'neutro' },
+  CANCELLED: { rotulo: 'Cancelada', tom: 'perigo' }
+};
+
+export const estadoDaBateria = codigo => rotulo(ESTADO_BATERIA, codigo);
+
+// ==========================================================================
 // O dia do evento.
 //
 // Regra de APRESENTAÇÃO, e não de estado. Nada no banco muda sozinho: um
@@ -147,6 +272,12 @@ export const ESTADO_PRO = {
   RETIRED: { rotulo: 'Aposentado', tom: 'neutro' }
 };
 
+// Acesso com recuo, como `estadoDaBateria` e `estadoDaInscricao`. `ESTADO_PRO`
+// cobre hoje os cinco valores do enum, mas o acesso direto `ESTADO_PRO[x].tom`
+// derruba a PÁGINA INTEIRA do atleta no dia em que o enum ganhar um valor —
+// rótulo errado é um incômodo, tela branca é um chamado no meio do evento.
+export const estadoPro = codigo => rotulo(ESTADO_PRO, codigo);
+
 export const ESTADO_MATCH = {
   MATCHED: { rotulo: 'Reconhecido', tom: 'ok' },
   MATCH_PENDING: { rotulo: 'Pendente', tom: 'alerta' },
@@ -158,9 +289,9 @@ export const ESTADO_MATCH = {
 
 // Caminho da foto de perfil, ou null quando o perfil não tem foto.
 //
-// O `avatarKey` é conferido ANTES de montar o caminho de propósito: pedir o
+// `hasAvatar` é conferido ANTES de montar o caminho de propósito: pedir o
 // avatar de quem não tem devolveria 404 por linha, e uma tela com 30
 // comentários faria 30 requisições para receber 30 erros. Quem não tem foto
 // nem chega a pedir — cai direto nas iniciais.
 export const caminhoDoAvatar = perfil =>
-  (perfil?.id && perfil?.avatarKey ? `/media/profiles/${perfil.id}/avatar` : null);
+  (perfil?.id && perfil?.hasAvatar ? `/media/profiles/${perfil.id}/avatar` : null);

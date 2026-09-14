@@ -72,6 +72,15 @@ async function main() {
   const admin = await prisma.user.findFirst({ where: { role: 'SUPER_ADMIN', status: 'ACTIVE' } });
   if (!admin) encerrar('Nenhum SUPER_ADMIN ativo. Crie o primeiro administrador antes (scripts/criar-admin.js).');
 
+  // Prazo explícito: a carga inteira roda numa transação só (é o
+  // `withUserContext` que a abre), e o padrão de 5s do Prisma é curto demais
+  // para 47 etapas contra um banco gerenciado, com latência de rede a cada ida
+  // e volta. 60s dá folga larga sem travar conexão indefinidamente.
+  //
+  // `PRAZO_CARGA_MS` existe para o teste conseguir apertar o prazo e provar que
+  // o estouro não deixa meia carga gravada.
+  const prazoMs = Number(process.env.PRAZO_CARGA_MS || 60000);
+
   await withUserContext(admin.id, async () => {
     const organizacoes = await prisma.organization.findMany({ select: { id: true, name: true, slug: true } });
     const slugPedido = argumento('organizacao');
@@ -110,13 +119,50 @@ async function main() {
       });
     }
 
+    // ----------------------------------------------------------------------
+    // CONFERÊNCIA PRÉVIA: nenhum slug do calendário pode pertencer a OUTRA
+    // federação.
+    //
+    // `Event.slug` é único no banco INTEIRO, não por organização. Sem esta
+    // conferência, importar o calendário da federação A encontrava pelo slug
+    // uma etapa da federação B e a ATUALIZAVA — medido: a etapa da B foi
+    // renomeada para o nome do calendário da A, mudou de ginásio e de cidade,
+    // e o `seasonId` dela passou a apontar para a temporada da A, levando os
+    // pontos daquela etapa para o ranking da federação errada. A federação A
+    // terminava com 46 das 47 etapas e o script saía com código 0, dizendo que
+    // deu certo.
+    //
+    // A recusa acontece ANTES de qualquer escrita e vale para o calendário
+    // inteiro: meia carga é pior que carga nenhuma, porque o operador não tem
+    // como saber o que entrou. Corrigir a colisão é decisão humana — pode ser
+    // renomear a etapa da outra federação ou importar em outra organização —,
+    // e não algo que uma importação deva resolver sozinha.
+    // ----------------------------------------------------------------------
+    const slugsDoCalendario = eventos.map(evento => gerarSlug(evento.nome, ano));
+    const colisoes = await prisma.event.findMany({
+      where: { slug: { in: slugsDoCalendario }, organizationId: { not: organizacao.id } },
+      select: { slug: true, name: true, organization: { select: { name: true, slug: true } } }
+    });
+
+    if (colisoes.length) {
+      encerrar(
+        `${colisoes.length} etapa(s) do calendário têm o mesmo endereço (slug) de eventos que pertencem a OUTRA federação.\n` +
+        'Nada foi gravado. Importar assim sobrescreveria evento alheio:\n' +
+        colisoes.map(c => `  ${c.slug}  ->  "${c.name}" da federação ${c.organization.name} (${c.organization.slug})`).join('\n') +
+        `\n\nResolva a colisão antes de importar: renomeie a etapa da outra federação, ou importe com --organizacao=${colisoes[0].organization.slug} se o calendário for dela.`
+      );
+    }
+
     const resumo = { criados: 0, atualizados: 0, inalterados: 0 };
     const semCidade = [];
     const semLocal = [];
 
     for (const evento of eventos) {
       const slug = gerarSlug(evento.nome, ano);
-      const existente = await prisma.event.findUnique({ where: { slug } });
+      // Escopado pela organização escolhida: a conferência prévia já garantiu
+      // que nenhum slug do calendário é de outra federação, e este filtro
+      // mantém a garantia local, sem depender de quem leu o código antes.
+      const existente = await prisma.event.findFirst({ where: { slug, organizationId: organizacao.id } });
 
       const campos = {
         name: evento.nome,
@@ -187,7 +233,7 @@ async function main() {
       for (const linha of semLocal) console.log(`   ${linha}`);
     }
     if (ensaio) console.log('\nENSAIO: nada foi gravado. Rode sem --dry-run para aplicar.');
-  });
+  }, { timeout: prazoMs, maxWait: 10000 });
 }
 
 main()

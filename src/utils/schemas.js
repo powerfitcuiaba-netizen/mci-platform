@@ -48,6 +48,113 @@ const authRegister = z.object({
   role: z.enum(PAPEIS_DE_CADASTRO_ABERTO).optional()
 });
 
+// ---------------------------------------------------------------- cadastro
+// completo
+//
+// O cadastro aberto passou a pedir contato, endereço e — só para atleta —
+// CPF e filiação. A obrigatoriedade mora AQUI, não no banco: as contas que já
+// existem foram criadas antes destes campos e continuam válidas.
+
+const somenteDigitosDe = valor => String(valor || '').replace(/\D+/g, '');
+
+// Telefone brasileiro com DDD: 10 dígitos (fixo) ou 11 (celular). Guardado só
+// com dígitos — formatar é trabalho da tela.
+const telefone = z.string()
+  .transform(somenteDigitosDe)
+  .refine(d => d.length === 10 || d.length === 11, 'Telefone deve ter DDD e 8 ou 9 dígitos');
+
+const cep = z.string()
+  .transform(somenteDigitosDe)
+  .refine(d => d.length === 8, 'CEP deve ter 8 dígitos');
+
+const uf = z.string().trim().toUpperCase()
+  .refine(v => /^[A-Z]{2}$/.test(v), 'UF deve ter duas letras');
+
+// Nascimento: data real, não futura, e idade plausível para uma pessoa viva.
+// O limite superior de 120 anos NÃO é regra esportiva — é sanidade de
+// digitação. Nenhuma idade mínima é imposta aqui: o domínio não define uma, e
+// inventá-la barraria atleta legítimo.
+const nascimento = z.string().trim()
+  .refine(v => /^\d{4}-\d{2}-\d{2}$/.test(v), 'Data no formato AAAA-MM-DD')
+  .refine(v => !Number.isNaN(Date.parse(`${v}T12:00:00.000Z`)), 'Data inválida')
+  .refine(v => {
+    // `2026-02-30` passa no Date.parse virando 02/03. Só comparar de volta
+    // acusa a data que não existe.
+    const [ano, mes, dia] = v.split('-').map(Number);
+    const d = new Date(Date.UTC(ano, mes - 1, dia));
+    return d.getUTCFullYear() === ano && d.getUTCMonth() === mes - 1 && d.getUTCDate() === dia;
+  }, 'Data inexistente no calendário')
+  .refine(v => new Date(`${v}T12:00:00.000Z`) <= new Date(), 'Data de nascimento não pode ser no futuro')
+  .refine(v => new Date(`${v}T12:00:00.000Z`) >= new Date(Date.UTC(new Date().getUTCFullYear() - 120, 0, 1)),
+    'Data de nascimento implausível');
+
+const cadastroCompleto = z.object({
+  name: texto(2, 120),
+  email: z.string().trim().toLowerCase().email().max(180),
+  password: z.string().min(8).max(200),
+  role: z.enum(PAPEIS_DE_CADASTRO_ABERTO).optional(),
+
+  birthDate: nascimento,
+  phone: telefone,
+  whatsapp: telefone,
+
+  postalCode: cep,
+  addressLine: texto(3, 160),
+  addressNumber: texto(1, 20),
+  addressComplement: opcional(texto(1, 80)),
+  state: uf,
+  city: texto(2, 90),
+
+  // ------------------------------------------------------------------
+  // CPF, sexo e filiação NÃO são aceitos aqui, e isso é decisão de
+  // arquitetura, não esquecimento.
+  //
+  // O CPF mora em `AthleteIdentity`, cuja chave primária é o `athleteId`:
+  // sem uma linha de `Athlete`, ele não tem onde ser gravado. E a política
+  // `atleta_criacao` exige `mci_operator_of(organizationId)` — quem acabou de
+  // se cadastrar não é operador de federação nenhuma, então o autocadastro
+  // NÃO pode criar a própria linha de atleta. Atleta é criado por operador,
+  // por CPF, no fluxo de inscrição que já existe.
+  //
+  // Aceitar os campos aqui e descartá-los em silêncio seria pior que
+  // recusá-los: o atleta digitaria o CPF acreditando que ficou guardado. A
+  // recusa é explícita e diz para onde ir.
+  cpf: z.never({ error: 'O CPF é registrado no perfil de atleta, pelo operador da federação — não no cadastro da conta.' }).optional(),
+  affiliationId: z.never({ error: 'A filiação é vinculada no perfil de atleta, pelo operador da federação.' }).optional(),
+  affiliationNumber: z.never({ error: 'O número de registro é vinculado junto com a filiação, no perfil de atleta.' }).optional(),
+  sex: z.never({ error: 'O sexo competitivo é definido no perfil de atleta, junto com a filiação.' }).optional()
+});
+
+// Solicitação de perfil de atleta. `organizationId` NÃO existe aqui de
+// propósito: ela é derivada da filiação, no servidor. Aceitá-la do cliente
+// deixaria qualquer pessoa endereçar o pedido à federação que quisesse.
+// Só o booleano. `z.object` com `strict` implícito do projeto descarta o
+// resto, e nada mais deste corpo chega ao serviço.
+const organizationSelfRegistration = z.object({ open: z.boolean() });
+
+const athleteRequestCreate = z.object({
+  fullName: texto(2, 160),
+  cpf: z.string().trim().min(11).max(14),
+  sex: z.enum(['MALE', 'FEMALE']),
+  birthDate: opcional(dataIso),
+  affiliationId: id,
+  affiliationNumber: texto(1, 40),
+  photoKey: opcional(texto(1, 300))
+});
+
+const athleteRequestReject = z.object({
+  // Motivo obrigatório: recusa sem explicação deixa o solicitante sem saber o
+  // que corrigir, e o próximo operador sem saber o que já foi analisado.
+  reason: texto(3, 500)
+});
+
+const athleteRequestQuery = z.object({
+  organizationId: id.optional(),
+  status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED']).optional(),
+  cursor: id.optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(20)
+});
+
 const authLogin = z.object({
   email: z.string().trim().toLowerCase().email().max(180),
   password: z.string().min(8).max(200)
@@ -529,7 +636,12 @@ const auditQuery = z.object({
   userId: id.optional(),
   action: z.string().trim().max(60).optional(),
   organizationId: id.optional(),
-  limit: z.coerce.number().int().min(1).max(200).default(100)
+  // O teto da auditoria é 200, e não 100 como o resto: a trilha é lida em
+  // varredura, não em navegação. O `cursor` tem o mesmo formato das demais
+  // listas — sem ele declarado, um cursor de 5.000 caracteres era ACEITO e
+  // silenciosamente descartado pelo zod, o que parecia validação e não era.
+  limit: z.coerce.number().int().min(1).max(200).default(100),
+  cursor: z.string().min(1).max(60).optional()
 });
 
 // ---------------------------------------------------------------- documentos
@@ -595,8 +707,9 @@ const rejectImport = z.object({ reason: opcional(texto(3, 300)) });
 module.exports = {
   paginacao, buscaPublica, paramsWithId, scopedListQuery, checkInQuery, sponsorshipQuery, partnershipQuery,
   importQuery, reportQuery, rankingPointsQuery, communityMemberAdd, handleUpdate, rejectImport,
-  authRegister, authLogin, profileUpdate, passwordChange,
-  organizationCreate, organizationMemberCreate,
+  authRegister, cadastroCompleto, authLogin, profileUpdate, passwordChange,
+  athleteRequestCreate, athleteRequestReject, athleteRequestQuery,
+  organizationCreate, organizationMemberCreate, organizationSelfRegistration,
   affiliationCreate,
   athleteCreate, athleteUpdate, athleteTeamLink, athleteTeamTransfer, athleteTeamUnlink, athleteQuery, athleteLookup, proStatusUpdate,
   eventCreate, eventUpdate, eventTransition, eventQuery,

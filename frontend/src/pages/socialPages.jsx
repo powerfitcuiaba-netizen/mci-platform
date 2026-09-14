@@ -5,7 +5,8 @@ import {
 import api, { refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Lightbox, Modal, ModalActions, PageHead, Paginacao, ProtectedMedia, Field } from '../components/ui';
-import { caminhoDoAvatar, desde, ESTADO_PRO, formatarData } from '../lib/format';
+import { anunciar, MCIEvento } from '../lib/experiencia';
+import { caminhoDoAvatar, desde, ESTADO_PRO, formatarData, tipoDePerfil } from '../lib/format';
 
 // MCI Social. Toda interação chama a API: não existe contador local que não
 // tenha sido confirmado pelo servidor.
@@ -113,6 +114,9 @@ function Composer({ notificar, onPublicado }) {
       setConteudo('');
       setArquivo(null);
       notificar('Publicação criada.');
+      // Nível EVENTO: confirma sem tomar o centro da tela. Publicar é coisa
+      // que se faz muitas vezes; interromper a cada vez cansaria.
+      anunciar(MCIEvento.SUCESSO, { titulo: 'Publicação criada', descricao: 'Já está no seu perfil.' });
       onPublicado();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -520,7 +524,7 @@ export function Perfil({ handle, notificar, navegar }) {
               <section className="hero" style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
                 <Avatar name={profile.displayName} mediaPath={caminhoDoAvatar(profile)} size="avatar-lg" />
                 <div style={{ flex: 1, minWidth: 220 }}>
-                  <span className="eyebrow">{profile.kind}</span>
+                  <span className="eyebrow">{tipoDePerfil(profile.kind).rotulo}</span>
                   <h1 style={{ marginTop: 6 }}>{profile.displayName}</h1>
                   <p style={{ margin: '4px 0 0' }}>@{profile.handle}</p>
                   {profile.bio && <p style={{ marginTop: 8 }}>{profile.bio}</p>}
@@ -928,9 +932,9 @@ function FotoDePerfil({ perfil, notificar, onMudou }) {
           ) : (
             <>
               <button type="button" className="button button-secondary button-sm" onClick={() => inputRef.current?.click()} disabled={ocupado}>
-                <ImageIcon size={14} /> {perfil.avatarKey ? 'Trocar foto' : 'Adicionar foto'}
+                <ImageIcon size={14} /> {perfil.hasAvatar ? 'Trocar foto' : 'Adicionar foto'}
               </button>
-              {perfil.avatarKey && (
+              {perfil.hasAvatar && (
                 <button type="button" className="button button-ghost button-sm" onClick={remover} disabled={ocupado}>
                   Remover foto
                 </button>

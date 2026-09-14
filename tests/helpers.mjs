@@ -73,9 +73,28 @@ export const unico = prefixo => `${prefixo}-${Date.now().toString(36)}-${(contad
 
 // ---------------------------------------------------------------- construtores
 
+// O cadastro aberto passou a exigir contato, endereço e nascimento. O helper
+// manda o corpo COMPLETO de propósito: ele representa um cadastro real, e
+// afrouxar a validação para a suíte não ter trabalho seria testar um sistema
+// que não existe.
+//
+// `role` continua fora daqui: papel privilegiado não é autoatribuível, e a
+// promoção é feita logo abaixo, direto no banco, como um administrador faria.
+const CADASTRO_DE_TESTE = Object.freeze({
+  password: 'senha-de-teste-123',
+  birthDate: '1995-03-10',
+  phone: '65999991234',
+  whatsapp: '65988884321',
+  postalCode: '78000000',
+  addressLine: 'Rua de Teste',
+  addressNumber: '100',
+  state: 'MT',
+  city: 'Cuiabá'
+});
+
 export async function criarUsuario({ role = 'ATHLETE', name = 'Usuário', email } = {}) {
   const endereco = email || `${unico('user')}@mci.test`;
-  const resposta = await api().post('/api/v1/auth/register').send({ name, email: endereco, password: 'senha-de-teste-123' });
+  const resposta = await api().post('/api/v1/auth/register').send({ ...CADASTRO_DE_TESTE, name, email: endereco });
   if (resposta.status !== 201) throw new Error(`falha ao criar usuário: ${resposta.status} ${JSON.stringify(resposta.body)}`);
 
   // Papel privilegiado não é autoatribuível pelo cadastro aberto: a suíte

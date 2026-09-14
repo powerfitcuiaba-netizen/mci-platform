@@ -178,7 +178,7 @@ async function setAvatar(userId, arquivo) {
   // para um arquivo que não existe mais. Falhar ao apagar o antigo deixa um
   // órfão, que é muito melhor que uma foto quebrada.
   if (anterior && anterior !== key) {
-    await storage.remove(anterior).catch(() => {});
+    await storage.descartar(anterior, { motivo: 'avatar substituido', profileId: profile.id });
   }
 
   await audit.record({
@@ -202,7 +202,7 @@ async function removeAvatar(userId) {
     where: { id: profile.id },
     data: { avatarKey: null }
   });
-  await storage.remove(profile.avatarKey).catch(() => {});
+  await storage.descartar(profile.avatarKey, { motivo: 'avatar removido', profileId: profile.id });
 
   await audit.record({
     actor: { id: userId }, action: 'PROFILE_AVATAR_REMOVE', entity: 'SocialProfile', entityId: profile.id
@@ -228,7 +228,7 @@ async function attachMedia(postId, userId, arquivo) {
 
   const posicao = await prisma.postMedia.count({ where: { postId } });
 
-  return prisma.postMedia.create({
+  const criada = await prisma.postMedia.create({
     data: {
       postId, kind, storageKey: key, mimeType: normalizada.mimeType,
       sizeBytes: normalizada.buffer.length, position: posicao,
@@ -238,6 +238,15 @@ async function attachMedia(postId, userId, arquivo) {
       width: normalizada.width, height: normalizada.height
     }
   });
+
+  // `select` explícito, e não a linha inteira: devolver o registro cru
+  // entregava `storageKey` — o caminho dentro do bucket — para o navegador. A
+  // mídia é buscada por `/media/posts/:id`, que confere quem pode vê-la.
+  return {
+    id: criada.id, kind: criada.kind, mimeType: criada.mimeType,
+    sizeBytes: criada.sizeBytes, position: criada.position,
+    width: criada.width, height: criada.height, createdAt: criada.createdAt
+  };
 }
 
 function serializarPost(post, viewerProfileId) {
@@ -252,7 +261,10 @@ function serializarPost(post, viewerProfileId) {
     author: profilePublic(post.author),
     // `width`/`height` viajam para a tela reservar o espaço antes de a imagem
     // chegar. Sem eles o texto abaixo pula quando a foto carrega.
-    media: (post.media || []).map(item => ({ id: item.id, kind: item.kind, storageKey: item.storageKey, mimeType: item.mimeType, position: item.position, width: item.width, height: item.height })),
+    // Sem `storageKey`: a mídia é buscada por `/media/posts/:id`, que confere
+    // quem pode vê-la. A chave é caminho interno do bucket e não serve ao
+    // cliente — devolvê-la só expunha a estrutura do armazenamento.
+    media: (post.media || []).map(item => ({ id: item.id, kind: item.kind, mimeType: item.mimeType, position: item.position, width: item.width, height: item.height })),
     counts: { likes: post.likeCount, comments: post.commentCount, shares: post.shareCount, saves: post.saveCount },
     likedByMe: Boolean(post.likes?.length),
     savedByMe: Boolean(post.saves?.length),
@@ -653,7 +665,7 @@ async function listStories(userId) {
   for (const story of stories) {
     if (!porAutor.has(story.authorId)) porAutor.set(story.authorId, { profile: profilePublic(story.author), items: [] });
     porAutor.get(story.authorId).items.push({
-      id: story.id, kind: story.kind, storageKey: story.storageKey, caption: story.caption,
+      id: story.id, kind: story.kind, caption: story.caption,
       createdAt: story.createdAt, expiresAt: story.expiresAt, seen: story.views.length > 0
     });
   }

@@ -3,7 +3,8 @@ import { CalendarDays, ChevronRight, MapPin, Search, Trophy, Users } from 'lucid
 import api from '../services/api';
 import { useDebounce, useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Metric, PageHead, Paginacao } from '../components/ui';
-import { ESTADO_PRO, formatarData, formatarDataHora, seloDoEvento } from '../lib/format';
+import { formatarData, formatarDataHora, seloDoEvento, estadoDaBateria, estadoPro } from '../lib/format';
+import { PulsoAoVivo, Revelacao } from '../components/experiencia';
 
 // Vitrine pública. Tudo aqui sai da API real; nenhuma métrica é estimada e
 // nenhuma lista é fixa no código.
@@ -14,7 +15,7 @@ export function Inicio({ navegar }) {
 
   return (
     <div className="page">
-      <section className="hero">
+      <Revelacao as="section" className="hero" indice={0}>
         <span className="eyebrow">Muscle Contest</span>
         <h1>Campeonato Brasileiro Muscle Contest</h1>
         <p>
@@ -26,16 +27,20 @@ export function Inicio({ navegar }) {
           <span><Users size={14} /> Atletas, coaches, equipes e academias</span>
           <span><CalendarDays size={14} /> Temporadas e ranking nacional</span>
         </div>
-      </section>
+      </Revelacao>
 
       <div className="grid grid-4" style={{ marginTop: 18 }}>
         <AsyncSection state={resumo} linhas={1}>
           {dados => (
             <>
-              <Metric label="Campeonatos" value={dados.events} />
-              <Metric label="Atletas" value={dados.athletes} />
-              <Metric label="Atletas PRO" value={dados.proAthletes} destaque />
-              <Metric label="Resultados publicados" value={dados.publishedResults} />
+              {/* Cada número leva ao módulo que o produz. `Metric` já vira
+                  botão acessível quando recebe `onClick` — o que faltava era
+                  ligar o número ao seu destino. A entrada é em sequência, com
+                  atraso calculado pelo motor (teto de 360ms). */}
+              <Revelacao indice={0}><Metric label="Campeonatos" value={dados.events} onClick={() => navegar('campeonatos')} destino="os campeonatos" /></Revelacao>
+              <Revelacao indice={1}><Metric label="Atletas" value={dados.athletes} onClick={() => navegar('atletas')} destino="os atletas" /></Revelacao>
+              <Revelacao indice={2}><Metric label="Atletas PRO" value={dados.proAthletes} destaque onClick={() => navegar('atletas')} destino="os atletas" /></Revelacao>
+              <Revelacao indice={3}><Metric label="Resultados publicados" value={dados.publishedResults} onClick={() => navegar('ranking')} destino="o ranking" /></Revelacao>
             </>
           )}
         </AsyncSection>
@@ -140,20 +145,34 @@ export function Campeonatos({ navegar }) {
         {() => {
           if (!pagina.items.length) return <EmptyState title="Nenhum campeonato encontrado" description="Ajuste a busca para ver outras etapas." />;
 
+          const agora = Date.now();
+          const proximaEtapaId = (pagina.items.find(item => new Date(item.startDate).getTime() >= agora) || {}).id;
+
           return (
             <>
             <div className="grid grid-3">
-              {pagina.items.map(evento => {
+              {pagina.items.map((evento, indice) => {
                 const estadoEvento = seloDoEvento(evento);
+                // "Próxima" é a PRIMEIRA etapa futura da lista carregada, e a
+                // lista já vem ordenada pelo servidor. Não é palpite da
+                // interface: é o primeiro item que ainda não aconteceu.
+                const proxima = evento.id === proximaEtapaId;
                 return (
-                  <button
+                  <Revelacao
+                    as="button"
                     key={evento.id}
+                    indice={indice % 24}
                     type="button"
-                    className="panel"
+                    className={`panel cartao-clicavel${proxima ? ' etapa-proxima' : ''}`}
                     style={{ textAlign: 'left', cursor: 'pointer' }}
                     onClick={() => navegar(`campeonatos/${evento.slug}`)}
                   >
-                    <Badge tom={estadoEvento.tom} aoVivo={estadoEvento.aoVivo}>{estadoEvento.rotulo}</Badge>
+                    {proxima && <span className="eyebrow" style={{ display: 'block', marginBottom: 8 }}>Próxima etapa</span>}
+                    {/* Ao vivo de VERDADE: `seloDoEvento` só devolve `aoVivo`
+                        quando a etapa acontece hoje E está em estado de piso. */}
+                    {estadoEvento.aoVivo
+                      ? <PulsoAoVivo rotulo={estadoEvento.rotulo} />
+                      : <Badge tom={estadoEvento.tom}>{estadoEvento.rotulo}</Badge>}
                     <h3 className="display" style={{ fontSize: 22, margin: '14px 0 6px' }}>{evento.name}</h3>
                     <p style={{ color: 'var(--cinza)', fontSize: 12.5, margin: 0, minHeight: 34 }}>
                       {evento.description || 'Etapa do Campeonato Brasileiro Muscle Contest.'}
@@ -162,7 +181,7 @@ export function Campeonatos({ navegar }) {
                       <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><CalendarDays size={13} /> {formatarData(evento.startDate)}</span>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Users size={13} /> {evento._count.registrations}</span>
                     </div>
-                  </button>
+                  </Revelacao>
                 );
               })}
             </div>
@@ -268,8 +287,8 @@ export function CampeonatoDetalhe({ slug, navegar }) {
                           <strong>{bateria.name} — {bateria.competitionClass.name}</strong>
                           <small>{bateria.scheduledAt ? formatarDataHora(bateria.scheduledAt, event.timezone) : 'Horário a definir'}</small>
                         </span>
-                        <Badge tom={bateria.status === 'DONE' ? 'neutro' : bateria.status === 'ON_STAGE' ? 'perigo' : bateria.status === 'CALLED' ? 'alerta' : 'info'} aoVivo={bateria.status === 'ON_STAGE'}>
-                          {bateria.status}
+                        <Badge tom={estadoDaBateria(bateria.status).tom} aoVivo={bateria.status === 'ON_STAGE'}>
+                          {estadoDaBateria(bateria.status).rotulo}
                         </Badge>
                       </div>
                     ))
@@ -360,12 +379,23 @@ export function Atletas({ navegar }) {
         {() => (pagina.items.length
           ? (
             <>
+              {/* `Revelacao` em vez da classe escrita à mão: fixar "revela" no
+                  className passava POR CIMA do teto do motor, e o cartão
+                  animava mesmo com movimento reduzido. O componente existe
+                  justamente para essa decisão não ser repetida — e repetida
+                  errado — em cada tela.
+
+                  O `% 24` mantém o teto de 360ms valendo por página: sem ele,
+                  três páginas acumuladas fariam o último cartão entrar
+                  segundos depois do primeiro. */}
               <div className="grid grid-3">
-                {pagina.items.map(atleta => (
-                  <button
+                {pagina.items.map((atleta, indice) => (
+                  <Revelacao
+                    as="button"
                     key={atleta.id}
+                    indice={indice % 24}
                     type="button"
-                    className="panel"
+                    className="panel cartao-clicavel"
                     style={{ display: 'flex', gap: 12, alignItems: 'center', textAlign: 'left', cursor: 'pointer' }}
                     onClick={() => navegar(`atletas/${atleta.id}`)}
                   >
@@ -377,11 +407,11 @@ export function Atletas({ navegar }) {
                       </small>
                       {atleta.proStatus !== 'NONE' && (
                         <span style={{ display: 'inline-block', marginTop: 8 }}>
-                          <Badge tom={ESTADO_PRO[atleta.proStatus].tom}>{ESTADO_PRO[atleta.proStatus].rotulo}</Badge>
+                          <Badge tom={estadoPro(atleta.proStatus).tom}>{estadoPro(atleta.proStatus).rotulo}</Badge>
                         </span>
                       )}
                     </span>
-                  </button>
+                  </Revelacao>
                 ))}
               </div>
               <Paginacao nextCursor={pagina.nextCursor} onMore={carregarMais} loading={carregandoMais} />
@@ -406,7 +436,7 @@ export function AtletaDetalhe({ id, navegar }) {
           const { athlete, results, titles, rankings } = dados;
           return (
             <>
-              <section className="hero" style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+              <Revelacao as="section" indice={0} className="hero" style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
                 <Avatar name={athlete.fullName} size="avatar-lg" />
                 <div>
                   <span className="eyebrow">{athlete.affiliation?.name || 'Sem filiação'}</span>
@@ -415,19 +445,21 @@ export function AtletaDetalhe({ id, navegar }) {
                     <span>{athlete.city || '—'}{athlete.state ? `/${athlete.state}` : ''}</span>
                     <span>{athlete.team?.name || 'Sem equipe'}</span>
                     <span>{athlete.coach?.name ? `Coach ${athlete.coach.name}` : 'Sem coach'}</span>
-                    <Badge tom={ESTADO_PRO[athlete.proStatus].tom}>{ESTADO_PRO[athlete.proStatus].rotulo}</Badge>
+                    <Badge tom={estadoPro(athlete.proStatus).tom}>{estadoPro(athlete.proStatus).rotulo}</Badge>
                   </div>
                 </div>
-              </section>
+              </Revelacao>
 
-              <div className="grid grid-4" style={{ marginTop: 18 }}>
+              {/* A ordem da revelação É a hierarquia: primeiro quem é a
+                  pessoa, depois o que ela conquistou, depois o detalhe. */}
+              <Revelacao as="div" indice={1} className="grid grid-4" style={{ marginTop: 18 }}>
                 <Metric label="Títulos" value={titles} destaque />
                 <Metric label="Resultados publicados" value={results.length} />
                 <Metric label="Temporadas no ranking" value={rankings.length} />
                 <Metric label="Pontos somados" value={rankings.reduce((total, linha) => total + linha.totalPoints, 0)} />
-              </div>
+              </Revelacao>
 
-              <div className="grid grid-main" style={{ marginTop: 18 }}>
+              <Revelacao as="div" indice={2} className="grid grid-main" style={{ marginTop: 18 }}>
                 <section className="panel">
                   <div className="panel-head"><h2>Histórico esportivo</h2></div>
                   {results.length
@@ -461,7 +493,7 @@ export function AtletaDetalhe({ id, navegar }) {
                     ))
                     : <EmptyState title="Sem pontuação de ranking" />}
                 </section>
-              </div>
+              </Revelacao>
             </>
           );
         }}

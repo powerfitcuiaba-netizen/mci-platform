@@ -107,6 +107,8 @@ async function list(filtros, actor) {
   if (filtros.action) where.action = filtros.action;
   if (filtros.organizationId) where.organizationId = filtros.organizationId;
 
+  const limite = Math.min(Number(filtros.limit) || 100, 200);
+
   const items = await prisma.auditLog.findMany({
     where,
     select: {
@@ -114,11 +116,26 @@ async function list(filtros, actor) {
       organizationId: true, createdAt: true, userEmail: true, ip: true,
       user: { select: { id: true, name: true, role: true } }
     },
-    orderBy: { createdAt: 'desc' },
-    take: Math.min(Number(filtros.limit) || 100, 200)
+    // `createdAt` não é único: duas ações do mesmo lote caem no mesmo
+    // milissegundo. O `id` fecha a ordem por contrato — auditoria embaralhada
+    // entre duas leituras não é auditoria. Mesma decisão do check-in, e pelo
+    // mesmo motivo: determinismo por contrato, não por sorte do plano.
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: limite,
+    ...(filtros.cursor ? { cursor: { id: filtros.cursor }, skip: 1 } : {})
   });
 
-  return { items, total: items.length };
+  // `total: items.length` devolvia o tamanho da PÁGINA. Numa trilha de
+  // auditoria isso é pior que numa lista comum: auditoria existe para
+  // responder "isto aconteceu quantas vezes?", e um total que na verdade é o
+  // teto responde sempre a mesma coisa. A tela não exibia esse número, o que
+  // reduzia o impacto — mas número errado exposto por API é defeito mesmo
+  // quando ninguém está olhando, porque a próxima tela vai acreditar nele.
+  return {
+    items,
+    total: await prisma.auditLog.count({ where }),
+    nextCursor: items.length === limite ? items[items.length - 1].id : null
+  };
 }
 
 module.exports = { record, list, sanitize, ACTIONS };

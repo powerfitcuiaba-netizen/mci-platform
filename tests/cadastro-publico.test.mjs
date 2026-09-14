@@ -26,7 +26,23 @@ const PRIVILEGIADOS = [
 ];
 const SENHA = 'SenhaForte#2026';
 
-const cadastrar = corpo => api().post('/api/v1/auth/register').send(corpo);
+// O cadastro aberto passou a exigir contato, endereço e nascimento. Estes
+// campos entram por baixo em TODA chamada deste arquivo para que os testes
+// continuem medindo o que mediam — papel concedido e escalada de privilégio —
+// e não a validação nova. Quando um caso quer justamente um corpo incompleto,
+// ele passa os campos explicitamente.
+const CONTATO_VALIDO = Object.freeze({
+  birthDate: '1995-03-10',
+  phone: '65999991234',
+  whatsapp: '65988884321',
+  postalCode: '78000000',
+  addressLine: 'Rua de Teste',
+  addressNumber: '100',
+  state: 'MT',
+  city: 'Cuiabá'
+});
+
+const cadastrar = corpo => api().post('/api/v1/auth/register').send({ ...CONTATO_VALIDO, ...corpo });
 const email = () => `${unico('pessoa')}@mci.test`.toLowerCase().replace(/\s+/g, '');
 
 beforeAll(() => garantirCatalogo());

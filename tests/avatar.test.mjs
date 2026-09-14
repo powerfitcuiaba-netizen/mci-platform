@@ -2,6 +2,13 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import sharp from 'sharp';
 import { api, prisma, comoAtor, limparBanco, garantirCatalogo, criarUsuario } from './helpers.mjs';
 
+const chaveDoAvatar = async usuario => {
+  const perfil = await comoAtor(usuario, () => prisma.socialProfile.findUnique({
+    where: { userId: usuario.id }, select: { avatarKey: true }
+  }));
+  return perfil?.avatarKey ?? null;
+};
+
 // ==========================================================================
 // Foto de perfil.
 //
@@ -10,6 +17,9 @@ import { api, prisma, comoAtor, limparBanco, garantirCatalogo, criarUsuario } fr
 // NADA no sistema escrevia: não havia rota de envio, de remoção nem de
 // entrega. O campo nascia nulo e morria nulo, e a interface caía para sempre
 // nas iniciais.
+//
+// A CHAVE deixou de sair na resposta (é referência interna do bucket): quem
+// precisa dela para conferir o arquivo é o teste, e ele a lê do banco.
 //
 // A entrega segue a mesma regra que a API já aplicava ao expor `avatarKey`
 // dentro de `profilePublic`: a foto faz parte do cartão de identificação do
@@ -48,10 +58,11 @@ describe('enviar, trocar e remover a própria foto', () => {
   it('envia a foto e ela passa a aparecer no perfil', async () => {
     const envio = await enviarAvatar(ana, PNG, { filename: 'eu.png', contentType: 'image/png' });
     expect(envio.status, JSON.stringify(envio.body)).toBe(200);
-    expect(envio.body.avatarKey).toBeTruthy();
+    expect(envio.body.hasAvatar).toBe(true);
+    expect(envio.body).not.toHaveProperty('avatarKey');
 
     const perfil = await api().get('/api/v1/social/me').set(ana.auth());
-    expect(perfil.body.avatarKey).toBe(envio.body.avatarKey);
+    expect(perfil.body.hasAvatar).toBe(true);
   });
 
   it('a foto é servida de verdade, com o tipo correto', async () => {
@@ -68,30 +79,34 @@ describe('enviar, trocar e remover a própria foto', () => {
   });
 
   it('trocar a foto APAGA o arquivo anterior — não deixa órfão no storage', async () => {
-    const primeira = await enviarAvatar(ana, PNG, { filename: 'a.png', contentType: 'image/png' });
+    await enviarAvatar(ana, PNG, { filename: 'a.png', contentType: 'image/png' });
+    const chavePrimeira = await chaveDoAvatar(ana);
     const segunda = await enviarAvatar(ana, await jpegReal(), { filename: 'b.jpg', contentType: 'image/jpeg' });
     expect(segunda.status).toBe(200);
-    expect(segunda.body.avatarKey).not.toBe(primeira.body.avatarKey);
+    const chaveSegunda = await chaveDoAvatar(ana);
+
 
     const storage = await import('../src/services/storageService.js');
-    expect(await storage.default.exists(primeira.body.avatarKey), 'arquivo antigo ficou órfão').toBe(false);
-    expect(await storage.default.exists(segunda.body.avatarKey)).toBe(true);
+    expect(await storage.default.exists(chavePrimeira), 'arquivo antigo ficou órfão').toBe(false);
+    expect(chaveSegunda).not.toBe(chavePrimeira);
+    expect(await storage.default.exists(chaveSegunda)).toBe(true);
   });
 
   it('remover a foto limpa o campo e apaga o arquivo', async () => {
-    const envio = await enviarAvatar(ana, PNG, { filename: 'eu.png', contentType: 'image/png' });
+    await enviarAvatar(ana, PNG, { filename: 'eu.png', contentType: 'image/png' });
+    const chaveEnviada = await chaveDoAvatar(ana);
     const remocao = await api().delete('/api/v1/social/me/avatar').set(ana.auth());
     expect(remocao.status).toBe(200);
-    expect(remocao.body.avatarKey).toBeNull();
+    expect(remocao.body.hasAvatar).toBe(false);
 
     const storage = await import('../src/services/storageService.js');
-    expect(await storage.default.exists(envio.body.avatarKey)).toBe(false);
+    expect(await storage.default.exists(chaveEnviada)).toBe(false);
   });
 
   it('remover sem ter foto não é erro', async () => {
     const remocao = await api().delete('/api/v1/social/me/avatar').set(ana.auth());
     expect(remocao.status).toBe(200);
-    expect(remocao.body.avatarKey).toBeNull();
+    expect(remocao.body.hasAvatar).toBe(false);
   });
 
   it('a troca fica registrada na auditoria', async () => {
@@ -135,7 +150,7 @@ describe('segurança da foto de perfil', () => {
       .attach('file', PNG, { filename: 'x.png', contentType: 'image/png' });
 
     const bruno2 = await api().get('/api/v1/social/me').set(bruno.auth());
-    expect(bruno2.body.avatarKey, 'o avatar do Bruno foi alterado pela Ana').toBeNull();
+    expect(bruno2.body.hasAvatar, 'o avatar do Bruno foi alterado pela Ana').toBe(false);
   });
 
   it('HTML disfarçado de imagem é recusado', async () => {

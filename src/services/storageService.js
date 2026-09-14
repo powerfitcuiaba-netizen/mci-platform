@@ -1,6 +1,7 @@
 const path = require('path');
 const crypto = require('crypto');
 const { AppError } = require('../utils/errors');
+const logger = require('../utils/logger');
 const { config } = require('../config/environment');
 const { LocalStorageProvider } = require('./storage/localStorageProvider');
 const { S3StorageProvider } = require('./storage/s3StorageProvider');
@@ -200,7 +201,32 @@ const stat = key => resolverProvedor().stat(key);
 const healthCheck = () => resolverProvedor().healthCheck();
 const driver = () => resolverProvedor().name;
 
+// Descarte de objeto que JÁ NÃO É REFERENCIADO pelo banco.
+//
+// A ordem em todo o sistema é: primeiro a linha deixa de apontar para o
+// objeto, depois o objeto sai. Na ordem inversa, uma falha de gravação
+// deixaria a linha apontando para um arquivo que não existe mais — foto
+// quebrada, que é pior que arquivo a mais.
+//
+// Por isso esta função NUNCA lança: a operação de negócio já terminou e está
+// coerente. O que ela não pode fazer é falhar em SILÊNCIO, que era o caso —
+// `.catch(() => {})` em sete lugares. Um órfão sem rastro é um órfão que
+// ninguém encontra. Aqui ele vira uma linha de log com a chave, pronta para
+// varredura ou alarme.
+async function descartar(key, contexto = {}) {
+  if (!key) return false;
+  try {
+    return await remove(key);
+  } catch (erro) {
+    logger.warn('objeto órfão: falha ao descartar do armazenamento', {
+      key, driver: driver(), erro: erro.message, ...contexto
+    });
+    return false;
+  }
+}
+
 module.exports = {
+  descartar,
   ROOT,
   MAX_BYTES,
   MAX_MEDIA_BYTES,

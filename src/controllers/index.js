@@ -6,6 +6,7 @@ const auth = require('../services/authService');
 const organizations = require('../services/organizationService');
 const affiliations = require('../services/affiliationService');
 const athletes = require('../services/athleteService');
+const athleteRequests = require('../services/athleteRequestService');
 const events = require('../services/eventService');
 const registrations = require('../services/registrationService');
 const operations = require('../services/operationsService');
@@ -25,6 +26,8 @@ const auditService = require('../services/auditService');
 const admin = require('../services/adminService');
 const health = require('../services/healthService');
 const memberships = require('../services/membershipService');
+
+const visibility = require('../utils/visibility');
 
 const ip = req => req.ip || req.headers['x-forwarded-for'] || null;
 
@@ -60,6 +63,7 @@ module.exports = {
     create: async (req, res) => res.status(201).json(await organizations.create(req.body, req.user)),
     findById: async (req, res) => res.json(await organizations.findById(req.params.id, req.user)),
     addMember: async (req, res) => res.status(201).json(await organizations.addMember(req.params.id, req.body, req.user)),
+    setSelfRegistration: async (req, res) => res.json(await organizations.setSelfRegistration(req.params.id, req.body.open, req.user)),
     removeMember: async (req, res) => res.json(await organizations.removeMember(req.params.id, req.params.membershipId, req.user))
   },
 
@@ -68,6 +72,18 @@ module.exports = {
     create: async (req, res) => res.status(201).json(await affiliations.create(req.body, req.user)),
     activate: async (req, res) => res.json(await affiliations.setActive(req.params.id, true, req.user)),
     deactivate: async (req, res) => res.json(await affiliations.setActive(req.params.id, false, req.user))
+  },
+
+  athleteRequests: {
+    criar: async (req, res) => res.status(201).json(await athleteRequests.criar(req.body, req.user)),
+    meus: async (req, res) => res.json({ items: await athleteRequests.meusPedidos(req.user) }),
+    cancelar: async (req, res) => res.json(await athleteRequests.cancelar(req.params.id, req.user)),
+    listar: async (req, res) => res.json(await athleteRequests.listar(req.query, req.user)),
+    analisar: async (req, res) => res.json(await athleteRequests.carregarParaAnalise(req.params.id, req.user)),
+    aprovar: async (req, res) => res.json(await athleteRequests.aprovar(req.params.id, req.user)),
+    rejeitar: async (req, res) => res.json(await athleteRequests.rejeitar(req.params.id, req.body, req.user)),
+    definirFoto: async (req, res) => res.json(await athleteRequests.definirFoto(req.params.id, req.file, req.user)),
+    removerFoto: async (req, res) => res.json(await athleteRequests.removerFoto(req.params.id, req.user))
   },
 
   athletes: {
@@ -112,7 +128,7 @@ module.exports = {
     weighIn: async (req, res) => res.status(201).json(await operations.weighIn(req.params.id, req.body, req.user)),
     listWeighIns: async (req, res) => res.json({ items: await operations.listWeighIns(req.params.id, req.user) }),
     issueCredential: async (req, res) => res.status(201).json(await operations.issueCredential(req.params.id, req.body, req.user)),
-    listCredentials: async (req, res) => res.json({ items: await operations.listCredentials(req.params.id, req.user) }),
+    listCredentials: async (req, res) => res.json(await operations.listCredentials(req.params.id, req.query, req.user)),
     revokeCredential: async (req, res) => res.json(await operations.revokeCredential(req.params.id, req.user)),
     scanCredential: async (req, res) => res.json(await operations.scanCredential(req.params.id, req.body, req.user)),
     createBatch: async (req, res) => res.status(201).json(await operations.createBatch(req.params.id, req.body, req.user)),
@@ -195,7 +211,11 @@ module.exports = {
   social: {
     setAvatar: async (req, res) => res.json(await social.setAvatar(req.user.id, req.file)),
     removeAvatar: async (req, res) => res.json(await social.removeAvatar(req.user.id)),
-    myProfile: async (req, res) => res.json(await social.meuPerfil(req.user.id)),
+    // `meuPerfil` devolve a linha crua porque o SERVIÇO precisa das chaves
+    // (gravar e apagar avatar). A resposta, não: aqui ela passa pelo
+    // serializador, como toda saída de perfil. Sem isto, `GET /social/me`
+    // entregava `avatarKey` e `coverKey` ao navegador.
+    myProfile: async (req, res) => res.json(visibility.profilePublic(await social.meuPerfil(req.user.id))),
     updateProfile: async (req, res) => res.json(await social.updateProfile(req.user.id, req.body)),
     setHandle: async (req, res) => res.json(await social.setHandle(req.user.id, req.body.handle)),
     profile: async (req, res) => res.json(await social.profileByHandle(req.params.handle, req.user)),
@@ -271,6 +291,7 @@ module.exports = {
     listEvents: async (req, res) => res.json(await publicService.listEvents(req.query)),
     eventPage: async (req, res) => res.json(await publicService.eventPage(req.params.slug)),
     listAthletes: async (req, res) => res.json(await publicService.listAthletes(req.query)),
+    listAffiliations: async (req, res) => res.json({ items: await publicService.listAffiliations(req.query) }),
     athletePage: async (req, res) => res.json(await publicService.athletePage(req.params.id))
   },
 
@@ -287,6 +308,14 @@ module.exports = {
     downloadEvent: async (req, res) => {
       const { stream, document } = await documents.downloadEventDocument(req.params.id, req.user);
       enviarArquivo(res, stream, { mimeType: document.mimeType, fileName: document.fileName });
+    },
+    athleteRequestPhoto: async (req, res) => {
+      const { stream, mimeType } = await documents.downloadAthleteRequestPhoto(req.params.id, req.user);
+      enviarArquivo(res, stream, { mimeType, fileName: req.params.id, inline: true });
+    },
+    athletePhoto: async (req, res) => {
+      const { stream, mimeType } = await documents.downloadAthletePhoto(req.params.id);
+      enviarArquivo(res, stream, { mimeType, fileName: req.params.id, inline: true });
     },
     postMedia: async (req, res) => {
       const { stream, mimeType } = await documents.downloadPostMedia(req.params.id, req.user);

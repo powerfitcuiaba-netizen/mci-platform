@@ -1,15 +1,22 @@
 import { useState } from 'react';
 import { AlertTriangle, Building2, Plus, Upload, Users } from 'lucide-react';
 import api, { refreshData } from '../services/api';
-import { useFetch } from '../lib/hooks';
-import { AsyncSection, Avatar, Badge, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead } from '../components/ui';
-import { ESTADO_MATCH, formatarDataHora } from '../lib/format';
+import { useFetch, useListaPaginada } from '../lib/hooks';
+import { AsyncSection, AtualizadoEm, Avatar, Badge, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead, Paginacao } from '../components/ui';
+// Só a classe de cartão clicável é usada aqui — é CSS, não precisa do motor
+// em JS. Importar o que não se usa é ruído que o lint acusa e o leitor não.
+import { ESTADO_MATCH, formatarDataHora, papel, estadoDoUsuario, tipoDeFiliacao, estadoDaImportacao } from '../lib/format';
 
 // Painel administrativo, ranking, importação MuscleWar, auditoria e
 // configurações da plataforma.
 
 export function AdminPainel({ navegar }) {
-  const estado = useFetch(() => api.dashboard.admin(), []);
+  // 30s: o painel é tela de acompanhamento, não de operação crítica. A
+  // recarga é silenciosa, não consulta com a aba escondida e atualiza na hora
+  // em que a aba volta para a frente. Escrita feita aqui dentro já atualiza na
+  // hora pelo evento `mci-data-changed`; o intervalo existe para refletir o
+  // que OUTRO operador mudou.
+  const estado = useFetch(() => api.dashboard.admin(), [], { recarregarACada: 30000 });
 
   return (
     <div className="page">
@@ -30,28 +37,38 @@ export function AdminPainel({ navegar }) {
             )}
 
             <div className="grid grid-4">
-              <Metric label="Eventos ativos" value={dados.events.active} hint={`${dados.events.total} no total`} destaque />
-              <Metric label="Atletas" value={dados.athletes.total} hint={`${dados.athletes.pro} PRO`} />
-              <Metric label="Inscrições" value={dados.registrations} />
-              <Metric label="Check-ins" value={dados.checkIns} />
-              <Metric label="Pesagens" value={dados.weighIns} />
-              <Metric label="Baterias" value={dados.batches} />
-              <Metric label="Resultados publicados" value={dados.publishedResults} />
-              <Metric label="Importações MuscleWar" value={dados.muscleWarImports} />
+              <Metric label="Eventos ativos" value={dados.events.active} hint={`${dados.events.total} no total`} destaque
+                onClick={() => navegar('admin/eventos')} destino="Eventos" />
+              <Metric label="Atletas" value={dados.athletes.total} hint={`${dados.athletes.pro} PRO`}
+                onClick={() => navegar('atletas')} destino="Atletas" />
+              <Metric label="Inscrições" value={dados.registrations}
+                onClick={() => navegar('admin/inscricoes')} destino="Inscrições" />
+              <Metric label="Check-ins" value={dados.checkIns}
+                onClick={() => navegar('admin/checkin')} destino="Check-in" />
+              <Metric label="Pesagens" value={dados.weighIns}
+                onClick={() => navegar('admin/pesagem')} destino="Pesagem" />
+              <Metric label="Baterias" value={dados.batches}
+                onClick={() => navegar('admin/palco')} destino="Palco" />
+              <Metric label="Resultados publicados" value={dados.publishedResults}
+                onClick={() => navegar('admin/resultados')} destino="Resultados" />
+              <Metric label="Importações MuscleWar" value={dados.muscleWarImports}
+                onClick={() => navegar('admin/musclewar')} destino="MuscleWar" />
             </div>
 
+            <AtualizadoEm quando={estado.atualizadoEm} />
+
             <div className="grid grid-3" style={{ marginTop: 18 }}>
-              <button type="button" className="panel" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => navegar('admin/eventos')}>
+              <button type="button" className="panel cartao-clicavel" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => navegar('admin/eventos')}>
                 <h2 className="display" style={{ fontSize: 20 }}>Eventos</h2>
                 <p style={{ color: 'var(--cinza)', fontSize: 12.5, margin: '6px 0 0' }}>Criar etapas, montar o quadro de categorias e mover estados.</p>
               </button>
-              <button type="button" className="panel" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => navegar('admin/musclewar')}>
+              <button type="button" className="panel cartao-clicavel" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => navegar('admin/musclewar')}>
                 <h2 className="display" style={{ fontSize: 20 }}>MuscleWar</h2>
                 <p style={{ color: 'var(--cinza)', fontSize: 12.5, margin: '6px 0 0' }}>
                   {dados.muscleWarImports} importação(ões) registrada(s).
                 </p>
               </button>
-              <button type="button" className="panel" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => navegar('admin/auditoria')}>
+              <button type="button" className="panel cartao-clicavel" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => navegar('admin/auditoria')}>
                 <h2 className="display" style={{ fontSize: 20 }}>Auditoria</h2>
                 <p style={{ color: 'var(--cinza)', fontSize: 12.5, margin: '6px 0 0' }}>Trilha das ações críticas da plataforma.</p>
               </button>
@@ -455,7 +472,7 @@ export function AdminMuscleWar({ notificar }) {
                         </small>
                       </td>
                       <td>
-                        <Badge tom={lote.status === 'APPLIED' ? 'ok' : lote.status === 'REJECTED' ? 'perigo' : 'alerta'}>{lote.status}</Badge>
+                        <Badge tom={estadoDaImportacao(lote.status).tom}>{estadoDaImportacao(lote.status).rotulo}</Badge>
                       </td>
                       <td className="num">{lote.totalRecords}</td>
                       <td className="num">{lote.matchedCount}</td>
@@ -740,7 +757,18 @@ function VincularAtleta({ item, organizationId, notificar, onClose, onSalvo }) {
 // ============================================================== AUDITORIA
 export function AdminAuditoria() {
   const [filtros, setFiltros] = useState({ entity: '', action: '' });
-  const estado = useFetch(() => api.audit({ entity: filtros.entity || undefined, action: filtros.action || undefined, limit: 200 }), [filtros.entity, filtros.action]);
+  // 200 é o teto da própria rota de auditoria, e aqui ele é PÁGINA, não fim da
+  // trilha: auditoria se lê em varredura, então vale trazer bastante de uma
+  // vez — e continuar depois, em vez de parar.
+  const estado = useListaPaginada(
+    cursor => api.audit({
+      entity: filtros.entity || undefined,
+      action: filtros.action || undefined,
+      limit: 200,
+      cursor: cursor || undefined
+    }),
+    [filtros.entity, filtros.action]
+  );
 
   return (
     <div className="page">
@@ -766,6 +794,14 @@ export function AdminAuditoria() {
       <AsyncSection state={estado} linhas={6}>
         {dados => (dados.items.length
           ? (
+            <>
+              {/* O total agora é o da TRILHA, não o da página. Enquanto era o
+                  tamanho da página, esse número respondia sempre a mesma coisa
+                  — e auditoria existe justamente para responder "quantas
+                  vezes isto aconteceu?". */}
+              <p className="muted" style={{ marginBottom: 12 }}>
+                Mostrando {dados.items.length} de {dados.total} registro(s).
+              </p>
             <div className="table-wrap">
               <table className="table">
                 <thead><tr><th>Quando</th><th>Ator</th><th>Ação</th><th>Entidade</th><th>Detalhe</th></tr></thead>
@@ -775,7 +811,7 @@ export function AdminAuditoria() {
                       <td style={{ whiteSpace: 'nowrap' }}>{formatarDataHora(linha.createdAt)}</td>
                       <td>
                         {linha.user?.name || linha.userEmail || 'sistema'}
-                        {linha.user?.role && <small style={{ display: 'block', color: 'var(--cinza-fraco)' }}>{linha.user.role}</small>}
+                        {linha.user?.role && <small style={{ display: 'block', color: 'var(--cinza-fraco)' }}>{papel(linha.user.role).rotulo}</small>}
                       </td>
                       <td><Badge tom="info">{linha.action}</Badge></td>
                       <td>{linha.entity}{linha.entityId ? <small style={{ display: 'block', color: 'var(--cinza-fraco)' }}>{linha.entityId.slice(0, 12)}…</small> : null}</td>
@@ -789,6 +825,8 @@ export function AdminAuditoria() {
                 </tbody>
               </table>
             </div>
+            <Paginacao nextCursor={estado.nextCursor} onMore={estado.carregarMais} loading={estado.carregandoMais} />
+            </>
           )
           : <EmptyState title="Sem registros" description="Nenhuma ação corresponde ao filtro." />
         )}
@@ -931,7 +969,9 @@ function MembrosDaOrganizacao({ organizacao, notificar, onClose }) {
         </Field>
         <Field label="Papel" required>
           <select value={form.role} onChange={evt => setForm({ ...form, role: evt.target.value })} required>
-            {PAPEIS.map(papel => <option key={papel} value={papel}>{papel}</option>)}
+            {/* `codigo` e não `papel`: o parâmetro sombrearia a função de rótulo
+                importada e o select voltaria a mostrar o enum cru. */}
+            {PAPEIS.map(codigo => <option key={codigo} value={codigo}>{papel(codigo).rotulo}</option>)}
           </select>
         </Field>
         <button type="submit" className="button button-primary" disabled={salvando} style={{ marginBottom: 13 }}>Conceder</button>
@@ -945,7 +985,7 @@ function MembrosDaOrganizacao({ organizacao, notificar, onClose }) {
               <strong>{membro.user.name}</strong>
               <small>{membro.user.email}</small>
             </span>
-            <Badge tom="info">{membro.role}</Badge>
+            <Badge tom={papel(membro.role).tom}>{papel(membro.role).rotulo}</Badge>
             <button type="button" className="button button-danger button-sm" onClick={() => remover(membro)}>Remover</button>
           </div>
         ))}
@@ -979,7 +1019,7 @@ function Filiacoes({ notificar }) {
               <div className="list-row" key={filiacao.id}>
                 <span className="info">
                   <strong>{filiacao.name}</strong>
-                  <small>{filiacao.code} · {filiacao.kind} · {filiacao._count.athletes} atleta(s)</small>
+                  <small>{filiacao.code} · {tipoDeFiliacao(filiacao.kind).rotulo} · {filiacao._count.athletes} atleta(s)</small>
                 </span>
                 <Badge tom={filiacao.active ? 'ok' : 'neutro'}>{filiacao.active ? 'Ativa' : 'Inativa'}</Badge>
                 <button
@@ -1040,7 +1080,7 @@ function NovaFiliacao({ organizacoes, notificar, onClose, onSalvo }) {
         </div>
         <Field label="Tipo">
           <select value={form.kind} onChange={evt => setForm({ ...form, kind: evt.target.value })}>
-            {['FEDERATION', 'ENTITY', 'ASSOCIATION', 'TEAM', 'OTHER'].map(tipo => <option key={tipo} value={tipo}>{tipo}</option>)}
+            {['FEDERATION', 'ENTITY', 'ASSOCIATION', 'TEAM', 'OTHER'].map(codigo => <option key={codigo} value={codigo}>{tipoDeFiliacao(codigo).rotulo}</option>)}
           </select>
         </Field>
         <ModalActions onClose={onClose} saving={salvando} confirmLabel="Criar filiação" />
@@ -1449,8 +1489,8 @@ function Usuarios({ notificar }) {
                 <strong>{usuario.name}</strong>
                 <small>{usuario.email} · {usuario.organizations.length} vínculo(s)</small>
               </span>
-              <Badge tom="info">{usuario.role}</Badge>
-              <Badge tom={usuario.status === 'ACTIVE' ? 'ok' : 'perigo'}>{usuario.status}</Badge>
+              <Badge tom={papel(usuario.role).tom}>{papel(usuario.role).rotulo}</Badge>
+              <Badge tom={estadoDoUsuario(usuario.status).tom}>{estadoDoUsuario(usuario.status).rotulo}</Badge>
               <button type="button" className="button button-secondary button-sm" onClick={() => setEditando(usuario)}>Editar</button>
             </div>
           ))}
@@ -1484,7 +1524,9 @@ function EditarUsuario({ usuario, notificar, onClose, onSalvo }) {
       <form onSubmit={salvar}>
         <Field label="Papel global" hint="Papel privilegiado só é concedido por SUPER_ADMIN.">
           <select value={form.role} onChange={evt => setForm({ ...form, role: evt.target.value })}>
-            {PAPEIS.map(papel => <option key={papel} value={papel}>{papel}</option>)}
+            {/* `codigo` e não `papel`: o parâmetro sombrearia a função de rótulo
+                importada e o select voltaria a mostrar o enum cru. */}
+            {PAPEIS.map(codigo => <option key={codigo} value={codigo}>{papel(codigo).rotulo}</option>)}
           </select>
         </Field>
         <Field label="Situação">

@@ -1,14 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bell, ClipboardCheck, Home, LayoutDashboard, LogOut, Menu, MessageSquare,
-  QrCode, Scale, Search, Settings, ShieldCheck, Trophy, Upload, UserCircle, Users, Users2, Zap
+  QrCode, Scale, Search, Settings, ShieldCheck, Trophy, Upload, UserCircle, Users, Users2,
+  Volume2, VolumeX, Zap
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './AuthContext';
 import api from './services/api';
 import { useDebounce, useFetch, useHashRoute, useToasts } from './lib/hooks';
 import { Avatar, BlocoDaMarca, Toasts } from './components/ui';
-import { caminhoDoAvatar } from './lib/format';
+import { caminhoDoAvatar, papel } from './lib/format';
 import LimiteDeErro from './components/limiteDeErro';
+import AberturaMci, { aberturaJaFoiVista } from './components/aberturaMci';
+import { PalcoDaExperiencia } from './components/experiencia';
+import { atoDaRota, estiloDaSequencia } from './lib/experiencia';
+import ExperienceLab from './pages/experienceLab';
+import { direcaoDeAudio, preferenciaDeAudio, definirPreferenciaDeAudio } from './lib/audioDirector';
 import Auth from './pages/authPages';
 import { AtletaDetalhe, Atletas, CampeonatoDetalhe, Campeonatos, Inicio, Ranking } from './pages/publicPages';
 import { ComunidadeDetalhe, Comunidades, Feed, MeuPerfilSocial, Notificacoes, Perfil, Salvos } from './pages/socialPages';
@@ -17,6 +23,8 @@ import { AdminCheckin, AdminCredenciamento, AdminEventoDetalhe, AdminEventos, Ad
 import { AdminResultados } from './pages/adminResults';
 import { AdminAuditoria, AdminConfiguracoes, AdminMuscleWar, AdminPainel, AdminRanking } from './pages/adminPlatform';
 import { MeuPainel, MinhaConta } from './pages/mePages';
+import MinhaSolicitacao from './pages/minhaSolicitacao';
+import AdminSolicitacoes from './pages/adminSolicitacoes';
 
 // A navegação é montada a partir das permissões efetivas do usuário: um item
 // que a API recusaria não aparece no menu. A autoridade continua no servidor —
@@ -38,6 +46,7 @@ const NAVEGACAO_ADMIN = [
   { rota: 'admin', rotulo: 'Painel', icone: LayoutDashboard, permissao: 'analytics.read' },
   { rota: 'admin/eventos', rotulo: 'Eventos', icone: Trophy, permissao: 'events.update' },
   { rota: 'admin/inscricoes', rotulo: 'Inscrições', icone: ClipboardCheck, permissao: 'registrations.read' },
+  { rota: 'admin/solicitacoes', rotulo: 'Solicitações', icone: UserCircle, permissao: 'athletes.manage' },
   { rota: 'admin/checkin', rotulo: 'Check-in', icone: ClipboardCheck, permissao: 'checkin.operate' },
   { rota: 'admin/pesagem', rotulo: 'Pesagem', icone: Scale, permissao: 'weighin.operate' },
   { rota: 'admin/credenciamento', rotulo: 'Credenciamento', icone: QrCode, permissao: 'credentials.read' },
@@ -54,7 +63,7 @@ const NAVEGACAO_ADMIN = [
 const PERMISSOES_POR_PAPEL = {
   SUPER_ADMIN: ['*'],
   ADMIN: ['*'],
-  EVENT_DIRECTOR: ['analytics.read', 'events.update', 'registrations.read', 'checkin.operate', 'weighin.operate', 'credentials.read', 'stage.read', 'results.read_unpublished', 'ranking.manage', 'musclewar.review', 'users.read'],
+  EVENT_DIRECTOR: ['analytics.read', 'events.update', 'athletes.manage', 'registrations.read', 'checkin.operate', 'weighin.operate', 'credentials.read', 'stage.read', 'results.read_unpublished', 'ranking.manage', 'musclewar.review', 'users.read'],
   EVENT_COORDINATOR: ['analytics.read', 'events.update', 'registrations.read', 'checkin.operate', 'weighin.operate', 'credentials.read', 'stage.read', 'results.read_unpublished'],
   JUDGE_COORDINATOR: ['stage.read', 'results.read_unpublished'],
   JUDGE: ['stage.read', 'registrations.read'],
@@ -180,6 +189,28 @@ function BuscaGlobal({ navegar }) {
 
 function Shell() {
   const { user, logout, authenticated, loading } = useAuth();
+  // A abertura roda uma vez por sessão do navegador, antes de qualquer tela.
+  // `aberturaJaFoiVista` é lido na inicialização do estado — não num efeito —
+  // para a abertura não piscar em quem já a viu.
+  const [abertura, setAbertura] = useState(() => !aberturaJaFoiVista());
+
+  // CONTINUIDADE DA ABERTURA.
+  //
+  // Quem acabou de ver a abertura entra no sistema; quem já a viu apenas
+  // recarregou uma página. São duas coisas diferentes, e o corte seco entre a
+  // abertura e a primeira tela fazia as duas parecerem iguais — a abertura
+  // terminava e o casco aparecia, sem ligação nenhuma entre os dois gestos.
+  //
+  // A marca dura só a primeira entrada e sai sozinha: alongar a entrada de
+  // TODA navegação deixaria o sistema lento pelo resto da sessão, que é o
+  // oposto do que esta fase inteira busca.
+  const [entradaContinua, setEntradaContinua] = useState(false);
+  useEffect(() => {
+    if (!entradaContinua) return undefined;
+    const relogio = setTimeout(() => setEntradaContinua(false), 1400);
+    return () => clearTimeout(relogio);
+  }, [entradaContinua]);
+  const [somLigado, setSomLigado] = useState(() => preferenciaDeAudio());
   const { rota, partes, navegar } = useHashRoute();
   const { toasts, notificar, remover } = useToasts();
   const [menuAberto, setMenuAberto] = useState(false);
@@ -210,11 +241,27 @@ function Shell() {
 
   useEffect(() => { setMenuAberto(false); }, [rota]);
 
+  // Tocar num item do menu SEMPRE fecha a gaveta — inclusive quando o item é o
+  // da tela em que já se está. Fechar só na troca de rota deixava a gaveta
+  // aberta nesse caso, e no celular isso parece que o toque não registrou.
+  const navegarEFechar = destino => { setMenuAberto(false); navegar(destino); };
+
+  // A abertura vem ANTES do estado de carregamento: ela é a primeira coisa que
+  // a pessoa vê, e enquanto ela roda a sessão termina de ser verificada em
+  // segundo plano. Nada da abertura espera rede.
+  if (abertura) {
+    return <AberturaMci aoTerminar={() => { setAbertura(false); setEntradaContinua(true); }} />;
+  }
+
   if (loading) {
     return <div className="auth-shell"><div className="auth-card"><p>Carregando…</p></div></div>;
   }
 
-  if (!authenticated) return <Auth />;
+  // A primeira tela depois da abertura costuma ser a de ENTRADA, e não o
+  // casco: quem chega precisa fazer login. Marcar só o casco fazia a
+  // continuidade nunca acontecer para a maioria das pessoas — a marca expirava
+  // enquanto elas digitavam a senha.
+  if (!authenticated) return <Auth entradaContinua={entradaContinua} />;
 
   const itensAdmin = NAVEGACAO_ADMIN.filter(item => pode(item.permissao));
   const ativoPrincipal = rotaAtiva(NAVEGACAO_PRINCIPAL, rota);
@@ -236,6 +283,11 @@ function Shell() {
       case 'notificacoes': return <Notificacoes />;
       case 'meu-painel': return <MeuPainel navegar={navegar} />;
       case 'minha-conta': return <MinhaConta notificar={notificar} />;
+      case 'minha-solicitacao': return <MinhaSolicitacao notificar={notificar} />;
+      // Laboratório de experiência: existe para calibrar os efeitos num lugar
+      // só, antes de espalhá-los. Fica FORA do pacote de produção (ver o
+      // `import.meta.env.DEV` abaixo) — não é tela de usuário.
+      case 'experience-lab': return import.meta.env.DEV ? <ExperienceLab /> : <Inicio navegar={navegar} />;
 
       case 'admin': {
         // Rota administrativa alcançada sem permissão volta para o início em
@@ -246,6 +298,7 @@ function Shell() {
         if (!segundo) return pode('analytics.read') ? <AdminPainel navegar={navegar} /> : <Inicio navegar={navegar} />;
         if (segundo === 'eventos') return terceiro ? <AdminEventoDetalhe eventId={terceiro} notificar={notificar} navegar={navegar} /> : <AdminEventos notificar={notificar} navegar={navegar} />;
         if (segundo === 'inscricoes') return <AdminInscricoes notificar={notificar} />;
+        if (segundo === 'solicitacoes') return <AdminSolicitacoes notificar={notificar} />;
         if (segundo === 'checkin') return <AdminCheckin notificar={notificar} />;
         if (segundo === 'pesagem') return <AdminPesagem notificar={notificar} />;
         if (segundo === 'credenciamento') return <AdminCredenciamento notificar={notificar} />;
@@ -266,7 +319,7 @@ function Shell() {
   const mensagensNaoLidas = mensagens.data?.totalUnread ?? 0;
 
   return (
-    <div className="shell">
+    <div className={`shell${entradaContinua ? ' entrada-continua' : ''}`} data-ato={atoDaRota(rota)}>
       {menuAberto && <button type="button" className="mobile-scrim" aria-label="Fechar menu" onClick={() => setMenuAberto(false)} />}
 
       <nav className={`sidebar${menuAberto ? ' is-open' : ''}`} aria-label="Navegação principal">
@@ -276,12 +329,12 @@ function Shell() {
 
         <div className="nav-group">
           <span className="nav-label">Plataforma</span>
-          {NAVEGACAO_PRINCIPAL.map(item => {
+          {NAVEGACAO_PRINCIPAL.map((item, indice) => {
             const Icone = item.icone;
             const ativo = item.rota === ativoPrincipal;
             const contador = item.contador === 'mensagens' ? mensagensNaoLidas : 0;
             return (
-              <button key={item.rota} type="button" className={`nav-item${ativo ? ' is-active' : ''}`} onClick={() => navegar(item.rota)}>
+              <button key={item.rota} type="button" className={`nav-item revela${ativo ? ' is-active' : ''}`} style={estiloDaSequencia(indice)} onClick={() => navegarEFechar(item.rota)}>
                 <Icone size={16} /> {item.rotulo}
                 {contador > 0 && <span className="badge-count">{contador}</span>}
               </button>
@@ -292,11 +345,11 @@ function Shell() {
         {itensAdmin.length > 0 && (
           <div className="nav-group">
             <span className="nav-label">Administração</span>
-            {itensAdmin.map(item => {
+            {itensAdmin.map((item, indice) => {
               const Icone = item.icone;
               const ativo = item.rota === ativoAdmin;
               return (
-                <button key={item.rota} type="button" className={`nav-item${ativo ? ' is-active' : ''}`} onClick={() => navegar(item.rota)}>
+                <button key={item.rota} type="button" className={`nav-item revela${ativo ? ' is-active' : ''}`} style={estiloDaSequencia(NAVEGACAO_PRINCIPAL.length + indice)} onClick={() => navegarEFechar(item.rota)}>
                   <Icone size={16} /> {item.rotulo}
                 </button>
               );
@@ -309,7 +362,7 @@ function Shell() {
             <Avatar name={user?.name} mediaPath={caminhoDoAvatar(perfilSocial.data)} size="avatar-sm" />
             <span className="info">
               <strong>{user?.name}</strong>
-              <small>{user?.role}</small>
+              <small>{papel(user?.role).rotulo}</small>
             </span>
           </button>
           <button type="button" className="nav-item" onClick={logout}><LogOut size={16} /> Sair</button>
@@ -321,6 +374,23 @@ function Shell() {
           <button type="button" className="icon-button mobile-toggle" onClick={() => setMenuAberto(true)} aria-label="Abrir menu"><Menu size={16} /></button>
           <BuscaGlobal navegar={navegar} />
           <div className="topbar-actions">
+          {/* Controle global de som. Desligar encerra a trilha na hora e a
+              preferência vale nas próximas sessões. */}
+          <button
+            type="button"
+            className="icon-button"
+            aria-pressed={somLigado}
+            aria-label={somLigado ? 'Desligar o som do sistema' : 'Ligar o som do sistema'}
+            title={somLigado ? 'Som ligado' : 'Som desligado'}
+            onClick={() => {
+              const proximo = !somLigado;
+              definirPreferenciaDeAudio(proximo);
+              if (!proximo) direcaoDeAudio.encerrar({ imediato: true });
+              setSomLigado(proximo);
+            }}
+          >
+            {somLigado ? <Volume2 size={16} /> : <VolumeX size={16} />}
+          </button>
             <button type="button" className="icon-button" onClick={() => navegar('notificacoes')} aria-label={`Notificações${naoLidas ? `: ${naoLidas} não lidas` : ''}`}>
               <Bell size={16} />
               {naoLidas > 0 && <span className="dot">{naoLidas > 9 ? '9+' : naoLidas}</span>}
@@ -336,6 +406,10 @@ function Shell() {
         <main><LimiteDeErro key={rota}>{conteudo()}</LimiteDeErro></main>
       </div>
 
+      {/* Um único palco de experiência no aplicativo inteiro. Ele NÃO substitui
+          os toasts: o feedback funcional continua igual, e a celebração entra
+          por cima apenas quando o motor libera o nível. */}
+      <PalcoDaExperiencia />
       <Toasts toasts={toasts} onDismiss={remover} />
     </div>
   );

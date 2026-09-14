@@ -40,7 +40,21 @@ async function register(data, contexto = {}) {
 
   let user;
   try {
-    user = await userRepository.create({ name: data.name, email: data.email, passwordHash, role, status: 'ACTIVE' });
+    user = await userRepository.create({
+      name: data.name, email: data.email, passwordHash, role, status: 'ACTIVE',
+      // Campos do cadastro completo. Listados um a um de propósito: espalhar
+      // `...data` aqui deixaria o cliente gravar qualquer coluna de `User`
+      // que o Zod viesse a aceitar no futuro — inclusive `role` e `status`.
+      birthDate: data.birthDate ? new Date(`${data.birthDate}T12:00:00.000Z`) : undefined,
+      phone: data.phone,
+      whatsapp: data.whatsapp,
+      postalCode: data.postalCode,
+      addressLine: data.addressLine,
+      addressNumber: data.addressNumber,
+      addressComplement: data.addressComplement,
+      state: data.state,
+      city: data.city
+    });
   } catch (error) {
     // Corrida entre dois cadastros com o mesmo email: a constraint é a
     // autoridade, a checagem anterior é só cortesia.

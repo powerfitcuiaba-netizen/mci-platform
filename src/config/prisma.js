@@ -28,6 +28,10 @@ const prisma = new Proxy(base, {
     // perderia o contexto definido na primeira e ainda travaria uma conexão
     // extra do pool, então a chamada reaproveita a transação em curso.
     if (propriedade === '$transaction') {
+      // O segundo argumento (prazo, nível de isolamento) é ignorado de
+      // propósito: já existe transação em curso, e o prazo dela foi definido
+      // por quem a abriu. Aceitá-lo sem usar evita que uma chamada aninhada
+      // pense que dilatou um prazo que não é mais dela.
       return operacoes => (typeof operacoes === 'function'
         ? operacoes(contexto.tx)
         : Promise.all(operacoes));

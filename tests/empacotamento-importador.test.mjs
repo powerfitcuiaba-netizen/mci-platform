@@ -183,7 +183,38 @@ describe('o calendário não pede migration nenhuma', () => {
       // array em "Conversation") porque a política de RLS passou a ler a
       // participação na própria linha, em vez de consultar a tabela que ela
       // protege. Ver o cabeçalho da migration e tests/rls-conversa-recursao.
-      '20260913010000_rls_conversa_sem_recursao'
+      '20260913010000_rls_conversa_sem_recursao',
+      // Cadastro completo. ADITIVA e nada além disso: dez colunas ANULÁVEIS,
+      // nove em "User" (nascimento, telefone, WhatsApp, CEP, logradouro,
+      // número, complemento, UF, cidade) e uma em "Athlete" (o número de
+      // registro do atleta dentro da entidade de filiação). Sem DROP, sem
+      // TRUNCATE, sem UPDATE, sem constraint e sem índice novo.
+      //
+      // Anuláveis porque as contas que já existem em produção nasceram antes
+      // destes campos: a obrigatoriedade mora na validação do cadastro novo,
+      // não no banco, e nenhuma linha precisou ser preenchida para trás.
+      //
+      // CPF NÃO entrou aqui, de propósito: continua isolado em
+      // "AthleteIdentity", sob RLS e único por organização.
+      '20260913170000_cadastro_completo',
+      // Fila de aprovação de perfil de atleta. ADITIVA: um enum, uma tabela
+      // nova com RLS FORÇADA desde o nascimento, seus índices e suas
+      // políticas. NENHUMA política existente foi tocada — em especial
+      // `atleta_criacao`, que continua exigindo `mci_operator_of`. A fila
+      // existe justamente para NÃO precisar afrouxá-la: o usuário pede, o
+      // operador da federação concede.
+      '20260913190000_fila_de_perfil_de_atleta',
+      // Descoberta de filiações para autocadastro. ADITIVA: UMA coluna em
+      // `Organization` (`selfRegistrationOpen`, padrão `false`) e um índice
+      // parcial. Nenhuma tabela criada, nenhuma apagada, nenhuma política de
+      // RLS tocada.
+      //
+      // O padrão `false` é o ponto: a migration NÃO torna nenhuma federação
+      // publicamente descobrível. Cada uma decide, por rota administrativa e
+      // com auditoria. Reaproveitar `active` teria aberto todas de uma vez,
+      // como efeito colateral de uma migration — que é exatamente o que não se
+      // quer.
+      '20260913220000_autocadastro_de_filiacao'
     ]);
   });
 });

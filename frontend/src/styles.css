@@ -354,9 +354,18 @@ h1, h2, h3 { margin: 0; }
 .metric:hover { border-color: var(--linha-forte); transform: translateY(-1px); }
 .metric:hover::before { background: var(--ciano-puro); }
 .metric span { display: block; font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--cinza-fraco); font-weight: 700; }
+/* O valor QUEBRA em vez de ser cortado. O card foi desenhado para número, mas
+   `overflow: hidden` no card fazia qualquer valor longo sumir pela borda sem
+   aviso — visto na própria FASE 2, com "CINEMATOGRÁFICO" virando
+   "CINEMATOGRÁ". Cortar informação é sempre pior que ocupar duas linhas.
+
+   A entrelinha é 1.15 e não 1: com a fonte de display, o acento de "Á" passa
+   da caixa de linha apertada e era raspado pelo `overflow: hidden` do card.
+   Medido com scrollHeight, não olhado. */
 .metric strong {
-  display: block; font: 400 34px/1 var(--fonte-display); letter-spacing: 1px;
+  display: block; font: 400 34px/1.15 var(--fonte-display); letter-spacing: 1px;
   margin-top: var(--e2); color: var(--branco); font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 .metric small { display: block; font-size: 11.5px; color: var(--cinza); margin-top: var(--e1); }
 .metric.destaque { border-color: var(--vermelho-borda); }
@@ -464,6 +473,10 @@ h1, h2, h3 { margin: 0; }
 .alert-erro   { border-left-color: var(--vermelho); background: #1c0d10; border-color: var(--vermelho-borda); }
 .alert-alerta { border-left-color: var(--ambar);    background: #1c1608; border-color: var(--ambar-borda); }
 .alert-info   { border-left-color: var(--ciano-puro); background: #071a24; border-color: var(--ciano-borda); }
+/* Faltava o estado de ÊXITO. Sem ele, "acesso liberado" na portaria era
+   pintado de `info` — a mesma cor de um aviso qualquer —, e liberado e
+   recusado só se distinguiam lendo o texto. Numa fila, ninguém lê. */
+.alert-ok     { border-left-color: var(--verde);     background: #08190f; border-color: var(--verde-borda); }
 .alert strong { display: block; margin-bottom: var(--e1); }
 .alert p { margin: 0; color: var(--cinza); }
 .alert ul { margin: var(--e2) 0 0; padding-left: var(--e5); color: var(--cinza); }
@@ -734,13 +747,6 @@ h1, h2, h3 { margin: 0; }
   text-align: center; padding: 0 2px; box-shadow: none;
 }
 
-.progress-bar { height: 6px; background: var(--superficie-3); border-radius: var(--raio-pilula); overflow: hidden; border: 1px solid var(--linha); }
-.progress-bar i {
-  display: block; height: 100%; border-radius: var(--raio-pilula);
-  background: linear-gradient(90deg, var(--vermelho) 0, var(--vermelho-claro) 100%);
-  transition: width var(--t-amplo) var(--mola);
-}
-
 .import-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: var(--e3); margin-bottom: var(--e4); }
 .import-summary .metric { padding: var(--e3) var(--e4); }
 .import-summary .metric strong { font-size: 28px; }
@@ -986,14 +992,11 @@ h1, h2, h3 { margin: 0; }
 /* Publicação e conversa: a mídia entra sem salto de layout. */
 .post-media img, .post-media video, .chat-msg img { background: var(--superficie-2); }
 
-/* Barra de progresso em movimento ganha um brilho que percorre — só durante a
-   importação, onde a espera é real. */
-.progress-bar i::after {
-  content: ''; display: block; height: 100%; width: 40%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,.28), transparent);
-  animation: varre 1.6s linear infinite;
-}
-@keyframes varre { from { transform: translateX(-100%); } to { transform: translateX(320%); } }
+/* `.progress-bar` foi REMOVIDA: a classe não aparece em nenhum componente. A
+   barra de progresso da importação deixou de existir em algum momento e o CSS
+   ficou — inclusive uma animação `varre` em LAÇO INFINITO, para um elemento
+   que nunca é renderizado. Encontrado pela varredura de classes órfãs logo na
+   primeira vez que ela rodou, não por leitura. */
 
 /* Avatar dentro de linha clicável acompanha o realce. */
 .list-row:hover .avatar, .conversation-item:hover .avatar { border-color: var(--linha-forte); }
@@ -1058,3 +1061,695 @@ h1, h2, h3 { margin: 0; }
   background: linear-gradient(90deg, var(--superficie) 0, var(--superficie-3) 50%, var(--superficie) 100%);
   background-size: 200% 100%; animation: brilho 1.4s infinite linear;
 }
+
+/* ------------------------------------------------------------------ painel
+   Métrica clicável. `all: unset` zera a aparência de botão do navegador sem
+   perder o que o BOTÃO traz de graça: tabulação, Enter/Espaço e foco. O
+   `.metric` continua mandando no visual — o card clicável é o mesmo card, com
+   estados de interação por cima.
+
+   `text-align: left` e `width: 100%` são necessários porque botão centraliza e
+   encolhe por padrão, e o card precisa preencher a célula da grade como a
+   `div` preenchia. */
+.metric-clicavel {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: transform var(--t-rapido) var(--mola), border-color var(--t-rapido), background var(--t-rapido);
+}
+
+/* `all: unset` apaga também o que vem de `.metric`. Estes são os traços do
+   card que precisam voltar. */
+.metric-clicavel {
+  padding: 16px 18px;
+  border: 1px solid var(--borda);
+  border-radius: var(--r-md);
+  background: var(--painel);
+}
+
+.metric-clicavel:hover {
+  border-color: var(--ouro);
+  transform: translateY(-2px);
+}
+
+.metric-clicavel:active { transform: translateY(0); }
+
+/* Foco visível é requisito de teclado, não enfeite: sem isto o card clicável
+   fica alcançável mas invisível para quem tabula. */
+.metric-clicavel:focus-visible {
+  outline: 2px solid var(--ouro);
+  outline-offset: 3px;
+}
+
+/* Em dispositivo de toque não existe hover; o realce ficaria "grudado" depois
+   do toque. */
+@media (hover: none) {
+  .metric-clicavel:hover { transform: none; border-color: var(--borda); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .metric-clicavel { transition: none; }
+  .metric-clicavel:hover, .metric-clicavel:active { transform: none; }
+}
+
+.atualizado-em {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--cinza);
+}
+
+/* ===========================================================================
+   CADASTRO COMPLETO E FILA DE PERFIL DE ATLETA
+   =========================================================================== */
+
+/* Texto só para leitor de tela. Não é `display:none`, que o removeria da
+   árvore de acessibilidade junto com a tela. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* O assistente é mais largo que a caixa de entrada: são campos em pares, e a
+   largura da caixa de login espremeria telefone e WhatsApp em duas linhas. */
+.auth-card-larga { max-width: 560px; }
+
+/* --- indicador de etapas ---
+   É a única resposta para "quanto falta?". Sem ele, a quinta tela de um
+   formulário parece a primeira de uma fila sem fim. */
+.passos {
+  display: flex; align-items: flex-start; gap: var(--e1);
+  list-style: none; margin: 0 0 var(--e6); padding: 0;
+}
+.passo { flex: 1; display: grid; justify-items: center; gap: var(--e2); position: relative; min-width: 0; }
+/* A linha liga as bolhas e para antes da próxima: desenhá-la no container
+   faria uma régua atravessando os números. */
+.passo::before {
+  content: ''; position: absolute; top: 11px; left: calc(-50% + 12px); right: calc(50% + 12px);
+  height: 1px; background: var(--linha-forte);
+}
+.passo:first-child::before { display: none; }
+.passo-bolha {
+  width: 24px; height: 24px; border-radius: var(--raio-pilula);
+  display: grid; place-items: center; font-size: 11px; font-weight: 700;
+  border: 1px solid var(--linha-forte); background: var(--superficie);
+  color: var(--cinza-fraco); position: relative; z-index: 1;
+}
+.passo-rotulo {
+  font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--cinza-fraco); text-align: center; line-height: 1.3;
+}
+.passo.is-atual .passo-bolha { border-color: var(--vermelho); background: var(--vermelho-fundo); color: var(--vermelho-claro); }
+.passo.is-atual .passo-rotulo { color: var(--branco); }
+.passo.is-feito .passo-bolha { border-color: var(--verde-borda); background: var(--verde-fundo); color: var(--verde); }
+.passo.is-feito::before { background: var(--verde-borda); }
+
+/* --- campos em par --- */
+.grade-dupla { display: grid; grid-template-columns: 1fr 1fr; gap: var(--e3); align-items: start; }
+
+/* O erro fica colado no campo, em vermelho, e nunca desloca o que está abaixo
+   mais do que a sua própria altura. */
+.campo-erro { display: block; color: var(--vermelho-claro); margin: -8px 0 var(--e3); font-size: 11.5px; }
+
+.painel-informativo { border: 1px solid var(--linha); border-radius: var(--raio-2); padding: var(--e5); background: var(--superficie-2); margin-bottom: var(--e5); }
+.painel-informativo h2 { font-size: 15px; margin: 0 0 var(--e3); }
+.painel-informativo p { margin: 0 0 var(--e3); font-size: 12.5px; line-height: 1.55; }
+.painel-informativo p:last-child { margin-bottom: 0; }
+
+/* --- revisão e listas de conferência --- */
+.revisao { margin-bottom: var(--e4); }
+.lista-revisao { margin: 0 0 var(--e4); display: grid; gap: var(--e3); }
+.bloco-revisao { border: 1px solid var(--linha); border-radius: var(--raio-2); padding: var(--e4); background: var(--superficie-2); }
+.bloco-revisao-topo { display: flex; align-items: center; justify-content: space-between; gap: var(--e3); margin-bottom: var(--e3); }
+.bloco-revisao-topo h3 { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--cinza-fraco); margin: 0; }
+.linha-revisao { display: grid; grid-template-columns: 150px 1fr; gap: var(--e3); padding: var(--e2) 0; border-top: 1px solid var(--linha); }
+.bloco-revisao .linha-revisao:first-of-type { border-top: 0; }
+.linha-revisao dt { color: var(--cinza-fraco); font-size: 11.5px; }
+.linha-revisao dd { margin: 0; color: var(--branco); font-size: 12.5px; word-break: break-word; }
+/* O CPF na tela de análise: tabular para conferir dígito a dígito contra o
+   documento, que é exatamente o que o operador está fazendo. */
+.valor-sensivel { font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.linha-revisao-compacta { display: grid; gap: var(--e1); margin: var(--e3) 0; }
+.linha-revisao-compacta > div { display: flex; gap: var(--e2); font-size: 12px; }
+.linha-revisao-compacta dt { color: var(--cinza-fraco); min-width: 72px; }
+.linha-revisao-compacta dd { margin: 0; color: var(--branco); }
+
+.acoes-do-passo { display: flex; gap: var(--e3); justify-content: space-between; margin-top: var(--e5); }
+.acoes-do-passo .button { min-width: 120px; justify-content: center; }
+
+.coluna-generosa { display: grid; gap: var(--e5); max-width: 720px; }
+.bloco { display: block; }
+
+.lista-simples { list-style: none; margin: var(--e3) 0 0; padding: 0; display: grid; gap: var(--e3); }
+.lista-simples li { display: grid; gap: var(--e1); padding: var(--e3) 0; border-top: 1px solid var(--linha); font-size: 12.5px; }
+.lista-simples li:first-child { border-top: 0; }
+
+.lista-cartoes { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--e3); }
+.cartao-pedido { display: grid; gap: var(--e2); }
+.cartao-topo { display: flex; align-items: center; justify-content: space-between; gap: var(--e3); }
+
+/* --- tabela no desktop, cartões no celular ---
+   Sete colunas em 360px não encolhem: viram uma linha ilegível. São duas
+   apresentações do mesmo dado, e só uma existe de cada vez. */
+.so-mobile { display: none; }
+@media (max-width: 900px) {
+  .so-desktop { display: none; }
+  .so-mobile { display: grid; }
+  .grade-dupla { grid-template-columns: 1fr; }
+  .linha-revisao { grid-template-columns: 1fr; gap: var(--e1); }
+  .passo-rotulo { display: none; }
+  .passos { gap: var(--e2); }
+  /* Sem os rótulos, as bolhas sozinhas não dizem em que etapa a pessoa está —
+     o texto "Etapa 3 de 5" no topo do cartão continua dizendo. */
+  .acoes-do-passo .button { flex: 1; min-width: 0; }
+}
+
+/* --- foto da solicitação de atleta ---
+   Uma foto de identidade é para CONFERIR um rosto contra um documento: ela
+   aparece grande na análise do operador e pequena onde é só confirmação de que
+   subiu. */
+.campo-da-foto { display: grid; gap: var(--e2); margin: var(--e4) 0; }
+.rotulo-da-foto {
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--cinza-fraco); font-weight: 700;
+}
+.foto-escolha { display: flex; gap: var(--e4); align-items: flex-start; flex-wrap: wrap; }
+.foto-previa {
+  width: 96px; height: 96px; flex-shrink: 0;
+  border: 1px dashed var(--linha-forte); border-radius: var(--raio-2);
+  background: var(--superficie-2); overflow: hidden;
+  display: grid; place-items: center;
+}
+/* `cover` porque o servidor já recorta em quadrado: aqui é só não deformar. */
+.foto-previa img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.foto-vazia { font-size: 11px; color: var(--cinza-fraco); text-align: center; padding: var(--e2); }
+.foto-acoes { display: flex; flex-direction: column; gap: var(--e2); align-items: flex-start; min-width: 0; }
+/* O <label> faz as vezes do botão porque o <input type=file> nativo não tem
+   aparência configurável. Precisa parecer e responder como botão. */
+.foto-acoes label.button { cursor: pointer; }
+.foto-acoes label.button.is-disabled { opacity: .5; pointer-events: none; }
+.aviso-de-envio { margin: var(--e3) 0; font-size: 12px; }
+
+.foto-da-analise { display: grid; gap: var(--e2); justify-items: center; margin-bottom: var(--e4); }
+.foto-previa-grande { width: 168px; height: 168px; border-style: solid; }
+
+@media (max-width: 480px) {
+  .foto-escolha { gap: var(--e3); }
+  .foto-previa { width: 72px; height: 72px; }
+  .foto-previa-grande { width: 132px; height: 132px; }
+}
+
+/* ===========================================================================
+   ABERTURA DO MCI
+   A marca aparece, a trilha entra, a interface é revelada. A identidade visual
+   é a que o sistema já tem — o vermelho da marca e o ciano da operação; a
+   abertura apresenta, não inventa outra.
+   =========================================================================== */
+.abertura {
+  position: fixed; inset: 0; z-index: 200;
+  display: grid; place-items: center; gap: var(--e8);
+  grid-template-rows: 1fr auto;
+  background: radial-gradient(120% 90% at 50% 40%, #0d151d 0%, var(--preto) 70%);
+  padding: var(--e6);
+  opacity: 1; transition: opacity 600ms ease;
+}
+.abertura.is-saindo { opacity: 0; }
+
+.abertura-palco { display: grid; justify-items: center; gap: var(--e4); text-align: center; align-self: end; }
+/* A marca entra de baixo, devagar, e assenta — é o gesto que dá o tom da
+   trilha sem competir com ela. */
+.abertura-marca { animation: abertura-entra 2200ms var(--mola, cubic-bezier(.2,.8,.2,1)) both; max-width: 100%; }
+.abertura-legenda {
+  margin: 0; color: var(--cinza); font-size: 12px;
+  letter-spacing: .22em; text-transform: uppercase;
+  animation: abertura-legenda 1800ms ease 1100ms both;
+}
+.abertura-acoes { display: flex; gap: var(--e3); flex-wrap: wrap; justify-content: center; align-self: start; animation: abertura-legenda 900ms ease 2400ms both; }
+
+@keyframes abertura-entra {
+  from { opacity: 0; transform: translateY(26px) scale(.94); filter: blur(6px); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+@keyframes abertura-legenda { from { opacity: 0; } to { opacity: 1; } }
+
+/* Movimento reduzido: a abertura continua, mas sem deslocamento nem desfoque —
+   e sem silenciar o áudio, que é preferência de outra natureza. */
+.abertura.is-reduzida .abertura-marca,
+.abertura.is-reduzida .abertura-legenda,
+.abertura.is-reduzida .abertura-acoes { animation: none; }
+.abertura.is-reduzida { transition: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .abertura, .abertura-marca, .abertura-legenda, .abertura-acoes { animation: none; transition: none; }
+}
+
+@media (max-width: 480px) {
+  .abertura { gap: var(--e6); padding: var(--e5); }
+  .abertura-legenda { font-size: 10.5px; letter-spacing: .16em; }
+}
+
+/* ===========================================================================
+   MCI EXPERIENCE ENGINE
+   ===========================================================================
+   A escala de movimento ESTENDE a que o sistema já tinha (--t-rapido/base/
+   calmo/amplo). Criar um segundo vocabulário em paralelo deixaria duas
+   verdades sobre a mesma coisa — o baseline mediu que a escala existia, então
+   ela ganhou os dois degraus que faltavam e nomes de papel.
+
+   instantâneo  120ms   já existia como --t-rapido
+   micro        180ms   já existia como --t-base
+   rápido       240ms   já existia como --t-calmo
+   padrão       320ms   já existia como --t-amplo
+   ênfase       460ms   NOVO
+   cinema       760ms   NOVO
+   =========================================================================== */
+:root {
+  --t-enfase:  460ms;
+  --t-cinema:  760ms;
+
+  /* Curvas com papel definido. `--mola` já existia e continua sendo a de
+     entrada; as outras nomeiam o que antes era `ease-out` solto. */
+  --curva-entrada: cubic-bezier(.2, .7, .3, 1);
+  --curva-saida:   cubic-bezier(.4, 0, 1, 1);
+  --curva-impacto: cubic-bezier(.2, 1.25, .4, 1);
+
+  --ouro-luz: #f5cf5a;
+}
+
+/* --- revelação em sequência ---
+   Deslocamento pequeno de propósito: 10px lê como "assentou", 40px lê como
+   "a página está montando" e faz o sistema parecer lento. */
+@keyframes revela-entrada {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+.revela { animation: revela-entrada var(--t-calmo) var(--curva-entrada) both; }
+
+/* --- transição entre telas ---
+   Curta de propósito: a navegação precisa PARECER instantânea. Animação nunca
+   é usada aqui para esconder lentidão de API — para isso existe o esqueleto. */
+@keyframes tela-entra {
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+main > * { animation: tela-entra var(--t-base) var(--curva-entrada) both; }
+
+/* --- varredura de energia (uma passada, não em laço) --- */
+.varredura { position: relative; overflow: hidden; }
+.varredura::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.16) 50%, transparent 65%);
+  transform: translateX(-120%);
+  animation: varre-uma-vez var(--t-cinema) var(--curva-entrada) 1 both;
+}
+@keyframes varre-uma-vez { to { transform: translateX(120%); } }
+
+/* --- pulso ao vivo --- */
+.pulso-ao-vivo {
+  display: inline-flex; align-items: center; gap: var(--e2);
+  font-size: 10.5px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--vermelho-claro);
+}
+.pulso-ponto {
+  width: 7px; height: 7px; border-radius: var(--raio-pilula);
+  background: var(--vermelho-claro); box-shadow: 0 0 0 0 rgba(255,90,95,.6);
+  animation: pulso-vivo 2.2s var(--curva-entrada) infinite;
+}
+@keyframes pulso-vivo {
+  0%   { box-shadow: 0 0 0 0 rgba(255,90,95,.55); }
+  70%  { box-shadow: 0 0 0 7px rgba(255,90,95,0); }
+  100% { box-shadow: 0 0 0 0 rgba(255,90,95,0); }
+}
+
+/* --- impacto de êxito --- */
+.impacto {
+  position: fixed; inset: 0; z-index: 190; display: grid; place-items: center;
+  pointer-events: none; padding: var(--e5);
+}
+.impacto-caixa {
+  display: grid; justify-items: center; gap: var(--e3); text-align: center;
+  padding: var(--e7) var(--e8); border-radius: var(--raio-2);
+  background: rgba(11,16,22,.94); border: 1px solid var(--linha-forte);
+  box-shadow: var(--sombra-3);
+  animation: impacto-entra var(--t-enfase) var(--curva-impacto) both;
+  max-width: min(92vw, 420px);
+}
+.impacto-caixa strong { font-size: 16px; }
+.impacto-caixa p { margin: 0; color: var(--cinza); font-size: 12.5px; }
+.impacto-marca {
+  width: 58px; height: 58px; border-radius: var(--raio-pilula); display: grid; place-items: center;
+  color: var(--verde); background: var(--verde-fundo); border: 1px solid var(--verde-borda);
+  animation: halo 900ms var(--curva-entrada) both;
+}
+.impacto-perigo .impacto-marca { color: var(--vermelho-claro); background: var(--vermelho-fundo); border-color: var(--vermelho-borda); }
+.impacto-ciano .impacto-marca  { color: var(--ciano); background: var(--ciano-fundo); border-color: var(--ciano-borda); }
+.impacto-atencao .impacto-marca{ color: var(--ambar); background: var(--ambar-fundo); border-color: var(--ambar-borda); }
+
+@keyframes impacto-entra {
+  from { opacity: 0; transform: scale(.965) translate3d(0, 8px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes halo {
+  from { box-shadow: 0 0 0 0 rgba(43,217,138,.42); }
+  to   { box-shadow: 0 0 0 18px rgba(43,217,138,0); }
+}
+
+/* --- momento campeão: o único nível 5 da operação --- */
+.campeao {
+  position: fixed; inset: 0; z-index: 195; display: grid; place-items: center;
+  pointer-events: none; padding: var(--e5);
+  /* O véu é OPACO embaixo e o dourado vem por cima. A primeira versão fazia o
+     contrário — o radial era mais claro justo no centro, e o nome do campeão
+     saía por cima do texto da página, que continuava legível atrás dele. Num
+     momento que existe para ter um nome só na tela, isso é o defeito mais caro
+     possível. Visto no preview, medido pelo contraste, corrigido aqui. */
+  background: rgba(3, 5, 8, .93);
+  backdrop-filter: blur(7px);
+  animation: surge var(--t-enfase) ease-out both;
+}
+/* O halo dourado é camada separada: assim ele ilumina sem clarear o véu. */
+.campeao::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(90% 65% at 50% 45%, rgba(245,207,90,.16) 0%, transparent 68%);
+}
+.campeao-caixa {
+  position: relative;
+  display: grid; justify-items: center; gap: var(--e2); text-align: center;
+  color: var(--ouro-luz); padding: var(--e7) var(--e8);
+  animation: campeao-entra var(--t-cinema) var(--curva-impacto) both;
+  max-width: min(94vw, 520px);
+}
+.campeao-titulo { font-size: 11px; letter-spacing: .3em; text-transform: uppercase; color: var(--ouro); }
+.campeao-nome {
+  font-size: clamp(22px, 5.5vw, 38px); line-height: 1.1; color: var(--branco);
+  text-shadow: 0 0 26px rgba(245,207,90,.45);
+}
+.campeao-legenda { margin: 0; color: var(--cinza); font-size: 12.5px; }
+
+@keyframes campeao-entra {
+  from { opacity: 0; transform: scale(.94) translate3d(0, 16px, 0); filter: blur(5px); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+
+/* Partículas FINITAS e poucas: 14, cada uma com uma subida só. Partícula em
+   laço numa tela de trabalho é bateria indo embora durante a pesagem. */
+.campeao-particulas { position: absolute; inset: 0; overflow: hidden; }
+.campeao-particulas span {
+  position: absolute; bottom: -12px; width: 4px; height: 4px; border-radius: var(--raio-pilula);
+  background: var(--ouro-luz); opacity: 0;
+  animation: faisca 2600ms var(--curva-entrada) both;
+  animation-delay: calc(var(--i) * 90ms);
+}
+@keyframes faisca {
+  0%   { opacity: 0; transform: translate3d(0, 0, 0) scale(.6); }
+  18%  { opacity: .9; }
+  100% { opacity: 0; transform: translate3d(0, -62vh, 0) scale(1); }
+}
+
+/* --- movimento reduzido: a informação fica, o teatro sai --- */
+@media (prefers-reduced-motion: reduce) {
+  .revela, main > *, .impacto-caixa, .campeao, .campeao-caixa { animation: none; }
+  .varredura::after, .campeao-particulas { display: none; }
+  .pulso-ponto { animation: none; box-shadow: 0 0 0 3px rgba(255,90,95,.25); }
+}
+
+/* ===========================================================================
+   MOTOR APLICADO AO CASCO — navegação, barra lateral e cabeçalho
+   ===========================================================================
+   O casco é o que o operador vê em TODAS as telas, o dia inteiro. Por isso
+   aqui o motor entra no nível mais baixo que ainda comunica: MICRO para toque
+   e TRANSIÇÃO para a troca de seção. Nada no casco chega a EVENTO — um menu
+   que comemora a própria abertura cansa na terceira vez.
+   =========================================================================== */
+
+/* --- o trilho da seção ativa ---
+   Antes o trilho vermelho simplesmente aparecia no item novo. Agora ele
+   ACENDE: cresce do centro e o brilho assenta. É o que dá a sensação de que a
+   navegação respondeu, sem mover nada de lugar. */
+@keyframes trilho-acende {
+  from { transform: scaleY(.15); opacity: 0; }
+  to   { transform: scaleY(1); opacity: 1; }
+}
+.nav-item.is-active::before {
+  transform-origin: center;
+  animation: trilho-acende var(--t-calmo) var(--curva-impacto) both;
+}
+
+/* O fundo da seção ativa NÃO ganha animação própria. Ele e o trilho estão no
+   mesmo elemento, e `animation` é atalho: a segunda declaração apagaria a
+   primeira em silêncio — o efeito viraria código morto sem ninguém notar.
+   Além disso são um gesto só. O trilho acende; o fundo é o rastro dele. */
+
+/* --- toque ---
+   O item afunda 1px. É quase invisível de propósito: o operador não deve
+   notar o efeito, deve notar que o sistema respondeu. */
+.nav-item { transition: background var(--t-rapido) ease, color var(--t-rapido) ease, transform var(--t-rapido) var(--curva-saida); }
+.nav-item:active { transform: translateY(1px); }
+.icon-button { transition: color var(--t-rapido) ease, border-color var(--t-rapido) ease, background var(--t-rapido) ease, transform var(--t-rapido) var(--curva-saida); }
+.icon-button:active { transform: translateY(1px) scale(.97); }
+.session-card:active { transform: translateY(1px); }
+
+/* --- contadores ---
+   O ponto de notificação e o contador de mensagens NASCEM com um pulo curto.
+   Só na entrada: um badge pulsando em laço vira ansiedade na barra de topo. */
+@keyframes badge-nasce {
+  from { opacity: 0; transform: scale(.4); }
+  60%  { transform: scale(1.12); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.icon-button .dot,
+.nav-item .badge-count { animation: badge-nasce var(--t-calmo) var(--curva-impacto) both; }
+
+/* --- entrada do casco ---
+   Uma vez por carga da aplicação. A barra lateral e o cabeçalho assentam
+   juntos, e os itens do menu entram em sequência com o atraso do motor
+   (--passo, calculado por estiloDaSequencia e com teto). */
+@keyframes casco-lateral { from { opacity: 0; transform: translate3d(-10px, 0, 0); } to { opacity: 1; transform: none; } }
+@keyframes casco-topo    { from { opacity: 0; transform: translate3d(0, -8px, 0); } to { opacity: 1; transform: none; } }
+.sidebar { animation: casco-lateral var(--t-amplo) var(--curva-entrada) both; }
+.topbar  { animation: casco-topo    var(--t-amplo) var(--curva-entrada) both; }
+.nav-item.revela { animation: revela-entrada var(--t-base) var(--curva-entrada) both; }
+
+/* A gaveta no celular NÃO herda a entrada do casco: ela já tem a própria
+   transição de transform, e duas regras sobre a mesma propriedade brigariam
+   justamente no aparelho mais fraco. */
+@media (max-width: 1040px) {
+  .sidebar { animation: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-item.is-active::before,
+  .icon-button .dot, .nav-item .badge-count,
+  .sidebar, .topbar, .nav-item.revela { animation: none; }
+  .nav-item:active, .icon-button:active, .session-card:active { transform: none; }
+}
+
+/* --- linha recém-afetada ---
+   UMA linha destacada, por 2,6s, depois volta ao normal. Não é a lista que
+   pisca: é o registro que a pessoa acabou de mexer dizendo "fui eu". */
+.linha-afetada {
+  background: linear-gradient(90deg, rgba(18,184,255,.12) 0, transparent 70%);
+  box-shadow: inset 2px 0 0 0 var(--ciano-puro);
+}
+@media (prefers-reduced-motion: reduce) {
+  /* O destaque FICA (é informação), só não varre. */
+  .linha-afetada.varredura::after { display: none; }
+}
+
+/* --- indicador de atualização ao vivo numa tela de operação --- */
+.toolbar-ao-vivo { display: flex; justify-content: flex-end; margin-bottom: var(--e2); }
+
+/* --- contador que mudou ---
+   Um lampejo curto no número, e nada mais. O valor NÃO conta de 0 até ele:
+   contagem animada mostra números que nunca foram verdade e atrasa a leitura
+   de quem precisa do valor agora. */
+@keyframes contador-lampeja {
+  0%   { color: var(--branco); text-shadow: none; }
+  25%  { color: var(--ciano-puro); text-shadow: 0 0 16px rgba(18,184,255,.5); }
+  100% { color: var(--branco); text-shadow: none; }
+}
+.contador-mudou .metric strong { animation: contador-lampeja 900ms var(--curva-entrada) both; }
+.contador-mudou .metric { border-color: var(--ciano-borda); }
+
+@media (prefers-reduced-motion: reduce) {
+  .contador-mudou .metric strong { animation: none; }
+}
+
+/* --- a bateria que está no palco ---
+   O painel ganha um trilho vermelho aceso e um leve halo. É a única coisa da
+   tela que precisa ser encontrada de longe, com o operador em pé e o telefone
+   na mão. NÃO tem partícula, NÃO tem brilho em laço e NÃO tem animação
+   contínua: o Palco continua sendo tela de trabalho, e bateria dura minutos —
+   qualquer efeito perpétuo aqui é bateria de celular indo embora. */
+.painel-bateria.esta-no-palco {
+  border-color: var(--vermelho-borda);
+  box-shadow: 0 0 0 1px rgba(227,30,36,.18), 0 14px 40px -22px rgba(227,30,36,.55);
+}
+.painel-bateria.esta-no-palco::before {
+  content: ''; position: absolute; inset: 0 auto 0 0; width: 3px;
+  background: linear-gradient(180deg, var(--vermelho-claro) 0, var(--vermelho) 100%);
+  border-radius: var(--raio) 0 0 var(--raio);
+}
+.painel-bateria { position: relative; }
+
+/* --- linhas de lista em tela estreita ---
+   A linha é flex sem quebra: num celular de 320px, avatar + selo com data +
+   botão de ação não cabem, e a página inteira passava a rolar de lado. Rolagem
+   horizontal numa tela de operação é o operador perdendo o botão bem na hora
+   da fila.
+
+   Só aparece quando a linha tem ação E selo ao mesmo tempo — por isso passou
+   despercebido enquanto ninguém tinha check-in feito. */
+@media (max-width: 480px) {
+  .list-row { flex-wrap: wrap; }
+  /* Força a quebra antes de espremer o nome do atleta até o ilegível. */
+  .list-row .info { flex: 1 1 60%; min-width: 55%; }
+  /* As ações descem juntas para a segunda linha, alinhadas à direita. */
+  .list-row > .button,
+  .list-row > .badge { margin-left: auto; }
+  .list-row > .button + .button { margin-left: var(--e2); }
+}
+
+/* --- filtro ativo ---
+   Uma busca esquecida faz a lista parecer curta, e o operador vai procurar o
+   problema no lugar errado. O filtro se declara, e sai com um clique. */
+.filtro-ativo {
+  display: flex; align-items: center; gap: var(--e3);
+  margin-bottom: var(--e4); flex-wrap: wrap;
+}
+.filtro-ativo .chip { display: inline-flex; align-items: center; gap: var(--e2); }
+.filtro-ativo .chip button {
+  border: 0; background: transparent; color: var(--cinza); cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 0 2px;
+}
+.filtro-ativo .chip button:hover { color: var(--branco); }
+.filtro-ativo small { color: var(--cinza-fraco); font-size: 11.5px; }
+
+/* Linha de tabela recém-mexida: só o destaque, sem varredura. */
+tr.linha-afetada > td { background: rgba(18,184,255,.10); }
+tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro); }
+
+
+/* --- cartão clicável ---
+   Um cartão que abre alguma coisa. Eleva 1px no ponteiro: o bastante para
+   dizer "isto abre", longe do salto que faria uma grade inteira parecer
+   instável quando o mouse a atravessa. */
+.cartao-clicavel { transition: border-color var(--t-base) ease, transform var(--t-base) var(--mola); }
+.cartao-clicavel:hover { border-color: var(--linha-forte); transform: translateY(-1px); }
+.cartao-clicavel:active { transform: translateY(1px); }
+
+/* --- a próxima etapa ---
+   Destaque DISCRETO: uma borda e um fio vermelho no topo. Sem partícula, sem
+   brilho em laço, sem nada que se mova sozinho — a expectativa se cria pelo
+   lugar que a etapa ocupa, não por efeito. */
+.etapa-proxima { border-color: var(--vermelho-borda); position: relative; }
+.etapa-proxima::before {
+  content: ''; position: absolute; inset: 0 0 auto 0; height: 2px;
+  background: linear-gradient(90deg, var(--vermelho) 0, transparent 80%);
+  border-radius: var(--raio-2) var(--raio-2) 0 0;
+}
+.etapa-proxima .eyebrow { color: var(--vermelho-claro); }
+
+@media (prefers-reduced-motion: reduce) {
+  .cartao-clicavel:hover, .cartao-clicavel:active { transform: none; }
+}
+
+/* --- curtir ---
+   Um pulso curto no coração, só quando LIGA. Desligar não comemora. */
+@keyframes coracao-pulsa {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.28); }
+  100% { transform: scale(1); }
+}
+.post-action.is-on svg { animation: coracao-pulsa var(--t-calmo) var(--curva-impacto); }
+
+/* --- mensagem que chega --- */
+@keyframes mensagem-entra {
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+.chat-msg { animation: mensagem-entra var(--t-base) var(--curva-entrada) both; }
+
+/* --- falha de envio ---
+   Fica ACIMA do campo, com o texto ainda escrito nele e o caminho de volta ao
+   lado. Um toast que some não serve para um erro que precisa de decisão. */
+.falha-do-envio { display: flex; align-items: center; gap: var(--e3); margin: 0 var(--e4) var(--e2); }
+.falha-do-envio .button { flex-shrink: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .post-action.is-on svg, .chat-msg { animation: none; }
+}
+
+/* --- continuidade da abertura ---
+   A abertura termina e o sistema APARECE — em vez de a abertura sair e o
+   casco surgir do nada, como dois programas diferentes. Só na primeira
+   entrada da sessão: alongar a entrada de toda navegação deixaria o sistema
+   lento pelo resto do dia, que é o oposto do que esta fase busca.
+
+   O casco e a primeira tela usam a mesma duração e a mesma curva, com a tela
+   entrando logo depois do casco. É a ORDEM que faz parecer um gesto só. */
+.shell.entrada-continua .sidebar { animation-duration: var(--t-enfase); }
+.shell.entrada-continua .topbar  { animation-duration: var(--t-enfase); animation-delay: 60ms; }
+.shell.entrada-continua main > * {
+  animation: tela-entra var(--t-enfase) var(--curva-entrada) 140ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell.entrada-continua .sidebar,
+  .shell.entrada-continua .topbar,
+  .shell.entrada-continua main > * { animation: none; }
+}
+
+/* A continuidade vale para a PRIMEIRA tela depois da abertura, e para a
+   maioria das pessoas essa tela é a de entrada — não o casco. */
+.auth-shell.entrada-continua .auth-card {
+  animation: tela-entra var(--t-enfase) var(--curva-entrada) 80ms both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-shell.entrada-continua .auth-card { animation: none; }
+}
+
+/* ===========================================================================
+   OS ATOS — a espinha narrativa
+   ===========================================================================
+   O ato não acrescenta EFEITO: acrescenta PRESENÇA. "Operar" é o padrão e não
+   ganha nada — é o dia de trabalho, e ele precisa ser rápido.
+
+   "Competir" é o piso do evento: palco e resultados. Ganha uma luz de palco no
+   topo do conteúdo. ESTÁTICA — não se move, não pisca, não consome quadro.
+   Bateria dura minutos e o operador está em pé com o telefone na mão; qualquer
+   coisa perpétua aqui é bateria indo embora.
+
+   E o ato NUNCA sobe o nível de um efeito. Só o teto do motor decide isso. */
+.shell[data-ato="competir"] main {
+  position: relative;
+}
+.shell[data-ato="competir"] main::before {
+  content: ''; position: absolute; inset: 0 0 auto 0; height: 180px;
+  pointer-events: none; z-index: 0;
+  background: radial-gradient(120% 100% at 50% 0%, rgba(227,30,36,.10) 0%, transparent 70%);
+}
+.shell[data-ato="competir"] main > * { position: relative; z-index: 1; }
+
+/* No celular a luz encolhe: a tela é menor e o conteúdo precisa dela inteira. */
+@media (max-width: 640px) {
+  .shell[data-ato="competir"] main::before { height: 96px; }
+}
+
+/* --- roteiro do MCI Cinema (laboratório) --- */
+.cinema-roteiro { list-style: none; margin: var(--e4) 0 0; padding: 0; display: grid; gap: 2px; }
+.cinema-roteiro li {
+  display: grid; grid-template-columns: 28px 1fr; gap: var(--e3); align-items: baseline;
+  padding: var(--e2) var(--e3); border-radius: var(--raio); font-size: 13px;
+}
+.cinema-roteiro li strong { color: var(--cinza-fraco); font-size: 11px; letter-spacing: .1em; }
+.cinema-roteiro li small { grid-column: 2; color: var(--cinza-fraco); font-size: 11.5px; }
+.cinema-roteiro li.is-agora { background: var(--superficie-2); }
+.cinema-roteiro li.is-agora strong { color: var(--vermelho-claro); }
