@@ -1646,15 +1646,27 @@ main > * { animation: tela-entra var(--t-base) var(--curva-entrada) both; }
 tr.linha-afetada > td { background: rgba(18,184,255,.10); }
 tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro); }
 
-/* --- cartão de atleta ---
-   O cartão é um alvo clicável que leva a uma PESSOA. A elevação no ponteiro é
-   1px: o suficiente para dizer "isto abre", longe do salto que faria uma grade
-   de 24 cartões parecer instável quando o mouse a atravessa. No toque não há
-   ponteiro, então vale o afundar. */
-.cartao-atleta { transition: border-color var(--t-base) ease, transform var(--t-base) var(--mola); }
-.cartao-atleta:hover { border-color: var(--linha-forte); transform: translateY(-1px); }
-.cartao-atleta:active { transform: translateY(1px); }
+
+/* --- cartão clicável ---
+   Um cartão que abre alguma coisa. Eleva 1px no ponteiro: o bastante para
+   dizer "isto abre", longe do salto que faria uma grade inteira parecer
+   instável quando o mouse a atravessa. */
+.cartao-clicavel { transition: border-color var(--t-base) ease, transform var(--t-base) var(--mola); }
+.cartao-clicavel:hover { border-color: var(--linha-forte); transform: translateY(-1px); }
+.cartao-clicavel:active { transform: translateY(1px); }
+
+/* --- a próxima etapa ---
+   Destaque DISCRETO: uma borda e um fio vermelho no topo. Sem partícula, sem
+   brilho em laço, sem nada que se mova sozinho — a expectativa se cria pelo
+   lugar que a etapa ocupa, não por efeito. */
+.etapa-proxima { border-color: var(--vermelho-borda); position: relative; }
+.etapa-proxima::before {
+  content: ''; position: absolute; inset: 0 0 auto 0; height: 2px;
+  background: linear-gradient(90deg, var(--vermelho) 0, transparent 80%);
+  border-radius: var(--raio-2) var(--raio-2) 0 0;
+}
+.etapa-proxima .eyebrow { color: var(--vermelho-claro); }
 
 @media (prefers-reduced-motion: reduce) {
-  .cartao-atleta:hover, .cartao-atleta:active { transform: none; }
+  .cartao-clicavel:hover, .cartao-clicavel:active { transform: none; }
 }

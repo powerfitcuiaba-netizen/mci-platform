@@ -4,8 +4,7 @@ import api from '../services/api';
 import { useDebounce, useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Metric, PageHead, Paginacao } from '../components/ui';
 import { formatarData, formatarDataHora, seloDoEvento, estadoDaBateria, estadoPro } from '../lib/format';
-import { Revelacao } from '../components/experiencia';
-import { estiloDaSequencia } from '../lib/experiencia';
+import { PulsoAoVivo, Revelacao } from '../components/experiencia';
 
 // Vitrine pública. Tudo aqui sai da API real; nenhuma métrica é estimada e
 // nenhuma lista é fixa no código.
@@ -146,20 +145,34 @@ export function Campeonatos({ navegar }) {
         {() => {
           if (!pagina.items.length) return <EmptyState title="Nenhum campeonato encontrado" description="Ajuste a busca para ver outras etapas." />;
 
+          const agora = Date.now();
+          const proximaEtapaId = (pagina.items.find(item => new Date(item.startDate).getTime() >= agora) || {}).id;
+
           return (
             <>
             <div className="grid grid-3">
-              {pagina.items.map(evento => {
+              {pagina.items.map((evento, indice) => {
                 const estadoEvento = seloDoEvento(evento);
+                // "Próxima" é a PRIMEIRA etapa futura da lista carregada, e a
+                // lista já vem ordenada pelo servidor. Não é palpite da
+                // interface: é o primeiro item que ainda não aconteceu.
+                const proxima = evento.id === proximaEtapaId;
                 return (
-                  <button
+                  <Revelacao
+                    as="button"
                     key={evento.id}
+                    indice={indice % 24}
                     type="button"
-                    className="panel"
+                    className={`panel cartao-clicavel${proxima ? ' etapa-proxima' : ''}`}
                     style={{ textAlign: 'left', cursor: 'pointer' }}
                     onClick={() => navegar(`campeonatos/${evento.slug}`)}
                   >
-                    <Badge tom={estadoEvento.tom} aoVivo={estadoEvento.aoVivo}>{estadoEvento.rotulo}</Badge>
+                    {proxima && <span className="eyebrow" style={{ display: 'block', marginBottom: 8 }}>Próxima etapa</span>}
+                    {/* Ao vivo de VERDADE: `seloDoEvento` só devolve `aoVivo`
+                        quando a etapa acontece hoje E está em estado de piso. */}
+                    {estadoEvento.aoVivo
+                      ? <PulsoAoVivo rotulo={estadoEvento.rotulo} />
+                      : <Badge tom={estadoEvento.tom}>{estadoEvento.rotulo}</Badge>}
                     <h3 className="display" style={{ fontSize: 22, margin: '14px 0 6px' }}>{evento.name}</h3>
                     <p style={{ color: 'var(--cinza)', fontSize: 12.5, margin: 0, minHeight: 34 }}>
                       {evento.description || 'Etapa do Campeonato Brasileiro Muscle Contest.'}
@@ -168,7 +181,7 @@ export function Campeonatos({ navegar }) {
                       <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><CalendarDays size={13} /> {formatarData(evento.startDate)}</span>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Users size={13} /> {evento._count.registrations}</span>
                     </div>
-                  </button>
+                  </Revelacao>
                 );
               })}
             </div>
@@ -366,16 +379,24 @@ export function Atletas({ navegar }) {
         {() => (pagina.items.length
           ? (
             <>
+              {/* `Revelacao` em vez da classe escrita à mão: fixar "revela" no
+                  className passava POR CIMA do teto do motor, e o cartão
+                  animava mesmo com movimento reduzido. O componente existe
+                  justamente para essa decisão não ser repetida — e repetida
+                  errado — em cada tela.
+
+                  O `% 24` mantém o teto de 360ms valendo por página: sem ele,
+                  três páginas acumuladas fariam o último cartão entrar
+                  segundos depois do primeiro. */}
               <div className="grid grid-3">
                 {pagina.items.map((atleta, indice) => (
-                  <button
+                  <Revelacao
+                    as="button"
                     key={atleta.id}
+                    indice={indice % 24}
                     type="button"
-                    className="panel cartao-atleta revela"
-                    // O teto de 360ms do motor é o que impede a página 3 de
-                    // entrar depois do usuário: sem ele, 72 cartões acumulados
-                    // fariam o último aparecer segundos depois do primeiro.
-                    style={{ display: 'flex', gap: 12, alignItems: 'center', textAlign: 'left', cursor: 'pointer', ...estiloDaSequencia(indice % 24) }}
+                    className="panel cartao-clicavel"
+                    style={{ display: 'flex', gap: 12, alignItems: 'center', textAlign: 'left', cursor: 'pointer' }}
                     onClick={() => navegar(`atletas/${atleta.id}`)}
                   >
                     <Avatar name={atleta.fullName} size="avatar-lg" />
@@ -390,7 +411,7 @@ export function Atletas({ navegar }) {
                         </span>
                       )}
                     </span>
-                  </button>
+                  </Revelacao>
                 ))}
               </div>
               <Paginacao nextCursor={pagina.nextCursor} onMore={carregarMais} loading={carregandoMais} />
