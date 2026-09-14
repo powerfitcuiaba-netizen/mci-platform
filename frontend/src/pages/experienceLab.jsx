@@ -20,6 +20,16 @@ import {
 const NOME_DO_NIVEL = ['ESTÁTICO', 'MICRO', 'TRANSIÇÃO', 'EVENTO', 'MOMENTO', 'CINEMATOGRÁFICO'];
 
 export default function ExperienceLab() {
+  // A linha recém-mexida, calibrada no mesmo lugar que os outros efeitos —
+  // senão a confirmação de operação repetida seria o único gesto do sistema
+  // sem lugar de ajuste.
+  const [linhaAfetada, setLinhaAfetada] = useState(null);
+  const confirmarLinha = indice => {
+    setLinhaAfetada(indice);
+    anunciar(MCIEvento.CHECKIN, { titulo: 'Check-in confirmado', descricao: 'Confirma na linha, não no centro.' });
+    setTimeout(() => setLinhaAfetada(null), 2600);
+  };
+
   const [modal, setModal] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const teto = tetoDeIntensidade();
@@ -149,6 +159,27 @@ export default function ExperienceLab() {
           <button type="button" className="chip" onClick={() => disparar(MCIEvento.CAMPEAO, { titulo: 'Campeão geral', nome: 'Carlos Mendes', descricao: 'Muscle Contest Brasil 2026' })}>
             Campeão geral (nível 5)
           </button>
+        </div>
+      </section>
+
+      <section className="card" style={{ marginTop: 18 }}>
+        <h2>Confirmação na linha</h2>
+        <p className="muted">
+          Nível EVENTO e abaixo confirmam ONDE a ação aconteceu — não no centro
+          da tela. Os atalhos de nível 3 acima não desenham nada no palco de
+          propósito: numa competição de 280 atletas aquilo apareceria 280 vezes
+          por cima da lista que o operador está usando. É esta linha que faz o
+          papel, com o destaque, o selo e o toast de sempre.
+        </p>
+        <div style={{ marginTop: 12 }}>
+          {['Ana Prado', 'Bruno Rocha', 'Carlos Mendes'].map((nome, i) => (
+            <div key={nome} className={`list-row${linhaAfetada === i ? ' linha-afetada varredura' : ''}`}>
+              <span className="info"><strong>{nome}</strong><small>Nº 10{i} · Até 172cm</small></span>
+              {linhaAfetada === i
+                ? <Badge tom="ok">Confirmado agora</Badge>
+                : <button type="button" className="button button-primary button-sm" onClick={() => confirmarLinha(i)}>Confirmar</button>}
+            </div>
+          ))}
         </div>
       </section>
 
