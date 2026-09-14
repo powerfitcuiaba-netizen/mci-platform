@@ -58,6 +58,13 @@ const JUIZ = { id: 'u3', name: 'João Juiz', email: 'joao@mci.test', role: 'JUDG
 
 // Sem `globals: true`, a limpeza automática do testing-library não roda: sem
 // isto, cada render acumularia no DOM e as consultas achariam vários nós.
+// A abertura roda uma vez por sessão do navegador e é a PRIMEIRA tela. Estes
+// testes são sobre a casca do sistema, então ela entra marcada como já vista —
+// como numa segunda navegação. A abertura tem arquivo de teste próprio.
+beforeEach(() => {
+  try { sessionStorage.setItem('mci-abertura-vista', 'true'); } catch { /* aba anônima */ }
+});
+
 afterEach(cleanup);
 
 describe('estrutura da aplicação', () => {
@@ -149,5 +156,26 @@ describe('sem sessão', () => {
 
     render(<App />);
     expect(await screen.findByRole('heading', { name: /Entrar/i })).toBeInTheDocument();
+  });
+});
+
+describe('a abertura precede o sistema', () => {
+  it('numa sessão nova a abertura aparece antes de qualquer tela', async () => {
+    sessionStorage.removeItem('mci-abertura-vista');
+    montarComo(ATLETA);
+
+    expect(await screen.findByRole('dialog', { name: /abertura do mci/i })).toBeInTheDocument();
+    // E o sistema ainda não está montado por trás dela.
+    expect(screen.queryByRole('navigation', { name: /navegação principal/i })).not.toBeInTheDocument();
+  });
+
+  it('depois de "Entrar agora", o sistema aparece', async () => {
+    sessionStorage.removeItem('mci-abertura-vista');
+    const usuario = userEvent.setup();
+    montarComo(ATLETA);
+
+    await usuario.click(await screen.findByRole('button', { name: /entrar agora/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /abertura do mci/i })).not.toBeInTheDocument());
+    expect(await screen.findByRole('navigation', { name: /navegação principal/i })).toBeInTheDocument();
   });
 });

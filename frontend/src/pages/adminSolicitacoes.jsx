@@ -192,11 +192,11 @@ function Analise({ id, onClose, aoDecidir, notificar }) {
                 sessão e decide entre o dono e o operador da federação. */}
             <div className="foto-da-analise">
               <div className="foto-previa foto-previa-grande">
-                {pedidoCarregado.photoKey
+                {pedidoCarregado.hasPhoto
                   ? <ProtectedMedia path={`/media/athlete-requests/${pedidoCarregado.id}/photo`} alt={`Foto enviada por ${pedidoCarregado.fullName}`} />
                   : <span className="foto-vazia">Sem foto</span>}
               </div>
-              {!pedidoCarregado.photoKey && (
+              {!pedidoCarregado.hasPhoto && (
                 <small className="muted">
                   Este pedido veio sem foto. A foto é opcional — confira a identidade pelos
                   demais dados.

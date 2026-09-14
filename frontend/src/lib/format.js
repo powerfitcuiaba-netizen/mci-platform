@@ -158,9 +158,9 @@ export const ESTADO_MATCH = {
 
 // Caminho da foto de perfil, ou null quando o perfil não tem foto.
 //
-// O `avatarKey` é conferido ANTES de montar o caminho de propósito: pedir o
+// `hasAvatar` é conferido ANTES de montar o caminho de propósito: pedir o
 // avatar de quem não tem devolveria 404 por linha, e uma tela com 30
 // comentários faria 30 requisições para receber 30 erros. Quem não tem foto
 // nem chega a pedir — cai direto nas iniciais.
 export const caminhoDoAvatar = perfil =>
-  (perfil?.id && perfil?.avatarKey ? `/media/profiles/${perfil.id}/avatar` : null);
+  (perfil?.id && perfil?.hasAvatar ? `/media/profiles/${perfil.id}/avatar` : null);

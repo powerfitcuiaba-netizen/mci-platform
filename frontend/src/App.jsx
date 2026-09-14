@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bell, ClipboardCheck, Home, LayoutDashboard, LogOut, Menu, MessageSquare,
-  QrCode, Scale, Search, Settings, ShieldCheck, Trophy, Upload, UserCircle, Users, Users2, Zap
+  QrCode, Scale, Search, Settings, ShieldCheck, Trophy, Upload, UserCircle, Users, Users2,
+  Volume2, VolumeX, Zap
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './AuthContext';
 import api from './services/api';
@@ -9,6 +10,8 @@ import { useDebounce, useFetch, useHashRoute, useToasts } from './lib/hooks';
 import { Avatar, BlocoDaMarca, Toasts } from './components/ui';
 import { caminhoDoAvatar } from './lib/format';
 import LimiteDeErro from './components/limiteDeErro';
+import AberturaMci, { aberturaJaFoiVista } from './components/aberturaMci';
+import { direcaoDeAudio, preferenciaDeAudio, definirPreferenciaDeAudio } from './lib/audioDirector';
 import Auth from './pages/authPages';
 import { AtletaDetalhe, Atletas, CampeonatoDetalhe, Campeonatos, Inicio, Ranking } from './pages/publicPages';
 import { ComunidadeDetalhe, Comunidades, Feed, MeuPerfilSocial, Notificacoes, Perfil, Salvos } from './pages/socialPages';
@@ -183,6 +186,11 @@ function BuscaGlobal({ navegar }) {
 
 function Shell() {
   const { user, logout, authenticated, loading } = useAuth();
+  // A abertura roda uma vez por sessão do navegador, antes de qualquer tela.
+  // `aberturaJaFoiVista` é lido na inicialização do estado — não num efeito —
+  // para a abertura não piscar em quem já a viu.
+  const [abertura, setAbertura] = useState(() => !aberturaJaFoiVista());
+  const [somLigado, setSomLigado] = useState(() => preferenciaDeAudio());
   const { rota, partes, navegar } = useHashRoute();
   const { toasts, notificar, remover } = useToasts();
   const [menuAberto, setMenuAberto] = useState(false);
@@ -212,6 +220,11 @@ function Shell() {
   );
 
   useEffect(() => { setMenuAberto(false); }, [rota]);
+
+  // A abertura vem ANTES do estado de carregamento: ela é a primeira coisa que
+  // a pessoa vê, e enquanto ela roda a sessão termina de ser verificada em
+  // segundo plano. Nada da abertura espera rede.
+  if (abertura) return <AberturaMci aoTerminar={() => setAbertura(false)} />;
 
   if (loading) {
     return <div className="auth-shell"><div className="auth-card"><p>Carregando…</p></div></div>;
@@ -326,6 +339,23 @@ function Shell() {
           <button type="button" className="icon-button mobile-toggle" onClick={() => setMenuAberto(true)} aria-label="Abrir menu"><Menu size={16} /></button>
           <BuscaGlobal navegar={navegar} />
           <div className="topbar-actions">
+          {/* Controle global de som. Desligar encerra a trilha na hora e a
+              preferência vale nas próximas sessões. */}
+          <button
+            type="button"
+            className="icon-button"
+            aria-pressed={somLigado}
+            aria-label={somLigado ? 'Desligar o som do sistema' : 'Ligar o som do sistema'}
+            title={somLigado ? 'Som ligado' : 'Som desligado'}
+            onClick={() => {
+              const proximo = !somLigado;
+              definirPreferenciaDeAudio(proximo);
+              if (!proximo) direcaoDeAudio.encerrar({ imediato: true });
+              setSomLigado(proximo);
+            }}
+          >
+            {somLigado ? <Volume2 size={16} /> : <VolumeX size={16} />}
+          </button>
             <button type="button" className="icon-button" onClick={() => navegar('notificacoes')} aria-label={`Notificações${naoLidas ? `: ${naoLidas} não lidas` : ''}`}>
               <Bell size={16} />
               {naoLidas > 0 && <span className="dot">{naoLidas > 9 ? '9+' : naoLidas}</span>}

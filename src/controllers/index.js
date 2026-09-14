@@ -27,6 +27,8 @@ const admin = require('../services/adminService');
 const health = require('../services/healthService');
 const memberships = require('../services/membershipService');
 
+const visibility = require('../utils/visibility');
+
 const ip = req => req.ip || req.headers['x-forwarded-for'] || null;
 
 // Envia um stream de arquivo com cabeçalhos seguros: nada é interpretado pelo
@@ -209,7 +211,11 @@ module.exports = {
   social: {
     setAvatar: async (req, res) => res.json(await social.setAvatar(req.user.id, req.file)),
     removeAvatar: async (req, res) => res.json(await social.removeAvatar(req.user.id)),
-    myProfile: async (req, res) => res.json(await social.meuPerfil(req.user.id)),
+    // `meuPerfil` devolve a linha crua porque o SERVIÇO precisa das chaves
+    // (gravar e apagar avatar). A resposta, não: aqui ela passa pelo
+    // serializador, como toda saída de perfil. Sem isto, `GET /social/me`
+    // entregava `avatarKey` e `coverKey` ao navegador.
+    myProfile: async (req, res) => res.json(visibility.profilePublic(await social.meuPerfil(req.user.id))),
     updateProfile: async (req, res) => res.json(await social.updateProfile(req.user.id, req.body)),
     setHandle: async (req, res) => res.json(await social.setHandle(req.user.id, req.body.handle)),
     profile: async (req, res) => res.json(await social.profileByHandle(req.params.handle, req.user)),

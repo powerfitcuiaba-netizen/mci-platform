@@ -118,7 +118,7 @@ async function listCheckIns(eventId, filtros, actor) {
       ] } } : {})
     },
     include: {
-      athlete: { select: { id: true, fullName: true, stageName: true, athleteNumber: true, photoKey: true } },
+      athlete: { select: { id: true, fullName: true, stageName: true, athleteNumber: true } },
       checkIn: true,
       weighIns: { orderBy: { measuredAt: 'desc' }, take: 1 },
       items: { include: { competitionClass: { select: { id: true, name: true } } } }
@@ -229,7 +229,7 @@ async function scanCredential(eventId, { code, gate }, actor) {
 
   const credential = await prisma.credential.findUnique({
     where: { code },
-    include: { registration: { include: { athlete: { select: { id: true, fullName: true, athleteNumber: true, photoKey: true } }, checkIn: true } } }
+    include: { registration: { include: { athlete: { select: { id: true, fullName: true, athleteNumber: true } }, checkIn: true } } }
   });
 
   if (!credential) throw new AppError(404, 'CREDENTIAL_NOT_FOUND', 'Credencial não encontrada');
@@ -339,7 +339,7 @@ async function listStageOrder(batchId, actor) {
     include: {
       registrationItem: {
         include: {
-          registration: { include: { athlete: { select: { id: true, fullName: true, stageName: true, athleteNumber: true, photoKey: true } } } }
+          registration: { include: { athlete: { select: { id: true, fullName: true, stageName: true, athleteNumber: true } } } }
         }
       }
     },

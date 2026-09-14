@@ -744,7 +744,7 @@ async function list(filtros) {
   const items = await publico.ranking.findMany({
     where,
     include: {
-      athlete: { select: { id: true, fullName: true, stageName: true, photoKey: true, state: true, city: true, proStatus: true, team: { select: { id: true, name: true } } } },
+      athlete: { select: { id: true, fullName: true, stageName: true, state: true, city: true, proStatus: true, team: { select: { id: true, name: true } } } },
       category: { select: { id: true, code: true, name: true } },
       season: { select: { id: true, name: true, year: true } }
     },

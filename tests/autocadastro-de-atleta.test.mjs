@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import zlib from 'node:zlib';
+import fsp from 'node:fs/promises';
 import storage from '../src/services/storageService.js';
 import imagem from '../src/services/imagemService.js';
 import {
@@ -110,6 +111,13 @@ function pngValido(lado = 8) {
 const enviarFoto = (pessoa, requestId, buffer, nome = 'foto.png', tipo = 'image/png') =>
   api().post(`/api/v1/athlete-requests/${requestId}/photo`).set(pessoa.auth())
     .attach('file', buffer, { filename: nome, contentType: tipo });
+
+// A CHAVE não sai mais na resposta — é referência interna do armazenamento, e
+// devolvê-la entregava a estrutura do bucket a quem chamasse a API. Quem
+// precisa dela é o TESTE, para conferir o arquivo; então ele a lê do banco,
+// que é de onde ela nunca deveria ter saído.
+const chaveDoPedido = (ator, requestId) => comoAtor(ator, async () =>
+  (await prisma.athleteProfileRequest.findUnique({ where: { id: requestId }, select: { photoKey: true } }))?.photoKey ?? null);
 
 beforeAll(() => garantirCatalogo());
 
@@ -313,10 +321,13 @@ describe('foto do pedido', () => {
   it('o dono envia a foto, e ela é normalizada e guardada', async () => {
     const r = await enviarFoto(pessoa, pedido.id, pngValido());
     expect(r.status, JSON.stringify(r.body)).toBe(200);
-    expect(r.body.photoKey).toBeTruthy();
+    // A RESPOSTA diz que há foto, sem dizer onde ela está.
+    expect(r.body.hasPhoto).toBe(true);
+    expect(r.body).not.toHaveProperty('photoKey');
 
     // A chave é sorteada pelo servidor e fica sob o escopo do pedido.
-    expect(r.body.photoKey).toMatch(new RegExp(`^athlete-requests/${pedido.id}/[0-9a-f-]{36}\\.webp$`));
+    expect(await chaveDoPedido(pessoa, pedido.id))
+      .toMatch(new RegExp(`^athlete-requests/${pedido.id}/[0-9a-f-]{36}\\.webp$`));
   });
 
   it('sem autenticação não sobe nada', async () => {
@@ -372,8 +383,10 @@ describe('foto do pedido', () => {
   });
 
   it('trocar a foto apaga a anterior, sem deixar órfão', async () => {
-    const primeira = (await enviarFoto(pessoa, pedido.id, pngValido())).body.photoKey;
-    const segunda = (await enviarFoto(pessoa, pedido.id, pngValido(16))).body.photoKey;
+    await enviarFoto(pessoa, pedido.id, pngValido());
+    const primeira = await chaveDoPedido(pessoa, pedido.id);
+    await enviarFoto(pessoa, pedido.id, pngValido(16));
+    const segunda = await chaveDoPedido(pessoa, pedido.id);
 
     expect(segunda).not.toBe(primeira);
     expect(await storage.exists(primeira)).toBe(false);
@@ -381,10 +394,11 @@ describe('foto do pedido', () => {
   });
 
   it('o dono remove a própria foto', async () => {
-    const chave = (await enviarFoto(pessoa, pedido.id, pngValido())).body.photoKey;
+    await enviarFoto(pessoa, pedido.id, pngValido());
+    const chave = await chaveDoPedido(pessoa, pedido.id);
     const r = await api().delete(`/api/v1/athlete-requests/${pedido.id}/photo`).set(pessoa.auth());
     expect(r.status).toBe(200);
-    expect(r.body.photoKey).toBeNull();
+    expect(r.body.hasPhoto).toBe(false);
 
     expect(await storage.exists(chave)).toBe(false);
   });
@@ -404,7 +418,8 @@ describe('entrega da foto', () => {
     await abrirAutocadastro(orgA.id);
     pessoa = await cadastrarPessoa('Com Foto');
     pedido = (await pedir(pessoa, pedidoValido(filiacaoA, 200))).body;
-    chave = (await enviarFoto(pessoa, pedido.id, pngValido())).body.photoKey;
+    await enviarFoto(pessoa, pedido.id, pngValido());
+    chave = await chaveDoPedido(pessoa, pedido.id);
   });
 
   it('o dono e o operador da federação veem a foto', async () => {
@@ -524,7 +539,8 @@ describe('de conta nova a atleta aprovado', () => {
     // 4. envia a foto
     const comFoto = await enviarFoto(pessoa, pedidoId, pngValido(32));
     expect(comFoto.status).toBe(200);
-    const chaveDaFoto = comFoto.body.photoKey;
+    expect(comFoto.body.hasPhoto).toBe(true);
+    const chaveDaFoto = await chaveDoPedido(pessoa, pedidoId);
 
     // 5. o operador vê o pedido na fila, SEM CPF na listagem
     const fila = await api().get('/api/v1/athlete-requests').set(operadorA.auth());
@@ -534,7 +550,8 @@ describe('de conta nova a atleta aprovado', () => {
     // 6. abre para análise: aí sim o CPF, e a foto
     const analise = await api().get(`/api/v1/athlete-requests/${pedidoId}`).set(operadorA.auth());
     expect(analise.body.cpf).toBe(cpf.replace(/\D/g, ''));
-    expect(analise.body.photoKey).toBe(chaveDaFoto);
+    expect(analise.body.hasPhoto).toBe(true);
+    expect(analise.body, 'a análise devolveu a chave do armazenamento').not.toHaveProperty('photoKey');
     expect((await api().get(`/api/v1/media/athlete-requests/${pedidoId}/photo`).set(operadorA.auth())).status).toBe(200);
 
     // 7. aprova
@@ -575,7 +592,8 @@ describe('de conta nova a atleta aprovado', () => {
     await abrirAutocadastro(orgA.id);
     const pessoa = await cadastrarPessoa('Recusada');
     const pedidoId = (await pedir(pessoa, pedidoValido(filiacaoA, 555))).body.id;
-    const chave = (await enviarFoto(pessoa, pedidoId, pngValido())).body.photoKey;
+    await enviarFoto(pessoa, pedidoId, pngValido());
+    const chave = await chaveDoPedido(pessoa, pedidoId);
 
     expect(await storage.exists(chave)).toBe(true);
 
@@ -599,10 +617,124 @@ describe('de conta nova a atleta aprovado', () => {
     await abrirAutocadastro(orgA.id);
     const pessoa = await cadastrarPessoa('Desistente');
     const pedidoId = (await pedir(pessoa, pedidoValido(filiacaoA, 666))).body.id;
-    const chave = (await enviarFoto(pessoa, pedidoId, pngValido())).body.photoKey;
+    await enviarFoto(pessoa, pedidoId, pngValido());
+    const chave = await chaveDoPedido(pessoa, pedidoId);
 
     await api().post(`/api/v1/athlete-requests/${pedidoId}/cancel`).set(pessoa.auth());
 
     expect(await storage.exists(chave)).toBe(false);
+  });
+});
+
+// ========================= FALHA DO ARMAZENAMENTO =========================
+//
+// O provedor pode falhar ou perder o objeto — R2 fora, credencial vencida,
+// arquivo apagado por engano numa varredura. O que não pode acontecer é o
+// BANCO ficar incoerente: um pedido apontando para arquivo inexistente
+// servindo imagem quebrada, ou um objeto ainda alcançável depois de o pedido
+// ter sido encerrado.
+//
+// A falha é provocada NO ARMAZENAMENTO DE VERDADE — apagando o objeto por
+// fora — e não por injeção no módulo. Duas tentativas de injetar falharam e
+// vale registrar por quê: `{ ...instancia }` não copia métodos de protótipo, e
+// trocar o protótipo tampouco alcança a aplicação, porque ela roda no grafo
+// CommonJS e o teste importa por ESM — são duas instâncias do mesmo módulo.
+// Apagar o arquivo atravessa qualquer grafo.
+describe('o armazenamento falha', () => {
+  let pessoa;
+  let pedido;
+  let chave;
+
+  beforeEach(async () => {
+    await abrirAutocadastro(orgA.id);
+    pessoa = await cadastrarPessoa('Com Falha');
+    pedido = (await pedir(pessoa, pedidoValido(filiacaoA, 4242))).body;
+    await enviarFoto(pessoa, pedido.id, pngValido());
+    chave = await chaveDoPedido(pessoa, pedido.id);
+    expect(await storage.exists(chave)).toBe(true);
+  });
+
+  it('objeto sumiu do armazenamento: a entrega responde 404, e não imagem quebrada', async () => {
+    await storage.remove(chave);
+    expect(await storage.exists(chave)).toBe(false);
+
+    // A linha AINDA aponta para a chave — é exatamente o estado incoerente que
+    // acontece quando alguém apaga o objeto por fora.
+    expect(await chaveDoPedido(pessoa, pedido.id)).toBe(chave);
+
+    for (const quem of [pessoa, operadorA]) {
+      const r = await api().get(`/api/v1/media/athlete-requests/${pedido.id}/photo`).set(quem.auth());
+      expect(r.status, 'faltando o arquivo, a entrega precisa ser 404 — não 500 nem stream quebrado').toBe(404);
+    }
+  });
+
+  it('depois da falha, reenviar a foto conserta — e a chave antiga não volta', async () => {
+    await storage.remove(chave);
+
+    const nova = await enviarFoto(pessoa, pedido.id, pngValido(16));
+    expect(nova.status).toBe(200);
+    expect(nova.body.hasPhoto).toBe(true);
+
+    const chaveNova = await chaveDoPedido(pessoa, pedido.id);
+    expect(chaveNova).not.toBe(chave);
+    expect(await storage.exists(chaveNova)).toBe(true);
+    expect((await api().get(`/api/v1/media/athlete-requests/${pedido.id}/photo`).set(pessoa.auth())).status).toBe(200);
+  });
+
+  // O descarte na recusa vai falhar (o objeto já não existe). A decisão do
+  // operador não pode ser desfeita por causa disso.
+  it('recusa com objeto já ausente: a decisão vale e o banco fica coerente', async () => {
+    await storage.remove(chave);
+
+    const recusa = await api().post(`/api/v1/athlete-requests/${pedido.id}/reject`).set(operadorA.auth())
+      .send({ reason: 'Documento ilegível' });
+
+    expect(recusa.status, JSON.stringify(recusa.body)).toBe(200);
+    expect(recusa.body.status).toBe('REJECTED');
+    expect(recusa.body.hasPhoto).toBe(false);
+
+    const linha = await comoAtor(operadorA, () => prisma.athleteProfileRequest.findUnique({ where: { id: pedido.id } }));
+    expect(linha.photoKey, 'a linha continuou apontando para um objeto que não existe').toBeNull();
+    expect(linha.cpf).toBeNull();
+    expect(await comoAtor(operadorA, () => prisma.athlete.count())).toBe(0);
+  });
+
+  // Órfão de verdade: a linha deixa de apontar e o arquivo fica. Ninguém o
+  // alcança, porque a entrega passa SEMPRE pela linha.
+  it('objeto que sobra depois do encerramento fica inalcançável por qualquer um', async () => {
+    await api().post(`/api/v1/athlete-requests/${pedido.id}/cancel`).set(pessoa.auth());
+
+    // Recria o arquivo no lugar exato, simulando o descarte que não aconteceu.
+    await storage.saveBuffer(chave, pngValido());
+    expect(await storage.exists(chave)).toBe(true);
+
+    const estranho = await cadastrarPessoa('Estranho');
+    for (const quem of [pessoa, operadorA, estranho]) {
+      const r = await api().get(`/api/v1/media/athlete-requests/${pedido.id}/photo`).set(quem.auth());
+      expect([403, 404], 'um objeto órfão ficou alcançável pela API').toContain(r.status);
+    }
+
+    await storage.descartar(chave, { motivo: 'limpeza do teste' });
+  });
+
+  it('`descartar` nunca lança — nem no ausente, nem num erro real do provedor', async () => {
+    // Ausente é o caso fácil: o provedor já devolve `false` em ENOENT.
+    await expect(storage.descartar('athlete-requests/nao-existe/aaaa.webp')).resolves.toBe(false);
+
+    // Erro REAL, e não simulado: apagar um DIRETÓRIO levanta EISDIR, que o
+    // provedor deixa subir. É o comportamento que `descartar` tem de engolir —
+    // quem a chama já terminou a operação de negócio e está coerente; lançar
+    // aqui desfaria uma decisão já tomada.
+    //
+    // Vale registrar por que não é um dublê: a aplicação roda no grafo
+    // CommonJS e o teste importa por ESM, então trocar o protótipo daqui não
+    // alcança o provedor que o serviço usa. Um erro de verdade alcança.
+    const chaveDeDiretorio = 'athlete-requests/eisdir-teste/pasta.webp';
+    await fsp.mkdir(storage.resolveKey(chaveDeDiretorio), { recursive: true });
+    try {
+      await expect(storage.descartar(chaveDeDiretorio, { motivo: 'teste' })).resolves.toBe(false);
+    } finally {
+      await fsp.rm(storage.resolveKey(chaveDeDiretorio), { recursive: true, force: true });
+    }
   });
 });

@@ -183,7 +183,7 @@ function EmAnalise({ pedido, aoCancelar, aoMudarFoto, notificar }) {
           <div className="foto-previa">
             {/* A foto é buscada COM o token: a rota exige sessão e decide entre
                 o dono e o operador. `<img src>` cru não manda cabeçalho. */}
-            {pedido.photoKey
+            {pedido.hasPhoto
               ? <ProtectedMedia path={`/media/athlete-requests/${pedido.id}/photo`} alt="Foto enviada na solicitação" />
               : <span className="foto-vazia">Sem foto</span>}
           </div>
@@ -193,7 +193,7 @@ function EmAnalise({ pedido, aoCancelar, aoMudarFoto, notificar }) {
               aoEscolher={escolha => escolha && trocar(escolha)}
               desabilitado={enviando}
             />
-            {pedido.photoKey && (
+            {pedido.hasPhoto && (
               <button type="button" className="button button-ghost button-sm" onClick={() => trocar(null)} disabled={enviando}>
                 Remover foto
               </button>

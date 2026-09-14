@@ -92,8 +92,8 @@ beforeEach(() => {
     ]
   }));
   espioes.escopada = vi.fn(async () => ({ items: [] }));
-  espioes.enviarFoto = vi.fn(async () => ({ ...PEDIDO, photoKey: 'athlete-requests/ped-1/abc.webp' }));
-  espioes.removerFoto = vi.fn(async () => ({ ...PEDIDO, photoKey: null }));
+  espioes.enviarFoto = vi.fn(async () => ({ ...PEDIDO, hasPhoto: true }));
+  espioes.removerFoto = vi.fn(async () => ({ ...PEDIDO, hasPhoto: false }));
   espioes.listar = vi.fn(async () => ({ items: [{ ...PEDIDO }], nextCursor: null }));
   espioes.analisar = vi.fn(async () => ({ ...PEDIDO, cpf: '11144477735' }));
   espioes.aprovar = vi.fn(async () => ({ ...PEDIDO, status: 'APPROVED' }));
@@ -470,7 +470,7 @@ describe('foto da solicitação', () => {
   });
 
   it('com pedido em análise, a foto pode ser trocada sem cancelar o pedido', async () => {
-    espioes.meus = vi.fn(async () => ({ items: [{ ...PEDIDO, photoKey: 'athlete-requests/ped-1/a.webp' }] }));
+    espioes.meus = vi.fn(async () => ({ items: [{ ...PEDIDO, hasPhoto: true }] }));
     const usuario = userEvent.setup();
     render(<MinhaSolicitacao notificar={() => {}} />);
     await screen.findByText(/está na fila da federação/i);
@@ -482,7 +482,7 @@ describe('foto da solicitação', () => {
 
   it('o operador vê a foto na análise, buscada com o token e não por <img src> cru', async () => {
     espioes.usuario = { id: 'u-operador', name: 'Operador', athleteId: null };
-    espioes.analisar = vi.fn(async () => ({ ...PEDIDO, cpf: '11144477735', photoKey: 'athlete-requests/ped-1/a.webp' }));
+    espioes.analisar = vi.fn(async () => ({ ...PEDIDO, cpf: '11144477735', hasPhoto: true }));
 
     const usuario = userEvent.setup();
     render(<AdminSolicitacoes notificar={() => {}} />);

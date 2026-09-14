@@ -928,9 +928,9 @@ function FotoDePerfil({ perfil, notificar, onMudou }) {
           ) : (
             <>
               <button type="button" className="button button-secondary button-sm" onClick={() => inputRef.current?.click()} disabled={ocupado}>
-                <ImageIcon size={14} /> {perfil.avatarKey ? 'Trocar foto' : 'Adicionar foto'}
+                <ImageIcon size={14} /> {perfil.hasAvatar ? 'Trocar foto' : 'Adicionar foto'}
               </button>
-              {perfil.avatarKey && (
+              {perfil.hasAvatar && (
                 <button type="button" className="button button-ghost button-sm" onClick={remover} disabled={ocupado}>
                   Remover foto
                 </button>

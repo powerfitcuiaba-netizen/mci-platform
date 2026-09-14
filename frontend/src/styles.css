@@ -1262,3 +1262,52 @@ h1, h2, h3 { margin: 0; }
   .foto-previa { width: 72px; height: 72px; }
   .foto-previa-grande { width: 132px; height: 132px; }
 }
+
+/* ===========================================================================
+   ABERTURA DO MCI
+   A marca aparece, a trilha entra, a interface é revelada. A identidade visual
+   é a que o sistema já tem — o vermelho da marca e o ciano da operação; a
+   abertura apresenta, não inventa outra.
+   =========================================================================== */
+.abertura {
+  position: fixed; inset: 0; z-index: 200;
+  display: grid; place-items: center; gap: var(--e8);
+  grid-template-rows: 1fr auto;
+  background: radial-gradient(120% 90% at 50% 40%, #0d151d 0%, var(--preto) 70%);
+  padding: var(--e6);
+  opacity: 1; transition: opacity 600ms ease;
+}
+.abertura.is-saindo { opacity: 0; }
+
+.abertura-palco { display: grid; justify-items: center; gap: var(--e4); text-align: center; align-self: end; }
+/* A marca entra de baixo, devagar, e assenta — é o gesto que dá o tom da
+   trilha sem competir com ela. */
+.abertura-marca { animation: abertura-entra 2200ms var(--mola, cubic-bezier(.2,.8,.2,1)) both; max-width: 100%; }
+.abertura-legenda {
+  margin: 0; color: var(--cinza); font-size: 12px;
+  letter-spacing: .22em; text-transform: uppercase;
+  animation: abertura-legenda 1800ms ease 1100ms both;
+}
+.abertura-acoes { display: flex; gap: var(--e3); flex-wrap: wrap; justify-content: center; align-self: start; animation: abertura-legenda 900ms ease 2400ms both; }
+
+@keyframes abertura-entra {
+  from { opacity: 0; transform: translateY(26px) scale(.94); filter: blur(6px); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+@keyframes abertura-legenda { from { opacity: 0; } to { opacity: 1; } }
+
+/* Movimento reduzido: a abertura continua, mas sem deslocamento nem desfoque —
+   e sem silenciar o áudio, que é preferência de outra natureza. */
+.abertura.is-reduzida .abertura-marca,
+.abertura.is-reduzida .abertura-legenda,
+.abertura.is-reduzida .abertura-acoes { animation: none; }
+.abertura.is-reduzida { transition: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .abertura, .abertura-marca, .abertura-legenda, .abertura-acoes { animation: none; transition: none; }
+}
+
+@media (max-width: 480px) {
+  .abertura { gap: var(--e6); padding: var(--e5); }
+  .abertura-legenda { font-size: 10.5px; letter-spacing: .16em; }
+}

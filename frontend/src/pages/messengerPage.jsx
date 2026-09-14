@@ -182,7 +182,7 @@ function Conversa({ conversationId, notificar, onVoltar, onMudou }) {
               : (
                 <>
                   {mensagem.body}
-                  {mensagem.storageKey && (
+                  {mensagem.hasMedia && (
                     <button
                       type="button"
                       className="midia-ampliavel"

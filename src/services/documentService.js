@@ -77,7 +77,7 @@ async function deleteAthleteDocument(id, actor) {
   assertCan(actor, 'documents.delete', documento.athlete.organizationId);
 
   await prisma.athleteDocument.delete({ where: { id } });
-  await storage.remove(documento.storageKey).catch(() => false);
+  await storage.descartar(documento.storageKey, { motivo: 'documento apagado', documentId: documento.id });
 
   await audit.record({ actor, action: 'DOCUMENT_DELETE', entity: 'AthleteDocument', entityId: id, organizationId: documento.athlete.organizationId });
   return { success: true };

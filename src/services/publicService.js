@@ -77,7 +77,7 @@ async function eventPage(slug) {
       competitionClass: { include: { division: { include: { eventCategory: { include: { category: true } } } } } },
       entries: {
         where: { status: 'RANKED' },
-        include: { athlete: { select: { id: true, fullName: true, stageName: true, photoKey: true, state: true, city: true, team: { select: { id: true, name: true } } } } },
+        include: { athlete: { select: { id: true, fullName: true, stageName: true, state: true, city: true, team: { select: { id: true, name: true } } } } },
         orderBy: { placing: 'asc' }
       }
     },
@@ -86,7 +86,7 @@ async function eventPage(slug) {
 
   const atletas = await prisma.registration.findMany({
     where: { eventId: event.id, status: 'CONFIRMED' },
-    select: { athlete: { select: { id: true, fullName: true, stageName: true, photoKey: true, state: true, city: true, proStatus: true, team: { select: { id: true, name: true } } } } },
+    select: { athlete: { select: { id: true, fullName: true, stageName: true, state: true, city: true, proStatus: true, team: { select: { id: true, name: true } } } } },
     orderBy: { athlete: { fullName: 'asc' } },
     take: 500
   });
@@ -114,7 +114,7 @@ async function eventPage(slug) {
       id: post.id,
       content: post.content,
       createdAt: post.createdAt,
-      author: { id: post.author.id, handle: post.author.handle, displayName: post.author.displayName, avatarKey: post.author.avatarKey },
+      author: { id: post.author.id, handle: post.author.handle, displayName: post.author.displayName, hasAvatar: Boolean(post.author.avatarKey) },
       media: post.media.map(item => ({ id: item.id, kind: item.kind }))
     }))
   };
@@ -173,7 +173,7 @@ async function athletePage(id) {
       coach: { select: { id: true, name: true } },
       gym: { select: { id: true, name: true } },
       affiliation: { select: { id: true, name: true, code: true } },
-      socialProfile: { select: { id: true, handle: true, displayName: true, avatarKey: true, bio: true, isPrivate: true } }
+      socialProfile: { select: { id: true, handle: true, displayName: true, bio: true, isPrivate: true } }
     }
   });
   if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');

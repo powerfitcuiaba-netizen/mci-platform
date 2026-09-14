@@ -38,10 +38,23 @@ const CAMPOS_PUBLICOS = Object.freeze({
   user: { select: { id: true, name: true, email: true, city: true, state: true } }
 });
 
+// `photoKey` é SELECIONADO (o serviço precisa da chave para gravar, apagar e
+// promover o objeto) mas NUNCA sai na resposta: `semChaves` o troca por um
+// booleano. A chave é caminho interno do bucket; a foto é buscada por
+// `GET /media/athlete-requests/:id/photo`, que decide quem pode vê-la.
+//
 // `cpf` está FORA de CAMPOS_PUBLICOS de propósito: a listagem da fila nunca o
 // devolve. Ele só sai na tela de análise de um pedido específico, e só para
 // quem tem permissão de ler dado sensível de atleta.
 const cpfDoPedido = { ...CAMPOS_PUBLICOS, cpf: true };
+
+// Troca a chave de armazenamento por "tem foto?". Um único lugar, para que
+// nenhuma rota nova volte a devolvê-la por esquecimento.
+const semChaves = pedido => {
+  if (!pedido) return pedido;
+  const { photoKey, ...resto } = pedido;
+  return { ...resto, hasPhoto: Boolean(photoKey) };
+};
 
 async function criar(data, actor) {
   // A organização vem da FILIAÇÃO, resolvida no servidor. Aceitá-la do corpo
@@ -100,7 +113,7 @@ async function criar(data, actor) {
     metadata: { affiliationId: filiacao.id, affiliationNumber: data.affiliationNumber }
   });
 
-  return pedido;
+  return semChaves(pedido);
 }
 
 // ============================================================================
@@ -128,6 +141,8 @@ async function pedidoProprioEmAberto(id, actor) {
   if (pedido.status !== 'PENDING') {
     throw new AppError(422, 'REQUEST_NOT_PENDING', `Solicitação já está ${pedido.status}`);
   }
+  // Devolve a linha CRUA, com a chave: é uso interno (gravar, apagar, promover
+  // o objeto). Nada daqui vai para a resposta sem passar por `semChaves`.
   return pedido;
 }
 
@@ -157,7 +172,7 @@ async function definirFoto(id, arquivo, actor) {
   // O arquivo antigo só sai DEPOIS de o banco apontar para o novo: na ordem
   // inversa, uma falha de gravação deixaria o pedido apontando para um objeto
   // que já não existe. Órfão é muito melhor que foto quebrada.
-  if (anterior && anterior !== chave) await storage.remove(anterior).catch(() => {});
+  if (anterior && anterior !== chave) await storage.descartar(anterior, { motivo: 'foto substituida', requestId: pedido.id });
 
   await audit.record({
     actor, action: 'ATHLETE_PROFILE_REQUEST_PHOTO_SET', entity: 'AthleteProfileRequest', entityId: pedido.id,
@@ -165,18 +180,20 @@ async function definirFoto(id, arquivo, actor) {
     metadata: { mimeType: normalizada.mimeType, sizeBytes: normalizada.buffer.length, substituiu: Boolean(anterior) }
   });
 
-  return atualizado;
+  return semChaves(atualizado);
 }
 
 async function removerFoto(id, actor) {
   const pedido = await pedidoProprioEmAberto(id, actor);
-  if (!pedido.photoKey) return prisma.athleteProfileRequest.findUnique({ where: { id }, select: CAMPOS_PUBLICOS });
+  if (!pedido.photoKey) {
+    return semChaves(await prisma.athleteProfileRequest.findUnique({ where: { id }, select: CAMPOS_PUBLICOS }));
+  }
 
   const atualizado = await prisma.athleteProfileRequest.update({
     where: { id: pedido.id }, data: { photoKey: null }, select: CAMPOS_PUBLICOS
   });
-  await storage.remove(pedido.photoKey).catch(() => {});
-  return atualizado;
+  await storage.descartar(pedido.photoKey, { motivo: 'foto removida pelo dono', requestId: pedido.id });
+  return semChaves(atualizado);
 }
 
 // Quem pode VER a foto: o dono do pedido e o operador que analisa. A chave do
@@ -223,17 +240,18 @@ async function listar(filtros, actor) {
     select: CAMPOS_PUBLICOS
   });
 
-  return { items, nextCursor: items.length === filtros.limit ? items[items.length - 1].id : null };
+  return { items: items.map(semChaves), nextCursor: items.length === filtros.limit ? items[items.length - 1].id : null };
 }
 
 // O que o próprio solicitante vê. Sem CPF: ele já sabe o próprio documento, e
 // devolvê-lo cria mais uma superfície por onde ele pode vazar.
 async function meusPedidos(actor) {
-  return prisma.athleteProfileRequest.findMany({
+  const items = await prisma.athleteProfileRequest.findMany({
     where: { userId: actor.id },
     orderBy: { createdAt: 'desc' },
     select: CAMPOS_PUBLICOS
   });
+  return items.map(semChaves);
 }
 
 async function carregarParaAnalise(id, actor) {
@@ -243,7 +261,7 @@ async function carregarParaAnalise(id, actor) {
   // Tenant conferido contra a organização DO PEDIDO, lida do banco. É o que
   // impede alcançar pedido de outra federação trocando o id na URL.
   assertCan(actor, 'athletes.read_sensitive', pedido.organizationId);
-  return pedido;
+  return semChaves(pedido);
 }
 
 // A transação da aprovação, separada para que a tradução do erro fique
@@ -336,7 +354,7 @@ async function aprovar(id, actor) {
     metadata: { athleteId: resultado.athlete.id, affiliationId: pedido.affiliationId }
   });
 
-  return resultado.pedido;
+  return semChaves(resultado.pedido);
 }
 
 
@@ -371,7 +389,7 @@ async function rejeitar(id, data, actor) {
   // O objeto sai do armazenamento DEPOIS de a linha já não apontar para ele.
   // Falhar aqui deixa um órfão — indesejável, mas melhor que um pedido
   // recusado ainda servindo a foto de alguém.
-  if (pedido.photoKey) await storage.remove(pedido.photoKey).catch(() => {});
+  if (pedido.photoKey) await storage.descartar(pedido.photoKey, { motivo: 'pedido encerrado', requestId: pedido.id, status: pedido.status });
 
   await audit.record({
     actor, action: 'ATHLETE_PROFILE_REQUEST_REJECT', entity: 'AthleteProfileRequest', entityId: pedido.id,
@@ -379,7 +397,7 @@ async function rejeitar(id, data, actor) {
     metadata: { motivo: data.reason }
   });
 
-  return atualizado;
+  return semChaves(atualizado);
 }
 
 // O solicitante desiste. Diferente de REJECTED, que é decisão do operador —
@@ -396,8 +414,8 @@ async function cancelar(id, actor) {
     select: CAMPOS_PUBLICOS
   });
 
-  if (pedido.photoKey) await storage.remove(pedido.photoKey).catch(() => {});
-  return atualizado;
+  if (pedido.photoKey) await storage.descartar(pedido.photoKey, { motivo: 'pedido encerrado', requestId: pedido.id, status: pedido.status });
+  return semChaves(atualizado);
 }
 
 module.exports = { criar, listar, meusPedidos, carregarParaAnalise, aprovar, rejeitar, cancelar, definirFoto, removerFoto, fotoParaEntrega };
