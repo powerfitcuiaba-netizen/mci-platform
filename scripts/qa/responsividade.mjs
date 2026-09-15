@@ -43,6 +43,13 @@ const LARGURAS = [320, 375, 390, 768, 1024, 1280, 1440];
 const LARGURAS_DE_TOQUE = new Set([320, 375, 390]);
 const ALVO_MINIMO = 40;
 
+// `--manter` sobe a pilha com dados de QA e NÃO mede nada: fica de pé para
+// alguém abrir no navegador. É o mesmo caminho que o gate percorre — mesma
+// semeadura, mesmo build de produção, mesma API —, de modo que o que o
+// responsável vê é exatamente o que o gate aprovou, e não um ambiente
+// montado à parte que pode divergir.
+const MANTER = argv.includes('--manter');
+
 const problemas = [];
 const conferir = (rotulo, passou, detalhe = '') => {
   console.log(`  ${passou ? 'PASS  ' : 'FALHOU'}  ${rotulo}${detalhe ? `  ${detalhe}` : ''}`);
@@ -330,7 +337,8 @@ try {
   console.log('API no ar.');
 
   console.log('semeando dados de QA…');
-  const { emailAtleta, emailDiretor, eventoId } = await semear();
+  const dadosSemeados = await semear();
+  const { emailAtleta, emailDiretor, eventoId } = dadosSemeados;
 
   console.log('construindo e servindo o frontend…');
   execSync('npm run build', { cwd: 'frontend', stdio: 'pipe', env: { ...env, VITE_API_URL: `${BASE_API}` } });
@@ -343,6 +351,27 @@ try {
   processos.push(web);
   if (!await esperarPorta(BASE_WEB, 60)) throw new Error('preview do frontend não subiu');
   console.log('frontend no ar.\n');
+
+  if (MANTER) {
+    console.log('\n============================================================');
+    console.log('  AMBIENTE DE VISUALIZAÇÃO NO AR');
+    console.log('============================================================\n');
+    console.log(`  Web ........ ${BASE_WEB}`);
+    console.log(`  API ........ ${BASE_API}\n`);
+    console.log('  OPERADOR (homologa o Overall)');
+    console.log(`    e-mail ... ${dadosSemeados.emailDiretor}`);
+    console.log(`    senha .... ${SENHA}`);
+    console.log('    caminho .. Admin › Overall\n');
+    console.log('  ATLETA (vê filiação e histórico)');
+    console.log(`    e-mail ... ${dadosSemeados.emailAtleta}`);
+    console.log(`    senha .... ${SENHA}`);
+    console.log('    caminho .. Minha filiação · Meu histórico\n');
+    console.log('  Campeonato semeado: "Etapa QA de Responsividade"');
+    console.log('    três classes (Open, Novice, Master), Overall POR HOMOLOGAR.\n');
+    console.log('  Ctrl+C encerra.\n');
+    // Segura o processo: os servidores são filhos dele.
+    await new Promise(() => {});
+  }
 
   const { chromium } = await import(CAMINHO_PLAYWRIGHT);
   const navegador = await chromium.launch(CHROMIUM ? { executablePath: CHROMIUM } : {});

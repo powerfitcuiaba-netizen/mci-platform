@@ -16,7 +16,8 @@
     "db:validate": "prisma validate",
     "db:seed": "node prisma/seed.js",
     "qa:estabilidade": "node scripts/qa/estabilidade.mjs",
-    "qa:responsividade": "node scripts/qa/responsividade.mjs"
+    "qa:responsividade": "node scripts/qa/responsividade.mjs",
+    "qa:ambiente": "node scripts/qa/responsividade.mjs --manter"
   },
   "keywords": [],
   "author": "",
