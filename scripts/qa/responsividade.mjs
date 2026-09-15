@@ -1,0 +1,415 @@
+#!/usr/bin/env node
+// ============================================================================
+// GATE VISUAL — MINHA FILIAÇÃO, MEU HISTÓRICO E A REVISÃO DA IMPORTAÇÃO.
+//
+// Teste de unidade prova que o dado certo está na tela. Não prova que a tela
+// CABE. Overflow horizontal, alvo de toque pequeno demais e tabela que estoura
+// a viewport são defeitos que só aparecem num navegador de verdade, com
+// largura de verdade — e foi assim, num navegador, que a FASE 2.3 encontrou o
+// que os mocks não encontraram.
+//
+// Este script SOBE a pilha real (API + build de produção servido), entra com
+// uma conta de atleta e mede, em seis larguras:
+//
+//   * overflow horizontal do documento;
+//   * elementos que ultrapassam a viewport;
+//   * alvos de toque abaixo de 40px nas larguras de telefone;
+//   * erros de página e respostas 5xx.
+//
+// Reprovar aqui é reprovar a fase. O script existe para saber dizer NÃO.
+// ============================================================================
+
+import { spawn } from 'node:child_process';
+import { setTimeout as esperar } from 'node:timers/promises';
+
+const { argv, env } = process;
+const arg = (nome, padrao = null) => {
+  const i = argv.indexOf(`--${nome}`);
+  return i >= 0 && argv[i + 1] ? argv[i + 1] : padrao;
+};
+
+const PORTA_API = Number(arg('porta-api', 4599));
+const PORTA_WEB = Number(arg('porta-web', 5599));
+const BASE_WEB = `http://127.0.0.1:${PORTA_WEB}`;
+const BASE_API = `http://127.0.0.1:${PORTA_API}/api/v1`;
+const CAMINHO_PLAYWRIGHT = arg('playwright', env.PLAYWRIGHT_MODULE || 'playwright');
+const CHROMIUM = arg('chromium', env.PLAYWRIGHT_CHROMIUM || undefined);
+const DATABASE_URL = arg('db', env.QA_DATABASE_URL
+  || 'postgresql://mci:mci_local_dev@127.0.0.1:5432/mci_qa_resp?schema=public');
+
+// As seis larguras pedidas. 320 é o piso real de telefone pequeno; 1440 é a
+// mesa de trabalho do operador.
+const LARGURAS = [320, 375, 390, 768, 1024, 1440];
+const LARGURAS_DE_TOQUE = new Set([320, 375, 390]);
+const ALVO_MINIMO = 40;
+
+const problemas = [];
+const conferir = (rotulo, passou, detalhe = '') => {
+  console.log(`  ${passou ? 'PASS  ' : 'FALHOU'}  ${rotulo}${detalhe ? `  ${detalhe}` : ''}`);
+  if (!passou) problemas.push(`${rotulo}${detalhe ? ` — ${detalhe}` : ''}`);
+};
+
+const processos = [];
+const encerrar = () => { for (const p of processos) { try { p.kill('SIGKILL'); } catch { /* já morreu */ } } };
+
+async function esperarPorta(url, segundos = 60) {
+  for (let i = 0; i < segundos * 2; i += 1) {
+    try {
+      const resposta = await fetch(url);
+      if (resposta.status < 500) return true;
+    } catch { /* ainda subindo */ }
+    await esperar(500);
+  }
+  return false;
+}
+
+async function chamar(caminho, { metodo = 'GET', corpo = null, token = null } = {}) {
+  const resposta = await fetch(`${BASE_API}${caminho}`, {
+    method: metodo,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    body: corpo ? JSON.stringify(corpo) : undefined
+  });
+  const json = await resposta.json().catch(() => ({}));
+  if (resposta.status >= 400) {
+    throw new Error(`${metodo} ${caminho} → ${resposta.status} ${JSON.stringify(json).slice(0, 300)}`);
+  }
+  return json;
+}
+
+// CPF sintético válido — dado de QA, e só de QA.
+function cpfDeQa(semente) {
+  const base = String(semente).padStart(9, '0').slice(-9).split('').map(Number);
+  const digito = pesoInicial => {
+    const soma = base.concat(base.length === 9 ? [] : []).reduce((t, n, i) => t + n * (pesoInicial - i), 0);
+    const resto = (soma * 10) % 11;
+    return resto === 10 ? 0 : resto;
+  };
+  const d1 = digito(10);
+  const comD1 = base.concat([d1]);
+  const soma2 = comD1.reduce((t, n, i) => t + n * (11 - i), 0);
+  const resto2 = (soma2 * 10) % 11;
+  const d2 = resto2 === 10 ? 0 : resto2;
+  return base.join('') + d1 + d2;
+}
+
+const SENHA = 'senha-de-qa-123';
+const conta = sufixo => ({
+  name: `QA ${sufixo}`,
+  email: `qa.${sufixo}.${Date.now().toString(36)}@mci.local`,
+  password: SENHA,
+  birthDate: '1995-03-10', phone: '65999991234', whatsapp: '65988884321',
+  postalCode: '78000000', addressLine: 'Rua de QA', addressNumber: '100',
+  state: 'MT', city: 'Cuiabá'
+});
+
+// --------------------------------------------------------------- semeadura
+//
+// Dados FICTÍCIOS, criados num banco de QA dedicado e descartável. Nada aqui
+// toca base de produção, e tudo é nomeado "QA" para que ninguém confunda.
+async function semear() {
+  const admin = await chamar('/auth/register', { metodo: 'POST', corpo: conta('admin') });
+  // Papel privilegiado não é autoatribuível: promove-se direto no banco, como
+  // um administrador faria.
+  const { execSync } = await import('node:child_process');
+  execSync(
+    `psql "${DATABASE_URL.replace(/\?.*$/, '')}" -c "update \\"User\\" set role='SUPER_ADMIN' where id='${admin.user.id}'"`,
+    { stdio: 'pipe' }
+  );
+  const relogado = await chamar('/auth/login', { metodo: 'POST', corpo: { email: admin.user.email, password: SENHA } });
+  const tokenAdmin = relogado.token;
+
+  const org = await chamar('/organizations', {
+    metodo: 'POST', token: tokenAdmin,
+    corpo: { name: 'Federação QA', slug: `qa-${Date.now().toString(36)}`, state: 'MT' }
+  });
+
+  const diretor = await chamar('/auth/register', { metodo: 'POST', corpo: conta('diretor') });
+  await chamar(`/organizations/${org.id}/members`, {
+    metodo: 'POST', token: tokenAdmin, corpo: { userId: diretor.user.id, role: 'EVENT_DIRECTOR' }
+  });
+  await chamar(`/organizations/${org.id}/members`, {
+    metodo: 'POST', token: tokenAdmin, corpo: { userId: diretor.user.id, role: 'RANKING_MANAGER' }
+  });
+  const tokenDiretor = (await chamar('/auth/login', { metodo: 'POST', corpo: { email: diretor.user.email, password: SENHA } })).token;
+
+  const filiacao = await chamar('/affiliations', {
+    metodo: 'POST', token: tokenDiretor,
+    corpo: { organizationId: org.id, name: 'NPC Mato Grosso (QA)', code: 'QA-NPC-MT' }
+  });
+
+  const temporada = await chamar('/seasons', {
+    metodo: 'POST', token: tokenDiretor,
+    corpo: { organizationId: org.id, name: 'Temporada QA 2026', year: 2026 }
+  });
+
+  const atleta = await chamar('/auth/register', { metodo: 'POST', corpo: conta('atleta') });
+
+  // Um evento com TRÊS classes, para que o histórico tenha mais de uma linha e
+  // a tabela precise caber de verdade.
+  const evento = await chamar('/events', {
+    metodo: 'POST', token: tokenDiretor,
+    corpo: {
+      organizationId: org.id, name: 'Etapa QA de Responsividade',
+      slug: `qa-ev-${Date.now().toString(36)}`,
+      startDate: '2026-11-20T12:00:00.000Z', seasonId: temporada.id
+    }
+  });
+
+  const categorias = await chamar('/categories', { token: tokenDiretor });
+  const bikini = (categorias.items || categorias).find(c => c.code === 'BIKINI');
+  const eventCategory = await chamar(`/events/${evento.id}/categories`, {
+    metodo: 'POST', token: tokenDiretor, corpo: { categoryId: bikini.id }
+  });
+
+  const classes = [];
+  for (const def of [
+    { division: 'Absoluta', divisionCode: 'QA-ABS', name: 'Open', code: 'OPEN' },
+    { division: 'Novatas', divisionCode: 'QA-NOV', name: 'Novice', code: 'NOVICE' },
+    { division: 'Master', divisionCode: 'QA-MST', name: 'Master', code: 'MASTER' }
+  ]) {
+    const divisao = await chamar(`/event-categories/${eventCategory.id}/divisions`, {
+      metodo: 'POST', token: tokenDiretor, corpo: { name: def.division, code: def.divisionCode }
+    });
+    const classe = await chamar(`/divisions/${divisao.id}/classes`, {
+      metodo: 'POST', token: tokenDiretor, corpo: { name: def.name, code: def.code }
+    });
+    classes.push({ ...def, id: classe.id });
+  }
+
+  for (const status of ['PLANNED', 'REGISTRATIONS_OPEN']) {
+    await chamar(`/events/${evento.id}/transition`, { metodo: 'POST', token: tokenDiretor, corpo: { status } });
+  }
+
+  const inscricao = await chamar(`/events/${evento.id}/registrations`, {
+    metodo: 'POST', token: tokenDiretor,
+    corpo: {
+      cpf: cpfDeQa(123456789),
+      athlete: { fullName: 'Atleta QA de Responsividade', sex: 'FEMALE', state: 'MT', city: 'Cuiabá' },
+      classIds: classes.map(c => c.id)
+    }
+  });
+  const athleteId = inscricao.registration.athlete.id;
+
+  // Liga a conta ao perfil e registra filiação + matrícula: é o que as duas
+  // telas mostram.
+  await chamar(`/athletes/${athleteId}`, {
+    metodo: 'PATCH', token: tokenDiretor,
+    corpo: { userId: atleta.user.id, affiliationId: filiacao.id, affiliationNumber: 'QA-88281' }
+  });
+
+  for (const status of ['REGISTRATIONS_CLOSED', 'IN_OPERATION']) {
+    await chamar(`/events/${evento.id}/transition`, { metodo: 'POST', token: tokenDiretor, corpo: { status } });
+  }
+  await chamar(`/registrations/${inscricao.registration.id}/checkin`, { metodo: 'POST', token: tokenDiretor, corpo: {} });
+  await chamar(`/events/${evento.id}/transition`, { metodo: 'POST', token: tokenDiretor, corpo: { status: 'IN_JUDGING' } });
+
+  for (const classe of classes) {
+    await chamar(`/classes/${classe.id}/result`, {
+      metodo: 'POST', token: tokenDiretor, corpo: { entries: [{ athleteId, placing: 1 }] }
+    });
+  }
+  await chamar(`/events/${evento.id}/overall`, { metodo: 'POST', token: tokenDiretor, corpo: { athleteId } });
+  for (const classe of classes) {
+    await chamar(`/classes/${classe.id}/result/publish`, { metodo: 'POST', token: tokenDiretor, corpo: { note: 'QA' } });
+  }
+
+  return { emailAtleta: atleta.user.email, emailDiretor: diretor.user.email };
+}
+
+// ------------------------------------------------------------------ medida
+
+async function medirTela(pagina, rota, largura) {
+  await pagina.setViewportSize({ width: largura, height: 900 });
+  await pagina.goto(`${BASE_WEB}/#${rota}`, { waitUntil: 'networkidle' });
+  await esperar(400);
+
+  return pagina.evaluate((alvoMinimo) => {
+    const doc = document.documentElement;
+    const larguraViewport = window.innerWidth;
+
+    const estourando = [...document.querySelectorAll('body *')]
+      .filter(el => {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return false;
+        if (r.right <= larguraViewport + 1) return false;
+
+        // `overflow-x: auto` é solução, não defeito — e a solução vale para a
+        // SUBÁRVORE inteira, não só para o elemento que a declara.
+        //
+        // A primeira versão olhava só o próprio elemento, e por isso acusava
+        // `table`, `thead`, `tr` e cada `th` de uma tabela que rolava
+        // corretamente dentro do seu contêiner. Um gate que acusa o que está
+        // certo é um gate que se aprende a ignorar.
+        for (let pai = el; pai && pai !== document.body; pai = pai.parentElement) {
+          const overflow = getComputedStyle(pai).overflowX;
+          if (overflow === 'auto' || overflow === 'scroll') return false;
+        }
+        return true;
+      })
+      .slice(0, 5)
+      .map(el => `${el.tagName.toLowerCase()}.${String(el.className || '').split(' ')[0]}`);
+
+    const pequenos = [...document.querySelectorAll('button, a[href], [role="button"]')]
+      .filter(el => {
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && (r.height < alvoMinimo || r.width < alvoMinimo);
+      })
+      .slice(0, 5)
+      .map(el => `${el.tagName.toLowerCase()}:${(el.textContent || '').trim().slice(0, 18)}`);
+
+    // Rolagem lateral DENTRO de um contêiner não quebra a página — mas
+    // esconde coluna, e num telefone a coluna escondida costuma ser justamente
+    // o total. Medido à parte para ser tratado como questão de produto, e não
+    // confundido com layout quebrado.
+    const rolagemLateral = [...document.querySelectorAll('.table-wrap')]
+      .filter(el => el.scrollWidth > el.clientWidth + 1)
+      .map(el => `${el.scrollWidth}>${el.clientWidth}`);
+
+    return {
+      rolagemLateral,
+      overflowDoc: doc.scrollWidth > larguraViewport + 1,
+      scrollWidth: doc.scrollWidth,
+      viewport: larguraViewport,
+      estourando,
+      pequenos,
+      texto: (document.body.innerText || '').slice(0, 400)
+    };
+  }, ALVO_MINIMO);
+}
+
+// -------------------------------------------------------------------- main
+
+console.log('\n=== GATE VISUAL — FASE 9 ===\n');
+
+try {
+  console.log('preparando banco de QA…');
+  const { execSync } = await import('node:child_process');
+  const semSchema = DATABASE_URL.replace(/\?.*$/, '');
+  const nomeDoBanco = semSchema.split('/').pop();
+  const servidor = semSchema.slice(0, semSchema.lastIndexOf('/')) + '/postgres';
+  execSync(`psql "${servidor}" -c "drop database if exists \\"${nomeDoBanco}\\""`, { stdio: 'pipe' });
+  execSync(`psql "${servidor}" -c "create database \\"${nomeDoBanco}\\""`, { stdio: 'pipe' });
+  execSync('npx prisma migrate deploy', { stdio: 'pipe', env: { ...env, DATABASE_URL } });
+  execSync('node prisma/seed.js', { stdio: 'pipe', env: { ...env, DATABASE_URL } });
+
+  console.log('subindo API…');
+  const api = spawn('node', ['server.js'], {
+    env: {
+      // A API sobe em `development` de propósito. A barreira de produção
+      // (bcrypt forte, armazenamento persistente) existe e FUNCIONA — foi ela
+      // que recusou a primeira tentativa deste script. O que este gate mede é
+      // o BUILD DE PRODUÇÃO DO FRONTEND; forçar a API a passar pela barreira
+      // exigiria afrouxá-la, e afrouxar uma barreira para rodar um teste é
+      // como desligar o alarme para testar a porta.
+      ...env, NODE_ENV: 'development', DATABASE_URL, PORT: String(PORTA_API),
+      LOG_LEVEL: 'silent', BCRYPT_ROUNDS: '4',
+      JWT_SECRET: env.JWT_SECRET || 'qa-responsividade-segredo-suficientemente-longo-0001',
+      STORAGE_DRIVER: 'local', STORAGE_LOCAL_PATH: '/tmp/qa-resp-storage',
+      // Sem isto o navegador nunca passa do login: a API só aceita a origem
+      // declarada, e o preview do QA não é a origem padrão. Foi exatamente
+      // este o primeiro veredito do gate — e ele acertou: os PASS de overflow
+      // estavam medindo a TELA DE LOGIN. Um gate que mede a tela errada é um
+      // gate que aprova qualquer coisa.
+      CORS_ORIGINS: BASE_WEB
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  processos.push(api);
+  let saidaApi = '';
+  api.stdout.on('data', d => { saidaApi += d; });
+  api.stderr.on('data', d => { saidaApi += d; });
+
+  if (!await esperarPorta(`http://127.0.0.1:${PORTA_API}/api/v1/health`, 60)) {
+    throw new Error(`API não subiu. Saída:\n${saidaApi.slice(-1200)}`);
+  }
+  console.log('API no ar.');
+
+  console.log('semeando dados de QA…');
+  const { emailAtleta } = await semear();
+
+  console.log('construindo e servindo o frontend…');
+  execSync('npm run build', { cwd: 'frontend', stdio: 'pipe', env: { ...env, VITE_API_URL: `${BASE_API}` } });
+  // `--strictPort` porque a FASE 2.3 mediu o alvo errado uma vez: o preview
+  // avisou que a porta estava ocupada, mudou sozinho, e o número medido veio
+  // de um servidor de desenvolvimento esquecido.
+  const web = spawn('npx', ['vite', 'preview', '--port', String(PORTA_WEB), '--strictPort', '--host', '127.0.0.1'], {
+    cwd: 'frontend', stdio: ['ignore', 'pipe', 'pipe'], env
+  });
+  processos.push(web);
+  if (!await esperarPorta(BASE_WEB, 60)) throw new Error('preview do frontend não subiu');
+  console.log('frontend no ar.\n');
+
+  const { chromium } = await import(CAMINHO_PLAYWRIGHT);
+  const navegador = await chromium.launch(CHROMIUM ? { executablePath: CHROMIUM } : {});
+  const contexto = await navegador.newContext({ viewport: { width: 1440, height: 900 } });
+  const pagina = await contexto.newPage();
+
+  const erros = new Set();
+  pagina.on('pageerror', erro => erros.add(String(erro).slice(0, 160)));
+  pagina.on('response', r => { if (r.status() >= 500) erros.add(`${r.status()} ${r.url().slice(0, 80)}`); });
+
+  // Entrar como o atleta.
+  await pagina.goto(`${BASE_WEB}/#entrar`, { waitUntil: 'networkidle' });
+  await pagina.fill('input[type="email"]', emailAtleta);
+  await pagina.fill('input[type="password"]', SENHA);
+  await pagina.click('button[type="submit"]');
+  await pagina.waitForTimeout(1500);
+
+  const TELAS = [
+    { rota: 'minha-filiacao', rotulo: 'Minha filiação', esperado: /matrícula/i },
+    { rota: 'meu-historico', rotulo: 'Meu histórico', esperado: /participaç/i }
+  ];
+
+  for (const tela of TELAS) {
+    console.log(`\n--- ${tela.rotulo} ---`);
+    for (const largura of LARGURAS) {
+      const m = await medirTela(pagina, tela.rota, largura);
+
+      conferir(
+        `${tela.rotulo} @ ${largura}px — sem overflow horizontal`,
+        !m.overflowDoc,
+        m.overflowDoc ? `scrollWidth ${m.scrollWidth} > viewport ${m.viewport}` : ''
+      );
+      conferir(
+        `${tela.rotulo} @ ${largura}px — nenhum elemento fora da viewport`,
+        m.estourando.length === 0,
+        m.estourando.join(', ')
+      );
+      if (LARGURAS_DE_TOQUE.has(largura)) {
+        // Num telefone, tabela que rola de lado esconde coluna. O histórico
+        // vira lista de cartões nessas larguras — e este critério é o que
+        // garante que ela virou mesmo.
+        conferir(
+          `${tela.rotulo} @ ${largura}px — sem rolagem lateral de tabela`,
+          m.rolagemLateral.length === 0,
+          m.rolagemLateral.join(', ')
+        );
+        conferir(
+          `${tela.rotulo} @ ${largura}px — alvos de toque >= ${ALVO_MINIMO}px`,
+          m.pequenos.length === 0,
+          m.pequenos.join(', ')
+        );
+      }
+      if (largura === 1440) {
+        conferir(`${tela.rotulo} — a tela carregou o conteúdo esperado`, tela.esperado.test(m.texto),
+          tela.esperado.test(m.texto) ? '' : m.texto.slice(0, 120).replace(/\n/g, ' | '));
+      }
+    }
+  }
+
+  conferir('nenhum erro de página nem resposta 5xx', erros.size === 0, [...erros].join(' · '));
+
+  await navegador.close();
+} catch (erro) {
+  console.error(`\nFALHA NA EXECUÇÃO: ${erro.message}`);
+  problemas.push(`execução: ${erro.message}`);
+} finally {
+  encerrar();
+}
+
+console.log(`\n=== ${problemas.length ? `REPROVADO (${problemas.length})` : 'APROVADO'} ===`);
+for (const p of problemas) console.log(`  · ${p}`);
+process.exit(problemas.length ? 1 : 0);

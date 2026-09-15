@@ -1489,6 +1489,15 @@ model MuscleWarImportItem {
   eventDate          DateTime?
   raw                Json
   matchStatus        MatchStatus @default(MATCH_PENDING)
+  /// A chave que reconheceu a linha: "AFFILIATION_NUMBER" ou "CPF". NULO
+  /// quando não houve reconhecimento — inclusive quando houve apenas SUGESTÃO
+  /// por nome, porque nome não reconhece ninguém.
+  matchedBy          String?
+  /// Em CONFLICT de identidade: os candidatos em disputa e o que cada chave
+  /// afirma. JSON porque é um retrato do momento da análise, não uma relação a
+  /// manter sincronizada — o operador precisa ver o que o sistema viu quando
+  /// decidiu parar.
+  matchCandidates    Json?
   reason             String?
   /// Divergência entre a pontuação do arquivo e a calculada pela regra oficial:
   /// { importedPoints, calculatedPoints, difference }. Preenchida junto com o

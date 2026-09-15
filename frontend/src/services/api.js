@@ -246,6 +246,14 @@ export const api = {
     versions: classId => get(`/classes/${classId}/result/versions`)
   },
 
+  // Minha Filiação e Meu Histórico. Nenhuma das duas manda identificador de
+  // pessoa: o backend deriva o atleta do token, e não há id para esta camada
+  // passar errado.
+  me: {
+    affiliation: () => get('/me/affiliation'),
+    history: params => get('/me/history', params)
+  },
+
   ranking: {
     // Duas métricas, dois endpoints — de propósito. `list` é o ranking do
     // CAMPEONATO, onde toda classe pontua; `superOverall` é o classificatório

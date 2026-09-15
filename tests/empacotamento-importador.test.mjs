@@ -239,7 +239,16 @@ describe('o calendário não pede migration nenhuma', () => {
       //
       // Nenhum DROP, nenhum UPDATE de linha existente, nenhuma política de RLS
       // tocada. Lotes já importados ficam exatamente como estão.
-      '20260915210000_sugestao_de_atleta_na_importacao'
+      '20260915210000_sugestao_de_atleta_na_importacao',
+      // Critério do matching na revisão. ADITIVA: duas colunas ANULÁVEIS em
+      // "MuscleWarImportItem" — `matchedBy` (qual chave reconheceu) e
+      // `matchCandidates` (quem disputava, em CONFLICT). Sem índice, sem chave
+      // estrangeira, sem UPDATE de linha existente, sem RLS tocada.
+      //
+      // Lotes já importados ficam com os dois campos nulos, que é a verdade
+      // sobre eles: foram analisados por um motor que não registrava o
+      // critério.
+      '20260915230000_criterio_do_matching'
     ]);
   });
 });

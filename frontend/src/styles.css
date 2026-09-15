@@ -1753,3 +1753,67 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
 .cinema-roteiro li small { grid-column: 2; color: var(--cinza-fraco); font-size: 11.5px; }
 .cinema-roteiro li.is-agora { background: var(--superficie-2); }
 .cinema-roteiro li.is-agora strong { color: var(--vermelho-claro); }
+
+/* ==========================================================================
+   MEU HISTÓRICO NO TELEFONE — a tabela vira lista.
+   ==========================================================================
+
+   Sete colunas não cabem em 320px. Rolar de lado não quebra a página, mas
+   ESCONDE coluna — e a coluna que some primeiro é a da direita, que é
+   justamente o total. O gate visual (scripts/qa/responsividade.mjs) mede isso
+   como critério próprio, separado de "layout quebrado", porque é questão de
+   produto e não de CSS estourado.
+
+   Abaixo de 760px cada linha vira um cartão: o rótulo da coluna acompanha o
+   valor, e nada precisa ser arrastado para ser lido. Acima disso a tabela
+   continua tabela — no desktop ela é melhor, porque permite comparar linhas
+   com o olho. */
+@media (max-width: 760px) {
+  .historico-tabela thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  .historico-tabela,
+  .historico-tabela tbody,
+  .historico-tabela tr,
+  .historico-tabela td { display: block; width: 100%; }
+
+  .historico-tabela tr {
+    border: 1px solid var(--linha);
+    border-radius: var(--raio-caixa, 12px);
+    padding: 12px 14px;
+    margin-bottom: 10px;
+  }
+
+  .historico-tabela td {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 14px;
+    padding: 4px 0;
+    border: 0;
+    text-align: left;
+  }
+
+  /* O rótulo vem do `data-rotulo` da célula: sem ele o cartão seria uma pilha
+     de números sem nome. */
+  .historico-tabela td::before {
+    content: attr(data-rotulo);
+    color: var(--cinza-fraco);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    flex: 0 0 auto;
+  }
+
+  /* A primeira célula é o título do cartão: nome do campeonato, sem rótulo. */
+  .historico-tabela td:first-child {
+    display: block;
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--linha);
+    font-weight: 600;
+  }
+  .historico-tabela td:first-child::before { content: none; }
+
+  .historico-tabela td.num { text-align: right; }
+  .historico-tabela td small { display: block; }
+}

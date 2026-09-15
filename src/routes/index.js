@@ -84,6 +84,14 @@ router.post('/affiliations/:id/deactivate', requireAuth, validate(s.paramsWithId
 // serviço, que deriva a organização da FILIAÇÃO e não do corpo.
 router.post('/athlete-requests', requireAuth, validate(s.athleteRequestCreate), wrap(c.athleteRequests.criar));
 router.get('/athlete-requests/me', requireAuth, wrap(c.athleteRequests.meus));
+
+// ===================================================== MINHA FILIAÇÃO / MEU HISTÓRICO
+//
+// Sem id no caminho, de propósito: o atleta vem do token. Uma rota que não
+// aceita identificador de pessoa não tem IDOR a defender — não existe
+// parâmetro capaz de apontar para outra pessoa. Ver src/services/meService.js.
+router.get('/me/affiliation', requireAuth, wrap(c.me.affiliation));
+router.get('/me/history', requireAuth, validate(s.meuHistoricoQuery, 'query'), wrap(c.me.history));
 router.post('/athlete-requests/:id/cancel', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.athleteRequests.cancelar));
 // A foto sobe PELO SERVIDOR (multipart), como todo upload daqui: nenhuma
 // credencial de armazenamento chega ao navegador. `uploadAvatar` já aplica o

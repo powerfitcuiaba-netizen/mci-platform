@@ -468,6 +468,14 @@ const teamRankingQuery = z.object({
   organizationId: id.optional()
 });
 
+// Meu Histórico. NÃO declara `athleteId` nem `organizationId`: o Zod descarta
+// chave não declarada, então esses parâmetros somem antes de o serviço existir
+// — e o serviço, por sua vez, deriva o atleta do token. Duas camadas dizendo a
+// mesma coisa, que é o que se quer numa superfície de identidade.
+const meuHistoricoQuery = paginacao.extend({
+  seasonId: id.optional()
+});
+
 const rankingQuery = paginacao.extend({
   seasonId: id.optional(),
   // Declarado porque o serviço LÊ: sem temporada escolhida, ele decide a
@@ -724,6 +732,7 @@ module.exports = {
   checkInCreate, weighInCreate, credentialCreate, credentialScan,
   batchCreate, batchStatusUpdate, stageOrderSet,
   resultReceive, resultPublish, resultOverride,
+  meuHistoricoQuery,
   seasonCreate, pointsRuleSet, rankingQuery, rankingCutQuery, overallDeclare, teamRankingQuery,
   classCatalogUpsert, superOverallQuery,
   muscleWarImportCreate, muscleWarLink,

@@ -5,7 +5,7 @@ import { useFetch, useListaPaginada } from '../lib/hooks';
 import { AsyncSection, AtualizadoEm, Avatar, Badge, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead, Paginacao } from '../components/ui';
 // Só a classe de cartão clicável é usada aqui — é CSS, não precisa do motor
 // em JS. Importar o que não se usa é ruído que o lint acusa e o leitor não.
-import { ESTADO_MATCH, formatarDataHora, papel, estadoDoUsuario, tipoDeFiliacao, estadoDaImportacao } from '../lib/format';
+import { CRITERIO_DE_MATCH, ESTADO_MATCH, formatarDataHora, papel, estadoDoUsuario, tipoDeFiliacao, estadoDaImportacao } from '../lib/format';
 
 // Painel administrativo, ranking, importação MuscleWar, auditoria e
 // configurações da plataforma.
@@ -582,7 +582,9 @@ function NovaImportacao({ notificar, onClose, onCriada }) {
   );
 }
 
-function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
+// Exportado para que o teste renderize a revisão direto, sem atravessar a
+// listagem de lotes para chegar até ela.
+export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
   const estado = useFetch(() => api.muscleWar.preview(importId), [importId]);
   const [vinculando, setVinculando] = useState(null);
   const [aplicando, setAplicando] = useState(false);
@@ -628,7 +630,13 @@ function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>#</th><th>CPF</th><th>Atleta</th><th>Filiação</th><th>Categoria</th>
+                    <th>#</th><th>CPF</th><th>Atleta</th><th>Filiação</th>
+                    {/* A matrícula de FILIAÇÃO — o "Member Number" dos arquivos
+                        oficiais. Não é `athleteNumber`, que é outra coisa no
+                        modelo; confundir os dois faria o operador conferir o
+                        campo errado. */}
+                    <th>Matrícula</th>
+                    <th>Categoria</th>
                     {/* A classe é o que decide se o resultado alimenta o Super
                         Overall — sem ela na tela o operador não consegue
                         conferir a elegibilidade. */}
@@ -647,6 +655,7 @@ function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                         <td className="num">{item.cpf || '—'}</td>
                         <td>{item.athlete?.fullName || item.athleteName || '—'}</td>
                         <td>{item.affiliationCode || '—'}</td>
+                        <td className="num">{item.memberNumber || '—'}</td>
                         <td>{item.categoryCode || '—'}</td>
                         <td>
                           {item.className || '—'}
@@ -656,7 +665,47 @@ function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                         <td className="num">{item.points ?? '—'}</td>
                         <td>
                           <Badge tom={info.tom}>{info.rotulo}</Badge>
+
+                          {/* POR QUE casou, e não só QUE casou. Quem revisa sem
+                              saber a chave não tem como conferir se casou
+                              certo. */}
+                          {item.matchedBy && (
+                            <small style={{ display: 'block', marginTop: 3 }}>
+                              por <strong>{CRITERIO_DE_MATCH[item.matchedBy] || item.matchedBy}</strong>
+                            </small>
+                          )}
+
                           {item.reason && <small style={{ display: 'block', color: 'var(--cinza-fraco)', marginTop: 3 }}>{item.reason}</small>}
+
+                          {/* A SUGESTÃO, com o que a sustenta. Fica visualmente
+                              separada do vínculo: sugestão por nome não
+                              reconhece ninguém, e a tela não pode dar a
+                              entender que reconheceu. */}
+                          {item.suggestedAthlete && (
+                            <small style={{ display: 'block', marginTop: 4 }}>
+                              <span className="chip">sugerido</span>{' '}
+                              <strong>{item.suggestedAthlete.fullName}</strong>
+                              {item.suggestedAthlete.affiliation && ` · ${item.suggestedAthlete.affiliation.code}`}
+                              {item.suggestedAthlete.affiliationNumber && ` · nº ${item.suggestedAthlete.affiliationNumber}`}
+                            </small>
+                          )}
+
+                          {/* CONFLITO DE IDENTIDADE: os candidatos em disputa, e
+                              o que cada chave afirma. Sem isto o operador
+                              aperta "vincular" no escuro. */}
+                          {Array.isArray(item.matchCandidates) && item.matchCandidates.length > 0 && (
+                            <small style={{ display: 'block', marginTop: 4 }}>
+                              <strong>Conflito de identidade</strong>
+                              {item.matchCandidates.map(candidato => (
+                                <span key={`${candidato.matchedBy}-${candidato.athleteId}`} style={{ display: 'block' }}>
+                                  {CRITERIO_DE_MATCH[candidato.matchedBy] || candidato.matchedBy}:{' '}
+                                  {candidato.fullName}
+                                  {candidato.affiliation && ` · ${candidato.affiliation.code}`}
+                                  {candidato.affiliationNumber && ` · nº ${candidato.affiliationNumber}`}
+                                </span>
+                              ))}
+                            </small>
+                          )}
                           {/* Divergência de pontuação: os três números lado a
                               lado, para o operador decidir o que corrigir — o
                               arquivo ou a tabela da temporada. */}

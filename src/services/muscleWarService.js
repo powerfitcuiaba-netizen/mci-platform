@@ -25,6 +25,30 @@ const SOURCE = 'MUSCLEWAR';
 // mesmo resultado não gera segunda pontuação.
 // ============================================================================
 
+// Resumo de um candidato para a revisão. SÓ o que o operador precisa para
+// decidir: quem é, por qual chave apareceu e qual filiação/matrícula tem. Nada
+// de telefone, e-mail, endereço ou CPF — a tela de revisão resolve identidade,
+// não consulta cadastro.
+// Projeção mínima do atleta para o reconhecimento e a revisão. `select` e não
+// `include`: sem isto a linha inteira do atleta — telefone, e-mail, endereço —
+// era carregada a cada registro do arquivo, para usar três campos.
+const RESUMO_DE_ATLETA = Object.freeze({
+  id: true, fullName: true, affiliationNumber: true,
+  affiliation: { select: { id: true, name: true, code: true, active: true } }
+});
+
+function resumoDeCandidato(athlete, matchedBy) {
+  return {
+    matchedBy,
+    athleteId: athlete.id,
+    fullName: athlete.fullName,
+    affiliationNumber: athlete.affiliationNumber ?? null,
+    affiliation: athlete.affiliation
+      ? { id: athlete.affiliation.id, code: athlete.affiliation.code }
+      : null
+  };
+}
+
 // Chave 1: o PAR filiação + matrícula. Uma sem a outra não identifica ninguém
 // — duas federações emitem o mesmo número, e uma federação tem milhares de
 // filiados.
@@ -42,7 +66,7 @@ async function atletaPorFiliacao(organizationId, registro) {
 
   return prisma.athlete.findFirst({
     where: { organizationId, affiliationId: filiacao.id, affiliationNumber: registro.memberNumber },
-    include: { affiliation: { select: { id: true, code: true, active: true } } }
+    select: RESUMO_DE_ATLETA
   });
 }
 
@@ -58,7 +82,7 @@ async function atletaPorCpf(organizationId, cpf) {
 
   return prisma.athlete.findUnique({
     where: { id: identidade.athleteId },
-    include: { affiliation: { select: { id: true, code: true, active: true } } }
+    select: RESUMO_DE_ATLETA
   });
 }
 
@@ -158,11 +182,18 @@ async function analisarLinha(registro, organizationId, seasonId, catalogoDeClass
       reason: `Chaves divergem: filiação ${registro.affiliationCode}/${registro.memberNumber} indica `
         + `${porFiliacao.fullName}, e o CPF informado indica ${porCpf.fullName}. `
         + 'Corrija a origem ou o cadastro antes de aplicar.',
-      athleteId: null
+      athleteId: null,
+      // Os dois candidatos, com a chave que apontou cada um. Sem isto na tela,
+      // "Conflito de identidade" é uma frase e o botão de vincular é apertado
+      // no escuro.
+      matchCandidates: [resumoDeCandidato(porFiliacao, 'AFFILIATION_NUMBER'), resumoDeCandidato(porCpf, 'CPF')]
     };
   }
 
   const athlete = porFiliacao || porCpf;
+  // A chave que reconheceu. Vai gravada na linha porque a revisão precisa
+  // dizer POR QUE casou, e não só QUE casou.
+  const matchedBy = porFiliacao ? 'AFFILIATION_NUMBER' : (porCpf ? 'CPF' : null);
 
   if (!athlete) {
     // Chave 3: o nome. Não reconhece — prepara a decisão de quem pode tomá-la.
@@ -243,7 +274,7 @@ async function analisarLinha(registro, organizationId, seasonId, catalogoDeClass
     }
   }
 
-  return { matchStatus: 'MATCHED', reason: null, athleteId: athlete.id };
+  return { matchStatus: 'MATCHED', reason: null, athleteId: athlete.id, matchedBy };
 }
 
 /**
@@ -341,6 +372,8 @@ async function createImport(data, actor) {
           affiliationCode: registro.affiliationCode,
           memberNumber: registro.memberNumber ?? null,
           suggestedAthleteId: analise.suggestedAthleteId ?? null,
+          matchedBy: analise.matchedBy ?? null,
+          matchCandidates: analise.matchCandidates ?? undefined,
           categoryCode: registro.categoryCode,
           divisionName: registro.divisionName,
           className: registro.className,
@@ -412,7 +445,22 @@ async function preview(importId, actor) {
 
   const items = await prisma.muscleWarImportItem.findMany({
     where: { importId },
-    include: { athlete: { select: { id: true, fullName: true, stageName: true, athleteNumber: true } } },
+    include: {
+      athlete: { select: { id: true, fullName: true, stageName: true, athleteNumber: true } },
+      // O SUGERIDO vem inteiro, e não só o id: a tela precisa mostrar QUEM foi
+      // sugerido, com a filiação e a matrícula que sustentam a sugestão. Um id
+      // cru obrigaria o operador a abrir outra tela para saber do que se trata.
+      //
+      // `affiliationNumber` é o Member Number — a matrícula de FILIAÇÃO —, e
+      // não `athleteNumber`, que é o número do atleta na federação e é outra
+      // coisa no modelo. Confundi-los faria o operador conferir o campo errado.
+      suggestedAthlete: {
+        select: {
+          id: true, fullName: true, stageName: true, affiliationNumber: true,
+          affiliation: { select: { id: true, name: true, code: true } }
+        }
+      }
+    },
     orderBy: { rowNumber: 'asc' }
   });
 

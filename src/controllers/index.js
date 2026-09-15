@@ -12,6 +12,7 @@ const registrations = require('../services/registrationService');
 const operations = require('../services/operationsService');
 const results = require('../services/resultService');
 const ranking = require('../services/rankingService');
+const meService = require('../services/meService');
 const muscleWar = require('../services/muscleWarService');
 const partners = require('../services/partnerService');
 const social = require('../services/socialService');
@@ -72,6 +73,13 @@ module.exports = {
     me: async (req, res) => res.json(await auth.me(req.user.id)),
     updateProfile: async (req, res) => res.json(await auth.updateProfile(req.user.id, req.body)),
     changePassword: async (req, res) => res.json(await auth.changePassword(req.user.id, req.body))
+  },
+
+  // Minha Filiação e Meu Histórico. `req.user` e nada mais: nenhum parâmetro
+  // de cliente entra na identificação de quem está perguntando.
+  me: {
+    affiliation: async (req, res) => res.json(await meService.affiliation(req.user)),
+    history: async (req, res) => res.json(await meService.history(req.user, req.query))
   },
 
   organizations: {

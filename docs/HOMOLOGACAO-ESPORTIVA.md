@@ -329,3 +329,74 @@ recusada, e só uma correção versionada — com motivo e autor — o resolve. 
 
 Sem apuração interna não há mais o que ratificar nesta parte. As pendências
 reais do MCI estão na Parte II.
+
+---
+
+## Minha Filiação, Meu Histórico e a revisão do matching (FASE 9)
+
+### A identidade esportiva é um par
+
+Um atleta é identificado por **organização + entidade de filiação + matrícula**.
+`affiliationId` é a entidade; `affiliationNumber` é a matrícula dele dentro
+dela — o *Member Number* dos arquivos oficiais. Nenhuma das duas identifica
+sozinha: duas federações emitem o mesmo número, e uma federação tem milhares de
+filiados. Nome nunca identifica.
+
+### Superfície do próprio atleta
+
+`GET /me/affiliation` e `GET /me/history` respondem sobre **quem pede**. O
+atleta é derivado do token (`Athlete.userId`), e não de um id no caminho, na
+query ou no corpo. Rota sem identificador de pessoa não tem IDOR a defender:
+não existe parâmetro capaz de apontar para outra pessoa.
+
+A rota do operador (`GET /athletes/:id/ranking-points`) continua existindo, com
+id e autorização por vínculo. As duas superfícies coexistem de propósito —
+afrouxar a do operador para servir o atleta abriria o histórico de terceiros
+para todo mundo que tem conta.
+
+O TOP 5 público **não** alcança o histórico individual: o teto é regra da
+vitrine, e a carreira de alguém não é vitrine.
+
+### Filiação histórica
+
+Cada `RankingPoint` guarda a filiação **da época** — entidade e matrícula.
+Trocar de federação não reescreve o passado. Lançamentos anteriores à coluna
+ficam com filiação **nula**, e nulo significa *snapshot histórico
+indisponível*: preenchê-los com a filiação atual seria exatamente o defeito que
+a coluna existe para corrigir.
+
+A matrícula só acompanha quando é da mesma entidade — copiar o número de uma
+federação para um ponto de outra produziria um registro que não existe.
+
+### O Overall no histórico
+
+Colocação e bônus são **parcelas**, exibidas separadas: `5` de pódio, `+10` de
+título, `15` de total. Nunca `15` numa coluna só. O `+10` aparece somente na
+participação da classe absoluta, e uma vez por título.
+
+### Revisão do matching
+
+A revisão mostra **por que** o sistema decidiu:
+
+| Situação | Rótulo na tela | O que a linha mostra |
+|---|---|---|
+| `MATCHED` | Reconhecido | a chave usada (`filiação + matrícula` ou `CPF`) |
+| `MATCH_PENDING` | Não identificado | o atleta sugerido por nome, se houver, com entidade e matrícula |
+| `CONFLICT` | Conflito de identidade | os candidatos em disputa e a chave que apontou cada um |
+
+Sugestão por nome **nunca** é vínculo: mora em `suggestedAthleteId`, coluna
+separada de `athleteId`, e não vira vínculo ao aplicar o lote. Nome que bate em
+mais de um atleta não produz sugestão nenhuma — escolher entre homônimos é
+decisão de quem tem competência. Nenhum atleta é criado pela importação.
+
+A matrícula exibida é a de **filiação** (`memberNumber`), não `athleteNumber`,
+que é outra coisa no modelo.
+
+### Privacidade
+
+A matrícula fica na camada **restrita** da projeção de atleta, ao lado de
+nascimento, telefone e e-mail — fora de `athletePublic`. A entidade continua
+pública; o número dentro dela, não: publicar o par (nome, matrícula) entregaria
+a chave de reivindicação de histórico a qualquer visitante. O histórico do
+atleta não carrega CPF nem contato, e a revisão não devolve telefone ou e-mail
+do sugerido.

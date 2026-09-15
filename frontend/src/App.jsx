@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Bell, ClipboardCheck, Home, LayoutDashboard, LogOut, Menu, MessageSquare,
+  Bell, ClipboardCheck, History, Home, IdCard, LayoutDashboard, LogOut, Menu, MessageSquare,
   QrCode, Scale, Search, Settings, ShieldCheck, Trophy, Upload, UserCircle, Users, Users2,
   Volume2, VolumeX, Zap
 } from 'lucide-react';
@@ -23,6 +23,7 @@ import { AdminCheckin, AdminCredenciamento, AdminEventoDetalhe, AdminEventos, Ad
 import { AdminResultados } from './pages/adminResults';
 import { AdminAuditoria, AdminConfiguracoes, AdminMuscleWar, AdminPainel, AdminRanking } from './pages/adminPlatform';
 import { MeuPainel, MinhaConta } from './pages/mePages';
+import { MeuHistorico, MinhaFiliacao } from './pages/minhaCarreira';
 import MinhaSolicitacao from './pages/minhaSolicitacao';
 import AdminSolicitacoes from './pages/adminSolicitacoes';
 
@@ -38,7 +39,12 @@ const NAVEGACAO_PRINCIPAL = [
   { rota: 'social', rotulo: 'Social', icone: LayoutDashboard },
   { rota: 'messenger', rotulo: 'Messenger', icone: MessageSquare, contador: 'mensagens' },
   { rota: 'comunidades', rotulo: 'Comunidades', icone: Users2 },
-  { rota: 'meu-painel', rotulo: 'Meu painel', icone: UserCircle }
+  { rota: 'meu-painel', rotulo: 'Meu painel', icone: UserCircle },
+  // Duas telas, e não uma aba escondida dentro do painel: filiação e histórico
+  // são as duas perguntas que o atleta faz sobre si mesmo, e as duas têm de
+  // estar a um toque.
+  { rota: 'minha-filiacao', rotulo: 'Minha filiação', icone: IdCard },
+  { rota: 'meu-historico', rotulo: 'Meu histórico', icone: History }
 ];
 
 // Cada item administrativo declara a permissão que o habilita.
@@ -283,6 +289,8 @@ function Shell() {
       case 'notificacoes': return <Notificacoes />;
       case 'meu-painel': return <MeuPainel navegar={navegar} />;
       case 'minha-conta': return <MinhaConta notificar={notificar} />;
+      case 'minha-filiacao': return <MinhaFiliacao />;
+      case 'meu-historico': return <MeuHistorico />;
       case 'minha-solicitacao': return <MinhaSolicitacao notificar={notificar} />;
       // Laboratório de experiência: existe para calibrar os efeitos num lugar
       // só, antes de espalhá-los. Fica FORA do pacote de produção (ver o
