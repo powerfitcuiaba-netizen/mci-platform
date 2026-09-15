@@ -253,7 +253,9 @@ function ConferirPontuacao({ temporada, onClose }) {
 // pontos?". A resposta é a linha inteira — evento, classe, colocação, e as
 // PARCELAS separadas, porque o total tem de ser reconstituível a partir delas
 // e não apenas conferido no agregado.
-function OrigemDosPontos({ atleta, temporada, onClose }) {
+// Exportado sob nome interno para que o teste renderize o modal diretamente,
+// sem ter de atravessar a tela de ranking inteira para chegar até ele.
+export function OrigemDosPontos({ atleta, temporada, onClose }) {
   const estado = useFetch(
     () => api.ranking.athletePoints(atleta.id, { seasonId: temporada.id }),
     [atleta.id, temporada.id]
@@ -275,6 +277,7 @@ function OrigemDosPontos({ atleta, temporada, onClose }) {
                   <thead>
                     <tr>
                       <th>Evento</th>
+                      <th>Filiação</th>
                       <th>Categoria</th>
                       <th>Classe</th>
                       <th className="num">Col.</th>
@@ -289,6 +292,18 @@ function OrigemDosPontos({ atleta, temporada, onClose }) {
                     {dados.items.map(ponto => (
                       <tr key={ponto.id}>
                         <td>{ponto.event?.name || ponto.externalResult?.eventName || '—'}</td>
+                        {/* A filiação DA ÉPOCA — a que veio gravada no ponto, e
+                            não a do cadastro de hoje. Um atleta que trocou de
+                            federação tem, nesta mesma tabela, linhas de duas
+                            entidades diferentes; é isso que precisa aparecer. */}
+                        <td>
+                          {ponto.affiliation?.name || '—'}
+                          {ponto.affiliationNumber && (
+                            <small style={{ display: 'block', color: 'var(--cinza-fraco)', fontSize: 10 }}>
+                              nº {ponto.affiliationNumber}
+                            </small>
+                          )}
+                        </td>
                         <td>{ponto.category?.name || '—'}</td>
                         <td>
                           {ponto.competitionClass?.code || ponto.competitionClass?.name || '—'}
@@ -321,7 +336,7 @@ function OrigemDosPontos({ atleta, temporada, onClose }) {
                   </tbody>
                   <tfoot>
                     <tr>
-                      <td colSpan={6} style={{ textAlign: 'right' }}><strong>Totais</strong></td>
+                      <td colSpan={7} style={{ textAlign: 'right' }}><strong>Totais</strong></td>
                       <td className="num">
                         <strong>{dados.items.reduce((soma, p) => soma + p.points, 0)}</strong>
                       </td>
