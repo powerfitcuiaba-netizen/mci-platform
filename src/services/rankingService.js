@@ -243,11 +243,48 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
   // Equipe e empresa registradas no momento da atribuição: uma troca posterior
   // não deve reescrever a história do ranking. A cadeia é
   // atleta → equipe → empresa.
+  const atletasClassificados = classificados.map(entry => entry.athleteId);
+
+  // A FILIAÇÃO DA ÉPOCA.
+  //
+  // A inscrição é a fonte preferida: `Registration.affiliationId` é a entidade
+  // pela qual o atleta ENTROU naquele evento, congelada no ato da inscrição.
+  // Ler o cadastro na hora da consulta faria uma troca de federação transferir
+  // para a nova entidade os pontos que a antiga ganhou.
+  //
+  // O cadastro entra como recurso: a inscrição não guarda a MATRÍCULA, só a
+  // entidade, e há o caso em que o atleta nasce na própria inscrição e se
+  // filia depois, antes da publicação do resultado. Nesse caso a inscrição não
+  // tem entidade nenhuma, e o cadastro no momento da atribuição é o melhor
+  // retrato disponível — não um palpite: é o que vale quando o ponto nasce.
+  const inscricoes = new Map(
+    (await prisma.registration.findMany({
+      where: { eventId: result.eventId, athleteId: { in: atletasClassificados } },
+      select: { athleteId: true, affiliationId: true }
+    })).map(inscricao => [inscricao.athleteId, inscricao.affiliationId])
+  );
+
   const vinculos = new Map(
     (await prisma.athlete.findMany({
-      where: { id: { in: classificados.map(entry => entry.athleteId) } },
-      select: { id: true, teamId: true, team: { select: { companyId: true } } }
-    })).map(atleta => [atleta.id, { teamId: atleta.teamId, companyId: atleta.team?.companyId ?? null }])
+      where: { id: { in: atletasClassificados } },
+      select: {
+        id: true, teamId: true, team: { select: { companyId: true } },
+        affiliationId: true, affiliationNumber: true
+      }
+    })).map(atleta => {
+      const daInscricao = inscricoes.get(atleta.id) ?? null;
+      const affiliationId = daInscricao ?? atleta.affiliationId ?? null;
+      return [atleta.id, {
+        teamId: atleta.teamId,
+        companyId: atleta.team?.companyId ?? null,
+        affiliationId,
+        // A matrícula só acompanha quando é da MESMA entidade. Copiar o número
+        // de uma federação para outra produziria uma matrícula que não existe.
+        affiliationNumber: affiliationId && affiliationId === atleta.affiliationId
+          ? atleta.affiliationNumber ?? null
+          : null
+      }];
+    })
   );
 
   const atribuidos = await prisma.$transaction(async tx => {
@@ -271,6 +308,8 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
             classId: result.classId,
             teamId: vinculos.get(entry.athleteId)?.teamId ?? null,
             companyId: vinculos.get(entry.athleteId)?.companyId ?? null,
+            affiliationId: vinculos.get(entry.athleteId)?.affiliationId ?? null,
+            affiliationNumber: vinculos.get(entry.athleteId)?.affiliationNumber ?? null,
             placing: entry.placing,
             placementPoints, overallBonus, isOverallChampion: ehCampeaoOverall,
             superOverallEligible,
@@ -893,6 +932,9 @@ async function athletePoints(athleteId, seasonId, actor) {
       // A classe fecha a explicação: é ela que responde por que um lançamento
       // vale no campeonato e não vale no Super Overall.
       competitionClass: { select: { id: true, name: true, code: true } },
+      // A filiação da época viaja com o ponto. Sem ela o histórico responderia
+      // com a federação de HOJE para um resultado de ontem.
+      affiliation: { select: { id: true, code: true, name: true, state: true } },
       externalResult: { select: { id: true, source: true, externalId: true, eventName: true, eventDate: true } }
     },
     orderBy: { awardedAt: 'desc' }

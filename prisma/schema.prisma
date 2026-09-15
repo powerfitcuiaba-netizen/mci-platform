@@ -218,6 +218,7 @@ model Affiliation {
   athletes               Athlete[]
   registrations          Registration[]
   athleteProfileRequests AthleteProfileRequest[]
+  rankingPoints          RankingPoint[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -1283,6 +1284,18 @@ model RankingPoint {
   /// a história do ranking.
   companyId            String?
   classId              String?
+  /// Filiação do atleta no momento em que o ponto foi ganho — a ENTIDADE.
+  /// Gravada aqui pela mesma razão que `teamId` e `companyId`: um atleta que
+  /// troca de federação continua tendo ganho os pontos antigos pela antiga, e
+  /// ler a filiação do cadastro na hora da consulta faria a troca reescrever o
+  /// passado.
+  affiliationId        String?
+  /// Matrícula do atleta NAQUELA entidade, no mesmo momento. A filiação são as
+  /// duas coisas: duas federações podem emitir o mesmo número, e a entidade
+  /// sozinha não diz por qual registro o resultado foi reconhecido. Por isso o
+  /// par viaja junto — e o número é COPIADO, não referenciado, porque ele pode
+  /// mudar dentro da mesma entidade.
+  affiliationNumber    String?
   // Versão do resultado que originou o ponto: permite conferir que o ranking
   // reflete a versão válida, e não uma anterior.
   resultVersion        Int?
@@ -1299,6 +1312,7 @@ model RankingPoint {
   team             Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
   company          Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
   competitionClass CompetitionClass? @relation(fields: [classId], references: [id], onDelete: SetNull)
+  affiliation      Affiliation?      @relation(fields: [affiliationId], references: [id], onDelete: SetNull)
   awardedBy        User?             @relation("RankingPointAwardedBy", fields: [awardedById], references: [id], onDelete: SetNull)
 
   // Um mesmo resultado de evento não pontua duas vezes para o mesmo atleta na
@@ -1311,6 +1325,7 @@ model RankingPoint {
   // SQL some sem aviso no primeiro `db push` — foi exatamente assim que esta
   // base perdeu a coluna maxHeightCm e os DEFAULT de participantIds.
   @@index([seasonId, superOverallEligible])
+  @@index([seasonId, affiliationId])
   @@index([source])
 }
 

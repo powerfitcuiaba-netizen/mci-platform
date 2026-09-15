@@ -214,7 +214,19 @@ describe('o calendário não pede migration nenhuma', () => {
       // com auditoria. Reaproveitar `active` teria aberto todas de uma vez,
       // como efeito colateral de uma migration — que é exatamente o que não se
       // quer.
-      '20260913220000_autocadastro_de_filiacao'
+      '20260913220000_autocadastro_de_filiacao',
+      // Filiação da época gravada no ponto de ranking. ADITIVA: DUAS colunas
+      // ANULÁVEIS em "RankingPoint" (`affiliationId` e `affiliationNumber`),
+      // um índice e uma chave estrangeira com ON DELETE SET NULL. Sem DROP,
+      // sem TRUNCATE, sem UPDATE de linha existente, sem política de RLS
+      // tocada.
+      //
+      // Anuláveis e SEM preenchimento retroativo, de propósito: os pontos que
+      // já existem foram ganhos antes de a filiação ser registrada, e nulo é a
+      // verdade sobre eles. Preenchê-los com a filiação ATUAL do atleta seria
+      // exatamente o defeito que a coluna existe para corrigir — a troca de
+      // federação reescrevendo o passado.
+      '20260915190000_filiacao_no_ponto_de_ranking'
     ]);
   });
 });
