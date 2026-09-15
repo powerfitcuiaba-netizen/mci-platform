@@ -302,6 +302,7 @@ model Athlete {
   rankings               Ranking[]
   externalResults        ExternalResult[]
   muscleWarItems         MuscleWarImportItem[]
+  muscleWarSuggestions   MuscleWarImportItem[]     @relation("MuscleWarSuggestion")
   socialProfile          SocialProfile?
   sponsorships           Sponsorship[]
   brandPartnerships      AthleteBrandPartnership[]
@@ -314,6 +315,9 @@ model Athlete {
   @@index([organizationId, fullName])
   @@index([organizationId, proStatus])
   @@index([affiliationId])
+  // Serve ao reconhecimento pelo par filiação + matrícula, que é a chave
+  // primária de identificação dos arquivos oficiais.
+  @@index([affiliationId, affiliationNumber])
   @@index([teamId])
   @@index([coachId])
 }
@@ -1457,44 +1461,55 @@ enum MatchStatus {
 }
 
 model MuscleWarImportItem {
-  id                String      @id @default(cuid())
-  importId          String
-  externalResultId  String
-  rowNumber         Int
-  cpf               String?
-  athleteName       String?
-  affiliationCode   String?
-  categoryCode      String?
-  divisionName      String?
-  className         String?
-  placing           Int?
+  id                 String      @id @default(cuid())
+  importId           String
+  externalResultId   String
+  rowNumber          Int
+  cpf                String?
+  athleteName        String?
+  affiliationCode    String?
+  /// Matrícula informada pelo arquivo — o "Member Number" dos arquivos
+  /// oficiais. Guardada como todo o resto do que a origem informou, para que a
+  /// decisão do operador seja conferível contra o que estava escrito.
+  memberNumber       String?
+  categoryCode       String?
+  divisionName       String?
+  className          String?
+  placing            Int?
   /// Campeão Overall informado pela origem. A pontuação (+10) é regra
   /// homologada; QUEM é o campeão continua sendo dado informado, nunca
   /// deduzido pelo sistema.
-  isOverallChampion Boolean     @default(false)
+  isOverallChampion  Boolean     @default(false)
   /// Equipe declarada pela origem. `className`, logo acima, é o que resolve a
   /// elegibilidade ao Super Overall contra o catálogo da organização.
-  teamName          String?
-  companyName       String?
-  points            Int?
-  eventName         String?
-  eventDate         DateTime?
-  raw               Json
-  matchStatus       MatchStatus @default(MATCH_PENDING)
-  reason            String?
+  teamName           String?
+  companyName        String?
+  points             Int?
+  eventName          String?
+  eventDate          DateTime?
+  raw                Json
+  matchStatus        MatchStatus @default(MATCH_PENDING)
+  reason             String?
   /// Divergência entre a pontuação do arquivo e a calculada pela regra oficial:
   /// { importedPoints, calculatedPoints, difference }. Preenchida junto com o
   /// CONFLICT, para que o operador veja os números e não só a frase.
-  pointsMismatch    Json?
-  athleteId         String?
-  linkedById        String?
-  linkedAt          DateTime?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  pointsMismatch     Json?
+  athleteId          String?
+  /// Pista por semelhança de nome. É SUGESTÃO, nunca vínculo — mora numa
+  /// coluna diferente de `athleteId` justamente para que nenhum caminho de
+  /// aplicação a confunda com reconhecimento. Semelhança de nome não
+  /// reconhece ninguém: duas atletas chamadas "Ana Silva" existem, e fundir as
+  /// duas num cadastro só apaga uma carreira.
+  suggestedAthleteId String?
+  linkedById         String?
+  linkedAt           DateTime?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
 
-  import         MuscleWarImport @relation(fields: [importId], references: [id], onDelete: Cascade)
-  athlete        Athlete?        @relation(fields: [athleteId], references: [id], onDelete: SetNull)
-  externalResult ExternalResult?
+  import           MuscleWarImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  athlete          Athlete?        @relation(fields: [athleteId], references: [id], onDelete: SetNull)
+  suggestedAthlete Athlete?        @relation("MuscleWarSuggestion", fields: [suggestedAthleteId], references: [id], onDelete: SetNull)
+  externalResult   ExternalResult?
 
   // O mesmo identificador externo não entra duas vezes no mesmo lote.
   @@unique([importId, externalResultId])

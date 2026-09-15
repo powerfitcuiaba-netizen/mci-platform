@@ -110,7 +110,10 @@ describe('importação MuscleWar', () => {
     const porId = Object.fromEntries(resposta.body.items.map(item => [item.externalResultId, item]));
     expect(porId['MW-1'].matchStatus).toBe('MATCHED');
     expect(porId['MW-2'].matchStatus).toBe('MATCH_PENDING');
-    expect(porId['MW-2'].reason).toMatch(/CPF não encontrado/);
+    // ATUALIZADO com a cadeia de reconhecimento: o motivo deixou de citar só o
+    // CPF porque o CPF deixou de ser a única chave. A linha continua indo para
+    // revisão — o que mudou é que ela agora diz TODAS as chaves que falharam.
+    expect(porId['MW-2'].reason).toMatch(/não encontrado por CPF, filiação\/matrícula ou nome/);
     // Filiação divergente é conflito para revisão, não descarte.
     expect(porId['MW-3'].matchStatus).toBe('CONFLICT');
     expect(porId['MW-3'].reason).toMatch(/sem filiação/i);

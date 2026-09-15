@@ -206,6 +206,12 @@ const athleteCreate = z.object({
   email: opcional(z.string().trim().toLowerCase().email().max(180)),
   athleteNumber: opcional(texto(1, 20)),
   affiliationId: opcional(id),
+  // Matrícula do atleta DENTRO da entidade. Filiação são as duas coisas — a
+  // entidade e o número —, e sem este campo o operador da federação não tinha
+  // como gravar a metade que os arquivos oficiais usam para identificar
+  // (o "Member Number"). Continua fora do cadastro da CONTA (ver acima): quem
+  // grava é o operador, no perfil de atleta.
+  affiliationNumber: opcional(texto(1, 40)),
   teamId: opcional(id),
   coachId: opcional(id),
   gymId: opcional(id),

@@ -226,7 +226,20 @@ describe('o calendário não pede migration nenhuma', () => {
       // verdade sobre eles. Preenchê-los com a filiação ATUAL do atleta seria
       // exatamente o defeito que a coluna existe para corrigir — a troca de
       // federação reescrevendo o passado.
-      '20260915190000_filiacao_no_ponto_de_ranking'
+      '20260915190000_filiacao_no_ponto_de_ranking',
+      // Reconhecimento por filiação + matrícula. ADITIVA: duas colunas
+      // ANULÁVEIS em "MuscleWarImportItem" (`memberNumber` e
+      // `suggestedAthleteId`), uma chave estrangeira com ON DELETE SET NULL e
+      // dois índices — um deles em "Athlete"(affiliationId, affiliationNumber),
+      // que é a chave de reconhecimento dos arquivos oficiais.
+      //
+      // `suggestedAthleteId` é coluna SEPARADA de `athleteId` de propósito:
+      // sugestão por semelhança de nome não é vínculo, e mantê-las distintas
+      // impede que algum caminho de aplicação confunda as duas.
+      //
+      // Nenhum DROP, nenhum UPDATE de linha existente, nenhuma política de RLS
+      // tocada. Lotes já importados ficam exatamente como estão.
+      '20260915210000_sugestao_de_atleta_na_importacao'
     ]);
   });
 });

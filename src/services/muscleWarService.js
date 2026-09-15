@@ -25,6 +25,89 @@ const SOURCE = 'MUSCLEWAR';
 // mesmo resultado não gera segunda pontuação.
 // ============================================================================
 
+// Chave 1: o PAR filiação + matrícula. Uma sem a outra não identifica ninguém
+// — duas federações emitem o mesmo número, e uma federação tem milhares de
+// filiados.
+async function atletaPorFiliacao(organizationId, registro) {
+  // As duas, sempre. Exigir só a matrícula é observável: a busca da entidade
+  // logo abaixo recebe um código indefinido e o Prisma não trata isso como
+  // "não encontrei". A guarda é a regra, e não uma formalidade.
+  if (!registro.affiliationCode || !registro.memberNumber) return null;
+
+  const filiacao = await prisma.affiliation.findUnique({
+    where: { organizationId_code: { organizationId, code: registro.affiliationCode } },
+    select: { id: true }
+  });
+  if (!filiacao) return null;
+
+  return prisma.athlete.findFirst({
+    where: { organizationId, affiliationId: filiacao.id, affiliationNumber: registro.memberNumber },
+    include: { affiliation: { select: { id: true, code: true, active: true } } }
+  });
+}
+
+// Chave 2: a identidade já vinculada. O CPF vive em AthleteIdentity, sob RLS.
+async function atletaPorCpf(organizationId, cpf) {
+  if (!cpf) return null;
+
+  const identidade = await prisma.athleteIdentity.findUnique({
+    where: { organizationId_cpf: { organizationId, cpf } },
+    select: { athleteId: true }
+  });
+  if (!identidade) return null;
+
+  return prisma.athlete.findUnique({
+    where: { id: identidade.athleteId },
+    include: { affiliation: { select: { id: true, code: true, active: true } } }
+  });
+}
+
+// Acento, caixa e espaço repetido não separam o mesmo nome — e também não
+// unem nomes diferentes. A normalização é conservadora de propósito: nada de
+// distância de edição, apelido ou abreviação, porque a saída daqui alimenta
+// uma SUGESTÃO que um humano confirma, e uma sugestão errada custa a atenção
+// de quem revisa.
+function normalizarNome(nome) {
+  return String(nome || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase().replace(/\s+/g, ' ').trim();
+}
+
+// Chave 3: o nome. NUNCA reconhece, NUNCA cria atleta — devolve uma pista.
+//
+// Duas atletas chamadas "Ana Silva" existem. Reconhecer pela semelhança
+// fundiria duas carreiras num cadastro só, e o erro só apareceria quando uma
+// delas fosse ver o próprio histórico. Por isso: nome único bate → sugestão;
+// mais de um bate → sugestão NENHUMA, porque escolher entre as duas seria
+// decidir no lugar de quem tem competência.
+async function sugerirPorNome(organizationId, athleteName) {
+  const alvo = normalizarNome(athleteName);
+  if (!alvo) {
+    return { athleteId: null, reason: 'Sem CPF, sem filiação/matrícula e sem nome: nada a reconhecer' };
+  }
+
+  const candidatos = await prisma.athlete.findMany({
+    where: { organizationId }, select: { id: true, fullName: true }
+  });
+  const iguais = candidatos.filter(atleta => normalizarNome(atleta.fullName) === alvo);
+
+  if (iguais.length === 1) {
+    return {
+      athleteId: iguais[0].id,
+      reason: `Sem CPF nem filiação/matrícula. Nome confere com ${iguais[0].fullName} — `
+        + 'confirme o vínculo manualmente: semelhança de nome não reconhece atleta.'
+    };
+  }
+  if (iguais.length > 1) {
+    return {
+      athleteId: null,
+      reason: `Nome "${athleteName}" corresponde a mais de um atleta cadastrado (homônimos). `
+        + 'Nenhuma sugestão foi feita: escolher entre eles é decisão do operador.'
+    };
+  }
+  return { athleteId: null, reason: `Atleta não encontrado por CPF, filiação/matrícula ou nome ("${athleteName}")` };
+}
+
 async function analisarLinha(registro, organizationId, seasonId, catalogoDeClasses = null) {
   // Sem identificador externo não há como garantir idempotência para a linha.
   if (!registro.externalResultId) {
@@ -33,10 +116,13 @@ async function analisarLinha(registro, organizationId, seasonId, catalogoDeClass
   if (registro.placing == null && registro.points == null) {
     return { matchStatus: 'IMPORT_REJECTED', reason: 'Registro sem colocação nem pontuação', athleteId: null };
   }
-  if (!registro.cpf) {
-    return { matchStatus: 'MATCH_PENDING', reason: 'CPF ausente no registro', athleteId: null };
-  }
-  if (!isValidCpf(registro.cpf)) {
+  // CPF ausente NÃO encerra mais a análise: os arquivos oficiais identificam
+  // por Member Number, e a maioria não traz CPF. Ele continua sendo uma das
+  // chaves — deixou de ser a única.
+  //
+  // CPF PRESENTE e inválido continua sendo recusa: um documento malformado é
+  // erro de origem, não ausência de informação.
+  if (registro.cpf && !isValidCpf(registro.cpf)) {
     return { matchStatus: 'IMPORT_REJECTED', reason: 'CPF inválido', athleteId: null };
   }
 
@@ -48,23 +134,51 @@ async function analisarLinha(registro, organizationId, seasonId, catalogoDeClass
     return { matchStatus: 'DUPLICATE', reason: 'Resultado já importado anteriormente', athleteId: jaAplicado.athleteId };
   }
 
-  const identidade = await prisma.athleteIdentity.findUnique({
-    where: { organizationId_cpf: { organizationId, cpf: registro.cpf } },
-    select: { athleteId: true }
-  });
+  // ------------------------------------------------- CADEIA DE RECONHECIMENTO
+  //
+  // Prioridade homologada:
+  //   1. filiação + matrícula      (as duas juntas; nenhuma sozinha basta)
+  //   2. identidade já vinculada   (CPF em AthleteIdentity)
+  //   3. nome normalizado          (NUNCA reconhece — só SUGERE)
+  //   4. revisão manual
+  //
+  // O arquivo oficial do campeonato é redigido com Member Number, e muitas
+  // vezes sem CPF nenhum. Reconhecer só por CPF jogava essas linhas inteiras
+  // para revisão manual.
 
-  const athlete = identidade && await prisma.athlete.findUnique({
-    where: { id: identidade.athleteId },
-    include: { affiliation: { select: { id: true, code: true, active: true } } }
-  });
+  const porFiliacao = await atletaPorFiliacao(organizationId, registro);
+  const porCpf = await atletaPorCpf(organizationId, registro.cpf);
 
-  if (!athlete) {
-    return { matchStatus: 'MATCH_PENDING', reason: 'CPF não encontrado nesta organização', athleteId: null };
+  // Duas chaves que apontam para pessoas DIFERENTES é um fato sobre o arquivo
+  // ou sobre o cadastro, e quem resolve é gente. Escolher "a que eu achei
+  // primeiro" creditaria o resultado ao atleta errado em silêncio.
+  if (porFiliacao && porCpf && porFiliacao.id !== porCpf.id) {
+    return {
+      matchStatus: 'CONFLICT',
+      reason: `Chaves divergem: filiação ${registro.affiliationCode}/${registro.memberNumber} indica `
+        + `${porFiliacao.fullName}, e o CPF informado indica ${porCpf.fullName}. `
+        + 'Corrija a origem ou o cadastro antes de aplicar.',
+      athleteId: null
+    };
   }
 
-  // Filiação como segunda chave: divergir é conflito para revisão humana, não
-  // motivo para descartar o resultado.
-  if (registro.affiliationCode) {
+  const athlete = porFiliacao || porCpf;
+
+  if (!athlete) {
+    // Chave 3: o nome. Não reconhece — prepara a decisão de quem pode tomá-la.
+    const sugestao = await sugerirPorNome(organizationId, registro.athleteName);
+    return {
+      matchStatus: 'MATCH_PENDING',
+      reason: sugestao.reason,
+      athleteId: null,
+      suggestedAthleteId: sugestao.athleteId
+    };
+  }
+
+  // Conferência de filiação para quem foi reconhecido por OUTRA chave. Quando o
+  // reconhecimento veio do par filiação/matrícula, a filiação obviamente
+  // confere — conferir de novo só produziria ruído.
+  if (registro.affiliationCode && !porFiliacao) {
     const codigoAtleta = athlete.affiliation?.code || null;
     if (!codigoAtleta) {
       return { matchStatus: 'CONFLICT', reason: `Atleta sem filiação cadastrada; origem informa ${registro.affiliationCode}`, athleteId: athlete.id };
@@ -225,6 +339,8 @@ async function createImport(data, actor) {
           cpf: registro.cpf,
           athleteName: registro.athleteName,
           affiliationCode: registro.affiliationCode,
+          memberNumber: registro.memberNumber ?? null,
+          suggestedAthleteId: analise.suggestedAthleteId ?? null,
           categoryCode: registro.categoryCode,
           divisionName: registro.divisionName,
           className: registro.className,

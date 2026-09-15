@@ -12,7 +12,7 @@ const { somenteDigitos, isValidCpf } = require('../cpf');
 // registrar um mapa — não reescrever a importação.
 //
 // Saída canônica por registro:
-//   { externalResultId, rowNumber, cpf, athleteName, affiliationCode,
+//   { externalResultId, rowNumber, cpf, athleteName, affiliationCode, memberNumber,
 //     categoryCode, divisionName, className, placing, isOverallChampion,
 //     teamName, companyName, points, eventName, eventDate, raw }
 //
@@ -28,6 +28,12 @@ const MAPA_PADRAO = Object.freeze({
   cpf: ['cpf', 'documento', 'document'],
   athleteName: ['athlete_name', 'atleta', 'nome', 'name'],
   affiliationCode: ['affiliation_code', 'filiacao', 'filiacao_codigo', 'affiliation'],
+  // Matrícula do atleta DENTRO da entidade de filiação. É o "Member Number"
+  // dos arquivos oficiais, e na maioria deles é a única identificação que
+  // existe — CPF frequentemente não vem. Sozinha não identifica ninguém: duas
+  // federações emitem o mesmo número, então ela só vale com `affiliationCode`.
+  memberNumber: ['member_number', 'membernumber', 'member no', 'matricula', 'matrícula',
+    'numero_filiacao', 'affiliation_number', 'registro'],
   categoryCode: ['category_code', 'categoria', 'category'],
   divisionName: ['division', 'divisao', 'division_name'],
   className: ['class', 'classe', 'class_name'],
@@ -215,6 +221,7 @@ function parse(sourceType, content, options = {}) {
       divisionName: textoOuNulo(extrair(registro, 'divisionName', options.fieldMap)),
       className: textoOuNulo(extrair(registro, 'className', options.fieldMap)),
       placing: inteiroOuNulo(extrair(registro, 'placing', options.fieldMap)),
+      memberNumber: textoOuNulo(extrair(registro, 'memberNumber', options.fieldMap)),
       isOverallChampion: booleanoDeOrigem(extrair(registro, 'isOverallChampion', options.fieldMap)),
       teamName: textoOuNulo(extrair(registro, 'teamName', options.fieldMap)),
       companyName: textoOuNulo(extrair(registro, 'companyName', options.fieldMap)),
