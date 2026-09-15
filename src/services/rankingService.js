@@ -92,6 +92,103 @@ async function pointsForPlacing(seasonId, placing) {
   return regra?.points ?? 0;
 }
 
+// ---------------------------------------------------------------------------
+// O BÔNUS OVERALL VALE UMA VEZ.
+//
+// `awardForResult` pontua UM resultado — uma classe. Ele não enxerga as outras
+// participações do mesmo atleta no mesmo evento, então, quando o título
+// Overall estava declarado, cada classe inscrita recebia o seu próprio +10: um
+// atleta em três classes somava 30 de bônus. Isso premiava quem se inscreve
+// mais, não quem vence, e não é a regra homologada.
+//
+// A correção não pode morar na criação da linha (que é cega para as demais),
+// e sim numa passada de normalização sobre TODAS as linhas do atleta naquele
+// evento. Ela roda dentro da mesma transação, é idempotente e converge para o
+// mesmo estado qualquer que seja a ordem em que as classes foram pontuadas —
+// porque sempre lê o conjunto completo, nunca o incremento.
+//
+// A colocação continua acumulando normalmente: 5 + 4 + 5 = 14. O que deixa de
+// acumular é o bônus, que é UM título.
+//
+// Qual participação carrega o bônus (escolha de LOCALIZAÇÃO, não de mérito —
+// o total do atleta é o mesmo em qualquer uma):
+//   1. a participação ELEGÍVEL (a classe absoluta/OPEN), que é a que dá o
+//      título; o bônus fica onde o título foi ganho, e é o que faz ele entrar
+//      também no Super Overall anual;
+//   2. na falta dela, a melhor colocação;
+//   3. persistindo o empate, o menor id em comparação byte a byte — pelo mesmo
+//      motivo de `chaveDeSequencia` em rankingScoring.js: sem isso a escolha
+//      passaria a depender da ordem física das linhas no PostgreSQL, e um
+//      `pg_restore` moveria o bônus de lugar.
+function escolherPortadoraDoBonus(linhas) {
+  return [...linhas].sort((a, b) => {
+    if (a.superOverallEligible !== b.superOverallEligible) return a.superOverallEligible ? -1 : 1;
+    const colocacaoA = a.placing ?? Number.MAX_SAFE_INTEGER;
+    const colocacaoB = b.placing ?? Number.MAX_SAFE_INTEGER;
+    if (colocacaoA !== colocacaoB) return colocacaoA - colocacaoB;
+    return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
+  })[0];
+}
+
+async function normalizarBonusOverall(tx, { eventId, seasonId }) {
+  const titulos = await tx.eventOverallTitle.findMany({
+    where: { eventId }, select: { athleteId: true, categoryId: true }
+  });
+  if (!titulos.length) return;
+
+  for (const titulo of titulos) {
+    // Título com recorte de categoria alcança só as linhas daquela categoria;
+    // título do evento inteiro (categoryId nulo) alcança todas.
+    const linhas = await tx.rankingPoint.findMany({
+      where: {
+        seasonId, eventId, athleteId: titulo.athleteId, source: 'EVENT',
+        ...(titulo.categoryId ? { categoryId: titulo.categoryId } : {})
+      },
+      select: {
+        id: true, placing: true, superOverallEligible: true,
+        placementPoints: true, overallBonus: true, isOverallChampion: true,
+        points: true, superOverallPoints: true
+      },
+      // Ordem DECLARADA — um `findMany` sem `orderBy` devolve a ordem física
+      // do PostgreSQL, que é justamente o que não pode influenciar a escolha.
+      // E declarada ao CONTRÁRIO da chave de seleção de propósito: se o
+      // desempate por id for perdido, o `sort` estável do V8 preserva esta
+      // ordem e passa a escolher o MAIOR id — a regressão aparece no teste em
+      // vez de coincidir em silêncio com a ordem da consulta.
+      orderBy: { id: 'desc' }
+    });
+    if (!linhas.length) continue;
+
+    const portadora = escolherPortadoraDoBonus(linhas);
+
+    for (const linha of linhas) {
+      const ehPortadora = linha.id === portadora.id;
+      const overallBonus = ehPortadora ? BONUS_OVERALL : 0;
+      const points = linha.placementPoints + overallBonus;
+      const superOverallPoints = linha.superOverallEligible ? points : 0;
+
+      // Linha que só existia por causa de um bônus que agora mudou de lugar
+      // some: manter ponto zero no histórico é o mesmo ruído que a criação já
+      // evita. Sem o título ela nunca teria sido escrita.
+      if (!points) {
+        await tx.rankingPoint.delete({ where: { id: linha.id } });
+        continue;
+      }
+
+      const jaEstaCerta = linha.overallBonus === overallBonus
+        && linha.isOverallChampion === ehPortadora
+        && linha.points === points
+        && linha.superOverallPoints === superOverallPoints;
+      if (jaEstaCerta) continue;
+
+      await tx.rankingPoint.update({
+        where: { id: linha.id },
+        data: { overallBonus, isOverallChampion: ehPortadora, points, superOverallPoints }
+      });
+    }
+  }
+}
+
 /**
  * Atribui pontos de ranking a partir de um resultado publicado.
  * Idempotente: a constraint (seasonId, athleteId, resultId) impede que a mesma
@@ -189,6 +286,12 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
         if (error.code !== 'P2002') throw error;
       }
     }
+
+    // Depois de escrever as linhas desta classe, reconcilia o bônus do evento
+    // inteiro: é o único ponto do fluxo que enxerga todas as participações do
+    // campeão ao mesmo tempo.
+    await normalizarBonusOverall(tx, { eventId: result.eventId, seasonId });
+
     return total;
   });
 
