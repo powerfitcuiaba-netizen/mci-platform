@@ -876,18 +876,32 @@ describe('11.3) pontos do campeonato × pontos do Super Overall', () => {
     }
   });
 
-  it('TESTE 9 (integrado) — Overall em classe não elegível soma no campeonato, não no anual', async () => {
-    await eventoPontuado({
-      colocacoes: ['NOVICE COM OVERALL', 'OUTRA NOVICE'],
-      classe: 'NOVICE',
-      overall: 'NOVICE COM OVERALL'
+  it('TESTE 9 (integrado) — o Overall é RECUSADO fora da absoluta [REGRA VIGENTE]', async () => {
+    // ATUALIZADO. Este teste provava a leitura da fase 11.4: o Overall numa
+    // classe não elegível somava 15 no campeonato e 0 no anual. O responsável
+    // REVOGOU essa leitura — o +10 é do campeão da absoluta, e de mais
+    // ninguém.
+    //
+    // Agora a plataforma nem chega a pontuar: a declaração do título é
+    // recusada na porta, com código próprio, porque quem não disputou a
+    // absoluta não pode ser campeão dela. A colocação segue valendo 5.
+    const { event, inscritos } = await eventoPontuado({
+      colocacoes: ['NOVICE SEM ABSOLUTA', 'OUTRA NOVICE'],
+      classe: 'NOVICE'
     });
 
-    const [ponto] = await pontosDe('NOVICE COM OVERALL');
-    expect(ponto.placementPoints).toBe(5);
-    expect(ponto.overallBonus).toBe(10);
-    expect(ponto.points, '5 + 10 no campeonato').toBe(15);
-    expect(ponto.superOverallPoints, 'o bônus segue a elegibilidade da participação').toBe(0);
+    const campeao = inscritos.find(item => item.nome === 'NOVICE SEM ABSOLUTA');
+    const declarado = await api().post(`/api/v1/events/${event.id}/overall`).set(diretor.auth())
+      .send({ athleteId: campeao.athleteId });
+
+    expect(declarado.status, JSON.stringify(declarado.body)).toBe(422);
+    expect(declarado.body.error.code).toBe('OVERALL_REQUIRES_ABSOLUTE_CLASS');
+
+    const [ponto] = await pontosDe('NOVICE SEM ABSOLUTA');
+    expect(ponto.placementPoints, 'a colocação não foi tocada').toBe(5);
+    expect(ponto.overallBonus).toBe(0);
+    expect(ponto.points).toBe(5);
+    expect(ponto.superOverallPoints, 'não elegível não alimenta o anual').toBe(0);
   });
 
   it('TESTE 18 — resultado NÃO publicado não aparece em ranking nenhum', async () => {

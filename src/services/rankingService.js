@@ -112,17 +112,20 @@ async function pointsForPlacing(seasonId, placing) {
 //
 // Qual participação carrega o bônus (escolha de LOCALIZAÇÃO, não de mérito —
 // o total do atleta é o mesmo em qualquer uma):
-//   1. a participação ELEGÍVEL (a classe absoluta/OPEN), que é a que dá o
-//      título; o bônus fica onde o título foi ganho, e é o que faz ele entrar
-//      também no Super Overall anual;
-//   2. na falta dela, a melhor colocação;
+//   1. só participações na classe ABSOLUTA são candidatas. REGRA VIGENTE: o
+//      +10 é do campeão da absoluta e de mais ninguém, então uma participação
+//      em Novice, Master ou qualquer outra divisão NUNCA carrega o bônus —
+//      nem como último recurso. Sem participação na absoluta não há bônus;
+//   2. entre as candidatas, a melhor colocação;
 //   3. persistindo o empate, o menor id em comparação byte a byte — pelo mesmo
 //      motivo de `chaveDeSequencia` em rankingScoring.js: sem isso a escolha
 //      passaria a depender da ordem física das linhas no PostgreSQL, e um
 //      `pg_restore` moveria o bônus de lugar.
 function escolherPortadoraDoBonus(linhas) {
-  return [...linhas].sort((a, b) => {
-    if (a.superOverallEligible !== b.superOverallEligible) return a.superOverallEligible ? -1 : 1;
+  const candidatas = linhas.filter(linha => linha.superOverallEligible);
+  if (!candidatas.length) return null;
+
+  return [...candidatas].sort((a, b) => {
     const colocacaoA = a.placing ?? Number.MAX_SAFE_INTEGER;
     const colocacaoB = b.placing ?? Number.MAX_SAFE_INTEGER;
     if (colocacaoA !== colocacaoB) return colocacaoA - colocacaoB;
@@ -159,10 +162,12 @@ async function normalizarBonusOverall(tx, { eventId, seasonId }) {
     });
     if (!linhas.length) continue;
 
+    // Nula quando o atleta não tem nenhuma participação na absoluta: aí o
+    // título existe, mas não gera bônus em lugar nenhum.
     const portadora = escolherPortadoraDoBonus(linhas);
 
     for (const linha of linhas) {
-      const ehPortadora = linha.id === portadora.id;
+      const ehPortadora = Boolean(portadora) && linha.id === portadora.id;
       const overallBonus = ehPortadora ? BONUS_OVERALL : 0;
       const points = linha.placementPoints + overallBonus;
       const superOverallPoints = linha.superOverallEligible ? points : 0;
@@ -293,6 +298,9 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
     let total = 0;
     for (const entry of classificados) {
       const ehCampeaoOverall = campeoesOverall.has(entry.athleteId);
+      // `pontuarResultado` já aplica a regra vigente: o bônus exige a absoluta.
+      // A normalização abaixo cuida do resto — que ele não se repita entre as
+      // participações do mesmo atleta.
       const { placementPoints, overallBonus, points, superOverallPoints } =
         pontuarResultado(entry.placing, tabela, ehCampeaoOverall, superOverallEligible);
 
@@ -311,7 +319,15 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
             affiliationId: vinculos.get(entry.athleteId)?.affiliationId ?? null,
             affiliationNumber: vinculos.get(entry.athleteId)?.affiliationNumber ?? null,
             placing: entry.placing,
-            placementPoints, overallBonus, isOverallChampion: ehCampeaoOverall,
+            // A marca segue o BÔNUS, não o título: ela diz "esta linha carrega
+            // o +10", que é o que os contadores de desempate precisam contar.
+            //
+            // Mutante equivalente conhecido: trocar por `ehCampeaoOverall` não
+            // é observável, porque `normalizarBonusOverall` reescreve o campo
+            // em toda linha alcançada por algum título — e uma linha só recebe
+            // `ehCampeaoOverall = true` se existir o título que a alcança.
+            // Fica a expressão mais honesta das duas.
+            placementPoints, overallBonus, isOverallChampion: overallBonus > 0,
             superOverallEligible,
             points,
             superOverallPoints,
@@ -549,6 +565,57 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
   if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
   if (athlete.organizationId !== event.organizationId) {
     throw new AppError(422, 'ATHLETE_OTHER_ORGANIZATION', 'Atleta de outra organização');
+  }
+
+  // REGRA VIGENTE: o Overall é o título da ABSOLUTA. Um atleta que não disputou
+  // a classe absoluta não pode receber o título — nem por engano de digitação,
+  // nem por decisão informal de operador.
+  //
+  // A conferência é FACTUAL, não de mérito: pergunta se o atleta ESTÁ INSCRITO
+  // numa classe marcada como absoluta neste evento. O sistema continua sem
+  // opinar sobre quem venceu — isso segue sendo fato declarado. O que ele
+  // recusa é declarar campeão da absoluta quem não estava nela.
+  //
+  // A verificação usa a INSCRIÇÃO, e não o resultado: no momento de declarar, o
+  // resultado pode ainda não estar publicado, e exigir publicação prévia
+  // inverteria a ordem real do trabalho do operador.
+  const absolutas = await prisma.registrationItem.findMany({
+    where: {
+      registration: { eventId, athleteId },
+      status: { not: 'CANCELLED' },
+      competitionClass: {
+        ...(categoryId ? { division: { eventCategory: { categoryId } } } : {})
+      }
+    },
+    select: {
+      competitionClass: {
+        select: {
+          code: true, superOverallEligible: true,
+          division: { select: { eventCategory: { select: { categoryId: true } } } }
+        }
+      }
+    }
+  });
+
+  const catalogo = new Map(
+    (await prisma.classCatalog.findMany({
+      where: { organizationId: event.organizationId },
+      select: { code: true, superOverallEligible: true }
+    })).map(classe => [classe.code, classe.superOverallEligible])
+  );
+
+  // A classe do evento manda; na ausência da marca nela, vale o catálogo da
+  // organização — exatamente a mesma resolução que `awardForResult` usa, para
+  // que declarar e pontuar nunca discordem sobre o que é a absoluta.
+  const disputouAbsoluta = absolutas.some(item =>
+    item.competitionClass.superOverallEligible || Boolean(catalogo.get(item.competitionClass.code))
+  );
+
+  if (!disputouAbsoluta) {
+    throw new AppError(
+      422, 'OVERALL_REQUIRES_ABSOLUTE_CLASS',
+      'O título Overall é da classe absoluta: o atleta não tem participação em classe absoluta neste evento'
+    );
   }
 
   // `upsert` não serve aqui: o Prisma não aceita valor nulo dentro de chave

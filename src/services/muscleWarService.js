@@ -25,7 +25,7 @@ const SOURCE = 'MUSCLEWAR';
 // mesmo resultado não gera segunda pontuação.
 // ============================================================================
 
-async function analisarLinha(registro, organizationId, seasonId) {
+async function analisarLinha(registro, organizationId, seasonId, catalogoDeClasses = null) {
   // Sem identificador externo não há como garantir idempotência para a linha.
   if (!registro.externalResultId) {
     return { matchStatus: 'IMPORT_REJECTED', reason: 'Registro sem identificador externo (external_result_id)', athleteId: null };
@@ -103,8 +103,16 @@ async function analisarLinha(registro, organizationId, seasonId) {
     // derivada de colocação + Overall + temporada, é conferida contra a regra
     // oficial. Divergir não se resolve em silêncio — nem sobrescrevendo o
     // arquivo, nem confiando nele.
+    // A elegibilidade da CLASSE entra na conferência porque entrou na regra:
+    // pela regra vigente o +10 só vale na absoluta, então conferir sem saber a
+    // classe calcularia 5 onde o arquivo, corretamente, informa 15 — e a
+    // pré-visualização acusaria conflito onde não há.
+    const superOverallEligible = Boolean(
+      registro.className && catalogoDeClasses?.get(registro.className.trim().toUpperCase())
+    );
+
     const divergencia = conferirPontuacaoImportada(
-      registro.placing, tabela, registro.isOverallChampion === true, registro.points
+      registro.placing, tabela, registro.isOverallChampion === true, registro.points, superOverallEligible
     );
 
     if (divergencia) {
@@ -112,7 +120,7 @@ async function analisarLinha(registro, organizationId, seasonId) {
         matchStatus: 'CONFLICT',
         reason: `Pontuação divergente: o arquivo informa ${divergencia.importedPoints}, `
           + `a regra oficial da temporada calcula ${divergencia.calculatedPoints} `
-          + `(colocação ${registro.placing}${registro.isOverallChampion === true ? ' + Overall' : ''}), `
+          + `(colocação ${registro.placing}${registro.isOverallChampion === true && superOverallEligible ? ' + Overall' : ''}), `
           + `diferença de ${divergencia.difference > 0 ? '+' : ''}${divergencia.difference}. `
           + 'Corrija o arquivo ou a tabela da temporada antes de aplicar.',
         athleteId: athlete.id,
@@ -144,6 +152,15 @@ async function createImport(data, actor) {
   const registros = adapter.parse(data.sourceType, data.content, { fieldMap: data.fieldMap });
   if (!registros.length) throw new AppError(422, 'IMPORT_EMPTY', 'Nenhum registro encontrado na origem');
 
+  // Catálogo de classes carregado UMA vez para o lote — a regra é a mesma para
+  // todas as linhas, e é o mesmo mapa que a aplicação usa depois.
+  const catalogoDeClasses = new Map(
+    (await prisma.classCatalog.findMany({
+      where: { organizationId: data.organizationId },
+      select: { code: true, superOverallEligible: true }
+    })).map(classe => [classe.code.toUpperCase(), classe.superOverallEligible])
+  );
+
   // Duplicidade dentro do próprio arquivo: a segunda ocorrência do mesmo
   // identificador é duplicada, não um segundo resultado.
   const vistos = new Set();
@@ -157,7 +174,7 @@ async function createImport(data, actor) {
       repetidoNoArquivo = true;
       analise = { matchStatus: 'DUPLICATE', reason: `Identificador ${registro.externalResultId} repetido no próprio arquivo`, athleteId: null };
     } else {
-      analise = await analisarLinha(registro, data.organizationId, data.seasonId ?? null);
+      analise = await analisarLinha(registro, data.organizationId, data.seasonId ?? null, catalogoDeClasses);
       if (registro.externalResultId) vistos.add(registro.externalResultId);
     }
     analisados.push({ registro, analise, repetidoNoArquivo });

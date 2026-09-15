@@ -59,6 +59,32 @@ beforeEach(async () => {
 });
 
 describe('importação MuscleWar', () => {
+  it('a conferência de pontos sabe que o bônus Overall exige a absoluta', async () => {
+    // A temporada deste arquivo tem tabela PRÓPRIA (1º=100), cadastrada no
+    // beforeAll: a conferência lê a tabela da temporada, não a homologada.
+    //
+    // REGRA VIGENTE: o +10 só existe na absoluta. Uma linha de Overall na OPEN
+    // vale 100 + 10 = 110; a MESMA linha na NOVICE vale 100, porque o bônus
+    // não é dela. Conferir sem olhar a classe daria o mesmo número nos dois
+    // casos — e acusaria conflito num arquivo correto.
+    const comOverall = linhas => ['external_result_id,cpf,atleta,filiacao,categoria,classe,colocacao,pontos,overall,evento', ...linhas].join('\n');
+
+    const resposta = await importar(comOverall([
+      `OV-1,${CPF_A},Atleta Reconhecida,FED-MT,BIKINI,OPEN,1,110,sim,Etapa Overall`,
+      `OV-2,${CPF_A},Atleta Reconhecida,FED-MT,BIKINI,NOVICE,1,100,sim,Etapa Overall`,
+      `OV-3,${CPF_A},Atleta Reconhecida,FED-MT,BIKINI,NOVICE,1,110,sim,Etapa Overall`
+    ]));
+    expect(resposta.status, JSON.stringify(resposta.body)).toBe(201);
+
+    const porId = Object.fromEntries(resposta.body.items.map(item => [item.externalResultId, item]));
+
+    expect(porId['OV-1'].matchStatus, 'Overall na absoluta: 100 + 10 confere').toBe('MATCHED');
+    expect(porId['OV-2'].matchStatus, 'Overall fora da absoluta: 100 confere').toBe('MATCHED');
+    expect(porId['OV-3'].matchStatus, 'creditar +10 fora da absoluta é divergência').toBe('CONFLICT');
+    expect(porId['OV-3'].reason).toMatch(/Pontuação divergente/);
+    expect(porId['OV-3'].reason).toMatch(/calcula 100/);
+  });
+
   it('pré-visualiza classificando cada linha antes de aplicar qualquer coisa', async () => {
     const resposta = await importar(csv([
       `MW-1,${CPF_A},Atleta Reconhecida,FED-MT,BIKINI,OPEN,1,100,Etapa MuscleWar`,

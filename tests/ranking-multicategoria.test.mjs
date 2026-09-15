@@ -54,6 +54,16 @@ async function eventoComClasses(classes, { categoryCode = 'BIKINI' } = {}) {
     const classe = await api().post(`/api/v1/divisions/${division.body.id}/classes`)
       .set(diretor.auth()).send({ name: definicao.name, code: definicao.code });
     expect(classe.status, JSON.stringify(classe.body)).toBe(201);
+
+    // Elegibilidade marcada NA CLASSE quando o teste precisa de duas
+    // absolutas com códigos distintos: o catálogo da organização resolve por
+    // código, e a marca da própria classe é a outra fonte que o motor já lê.
+    if (definicao.elegivel) {
+      await comoAtor(diretor, tx => tx.competitionClass.update({
+        where: { id: classe.body.id }, data: { superOverallEligible: true }
+      }));
+    }
+
     montadas.push({ ...definicao, id: classe.body.id, divisionId: division.body.id });
   }
 
@@ -299,47 +309,49 @@ describe('B) o bônus Overall vale UMA VEZ — não multiplica por participaçã
     expect(pontos.every(ponto => ponto.points > 0)).toBe(true);
   });
 
-  it('sem participação absoluta, o bônus fica na MELHOR colocação', async () => {
-    // Nenhuma das duas classes é elegível ao Super Overall. O critério de
-    // localização cai para a colocação — e não para a ordem em que as classes
-    // foram pontuadas.
+  it('sem participação absoluta NÃO há bônus — e a declaração nem é aceita', async () => {
+    // REGRA VIGENTE. Antes, o bônus caía na melhor colocação quando não havia
+    // participação na absoluta. Agora não cai em lugar nenhum: o +10 é do
+    // campeão da absoluta, então quem não a disputou não recebe o título —
+    // a plataforma recusa a declaração na porta.
     const { event, classes } = await eventoComClasses([
       { division: 'Até 160cm', divisionCode: 'ATE160', name: 'Novice', code: 'NOVICE' },
       { division: 'Até 166cm', divisionCode: 'ATE166', name: 'Master', code: 'MASTER' }
     ]);
 
-    await disputar(event, classes, {
+    const atletas = await disputar(event, classes, {
       colocacoes: {
         NOVICE: ['N1', 'N2', 'CAMPEA'],
         MASTER: ['CAMPEA', 'M2']
-      },
-      overall: 'CAMPEA'
+      }
     });
 
-    const pontos = await pontosDe('CAMPEA');
-    const primeira = pontos.find(ponto => ponto.placing === 1);
-    const terceira = pontos.find(ponto => ponto.placing === 3);
+    const declarado = await api().post(`/api/v1/events/${event.id}/overall`).set(diretor.auth())
+      .send({ athleteId: atletas.get('CAMPEA').athleteId });
+    expect(declarado.status, JSON.stringify(declarado.body)).toBe(422);
+    expect(declarado.body.error.code).toBe('OVERALL_REQUIRES_ABSOLUTE_CLASS');
 
-    expect(primeira.overallBonus, 'o bônus vai para o 1º lugar').toBe(10);
-    expect(terceira.overallBonus).toBe(0);
-    // 5 + 3 = 8 de colocação, +10 uma vez.
-    expect(somar(pontos, 'points')).toBe(18);
-    // Nenhuma das duas é elegível: o anual não recebe nada.
+    const pontos = await pontosDe('CAMPEA');
+    // 5 (1º na Master) + 3 (3º na Novice) = 8. A colocação não foi tocada.
+    expect(somar(pontos, 'placementPoints')).toBe(8);
+    expect(somar(pontos, 'overallBonus'), 'sem absoluta, sem bônus').toBe(0);
+    expect(somar(pontos, 'points')).toBe(8);
     expect(somar(pontos, 'superOverallPoints')).toBe(0);
   });
 
   it('empate total na escolha do portador é resolvido por id — e nunca por ordem física', async () => {
-    // Duas classes não elegíveis, ambas com 1º lugar: o critério de
-    // elegibilidade e o de colocação não separam. Sem uma chave estável, qual
-    // linha carrega o bônus passaria a depender da ordem física das linhas no
-    // PostgreSQL — e um `pg_restore` moveria o bônus de lugar.
+    // Duas participações na ABSOLUTA (duas divisões de altura, ambas OPEN),
+    // as duas com 1º lugar: o critério de elegibilidade e o de colocação não
+    // separam. Sem uma chave estável, qual linha carrega o bônus passaria a
+    // depender da ordem física das linhas no PostgreSQL — e um `pg_restore`
+    // moveria o bônus de lugar.
     const { event, classes } = await eventoComClasses([
-      { division: 'Até 160cm', divisionCode: 'ATE160', name: 'Novice', code: 'NOVICE' },
-      { division: 'Até 166cm', divisionCode: 'ATE166', name: 'Master', code: 'MASTER' }
+      { division: 'Até 160cm', divisionCode: 'ATE160', name: 'Open', code: 'OPEN' },
+      { division: 'Até 166cm', divisionCode: 'ATE166', name: 'Open', code: 'OPEN_B', elegivel: true }
     ]);
 
     await disputar(event, classes, {
-      colocacoes: { NOVICE: ['CAMPEA', 'N2'], MASTER: ['CAMPEA', 'M2'] },
+      colocacoes: { OPEN: ['CAMPEA', 'N2'], OPEN_B: ['CAMPEA', 'M2'] },
       overall: 'CAMPEA'
     });
 
