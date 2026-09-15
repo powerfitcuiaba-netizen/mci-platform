@@ -7,6 +7,7 @@ const prisma = require('../config/prisma');
 const publico = require('../config/prismaPublico');
 const { AppError } = require('../utils/errors');
 const { assertCan, organizationFilter } = require('../utils/tenant');
+const { can, belongsToOrganization } = require('../utils/permissions');
 const audit = require('./auditService');
 const {
   TABELA_OFICIAL_COLOCACAO, BONUS_OVERALL, pontuarResultado, contadores, classificar
@@ -478,7 +479,7 @@ async function temporadaPadrao(organizationId = null) {
   });
 }
 
-async function teamRanking(seasonId, { categoryId = null, organizationId = null } = {}) {
+async function teamRanking(seasonId, { categoryId = null, organizationId = null } = {}, actor = null) {
   if (!seasonId) {
     const temporada = await temporadaPadrao(organizationId);
     if (!temporada) return [];
@@ -526,7 +527,7 @@ async function teamRanking(seasonId, { categoryId = null, organizationId = null 
 
   const linhas = [...acumulado.values()].map(linha => ({ ...linha, ...contadores(linha.pontos) }));
 
-  return classificar(linhas).map(linha => ({
+  return projetar(recortarParaOPublico(classificar(linhas), await vistaPublicaDaTemporada(seasonId, actor)), linha => ({
     position: linha.position,
     tieUnresolved: linha.tieUnresolved,
     team: linha.team,
@@ -672,7 +673,7 @@ async function listOverall(eventId) {
  * apontando para o resultado do atleta que a originou, e não há um agregado
  * paralelo para manter sincronizado.
  */
-async function companyRanking(seasonId, { categoryId = null, organizationId = null } = {}) {
+async function companyRanking(seasonId, { categoryId = null, organizationId = null } = {}, actor = null) {
   if (!seasonId) {
     const temporada = await temporadaPadrao(organizationId);
     if (!temporada) return [];
@@ -714,7 +715,7 @@ async function companyRanking(seasonId, { categoryId = null, organizationId = nu
 
   const linhas = [...acumulado.values()].map(linha => ({ ...linha, ...contadores(linha.pontos) }));
 
-  return classificar(linhas).map(linha => ({
+  return projetar(recortarParaOPublico(classificar(linhas), await vistaPublicaDaTemporada(seasonId, actor)), linha => ({
     position: linha.position,
     tieUnresolved: linha.tieUnresolved,
     company: linha.company,
@@ -754,7 +755,7 @@ async function companyRanking(seasonId, { categoryId = null, organizationId = nu
  * origem traz a classe como texto, sem vínculo com a classe de um evento do
  * MCI. É limite do dado recebido, não do motor.
  */
-async function athleteRankingBy(seasonId, { classId = null, eventId = null, divisionId = null, categoryId = null, limit = null, offset = 0 } = {}) {
+async function athleteRankingBy(seasonId, { classId = null, eventId = null, divisionId = null, categoryId = null, limit = null, offset = 0 } = {}, actor = null) {
   const where = { seasonId, ...(categoryId ? { categoryId } : {}) };
 
   if (eventId) where.eventId = eventId;
@@ -793,7 +794,7 @@ async function athleteRankingBy(seasonId, { classId = null, eventId = null, divi
 
   const linhas = [...acumulado.values()].map(linha => ({ ...linha, ...contadores(linha.pontos) }));
 
-  return paginar(classificar(linhas), { limit, offset }).map(linha => ({
+  return projetar(recortarParaOPublico(paginar(classificar(linhas), { limit, offset }), await vistaPublicaDaTemporada(seasonId, actor)), linha => ({
     position: linha.position,
     tieUnresolved: linha.tieUnresolved,
     athlete: linha.athlete,
@@ -814,7 +815,7 @@ function paginar(classificados, { limit = null, offset = 0 } = {}) {
   return classificados.slice(offset, limit == null ? undefined : offset + limit);
 }
 
-async function superOverallRanking(seasonId, { categoryId = null, limit = null, offset = 0, organizationId = null } = {}) {
+async function superOverallRanking(seasonId, { categoryId = null, limit = null, offset = 0, organizationId = null } = {}, actor = null) {
   if (!seasonId) {
     const temporada = await temporadaPadrao(organizationId);
     if (!temporada) return { items: [], season: null };
@@ -857,7 +858,7 @@ async function superOverallRanking(seasonId, { categoryId = null, limit = null, 
 
   const linhas = [...acumulado.values()].map(linha => ({ ...linha, ...contadores(linha.pontos) }));
 
-  return paginar(classificar(linhas), { limit, offset }).map(linha => ({
+  return projetar(recortarParaOPublico(paginar(classificar(linhas), { limit, offset }), await vistaPublicaDaTemporada(seasonId, actor)), linha => ({
     position: linha.position,
     tieUnresolved: linha.tieUnresolved,
     athlete: linha.athlete,
@@ -928,7 +929,80 @@ async function recompute(seasonId, actor) {
   return resultado;
 }
 
-async function list(filtros) {
+// ---------------------------------------------------------------------------
+// VISTA PÚBLICA: TOP 5.
+//
+// Decisão homologada: a superfície pública do ranking mostra os cinco
+// primeiros. O que a regra NÃO alcança, e o que está provado em
+// tests/ranking-publico-top5.test.mjs:
+//
+//   * o ledger (RankingPoint) e o agregado (Ranking), que seguem inteiros;
+//   * o ranking administrativo de quem opera a temporada;
+//   * o histórico individual do atleta, que tem rota e autorização próprias;
+//   * os filtros e a paginação do operador.
+//
+// Quem é "público" NÃO é "quem não está logado". É quem não tem `ranking.read`
+// na organização dona da temporada: um atleta autenticado de outra federação
+// vê o mesmo que o visitante anônimo. Privilégio vem do vínculo, nunca do
+// fato de haver um token — é a mesma regra do resto da plataforma.
+//
+// O corte é DECLARADO na resposta, nunca silencioso: quem consome precisa
+// saber que está vendo parte. E `nextCursor` volta nulo, porque oferecer
+// paginação para uma página que a regra não entrega seria convidar a pedir o
+// que não existe.
+const TOP_PUBLICO = 5;
+
+// A organização dona da TEMPORADA é quem decide se a vista é pública — nunca a
+// informada na query, que qualquer um pode escrever.
+async function vistaPublicaDaTemporada(seasonId, actor) {
+  if (!seasonId) return true;
+  const temporada = await publico.rankingSeason.findUnique({
+    where: { id: seasonId }, select: { organizationId: true }
+  });
+  return ehVistaPublica(actor, temporada?.organizationId ?? null);
+}
+
+// MEDIDO, não suposto: `ranking.read` sozinho NÃO separa operador de público.
+// Ela está em BASE_AUTENTICADO (src/utils/permissions.js) — todo mundo que se
+// cadastra a recebe, seja qual for o papel. Um atleta de outra federação
+// passaria no teste e veria a tabela inteira. Foi o que o teste
+// "autenticado SEM vínculo com a organização também é público" flagrou.
+//
+// O que separa é o VÍNCULO com a organização dona da temporada, que é o
+// sentido de "operador autorizado". `belongsToOrganization` já trata
+// SUPER_ADMIN e ADMIN como cross-tenant. A permissão continua sendo exigida
+// junto: vínculo sem permissão de leitura de ranking não abre a tabela.
+function ehVistaPublica(actor, organizationId) {
+  if (!actor || !organizationId) return true;
+  return !(belongsToOrganization(actor, organizationId) && can(actor, 'ranking.read', organizationId));
+}
+
+// Aplica o teto quando a vista é pública. Recorta a lista JÁ classificada:
+// não reordena, não desempata e não mexe em `position` — quem estava empatado
+// continua empatado, com `position` nula, exatamente como saiu do motor.
+//
+// A marca `publicView` vai como propriedade NÃO ENUMERÁVEL: `JSON.stringify`
+// de um array ignora propriedades próprias, então o contrato de resposta segue
+// idêntico, e o controller tem como declarar o corte sem DEDUZIR pela
+// quantidade de linhas — deduzir rotularia como "cortada" uma lista que por
+// acaso tem cinco.
+function recortarParaOPublico(linhas, publico) {
+  return marcarVista(publico ? linhas.slice(0, TOP_PUBLICO) : linhas, publico);
+}
+
+function marcarVista(linhas, publico) {
+  Object.defineProperty(linhas, 'publicView', { value: publico === true, enumerable: false });
+  return linhas;
+}
+
+// `Array.prototype.map` devolve um array NOVO, e a marca não atravessa — foi
+// exatamente assim que o cabeçalho sumiu na primeira tentativa. Projetar por
+// aqui mantém a marca do lado de fora da projeção.
+function projetar(linhas, projecao) {
+  return marcarVista(linhas.map(projecao), linhas.publicView);
+}
+
+async function list(filtros, actor = null) {
   const where = {};
   if (filtros.seasonId) where.seasonId = filtros.seasonId;
   if (filtros.categoryId) where.categoryId = filtros.categoryId;
@@ -946,9 +1020,16 @@ async function list(filtros) {
     // filtro comum, válido para todo mundo do mesmo jeito (antes ele era
     // simplesmente ignorado para o anônimo).
     const temporada = await temporadaPadrao(filtros.organizationId);
-    if (!temporada) return { items: [], season: null, nextCursor: null };
+    if (!temporada) return { items: [], season: null, nextCursor: null, publicView: true, publicLimit: TOP_PUBLICO };
     where.seasonId = temporada.id;
   }
+
+  // A organização dona da TEMPORADA decide quem é público — não a informada na
+  // query, que qualquer um pode escrever.
+  const temporada = await publico.rankingSeason.findUnique({
+    where: { id: where.seasonId }, select: { id: true, name: true, year: true, organizationId: true }
+  });
+  const vistaPublica = ehVistaPublica(actor, temporada?.organizationId ?? null);
 
   const items = await publico.ranking.findMany({
     where,
@@ -966,14 +1047,19 @@ async function list(filtros) {
     // entre duas páginas. Não é desempate: quem está empatado continua com
     // `position` nula e `tieUnresolved` verdadeiro.
     orderBy: [{ position: 'asc' }, { totalPoints: 'desc' }, { id: 'asc' }],
-    take: filtros.limit,
-    ...(filtros.cursor ? { cursor: { id: filtros.cursor }, skip: 1 } : {})
+    // O teto do público entra no `take`: não adianta buscar 100 para devolver
+    // 5, e o cursor é ignorado porque a vista pública não pagina.
+    take: vistaPublica ? TOP_PUBLICO : filtros.limit,
+    ...(!vistaPublica && filtros.cursor ? { cursor: { id: filtros.cursor }, skip: 1 } : {})
   });
 
   return {
     items,
-    season: items[0]?.season ?? await publico.rankingSeason.findUnique({ where: { id: where.seasonId }, select: { id: true, name: true, year: true } }),
-    nextCursor: items.length === filtros.limit ? items[items.length - 1].id : null
+    season: items[0]?.season
+      ?? (temporada ? { id: temporada.id, name: temporada.name, year: temporada.year } : null),
+    nextCursor: !vistaPublica && items.length === filtros.limit ? items[items.length - 1].id : null,
+    publicView: vistaPublica,
+    publicLimit: TOP_PUBLICO
   };
 }
 
@@ -1009,6 +1095,7 @@ async function athletePoints(athleteId, seasonId, actor) {
 }
 
 module.exports = {
+  TOP_PUBLICO,
   createSeason, listSeasons, setPointsRules, pointsForPlacing, awardForResult,
   recompute, recompute_, list, athletePoints, teamRanking,
   declareOverall, listOverall, superOverallRanking, listClasses, upsertClass, companyRanking,
