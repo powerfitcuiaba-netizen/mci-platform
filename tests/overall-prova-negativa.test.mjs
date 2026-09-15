@@ -168,17 +168,38 @@ describe('B — o Overall legítimo', () => {
 
 // -------------------------------------------------------------------- D
 describe('D — declarar de novo não cria um segundo título', () => {
-  it('a segunda declaração ATUALIZA a mesma linha', async () => {
+  it('declarar OUTRO atleta é 409 — substituir em silêncio acabou [FASE 10]', async () => {
+    // ATUALIZADO. Este teste afirmava que a segunda declaração ATUALIZAVA a
+    // linha, trocando o campeão sem dizer nada. Era o comportamento de então, e
+    // a FASE 10 o classificou como defeito: título esportivo homologado não se
+    // troca como efeito colateral de um POST repetido, e não sobrava registro
+    // de quem havia sido declarado antes.
+    //
+    // O caminho de correção passou a ser explícito: revogar, com motivo, e
+    // declarar de novo. As duas operações ficam na trilha.
     const antes = await prisma.eventOverallTitle.findMany({ where: { eventId: evento.id, categoryId: null } });
     expect(antes.length).toBe(1);
 
     const resposta = await declarar(gerenteDeRanking, evento.id, { athleteId: atletaB.id, note: 'Correção' });
-    expect(resposta.status).toBe(201);
+    expect(resposta.status, JSON.stringify(resposta.body)).toBe(409);
+    expect(resposta.body.error.code).toBe('OVERALL_ALREADY_DECLARED');
 
     const depois = await prisma.eventOverallTitle.findMany({ where: { eventId: evento.id, categoryId: null } });
-    expect(depois.length, 'o evento passou a ter dois campeões Overall').toBe(1);
-    expect(depois[0].id, 'criou linha nova em vez de corrigir a existente').toBe(antes[0].id);
-    expect(depois[0].athleteId).toBe(atletaB.id);
+    expect(depois.length, 'continua um só título').toBe(1);
+    expect(depois[0].id, 'a mesma linha').toBe(antes[0].id);
+    expect(depois[0].athleteId, 'e o mesmo campeão: nada foi substituído').toBe(antes[0].athleteId);
+  });
+
+  it('repetir a MESMA declaração continua idempotente', async () => {
+    const antes = await prisma.eventOverallTitle.findMany({ where: { eventId: evento.id, categoryId: null } });
+    const campeao = antes[0].athleteId;
+
+    const resposta = await declarar(gerenteDeRanking, evento.id, { athleteId: campeao });
+    expect([200, 201]).toContain(resposta.status);
+
+    const depois = await prisma.eventOverallTitle.findMany({ where: { eventId: evento.id, categoryId: null } });
+    expect(depois.length).toBe(1);
+    expect(depois[0].id).toBe(antes[0].id);
   });
 
   it('duas declarações ao mesmo tempo continuam resultando em UM título', async () => {

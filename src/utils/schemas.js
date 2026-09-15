@@ -38,6 +38,12 @@ const buscaPublica = paginacao.extend({
 
 const paramsWithId = z.object({ id });
 
+// Dois ids no caminho. Precisa existir porque `validate(..., 'params')`
+// SUBSTITUI `req.params` pelo resultado do Zod, e o Zod descarta chave não
+// declarada: com `paramsWithId`, `titleId` chegava ao serviço como `undefined`
+// — e o Prisma respondia 500 numa rota de regra de negócio.
+const paramsComTitulo = z.object({ id, titleId: id });
+
 // ---------------------------------------------------------------- autenticação
 const authRegister = z.object({
   name: texto(2, 120),
@@ -462,6 +468,20 @@ const overallDeclare = z.object({
   note: opcional(texto(1, 300))
 });
 
+// Prévia da homologação. `athleteId` é obrigatório: prévia sem atleta não
+// tem o que prever.
+const overallPreviewQuery = z.object({
+  athleteId: id,
+  categoryId: id.optional()
+});
+
+// Revogação. O MOTIVO é obrigatório — revogar título homologado sem dizer por
+// quê deixa o próximo operador sem saber o que já foi analisado, que é o mesmo
+// raciocínio da recusa de solicitação de perfil.
+const overallRevoke = z.object({
+  reason: texto(3, 500)
+});
+
 const teamRankingQuery = z.object({
   seasonId: id.optional(),
   categoryId: id.optional(),
@@ -733,7 +753,9 @@ module.exports = {
   batchCreate, batchStatusUpdate, stageOrderSet,
   resultReceive, resultPublish, resultOverride,
   meuHistoricoQuery,
-  seasonCreate, pointsRuleSet, rankingQuery, rankingCutQuery, overallDeclare, teamRankingQuery,
+  paramsComTitulo,
+  seasonCreate, pointsRuleSet, rankingQuery, rankingCutQuery, overallDeclare,
+  overallPreviewQuery, overallRevoke, teamRankingQuery,
   classCatalogUpsert, superOverallQuery,
   muscleWarImportCreate, muscleWarLink,
   teamCreate, companyCreate, coachCreate, gymCreate, brandCreate, sponsorCreate, sponsorshipCreate,

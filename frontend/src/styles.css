@@ -412,6 +412,14 @@ h1, h2, h3 { margin: 0; }
   background: var(--superficie); border: 1px solid var(--linha-forte);
   border-radius: var(--raio); min-height: 40px; padding: 0 var(--e3); font-size: 12.5px;
   transition: border-color var(--t-rapido) ease, box-shadow var(--t-rapido) ease;
+  /* O `select` dimensiona pela opção mais LONGA, e nomes de campeonato são
+     longos: em 320px ele empurrava a página inteira para fora da viewport.
+     `max-width: 100%` mais `min-width: 0` o obrigam a caber e a reticenciar,
+     em vez de estourar. Encontrado pelo gate visual, e não pelos testes de
+     unidade — a largura do conteúdo só existe num navegador. */
+  max-width: 100%;
+  min-width: 0;
+  text-overflow: ellipsis;
 }
 .select-control:hover { border-color: #3b5064; }
 .select-control:focus { border-color: var(--ciano-puro); box-shadow: var(--brilho-ciano); outline: 0; }
@@ -1816,4 +1824,51 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
 
   .historico-tabela td.num { text-align: right; }
   .historico-tabela td small { display: block; }
+}
+
+/* Lista de definições da prévia de homologação: rótulo à esquerda, valor à
+   direita, como um comprovante. O operador está conferindo números antes de
+   assinar — alinhá-los em colunas é o que torna a conferência rápida. */
+.definicoes { margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.definicoes > div {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 16px;
+  padding: 7px 0; border-bottom: 1px solid var(--linha);
+}
+.definicoes > div:last-child { border-bottom: 0; }
+.definicoes dt { color: var(--cinza-fraco); font-size: 12px; }
+.definicoes dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Em 320px rótulo e valor não cabem lado a lado — "Total da participação"
+   sozinho já estoura a linha. Empilhar é melhor que encolher a fonte até o
+   operador precisar apertar os olhos num ato oficial. */
+@media (max-width: 400px) {
+  .definicoes > div { flex-direction: column; align-items: stretch; gap: 2px; }
+  .definicoes dd { text-align: left; }
+}
+
+/* A tabela de candidatos vira lista no telefone, pelo mesmo motivo do
+   histórico: cinco colunas não cabem em 320px, e rolar de lado esconde
+   justamente a coluna do botão. */
+@media (max-width: 760px) {
+  .homologacao-tabela thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .homologacao-tabela,
+  .homologacao-tabela tbody,
+  .homologacao-tabela tr,
+  .homologacao-tabela td { display: block; width: 100%; }
+  .homologacao-tabela tr {
+    border: 1px solid var(--linha); border-radius: var(--raio-caixa, 12px);
+    padding: 12px 14px; margin-bottom: 10px;
+  }
+  .homologacao-tabela td {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 14px; padding: 4px 0; border: 0; text-align: left;
+  }
+  .homologacao-tabela td::before {
+    content: attr(data-rotulo); color: var(--cinza-fraco); font-size: 11px;
+    letter-spacing: 0.04em; text-transform: uppercase; flex: 0 0 auto;
+  }
+  .homologacao-tabela td:last-child { justify-content: stretch; padding-top: 10px; }
+  .homologacao-tabela td:last-child::before { content: none; }
+  .homologacao-tabela td:last-child .button { width: 100%; }
+  .homologacao-tabela td.num { text-align: right; }
 }

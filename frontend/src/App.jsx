@@ -24,6 +24,7 @@ import { AdminResultados } from './pages/adminResults';
 import { AdminAuditoria, AdminConfiguracoes, AdminMuscleWar, AdminPainel, AdminRanking } from './pages/adminPlatform';
 import { MeuPainel, MinhaConta } from './pages/mePages';
 import { MeuHistorico, MinhaFiliacao } from './pages/minhaCarreira';
+import { AdminOverall } from './pages/adminOverall';
 import MinhaSolicitacao from './pages/minhaSolicitacao';
 import AdminSolicitacoes from './pages/adminSolicitacoes';
 
@@ -59,6 +60,9 @@ const NAVEGACAO_ADMIN = [
   { rota: 'admin/palco', rotulo: 'Palco', icone: Users2, permissao: 'stage.read' },
   { rota: 'admin/resultados', rotulo: 'Resultados', icone: ShieldCheck, permissao: 'results.read_unpublished' },
   { rota: 'admin/ranking', rotulo: 'Ranking', icone: Zap, permissao: 'ranking.manage' },
+  // Item PRÓPRIO, e não uma aba dentro de Ranking: homologar Overall é o ato
+  // esportivo oficial da plataforma, e precisa ser encontrável sem caça.
+  { rota: 'admin/overall', rotulo: 'Overall', icone: Trophy, permissao: 'ranking.manage' },
   { rota: 'admin/musclewar', rotulo: 'MuscleWar', icone: Upload, permissao: 'musclewar.review' },
   { rota: 'admin/auditoria', rotulo: 'Auditoria', icone: ShieldCheck, permissao: 'audit.read' },
   { rota: 'admin/configuracoes', rotulo: 'Configurações', icone: Settings, permissao: 'users.read' }
@@ -313,6 +317,7 @@ function Shell() {
         if (segundo === 'palco') return <AdminPalco notificar={notificar} />;
         if (segundo === 'resultados') return <AdminResultados notificar={notificar} />;
         if (segundo === 'ranking') return <AdminRanking notificar={notificar} />;
+        if (segundo === 'overall') return <AdminOverall notificar={notificar} />;
         if (segundo === 'musclewar') return <AdminMuscleWar notificar={notificar} />;
         if (segundo === 'auditoria') return <AdminAuditoria />;
         if (segundo === 'configuracoes') return <AdminConfiguracoes notificar={notificar} />;

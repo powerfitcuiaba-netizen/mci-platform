@@ -248,7 +248,18 @@ describe('o calendário não pede migration nenhuma', () => {
       // Lotes já importados ficam com os dois campos nulos, que é a verdade
       // sobre eles: foram analisados por um motor que não registrava o
       // critério.
-      '20260915230000_criterio_do_matching'
+      '20260915230000_criterio_do_matching',
+      // Um Overall por recorte, inclusive no recorte do EVENTO INTEIRO.
+      // ADITIVA: um índice único PARCIAL em "EventOverallTitle"(eventId) onde
+      // `categoryId IS NULL`.
+      //
+      // A unicidade `(eventId, categoryId)` não cobria esse caso: no
+      // PostgreSQL dois NULL são distintos, e dois títulos gerais cabiam na
+      // mesma tabela. A proteção mora no BANCO porque verificação em serviço
+      // perde a corrida entre duas requisições simultâneas.
+      //
+      // Nenhuma coluna criada, nenhuma linha alterada, nenhuma RLS tocada.
+      '20260916010000_um_overall_por_recorte'
     ]);
   });
 });

@@ -204,6 +204,12 @@ module.exports = {
     }, req.user)),
     teams: async (req, res) => declararCorte(req, res, await ranking.teamRanking(req.query.seasonId, { categoryId: req.query.categoryId ?? null, organizationId: req.query.organizationId ?? null }, req.user)),
     declareOverall: async (req, res) => res.status(201).json(await ranking.declareOverall(req.params.id, req.body, req.user)),
+    // Homologação do Overall: candidatos, prévia e revogação. `req.user` e os
+    // ids do CAMINHO — nada de organizationId vindo do corpo como prova de
+    // pertencimento.
+    overallCandidates: async (req, res) => res.json(await ranking.overallCandidates(req.params.id, req.user)),
+    overallPreview: async (req, res) => res.json(await ranking.overallPreview(req.params.id, req.query, req.user)),
+    revokeOverall: async (req, res) => res.json(await ranking.revokeOverall(req.params.id, req.params.titleId, req.body, req.user)),
     listOverall: async (req, res) => res.json({ items: await ranking.listOverall(req.params.id) }),
     superOverall: async (req, res) => declararCorte(req, res, await ranking.superOverallRanking(req.query.seasonId, {
       categoryId: req.query.categoryId ?? null,

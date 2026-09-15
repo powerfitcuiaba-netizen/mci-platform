@@ -400,3 +400,67 @@ pública; o número dentro dela, não: publicar o par (nome, matrícula) entrega
 a chave de reivindicação de histórico a qualquer visitante. O histórico do
 atleta não carrega CPF nem contato, e a revisão não devolve telefone ou e-mail
 do sugerido.
+
+---
+
+## Homologação administrativa do Overall (FASE 10)
+
+### O que a plataforma faz, e o que não faz
+
+Ela **registra** a decisão oficial da organização. Não calcula, não infere, não
+escolhe e não sugere campeão Overall. A tela administrativa existe para que
+esse registro seja feito com a informação à vista e o impacto conferido antes
+de assinar.
+
+### Fluxo
+
+1. **Candidatos** — `GET /events/:id/overall/candidates` lista **somente as
+   classes absolutas** do campeonato e quem competiu nelas, com colocação,
+   matrícula e filiação. A colocação aparece porque é fato do resultado
+   publicado; nenhum campo diz "este é o campeão", e todos os candidatos têm o
+   mesmo botão.
+2. **Prévia** — `GET /events/:id/overall/preview?athleteId=…` devolve a conta
+   aberta (colocação, +10, total da participação, impacto no acumulado) **sem
+   gravar nada**. Todas as validações da declaração rodam nela, de modo que uma
+   prévia que responde 200 é uma declaração que vai passar.
+3. **Confirmação explícita** — a homologação só ocorre no botão *Confirmar
+   homologação*. Um clique abre a prévia; ele não homologa.
+4. **Estado homologado** — o recorte passa a exibir *Overall declarado
+   oficialmente* e deixa de oferecer o botão de declarar.
+
+### Regras que a API impõe
+
+| Situação | Resposta |
+|---|---|
+| sem `ranking.manage` na organização do evento | `403` |
+| categoria que não é do campeonato | `422 CATEGORY_NOT_IN_EVENT` |
+| atleta sem participação em classe absoluta | `422 OVERALL_REQUIRES_ABSOLUTE_CLASS` |
+| atleta de outra organização | `422 ATHLETE_OTHER_ORGANIZATION` |
+| recorte já homologado, **outro** atleta | `409 OVERALL_ALREADY_DECLARED` |
+| recorte já homologado, **mesmo** atleta | idempotente — um título, um +10 |
+
+### Efeito no ponto
+
+`placementPoints` **não é alterado**. O bônus entra em `overallBonus`, na
+participação da classe absoluta, e `points = placementPoints + overallBonus`.
+Nenhuma outra participação recebe o +10, nenhum ponto novo é criado.
+
+Exemplo: Novice 1º (5), Master 2º (4), Open 3º (3) → total 12. Homologado o
+Overall na Open: Novice 5, Master 4, Open 13 → **22**. Nunca 15 + 14 + 13.
+
+### Correção
+
+Substituir em silêncio era o comportamento antigo, e foi classificado como
+defeito: trocava o campeão sem registro do que havia antes. O caminho agora é
+`DELETE /events/:id/overall/:titleId`, com **motivo obrigatório**, permissão
+`ranking.manage` e auditoria `OVERALL_REVOKE` — que guarda o campeão anterior,
+quem o declarara, quem revogou e por quê. Revogar retira o bônus e **preserva a
+colocação**. Depois de revogar, o recorte aceita um novo campeão.
+
+### Unicidade
+
+`@@unique([eventId, categoryId])` não protegia o Overall do evento inteiro: no
+PostgreSQL dois `NULL` são distintos. Um índice único **parcial** em
+`(eventId) WHERE categoryId IS NULL` fecha esse caso. A proteção mora no banco
+porque verificação em serviço perde a corrida entre duas requisições
+simultâneas.

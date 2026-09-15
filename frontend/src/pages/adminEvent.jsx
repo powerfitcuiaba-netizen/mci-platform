@@ -34,7 +34,14 @@ export function SeletorDeEvento({ eventId, onChange, filtroStatus }) {
   const falhou = Boolean(estado.error);
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+    // `minWidth: 0` e `maxWidth: '100%'` no INVÓLUCRO, e não só no `select`:
+    // um item de flex tem `min-width: auto` por padrão e se recusa a encolher
+    // abaixo do próprio conteúdo. Com nomes longos de campeonato o bloco ficava
+    // com 342px dentro de uma viewport de 320 e empurrava a página inteira para
+    // fora. `max-width: 100%` no filho não resolvia: 100% de 342 é 342.
+    //
+    // Medido pelo gate visual, que devolveu a geometria com nome e número.
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0, maxWidth: '100%' }}>
       <select
         className="select-control"
         value={eventId || ''}

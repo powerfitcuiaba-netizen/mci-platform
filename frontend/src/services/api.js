@@ -91,7 +91,13 @@ const get = (path, params) => apiRequest(withQuery(path, params));
 const post = (path, data) => apiRequest(path, { method: 'POST', body: JSON.stringify(data ?? {}) });
 const patch = (path, data) => apiRequest(path, { method: 'PATCH', body: JSON.stringify(data ?? {}) });
 const put = (path, data) => apiRequest(path, { method: 'PUT', body: JSON.stringify(data ?? {}) });
-const remove = path => apiRequest(path, { method: 'DELETE' });
+// DELETE com corpo opcional. A revogação do Overall exige MOTIVO, e motivo é
+// dado da operação — não cabe na query string, onde ficaria no log de acesso
+// do servidor junto com a URL.
+const remove = (path, data) => apiRequest(path, {
+  method: 'DELETE',
+  ...(data === undefined ? {} : { body: JSON.stringify(data) })
+});
 
 // O navegador monta o boundary do multipart sozinho: fixar Content-Type aqui
 // quebraria o envio.
@@ -268,6 +274,11 @@ export const api = {
     // chamava — o bônus Overall não tinha como ser concedido pelo produto.
     listarOverall: eventId => get(`/events/${eventId}/overall`),
     declararOverall: (eventId, dados) => post(`/events/${eventId}/overall`, dados),
+    // Homologação do Overall: candidatos, prévia e revogação. Nenhuma manda
+    // organizationId — o servidor deriva a organização do evento do caminho.
+    overallCandidates: eventId => get(`/events/${eventId}/overall/candidates`),
+    overallPreview: (eventId, params) => get(`/events/${eventId}/overall/preview`, params),
+    revokeOverall: (eventId, titleId, dados) => remove(`/events/${eventId}/overall/${titleId}`, dados),
     teams: params => get('/ranking/teams', params),
     companies: params => get('/ranking/companies', params),
     athletePoints: (id, params) => get(`/athletes/${id}/ranking-points`, params),

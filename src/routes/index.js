@@ -222,6 +222,14 @@ router.route('/events/:id/overall')
   .get(optionalAuth, validate(s.paramsWithId, 'params'), wrap(c.ranking.listOverall))
   .post(requireAuth, validate(s.paramsWithId, 'params'), validate(s.overallDeclare), wrap(c.ranking.declareOverall));
 
+// Homologação administrativa do Overall: os candidatos da classe absoluta, a
+// prévia do impacto e a revogação. Todas exigem `ranking.manage` NA
+// ORGANIZAÇÃO DO EVENTO — verificado no serviço, a partir do evento do
+// caminho, e nunca de um id enviado pelo cliente.
+router.get('/events/:id/overall/candidates', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.ranking.overallCandidates));
+router.get('/events/:id/overall/preview', requireAuth, validate(s.paramsWithId, 'params'), validate(s.overallPreviewQuery, 'query'), wrap(c.ranking.overallPreview));
+router.delete('/events/:id/overall/:titleId', requireAuth, validate(s.paramsComTitulo, 'params'), validate(s.overallRevoke), wrap(c.ranking.revokeOverall));
+
 router.get('/athletes/:id/ranking-points', requireAuth, validate(s.paramsWithId, 'params'), validate(s.rankingPointsQuery, 'query'), wrap(c.ranking.athletePoints));
 
 // ================================================================= MUSCLEWAR

@@ -568,6 +568,24 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
     throw new AppError(422, 'ATHLETE_OTHER_ORGANIZATION', 'Atleta de outra organização');
   }
 
+  // A CATEGORIA precisa ser deste evento.
+  //
+  // Antes, um recorte de outro campeonato simplesmente não encontrava
+  // participação e caía no erro de classe absoluta — que manda o operador
+  // procurar o problema no lugar errado. Erro semântico é o que permite
+  // corrigir a causa em vez de adivinhá-la.
+  if (categoryId) {
+    const doEvento = await prisma.eventCategory.findFirst({
+      where: { eventId, categoryId }, select: { id: true }
+    });
+    if (!doEvento) {
+      throw new AppError(
+        422, 'CATEGORY_NOT_IN_EVENT',
+        'A categoria informada não faz parte deste campeonato'
+      );
+    }
+  }
+
   // REGRA VIGENTE: o Overall é o título da ABSOLUTA. Um atleta que não disputou
   // a classe absoluta não pode receber o título — nem por engano de digitação,
   // nem por decisão informal de operador.
@@ -623,10 +641,26 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
   // única composta, e o recorte nulo é justamente o Overall do evento inteiro.
   const existente = await prisma.eventOverallTitle.findFirst({ where: { eventId, categoryId } });
 
+  // TROCAR CAMPEÃO HOMOLOGADO NÃO É EFEITO COLATERAL DE UM POST REPETIDO.
+  //
+  // Antes, declarar outro atleta no mesmo recorte simplesmente substituía o
+  // anterior — em silêncio, sem registro do que havia antes. Um título
+  // esportivo homologado não se troca assim: quem errou revoga, com motivo, e
+  // declara de novo. As duas operações ficam na trilha.
+  if (existente && existente.athleteId !== athleteId) {
+    throw new AppError(
+      409, 'OVERALL_ALREADY_DECLARED',
+      'Esta categoria já possui um Overall homologado. Revogue a homologação atual antes de declarar outro campeão.'
+    );
+  }
+
+  // Repetir a MESMA homologação é idempotente: o operador que clica duas vezes,
+  // ou dois operadores que confirmam o mesmo fato, não produzem dois títulos —
+  // nem dois bônus.
   const titulo = existente
     ? await prisma.eventOverallTitle.update({
       where: { id: existente.id },
-      data: { athleteId, note, declaredById: actor?.id ?? null, declaredAt: new Date() }
+      data: { note: note ?? existente.note, declaredById: actor?.id ?? null, declaredAt: new Date() }
     })
     : await prisma.eventOverallTitle.create({
       data: { eventId, athleteId, categoryId, note, declaredById: actor?.id ?? null }
@@ -649,6 +683,239 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
   }
 
   return titulo;
+}
+
+/**
+ * Candidatos à homologação: as classes ABSOLUTAS do evento e quem competiu
+ * nelas, com a colocação como FATO.
+ *
+ * A tela não destaca vencedor. A colocação aparece porque é informação
+ * factual do resultado publicado — mas nenhum campo diz "este é o Overall",
+ * porque o sistema não sabe e não deve sugerir. Quem declara é o operador.
+ *
+ * `select` explícito e mínimo: nome, matrícula e filiação bastam para
+ * identificar quem está em questão. CPF, telefone e endereço não entram — a
+ * tela resolve homologação, não consulta cadastro.
+ */
+async function overallCandidates(eventId, actor) {
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: {
+      id: true, name: true, slug: true, startDate: true, organizationId: true,
+      season: { select: { id: true, name: true, year: true } },
+      organization: { select: { id: true, name: true } }
+    }
+  });
+  if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Evento não encontrado');
+  assertCan(actor, 'ranking.manage', event.organizationId);
+
+  const catalogo = new Map(
+    (await prisma.classCatalog.findMany({
+      where: { organizationId: event.organizationId },
+      select: { code: true, superOverallEligible: true }
+    })).map(classe => [classe.code, classe.superOverallEligible])
+  );
+
+  const classes = await prisma.competitionClass.findMany({
+    where: { division: { eventCategory: { eventId } } },
+    select: {
+      id: true, name: true, code: true, superOverallEligible: true,
+      division: {
+        select: {
+          id: true, name: true, code: true,
+          eventCategory: { select: { categoryId: true, category: { select: { id: true, code: true, name: true } } } }
+        }
+      }
+    },
+    orderBy: [{ code: 'asc' }, { id: 'asc' }]
+  });
+
+  // A MESMA resolução de `awardForResult` e `declareOverall`: a marca da classe
+  // manda, e na ausência dela vale o catálogo. Três lugares discordando sobre o
+  // que é a absoluta seria pior que não ter a tela.
+  const absolutas = classes.filter(classe =>
+    classe.superOverallEligible || Boolean(catalogo.get(classe.code)));
+
+  if (!absolutas.length) return { event, items: [] };
+
+  // UMA consulta para todas as classes absolutas, e não uma por classe.
+  const entradas = await prisma.resultEntry.findMany({
+    where: {
+      result: { status: 'PUBLISHED', classId: { in: absolutas.map(c => c.id) } },
+      status: 'RANKED'
+    },
+    select: {
+      placing: true, status: true,
+      result: { select: { classId: true } },
+      athlete: {
+        select: {
+          id: true, fullName: true, stageName: true, affiliationNumber: true,
+          affiliation: { select: { id: true, name: true, code: true } }
+        }
+      }
+    },
+    orderBy: [{ placing: 'asc' }]
+  });
+
+  const titulos = await prisma.eventOverallTitle.findMany({
+    where: { eventId }, select: { id: true, athleteId: true, categoryId: true, declaredAt: true }
+  });
+
+  return {
+    event,
+    items: absolutas.map(classe => {
+      const categoryId = classe.division.eventCategory.categoryId;
+      const titulo = titulos.find(t => t.categoryId === categoryId) || titulos.find(t => t.categoryId === null) || null;
+
+      return {
+        competitionClass: { id: classe.id, name: classe.name, code: classe.code },
+        division: { id: classe.division.id, name: classe.division.name, code: classe.division.code },
+        category: classe.division.eventCategory.category,
+        // O título JÁ homologado deste recorte, se houver: é o que permite a
+        // tela mostrar "HOMOLOGADO" em vez de oferecer o botão de novo.
+        declaredTitle: titulo,
+        candidates: entradas
+          .filter(entrada => entrada.result.classId === classe.id)
+          .map(entrada => ({
+            placing: entrada.placing,
+            status: entrada.status,
+            athlete: { id: entrada.athlete.id, fullName: entrada.athlete.fullName, stageName: entrada.athlete.stageName },
+            affiliationNumber: entrada.athlete.affiliationNumber ?? null,
+            affiliation: entrada.athlete.affiliation
+          }))
+      };
+    })
+  };
+}
+
+/**
+ * Prévia da homologação: o impacto exato, SEM gravar nada.
+ *
+ * Existe porque o operador precisa ver a conta antes de assinar. Todas as
+ * validações da declaração rodam aqui — categoria do evento, organização do
+ * atleta, participação na absoluta —, de modo que a prévia que responde 200 é
+ * uma declaração que vai passar.
+ */
+async function overallPreview(eventId, { athleteId, categoryId = null }, actor) {
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { id: true, name: true, organizationId: true, seasonId: true }
+  });
+  if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Evento não encontrado');
+  assertCan(actor, 'ranking.manage', event.organizationId);
+
+  const athlete = await prisma.athlete.findUnique({
+    where: { id: athleteId },
+    select: {
+      id: true, fullName: true, stageName: true, organizationId: true, affiliationNumber: true,
+      affiliation: { select: { id: true, name: true, code: true } }
+    }
+  });
+  if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
+  if (athlete.organizationId !== event.organizationId) {
+    throw new AppError(422, 'ATHLETE_OTHER_ORGANIZATION', 'Atleta de outra organização');
+  }
+
+  const candidatos = await overallCandidates(eventId, actor);
+  const grupos = categoryId
+    ? candidatos.items.filter(grupo => grupo.category?.id === categoryId)
+    : candidatos.items;
+
+  const grupo = grupos.find(g => g.candidates.some(c => c.athlete.id === athleteId));
+  if (!grupo) {
+    throw new AppError(
+      422, 'OVERALL_REQUIRES_ABSOLUTE_CLASS',
+      'O título Overall é da classe absoluta: o atleta não tem participação publicada em classe absoluta neste evento'
+    );
+  }
+
+  const participacao = grupo.candidates.find(c => c.athlete.id === athleteId);
+
+  // Os pontos JÁ lançados daquela participação. Ler em vez de recalcular
+  // mantém a prévia honesta: ela mostra o que existe, e o que o +10 fará por
+  // cima — não um cálculo paralelo que pode divergir do motor.
+  const ponto = event.seasonId
+    ? await prisma.rankingPoint.findFirst({
+      where: { seasonId: event.seasonId, athleteId, eventId, classId: grupo.competitionClass.id },
+      select: { placementPoints: true, overallBonus: true, points: true }
+    })
+    : null;
+
+  const placementPoints = ponto?.placementPoints ?? 0;
+  const jaTemBonus = (ponto?.overallBonus ?? 0) > 0;
+
+  return {
+    event: { id: event.id, name: event.name },
+    athlete: {
+      id: athlete.id, fullName: athlete.fullName, stageName: athlete.stageName,
+      affiliationNumber: athlete.affiliationNumber ?? null, affiliation: athlete.affiliation
+    },
+    category: grupo.category,
+    competitionClass: grupo.competitionClass,
+    overallBonus: BONUS_OVERALL,
+    participation: {
+      placing: participacao.placing,
+      placementPoints,
+      pointsBefore: ponto?.points ?? placementPoints,
+      pointsAfter: placementPoints + BONUS_OVERALL
+    },
+    // Quanto o acumulado da temporada sobe. Zero quando o bônus já está lá —
+    // homologar de novo não soma, e a prévia diz isso antes de o operador
+    // clicar.
+    seasonImpact: jaTemBonus ? 0 : BONUS_OVERALL,
+    alreadyDeclared: Boolean(grupo.declaredTitle)
+  };
+}
+
+/**
+ * Revogação do título.
+ *
+ * Existe porque a alternativa era pior: antes, declarar outro atleta
+ * SUBSTITUÍA o campeão em silêncio, sem registro do que havia. Corrigir uma
+ * homologação é ato administrativo — tem autor, data e MOTIVO, e as duas
+ * operações ficam na trilha.
+ *
+ * O título é apagado da tabela de títulos (ele deixou de existir), mas a
+ * auditoria guarda quem era, quem revogou e por quê. Histórico de auditoria
+ * nunca é apagado.
+ */
+async function revokeOverall(eventId, titleId, { reason }, actor) {
+  const event = await prisma.event.findUnique({
+    where: { id: eventId }, select: { id: true, organizationId: true }
+  });
+  if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Evento não encontrado');
+  assertCan(actor, 'ranking.manage', event.organizationId);
+
+  const titulo = await prisma.eventOverallTitle.findUnique({
+    where: { id: titleId },
+    select: { id: true, eventId: true, athleteId: true, categoryId: true, declaredById: true, declaredAt: true }
+  });
+  if (!titulo || titulo.eventId !== eventId) {
+    throw new AppError(404, 'OVERALL_NOT_FOUND', 'Homologação não encontrada neste campeonato');
+  }
+
+  await prisma.eventOverallTitle.delete({ where: { id: titleId } });
+
+  await audit.record({
+    actor, action: 'OVERALL_REVOKE', entity: 'Event', entityId: eventId,
+    organizationId: event.organizationId,
+    metadata: {
+      titleId, athleteId: titulo.athleteId, categoryId: titulo.categoryId,
+      declaredById: titulo.declaredById, declaredAt: titulo.declaredAt,
+      reason
+    }
+  });
+
+  // Repontuar: tirar o título é fato novo sobre resultados que já existiam,
+  // exatamente como declará-lo. A colocação não é tocada — só o bônus sai.
+  const publicados = await prisma.result.findMany({
+    where: { eventId, status: 'PUBLISHED' }, select: { id: true }
+  });
+  for (const resultado of publicados) {
+    await awardForResult(resultado.id, actor, { recompute: true });
+  }
+
+  return { revoked: true, titleId, athleteId: titulo.athleteId, categoryId: titulo.categoryId };
 }
 
 async function listOverall(eventId) {
@@ -1098,7 +1365,8 @@ module.exports = {
   TOP_PUBLICO,
   createSeason, listSeasons, setPointsRules, pointsForPlacing, awardForResult,
   recompute, recompute_, list, athletePoints, teamRanking,
-  declareOverall, listOverall, superOverallRanking, listClasses, upsertClass, companyRanking,
+  declareOverall, listOverall, overallCandidates, overallPreview, revokeOverall,
+  superOverallRanking, listClasses, upsertClass, companyRanking,
   athleteRankingBy,
   TABELA_OFICIAL_COLOCACAO, BONUS_OVERALL
 };

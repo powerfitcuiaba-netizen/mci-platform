@@ -39,7 +39,7 @@ const DATABASE_URL = arg('db', env.QA_DATABASE_URL
 
 // As seis larguras pedidas. 320 é o piso real de telefone pequeno; 1440 é a
 // mesa de trabalho do operador.
-const LARGURAS = [320, 375, 390, 768, 1024, 1440];
+const LARGURAS = [320, 375, 390, 768, 1024, 1280, 1440];
 const LARGURAS_DE_TOQUE = new Set([320, 375, 390]);
 const ALVO_MINIMO = 40;
 
@@ -211,12 +211,14 @@ async function semear() {
       metodo: 'POST', token: tokenDiretor, corpo: { entries: [{ athleteId, placing: 1 }] }
     });
   }
-  await chamar(`/events/${evento.id}/overall`, { metodo: 'POST', token: tokenDiretor, corpo: { athleteId } });
+  // O Overall NÃO é declarado aqui de propósito: o gate precisa encontrar a
+  // tela COM candidatos e SEM homologação, que é o estado em que o operador a
+  // abre de verdade. Declarar na semeadura mediria só o estado final.
   for (const classe of classes) {
     await chamar(`/classes/${classe.id}/result/publish`, { metodo: 'POST', token: tokenDiretor, corpo: { note: 'QA' } });
   }
 
-  return { emailAtleta: atleta.user.email, emailDiretor: diretor.user.email };
+  return { emailAtleta: atleta.user.email, emailDiretor: diretor.user.email, eventoId: evento.id, athleteId };
 }
 
 // ------------------------------------------------------------------ medida
@@ -328,7 +330,7 @@ try {
   console.log('API no ar.');
 
   console.log('semeando dados de QA…');
-  const { emailAtleta } = await semear();
+  const { emailAtleta, emailDiretor, eventoId } = await semear();
 
   console.log('construindo e servindo o frontend…');
   execSync('npm run build', { cwd: 'frontend', stdio: 'pipe', env: { ...env, VITE_API_URL: `${BASE_API}` } });
@@ -345,18 +347,18 @@ try {
   const { chromium } = await import(CAMINHO_PLAYWRIGHT);
   const navegador = await chromium.launch(CHROMIUM ? { executablePath: CHROMIUM } : {});
   const contexto = await navegador.newContext({ viewport: { width: 1440, height: 900 } });
-  const pagina = await contexto.newPage();
+  const paginaAtleta = await contexto.newPage();
 
   const erros = new Set();
-  pagina.on('pageerror', erro => erros.add(String(erro).slice(0, 160)));
-  pagina.on('response', r => { if (r.status() >= 500) erros.add(`${r.status()} ${r.url().slice(0, 80)}`); });
+  paginaAtleta.on('pageerror', erro => erros.add(String(erro).slice(0, 160)));
+  paginaAtleta.on('response', r => { if (r.status() >= 500) erros.add(`${r.status()} ${r.url().slice(0, 80)}`); });
 
   // Entrar como o atleta.
-  await pagina.goto(`${BASE_WEB}/#entrar`, { waitUntil: 'networkidle' });
-  await pagina.fill('input[type="email"]', emailAtleta);
-  await pagina.fill('input[type="password"]', SENHA);
-  await pagina.click('button[type="submit"]');
-  await pagina.waitForTimeout(1500);
+  await paginaAtleta.goto(`${BASE_WEB}/#entrar`, { waitUntil: 'networkidle' });
+  await paginaAtleta.fill('input[type="email"]', emailAtleta);
+  await paginaAtleta.fill('input[type="password"]', SENHA);
+  await paginaAtleta.click('button[type="submit"]');
+  await paginaAtleta.waitForTimeout(1500);
 
   const TELAS = [
     { rota: 'minha-filiacao', rotulo: 'Minha filiação', esperado: /matrícula/i },
@@ -366,7 +368,7 @@ try {
   for (const tela of TELAS) {
     console.log(`\n--- ${tela.rotulo} ---`);
     for (const largura of LARGURAS) {
-      const m = await medirTela(pagina, tela.rota, largura);
+      const m = await medirTela(paginaAtleta, tela.rota, largura);
 
       conferir(
         `${tela.rotulo} @ ${largura}px — sem overflow horizontal`,
@@ -396,6 +398,140 @@ try {
       if (largura === 1440) {
         conferir(`${tela.rotulo} — a tela carregou o conteúdo esperado`, tela.esperado.test(m.texto),
           tela.esperado.test(m.texto) ? '' : m.texto.slice(0, 120).replace(/\n/g, ' | '));
+      }
+    }
+  }
+
+  // ------------------------------------------------ HOMOLOGAÇÃO DO OVERALL
+  //
+  // O fluxo inteiro, no navegador: entrar como OPERADOR, escolher o evento,
+  // ver os candidatos, abrir a prévia, confirmar e conferir o estado
+  // homologado. Medir só o layout provaria que a tela cabe; atravessar o fluxo
+  // prova que ela FUNCIONA.
+  console.log('\n--- Homologação do Overall (fluxo real) ---');
+
+  // CONTEXTO NOVO para o operador, em vez de deslogar o atleta.
+  //
+  // Limpar o localStorage e voltar para /#entrar não funciona: a sessão também
+  // vive no estado do React, e a aplicação redireciona quem já está
+  // autenticado — a tela de login nunca aparece, e o `fill` espera por um
+  // campo que não existe. Foi assim que este trecho reprovou na primeira
+  // execução. Um contexto limpo é a forma honesta de trocar de usuário.
+  const contextoOperador = await navegador.newContext({ viewport: { width: 1440, height: 900 } });
+  const pagina = await contextoOperador.newPage();
+  pagina.on('pageerror', erro => erros.add(String(erro).slice(0, 160)));
+  pagina.on('response', r => { if (r.status() >= 500) erros.add(`${r.status()} ${r.url().slice(0, 80)}`); });
+
+  await pagina.goto(`${BASE_WEB}/#entrar`, { waitUntil: 'networkidle' });
+  await pagina.fill('input[type="email"]', emailDiretor);
+  await pagina.fill('input[type="password"]', SENHA);
+  await pagina.click('button[type="submit"]');
+  await pagina.waitForTimeout(1500);
+
+  await pagina.setViewportSize({ width: 1440, height: 900 });
+  await pagina.goto(`${BASE_WEB}/#admin/overall`, { waitUntil: 'networkidle' });
+  await esperar(800);
+
+  const seletor = await pagina.$('select[aria-label="Selecionar evento"]');
+  conferir('a tela de homologação abre para o operador', Boolean(seletor));
+
+  if (seletor) {
+    await pagina.selectOption('select[aria-label="Selecionar evento"]', eventoId);
+    await esperar(1200);
+
+    const texto = await pagina.evaluate(() => document.body.innerText);
+    conferir('mostra o campeonato e a classe absoluta', /Etapa QA de Responsividade/.test(texto) && /Open/.test(texto));
+    conferir('NÃO oferece classe não absoluta', !/Novice|Master/i.test(texto), texto.match(/Novice|Master/i)?.[0] || '');
+
+    const botoes = await pagina.$$('button:has-text("Declarar Overall")');
+    conferir('cada candidato tem o mesmo botão — nenhum vem escolhido', botoes.length >= 1, `${botoes.length} botão(ões)`);
+
+    if (botoes.length) {
+      await botoes[0].click();
+      await esperar(900);
+      const dialogo = await pagina.$('[role="dialog"]');
+      conferir('o clique abre a PRÉVIA, e não homologa', Boolean(dialogo));
+
+      if (dialogo) {
+        const textoDialogo = await dialogo.innerText();
+        conferir('a prévia mostra a conta aberta (+10)', /\+10/.test(textoDialogo), textoDialogo.slice(0, 80).replace(/\n/g, ' | '));
+        conferir('a prévia diz que a plataforma não decide', /não calcula|não decide/i.test(textoDialogo));
+
+        // A prévia precisa caber nas larguras de telefone: modal cortado num
+        // ato oficial é o pior lugar possível para um defeito de layout.
+        for (const largura of [320, 375, 390]) {
+          await pagina.setViewportSize({ width: largura, height: 900 });
+          await esperar(300);
+          const m = await pagina.evaluate(() => {
+            const dlg = document.querySelector('[role="dialog"]');
+            if (!dlg) return null;
+            const r = dlg.getBoundingClientRect();
+            return { dentro: r.left >= -1 && r.right <= window.innerWidth + 1, doc: document.documentElement.scrollWidth > window.innerWidth + 1 };
+          });
+          conferir(`prévia @ ${largura}px — modal dentro da viewport`, Boolean(m?.dentro));
+          conferir(`prévia @ ${largura}px — sem overflow horizontal`, m ? !m.doc : false);
+        }
+
+        await pagina.setViewportSize({ width: 1440, height: 900 });
+        await esperar(300);
+        await pagina.click('button:has-text("Confirmar homologação")');
+        await esperar(1500);
+
+        const depois = await pagina.evaluate(() => document.body.innerText);
+        conferir('estado HOMOLOGADO aparece depois da confirmação', /Overall declarado oficialmente/i.test(depois),
+          depois.slice(0, 120).replace(/\n/g, ' | '));
+        conferir('o botão de declarar some do recorte homologado', !/Declarar Overall/.test(depois));
+        conferir('a correção existe como operação própria', /Revogar/i.test(depois));
+      }
+    }
+
+    // Layout da tela de homologação nas sete larguras, já no estado final.
+    for (const largura of LARGURAS) {
+      await pagina.setViewportSize({ width: largura, height: 900 });
+      await pagina.goto(`${BASE_WEB}/#admin/overall`, { waitUntil: 'networkidle' });
+      await esperar(400);
+      await pagina.selectOption('select[aria-label="Selecionar evento"]', eventoId).catch(() => {});
+      await esperar(900);
+
+      const m = await pagina.evaluate((alvoMinimo) => {
+        const larguraViewport = window.innerWidth;
+        const estourando = [...document.querySelectorAll('body *')].filter(el => {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) return false;
+          if (r.right <= larguraViewport + 1) return false;
+          for (let pai = el; pai && pai !== document.body; pai = pai.parentElement) {
+            const o = getComputedStyle(pai).overflowX;
+            if (o === 'auto' || o === 'scroll') return false;
+          }
+          return true;
+        }).slice(0, 5).map(el => {
+          const r = el.getBoundingClientRect();
+          const est = getComputedStyle(el);
+          return `${el.tagName.toLowerCase()}.${String(el.className || '').split(' ')[0]}`
+            + `[l=${Math.round(r.left)} w=${Math.round(r.width)} r=${Math.round(r.right)} minw=${est.minWidth} maxw=${est.maxWidth} disp=${est.display}]`;
+        });
+
+        const rolagem = [...document.querySelectorAll('.table-wrap')]
+          .filter(el => el.scrollWidth > el.clientWidth + 1).map(el => `${el.scrollWidth}>${el.clientWidth}`);
+
+        const pequenos = [...document.querySelectorAll('button, a[href], [role="button"]')].filter(el => {
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && r.height > 0 && (r.height < alvoMinimo || r.width < alvoMinimo);
+        }).slice(0, 5).map(el => `${el.tagName.toLowerCase()}:${(el.textContent || '').trim().slice(0, 18)}`);
+
+        return {
+          overflowDoc: document.documentElement.scrollWidth > larguraViewport + 1,
+          estourando, rolagem, pequenos,
+          carregou: /Homologação do Overall/i.test(document.body.innerText)
+        };
+      }, ALVO_MINIMO);
+
+      conferir(`Homologação @ ${largura}px — a tela carregou`, m.carregou);
+      conferir(`Homologação @ ${largura}px — sem overflow horizontal`, !m.overflowDoc);
+      conferir(`Homologação @ ${largura}px — nenhum elemento fora da viewport`, m.estourando.length === 0, m.estourando.join(', '));
+      if (LARGURAS_DE_TOQUE.has(largura)) {
+        conferir(`Homologação @ ${largura}px — sem rolagem lateral de tabela`, m.rolagem.length === 0, m.rolagem.join(', '));
+        conferir(`Homologação @ ${largura}px — alvos de toque >= ${ALVO_MINIMO}px`, m.pequenos.length === 0, m.pequenos.join(', '));
       }
     }
   }
