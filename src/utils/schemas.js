@@ -532,7 +532,17 @@ const muscleWarImportCreate = z.object({
   sourceRef: texto(1, 200),
   // O conteúdo bruto: texto CSV, JSON serializado ou corpo devolvido pela API.
   content: z.string().min(1).max(5_000_000),
-  fieldMap: z.record(z.string(), z.string()).optional()
+  fieldMap: z.record(z.string(), z.string()).optional(),
+  // Prefixo para DERIVAR o identificador de resultado quando o arquivo de
+  // origem não traz nenhum. Opcional de propósito: sem ele nada é derivado, e
+  // um arquivo sem identidade é recusado em vez de importado com uma chave
+  // inventada. O formato restrito mantém a chave legível na auditoria e no
+  // ledger — quem lê `IPIRANGA-88281-BIKINI_OPEN` sabe de onde o ponto veio.
+  externalIdPrefix: z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{1,39}$/,
+    'O prefixo aceita letras, números, hífen e sublinhado, entre 2 e 40 caracteres').optional(),
+  // Filiação de TODA a etapa, para arquivos que não trazem a coluna. Não
+  // sobrescreve linha que já declara a sua.
+  defaultAffiliationCode: opcional(texto(1, 40))
 });
 
 const muscleWarLink = z.object({ athleteId: id });

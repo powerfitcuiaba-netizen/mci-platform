@@ -426,7 +426,11 @@ async function createImport(data, actor) {
     if (!evento || evento.organizationId !== data.organizationId) throw new AppError(422, 'EVENT_INVALID', 'Evento inválido para esta organização');
   }
 
-  const registros = adapter.parse(data.sourceType, data.content, { fieldMap: data.fieldMap });
+  const registros = adapter.parse(data.sourceType, data.content, {
+    fieldMap: data.fieldMap,
+    externalIdPrefix: data.externalIdPrefix,
+    defaultAffiliationCode: data.defaultAffiliationCode
+  });
   if (!registros.length) throw new AppError(422, 'IMPORT_EMPTY', 'Nenhum registro encontrado na origem');
 
   // TETO DE LINHAS — medido, não estimado.

@@ -27,6 +27,12 @@ const MAPA_PADRAO = Object.freeze({
   externalResultId: ['external_result_id', 'externalresultid', 'id', 'result_id', 'resultado_id'],
   cpf: ['cpf', 'documento', 'document'],
   athleteName: ['athlete_name', 'atleta', 'nome', 'name'],
+  // O arquivo oficial de uma etapa NPC não traz o nome inteiro: traz `First
+  // Name` e `Last Name` em colunas separadas. Sem estas duas o nome chegava
+  // nulo, e a sugestão por nome — terceira chave do reconhecimento — ficava
+  // cega justamente nas linhas que mais precisam dela.
+  firstName: ['first_name', 'firstname', 'primeiro_nome'],
+  lastName: ['last_name', 'lastname', 'surname', 'sobrenome'],
   affiliationCode: ['affiliation_code', 'filiacao', 'filiacao_codigo', 'affiliation'],
   // Matrícula do atleta DENTRO da entidade de filiação. É o "Member Number"
   // dos arquivos oficiais, e na maioria deles é a única identificação que
@@ -185,6 +191,58 @@ const textoOuNulo = valor => {
   return texto === '' ? null : texto;
 };
 
+// Nome de exibição a partir do que o arquivo tiver. A composição só entra
+// quando NÃO existe coluna de nome inteiro: um cadastro que exporta o nome
+// completo já resolveu a questão, e recompor por cima dele trocaria o nome
+// oficial por uma concatenação.
+function nomeDeExibicao(registro, fieldMap) {
+  const inteiro = textoOuNulo(extrair(registro, 'athleteName', fieldMap));
+  if (inteiro) return inteiro;
+
+  const partes = [
+    textoOuNulo(extrair(registro, 'firstName', fieldMap)),
+    textoOuNulo(extrair(registro, 'lastName', fieldMap))
+  ].filter(Boolean);
+
+  // Acentuação e caixa saem como vieram: normalizar é trabalho do
+  // reconhecimento, e o que a tela mostra é o nome da pessoa.
+  return partes.length ? partes.join(' ') : null;
+}
+
+// Pedaço estável de uma chave derivada: mesma classe escrita de três jeitos
+// diferentes tem de produzir o mesmo identificador, senão a segunda
+// importação do MESMO arquivo reexportado duplicaria os pontos.
+const pedacoDeChave = valor => String(valor)
+  .trim()
+  .toUpperCase()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^A-Z0-9]+/g, '_')
+  .replace(/^_+|_+$/g, '');
+
+/**
+ * Identificador de resultado quando o arquivo não traz nenhum.
+ *
+ * DERIVAR É OPT-IN, E É DE PROPÓSITO. Um adapter que inventa identificador
+ * sempre que não acha um transforma "arquivo sem identidade" em "arquivo
+ * importado" — que é exatamente o acidente que a idempotência existe para
+ * impedir. Só deriva quando o operador declara o prefixo, e só quando as duas
+ * colunas que compõem a chave estão presentes: matrícula diz QUEM, classe diz
+ * QUAL participação. Faltando qualquer uma, a linha segue sem identificador e
+ * é recusada na validação, com motivo legível.
+ *
+ * A classe entra na chave porque a regra esportiva manda: cada participação é
+ * independente, e o mesmo atleta pontua em quantas classes disputar. Uma chave
+ * só de matrícula fundiria essas participações num DUPLICATE e apagaria pontos
+ * legítimos do acumulado.
+ */
+function derivarIdExterno(prefixo, memberNumber, className) {
+  if (!prefixo || !memberNumber || !className) return null;
+
+  const partes = [prefixo, memberNumber, className].map(pedacoDeChave);
+  return partes.every(Boolean) ? partes.join('-') : null;
+}
+
 /**
  * Traduz o conteúdo bruto recebido do MuscleWar para registros canônicos.
  *
@@ -206,7 +264,14 @@ function parse(sourceType, content, options = {}) {
     const cpfBruto = extrair(registro, 'cpf', options.fieldMap);
     const cpf = cpfBruto ? somenteDigitos(cpfBruto) : null;
 
-    const externalResultId = textoOuNulo(extrair(registro, 'externalResultId', options.fieldMap));
+    const memberNumber = textoOuNulo(extrair(registro, 'memberNumber', options.fieldMap));
+    const className = textoOuNulo(extrair(registro, 'className', options.fieldMap));
+
+    // O identificador do arquivo vem primeiro: quando a origem tem um, ele é a
+    // identidade do resultado, e derivar por cima dele criaria duas chaves para
+    // a mesma participação.
+    const externalResultId = textoOuNulo(extrair(registro, 'externalResultId', options.fieldMap))
+      ?? derivarIdExterno(options.externalIdPrefix, memberNumber, className);
 
     return {
       rowNumber: indice + 1,
@@ -215,13 +280,20 @@ function parse(sourceType, content, options = {}) {
       externalResultId,
       cpf: cpf && cpf.length === 11 ? cpf : null,
       cpfInvalido: Boolean(cpfBruto) && !isValidCpf(cpf),
-      athleteName: textoOuNulo(extrair(registro, 'athleteName', options.fieldMap)),
-      affiliationCode: textoOuNulo(extrair(registro, 'affiliationCode', options.fieldMap)),
+      athleteName: nomeDeExibicao(registro, options.fieldMap),
+      // A filiação declarada no lote só preenche o que o arquivo não trouxe.
+      // A etapa inteira ser de uma federação só é fato do EVENTO, não de cada
+      // linha, e o arquivo oficial não tem essa coluna — sem isto a chave #1
+      // do reconhecimento (filiação + matrícula) nunca fecharia e o arquivo
+      // inteiro cairia em revisão manual. O que o arquivo afirma continua
+      // valendo mais: sobrescrever seria trocar dado de origem por formulário.
+      affiliationCode: textoOuNulo(extrair(registro, 'affiliationCode', options.fieldMap))
+        ?? textoOuNulo(options.defaultAffiliationCode),
       categoryCode: textoOuNulo(extrair(registro, 'categoryCode', options.fieldMap)),
       divisionName: textoOuNulo(extrair(registro, 'divisionName', options.fieldMap)),
-      className: textoOuNulo(extrair(registro, 'className', options.fieldMap)),
+      className,
       placing: inteiroOuNulo(extrair(registro, 'placing', options.fieldMap)),
-      memberNumber: textoOuNulo(extrair(registro, 'memberNumber', options.fieldMap)),
+      memberNumber,
       isOverallChampion: booleanoDeOrigem(extrair(registro, 'isOverallChampion', options.fieldMap)),
       teamName: textoOuNulo(extrair(registro, 'teamName', options.fieldMap)),
       companyName: textoOuNulo(extrair(registro, 'companyName', options.fieldMap)),
