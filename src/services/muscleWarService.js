@@ -271,7 +271,13 @@ async function analisarLinha(registro, organizationId, seasonId, catalogoDeClass
   if (!registro.externalResultId) {
     return { matchStatus: 'IMPORT_REJECTED', reason: 'Registro sem identificador externo (external_result_id)', athleteId: null };
   }
-  if (registro.placing == null && registro.points == null) {
+  // Linha sem colocação E sem pontuação não tem o que pontuar — MENOS quando a
+  // origem afirma que o atleta não compareceu. NS é resultado: pela regra
+  // homologada vale 0, e valer 0 é ter participado. Recusar a linha fazia o
+  // ranking sair certo por acidente (zero é zero) enquanto o histórico do
+  // atleta perdia a participação e a tela chamava de inválida uma linha que
+  // o arquivo preencheu corretamente.
+  if (registro.placing == null && registro.points == null && !registro.didNotShow) {
     return { matchStatus: 'IMPORT_REJECTED', reason: 'Registro sem colocação nem pontuação', athleteId: null };
   }
   // CPF ausente NÃO encerra mais a análise: os arquivos oficiais identificam
@@ -553,7 +559,9 @@ async function createImport(data, actor) {
         categoryCode: registro.categoryCode,
         divisionName: registro.divisionName,
         className: registro.className,
+        classLabel: registro.classLabel ?? null,
         placing: registro.placing,
+        didNotShow: registro.didNotShow === true,
         points: registro.points,
         eventName: registro.eventName,
         eventDate: registro.eventDate,
@@ -971,6 +979,10 @@ async function apply(importId, actor) {
               source: 'MUSCLEWAR',
               externalResultId: externo.id,
               placing: item.placing,
+              // A ausência acompanha o lançamento: sem ela o histórico mostra
+              // uma participação de zero ponto sem colocação e não sabe dizer
+              // se o atleta não subiu ou se a origem não informou o lugar.
+              didNotShow: item.didNotShow === true,
               placementPoints, overallBonus,
               isOverallChampion: item.isOverallChampion === true,
               superOverallEligible,

@@ -1271,6 +1271,8 @@ model RankingPoint {
   /// Resolvido no momento da atribuição, a partir da classe — e gravado, para
   /// que uma mudança futura na configuração da classe não reescreva a
   /// história de um campeonato já encerrado.
+  /// Não comparecimento: a participação existe no histórico e vale zero.
+  didNotShow           Boolean     @default(false)
   superOverallEligible Boolean     @default(false)
   /// Pontos do CAMPEONATO: toda classe pontua, pela tabela da temporada.
   points               Int
@@ -1480,7 +1482,17 @@ model MuscleWarImportItem {
   categoryCode       String?
   divisionName       String?
   className          String?
+  /// A classe decomposta do texto composto da origem: "35+", "A", "Light
+  /// Heavyweight". `className` acima guarda o texto INTEIRO, que é o que a
+  /// chave de idempotência usa — separar as duas leituras é o que impede que
+  /// "Bodybuilding - Novice" e "Classic Physique - Novice" virem a mesma chave.
+  classLabel         String?
   placing            Int?
+  /// Não comparecimento CONFIRMADO pela origem, distinto de colocação que
+  /// faltou. Pela regra homologada NS vale 0 — e valer 0 é participar, não é
+  /// ser linha inválida. Sem esta coluna a tela não tem como diferenciar
+  /// "consta como NS" de "não deu para ler a colocação".
+  didNotShow         Boolean     @default(false)
   /// Campeão Overall informado pela origem. A pontuação (+10) é regra
   /// homologada; QUEM é o campeão continua sendo dado informado, nunca
   /// deduzido pelo sistema.

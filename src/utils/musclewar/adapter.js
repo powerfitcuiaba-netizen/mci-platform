@@ -191,6 +191,92 @@ const textoOuNulo = valor => {
   return texto === '' ? null : texto;
 };
 
+// ----------------------------------------------------- NÃO COMPARECIMENTO
+//
+// A regra homologada diz NS = 0 pontos, e dizer "0 pontos" é dizer que existe
+// participação a pontuar: o atleta consta na chamada da classe e não subiu.
+// Antes disso o `NS` era lido como colocação ilegível e a linha inteira era
+// recusada — o ranking saía certo por acidente, porque zero é zero, mas o
+// histórico do atleta perdia a participação e a tela chamava de "linha
+// inválida" uma linha perfeitamente válida.
+//
+// A marca é reconhecida por lista fechada. Texto desconhecido NÃO é promovido
+// a não comparecimento: um "XX" na planilha é dado que ninguém entendeu, e
+// tratá-lo como ausência confirmada inventaria um fato esportivo.
+const MARCAS_DE_AUSENCIA = Object.freeze(['ns', 'no show', 'no-show']);
+
+const ehNaoComparecimento = valor => valor != null
+  && MARCAS_DE_AUSENCIA.includes(String(valor).trim().toLowerCase());
+
+// ----------------------------------------------- A CLASSE COMPOSTA DA ORIGEM
+//
+// "Men's Bodybuilding - Masters 35+" carrega três informações numa string só.
+// Sem separá-las o ponto entrava com categoria NULA: o número existia e não
+// tinha recorte onde aparecer.
+//
+// O nome da categoria na origem NÃO é o código do MCI, e a correspondência não
+// é mecânica — "Men's Classic Physique" é `CLASSIC_PHYSIQUE`, "Women's Bikini"
+// é `BIKINI`. Por isso ela vive num mapa explícito e revisável, homologado
+// pela organização, e não numa transformação de texto que pareceria funcionar
+// até o dia em que uma categoria nova entrasse.
+const MAPA_DE_CATEGORIAS = Object.freeze({
+  "men's bodybuilding": 'MENS_BODYBUILDING',
+  "men's classic physique": 'CLASSIC_PHYSIQUE',
+  "men's physique": 'MENS_PHYSIQUE',
+  "women's bikini": 'BIKINI',
+  "women's figure": 'FIGURE',
+  "women's fit model": 'FITMODEL',
+  "women's physique": 'WOMENS_PHYSIQUE',
+  "women's wellness": 'WELLNESS'
+});
+
+const chaveDeCategoria = nome => String(nome || '')
+  .trim().toLowerCase().replace(/\s+/g, ' ');
+
+// Divisões que existem sozinhas: não têm classe dentro delas, e inventar um
+// rótulo vazio para uniformizar só criaria um dado falso.
+const DIVISOES_SIMPLES = Object.freeze(['true novice', 'novice', 'junior', 'teenage', 'special']);
+
+/**
+ * Separa "Categoria - Divisão [+ Classe]" nas três partes.
+ *
+ * Devolve sempre as três chaves; o que não puder ser lido volta nulo. Nulo é
+ * informação — significa "o arquivo não disse, e eu não vou supor" — e chega
+ * à revisão como categoria em branco, que o operador vê, em vez de uma
+ * categoria adivinhada, que ele não teria como conferir.
+ */
+function decomporClasse(texto) {
+  const vazio = { categoryCode: null, divisionName: null, classLabel: null };
+  if (!texto) return vazio;
+
+  // Sem separador, `split` devolve a string inteira num pedaço só e a direita
+  // sai vazia — que é a mesma saída de uma classe composta truncada. Uma
+  // guarda extra para `includes(' - ')` aqui seria condição morta: medido
+  // contra 200 mil entradas, nenhuma muda de resultado por causa dela.
+  const [categoria, ...resto] = texto.split(' - ');
+  const direita = resto.join(' - ').trim();
+  if (!direita) return vazio;
+
+  const categoryCode = MAPA_DE_CATEGORIAS[chaveDeCategoria(categoria)] ?? null;
+
+  // A divisão é estrutural e continua legível mesmo quando a categoria não
+  // está no mapa: são duas leituras independentes da mesma string.
+  if (DIVISOES_SIMPLES.includes(direita.toLowerCase())) {
+    return { categoryCode, divisionName: direita, classLabel: null };
+  }
+
+  const masters = direita.match(/^Masters\s+(.+)$/i);
+  if (masters) return { categoryCode, divisionName: 'Masters', classLabel: masters[1].trim() };
+
+  // "Open Class A" e "Open Light Heavyweight" são a mesma forma: a divisão é
+  // Open e o resto é o recorte. A palavra "Class" é rótulo de planilha, não
+  // parte do nome da classe.
+  const open = direita.match(/^Open\s+(.+)$/i);
+  if (open) return { categoryCode, divisionName: 'Open', classLabel: open[1].replace(/^Class\s+/i, '').trim() };
+
+  return { categoryCode, divisionName: direita, classLabel: null };
+}
+
 // Nome de exibição a partir do que o arquivo tiver. A composição só entra
 // quando NÃO existe coluna de nome inteiro: um cadastro que exporta o nome
 // completo já resolveu a questão, e recompor por cima dele trocaria o nome
@@ -265,7 +351,15 @@ function parse(sourceType, content, options = {}) {
     const cpf = cpfBruto ? somenteDigitos(cpfBruto) : null;
 
     const memberNumber = textoOuNulo(extrair(registro, 'memberNumber', options.fieldMap));
+    // `className` continua sendo o TEXTO INTEIRO da origem, e isso é
+    // deliberado: a chave de idempotência é montada com ele. Trocá-lo pela
+    // classe decomposta faria "Men's Bodybuilding - Novice" e "Men's Classic
+    // Physique - Novice" virarem a mesma chave `...-NOVICE`, a segunda entraria
+    // como DUPLICATE, e o atleta perderia 5 pontos legítimos do acumulado.
     const className = textoOuNulo(extrair(registro, 'className', options.fieldMap));
+    const decomposta = decomporClasse(className);
+
+    const placingBruto = extrair(registro, 'placing', options.fieldMap);
 
     // O identificador do arquivo vem primeiro: quando a origem tem um, ele é a
     // identidade do resultado, e derivar por cima dele criaria duas chaves para
@@ -289,10 +383,17 @@ function parse(sourceType, content, options = {}) {
       // valendo mais: sobrescrever seria trocar dado de origem por formulário.
       affiliationCode: textoOuNulo(extrair(registro, 'affiliationCode', options.fieldMap))
         ?? textoOuNulo(options.defaultAffiliationCode),
-      categoryCode: textoOuNulo(extrair(registro, 'categoryCode', options.fieldMap)),
-      divisionName: textoOuNulo(extrair(registro, 'divisionName', options.fieldMap)),
+      // Coluna própria no arquivo vence a decomposição, pela mesma razão de
+      // sempre: o que a origem declara sabe mais do que o que eu deduzo dela.
+      categoryCode: textoOuNulo(extrair(registro, 'categoryCode', options.fieldMap))
+        ?? decomposta.categoryCode,
+      divisionName: textoOuNulo(extrair(registro, 'divisionName', options.fieldMap))
+        ?? decomposta.divisionName,
       className,
-      placing: inteiroOuNulo(extrair(registro, 'placing', options.fieldMap)),
+      classLabel: decomposta.classLabel,
+      placing: inteiroOuNulo(placingBruto),
+      // Ausência CONFIRMADA pela origem, separada de colocação que faltou.
+      didNotShow: ehNaoComparecimento(placingBruto),
       memberNumber,
       isOverallChampion: booleanoDeOrigem(extrair(registro, 'isOverallChampion', options.fieldMap)),
       teamName: textoOuNulo(extrair(registro, 'teamName', options.fieldMap)),

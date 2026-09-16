@@ -34,15 +34,17 @@ const FILIACAO = 'NPC';
 const PREFIXO = 'IPIRANGA';
 
 // (classe, matrícula, primeiro nome, sobrenome, nota de julgamento, colocação)
+// As classes vêm no formato do arquivo oficial: categoria, divisão e classe
+// numa string só. É a estrutura real do caso de referência da etapa.
 const LINHAS = [
-  ['Bikini Novice', '88281', 'Yuri', 'Santinelli', '95.5', 1],
-  ['Bikini Masters', '88281', 'Yuri', 'Santinelli', '88.0', 5],
-  ['Bikini Open', '88281', 'Yuri', 'Santinelli', '91.2', 3],
-  ['Classic Novice', '88281', 'Yuri', 'Santinelli', '93.4', 1],
-  ['Classic Masters', '88281', 'Yuri', 'Santinelli', '90.1', 1],
-  ['Classic Open', '88281', 'Yuri', 'Santinelli', '89.7', 2],
-  ['Bikini Open', '147986', 'Kananda', 'Dos Santos Azevedo', '87.3', 2],
-  ['Bikini Novice', '147986', 'Kananda', 'Dos Santos Azevedo', '86.0', 4]
+  ["Men's Bodybuilding - Novice", '88281', 'Yuri', 'Santinelli', '95.5', 1],
+  ["Men's Bodybuilding - Masters 35+", '88281', 'Yuri', 'Santinelli', '88.0', 5],
+  ["Men's Bodybuilding - Open Light Heavyweight", '88281', 'Yuri', 'Santinelli', '91.2', 3],
+  ["Men's Classic Physique - Novice", '88281', 'Yuri', 'Santinelli', '93.4', 1],
+  ["Men's Classic Physique - Masters 35+", '88281', 'Yuri', 'Santinelli', '90.1', 1],
+  ["Men's Classic Physique - Open Class B", '88281', 'Yuri', 'Santinelli', '89.7', 2],
+  ["Women's Bikini - Open Class B", '147986', 'Kananda', 'Dos Santos Azevedo', '87.3', 2],
+  ["Women's Bikini - Novice", '147986', 'Kananda', 'Dos Santos Azevedo', '86.0', 4]
 ];
 
 // 1º=5, 2º=4, 3º=3, 4º=2, 5º=1 — a regra homologada.
@@ -71,7 +73,7 @@ const ledgerDe = async matricula => {
   const atleta = await prisma.athlete.findFirst({ where: { affiliationNumber: matricula }, select: { id: true } });
   return prisma.rankingPoint.findMany({
     where: { athleteId: atleta.id },
-    select: { points: true, placementPoints: true, placing: true, isOverallChampion: true, externalResultId: true }
+    select: { points: true, placementPoints: true, placing: true, isOverallChampion: true, externalResultId: true, didNotShow: true }
   });
 };
 
@@ -237,8 +239,8 @@ describe('idempotência — aplicar de novo não pode somar de novo', () => {
     const chaves = origens.map(o => o.externalId);
 
     expect(new Set(chaves).size).toBe(6);
-    expect(chaves).toContain(`${PREFIXO}-88281-BIKINI_OPEN`);
-    expect(chaves).toContain(`${PREFIXO}-88281-CLASSIC_MASTERS`);
+    expect(chaves).toContain(`${PREFIXO}-88281-MEN_S_BODYBUILDING_NOVICE`);
+    expect(chaves).toContain(`${PREFIXO}-88281-MEN_S_CLASSIC_PHYSIQUE_MASTERS_35`);
   });
 });
 
@@ -252,5 +254,99 @@ describe('sem a declaração do operador o arquivo não entra', () => {
   it('sem filiação declarada, nada é reconhecido pela matrícula', async () => {
     const { body } = await importar({ defaultAffiliationCode: undefined });
     expect(body.summary.recognized).toBe(0);
+  });
+});
+
+// ==========================================================================
+// NS ATRAVESSANDO O CAMINHO INTEIRO.
+//
+// O adaptador já separa "não compareceu" de "colocação ilegível". Falta provar
+// que a separação sobrevive ao resto: à análise, que recusava a linha; à
+// gravação, que precisa lançar ZERO sem lançar colocação; e ao acumulado, que
+// não pode mudar de valor por causa disso.
+// ==========================================================================
+
+describe('NS percorre a importação inteira como participação', () => {
+  const COM_NS = [
+    'Athlete #,Class,First Name,Last Name,Member Number,Placing',
+    "1,Men's Bodybuilding - Novice,Yuri,Santinelli,88281,1",
+    "2,Men's Bodybuilding - Open Class A,Yuri,Santinelli,88281,NS",
+    "3,Men's Bodybuilding - Novice,Kananda,Dos Santos Azevedo,147986,2"
+  ].join('\n');
+
+  const importarNS = () => api().post('/api/v1/musclewar/imports').set(gerente.auth()).send({
+    organizationId, seasonId, sourceType: 'CSV', sourceRef: unico('ns') + '.csv',
+    content: COM_NS, externalIdPrefix: PREFIXO, defaultAffiliationCode: FILIACAO
+  });
+
+  it('a linha NS NÃO é recusada', async () => {
+    const { body } = await importarNS();
+    expect(body.summary.rejected).toBe(0);
+    expect(body.summary.recognized).toBe(3);
+  });
+
+  it('a linha NS é gravada com zero, e sem colocação', async () => {
+    const { body } = await importarNS();
+    await aplicar(body.import.id);
+
+    const ledger = await ledgerDe('88281');
+    const ausencia = ledger.find(p => p.didNotShow);
+
+    expect(ausencia).toBeDefined();
+    expect(ausencia.points).toBe(0);
+    expect(ausencia.placementPoints).toBe(0);
+    // Zero NÃO é uma colocação. Gravar 0 aqui faria a linha disputar a tabela
+    // de pontos como se fosse um lugar no pódio.
+    expect(ausencia.placing).toBeNull();
+    expect(ausencia.isOverallChampion).toBe(false);
+  });
+
+  it('a participação NS existe no histórico, em vez de sumir', async () => {
+    const { body } = await importarNS();
+    await aplicar(body.import.id);
+    expect(await ledgerDe('88281')).toHaveLength(2);
+  });
+
+  it('o acumulado não muda por causa do NS', async () => {
+    const { body } = await importarNS();
+    await aplicar(body.import.id);
+    const soma = (await ledgerDe('88281')).reduce((a, p) => a + p.points, 0);
+    expect(soma).toBe(5);
+  });
+
+  it('a linha que participou de verdade não é marcada como ausência', async () => {
+    const { body } = await importarNS();
+    await aplicar(body.import.id);
+    const primeira = (await ledgerDe('88281')).find(p => p.placing === 1);
+    expect(primeira.didNotShow).toBe(false);
+  });
+});
+
+describe('a categoria deixa de chegar nula', () => {
+  it('cada ponto entra no recorte da sua categoria', async () => {
+    const { body } = await importar();
+    await aplicar(body.import.id);
+
+    const pontos = await prisma.rankingPoint.findMany({
+      select: { categoryId: true, category: { select: { code: true } } }
+    });
+    expect(pontos.length).toBeGreaterThan(0);
+    for (const p of pontos) expect(p.categoryId).not.toBeNull();
+
+    // O arquivo do teste só tem Bikini e Classic Physique.
+    expect(new Set(pontos.map(p => p.category.code)))
+      .toEqual(new Set(['MENS_BODYBUILDING', 'CLASSIC_PHYSIQUE', 'BIKINI']));
+  });
+
+  it('a revisão mostra divisão e classe separadas do texto de origem', async () => {
+    const { body } = await importar();
+    const previa = await api().get(`/api/v1/musclewar/imports/${body.import.id}`).set(gerente.auth());
+
+    const masters = previa.body.items.find(i => i.className === "Men's Classic Physique - Masters 35+");
+    expect(masters).toBeDefined();
+    // As três leituras da mesma string, lado a lado na revisão.
+    expect(masters.categoryCode).toBe('CLASSIC_PHYSIQUE');
+    expect(masters.divisionName).toBe('Masters');
+    expect(masters.classLabel).toBe('35+');
   });
 });

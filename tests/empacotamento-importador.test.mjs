@@ -268,7 +268,10 @@ describe('o calendário não pede migration nenhuma', () => {
       // pública fazia Seq Scan na temporada inteira para devolver cinco linhas
       // (2,43ms contra 0,045ms). A varredura cresce com a temporada; o índice
       // não. Nenhum índice removido, nenhuma linha alterada.
-      '20260916120000_indice_do_ranking_por_posicao'
+      '20260916120000_indice_do_ranking_por_posicao',
+      // NS deixou de ser recusa e virou participação de zero ponto; a classe
+      // composta da origem passou a ser lida como categoria + divisão + classe.
+      '20260916130000_ns_e_classe_decomposta'
     ]);
   });
 });

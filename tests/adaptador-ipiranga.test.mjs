@@ -208,3 +208,248 @@ describe('filiação do lote — o arquivo não tem a coluna, e a chave exige as
     expect(adapter.parse('CSV', semMatricula, { defaultAffiliationCode: 'NPC' })[0].memberNumber).toBeNull();
   });
 });
+
+// ==========================================================================
+// NS — NÃO COMPARECEU É PARTICIPAÇÃO, NÃO É LINHA QUEBRADA.
+//
+// A regra homologada diz NS = 0 pontos. Dizer "0 pontos" é dizer que existe
+// uma participação a pontuar: o atleta consta na chamada da classe e não subiu.
+// Isso é fato esportivo e pertence ao histórico dele.
+//
+// O motor lia `NS` como colocação ilegível, a linha caía sem colocação NEM
+// pontuação, e a importação a recusava. O ranking acabava certo por acidente
+// — zero é zero de qualquer jeito —, mas o histórico perdia a participação e
+// a tela dizia "linha inválida" sobre uma linha perfeitamente válida.
+//
+// O que NÃO pode acontecer aqui: `NS` virar 0 no campo de COLOCAÇÃO. Zero não
+// é uma colocação, e gravar 0 ali faria a linha disputar a tabela de pontos
+// como se fosse um lugar no pódio.
+// ==========================================================================
+
+describe('NS é participação válida que vale zero', () => {
+  const comPlacing = valor => adapter.parse('CSV', csv([
+    'Member Number,Class,First Name,Last Name,Placing', `88281,Bikini Open,Yuri,Santinelli,${valor}`
+  ]), { externalIdPrefix: 'IPIRANGA' })[0];
+
+  it('NS não vira colocação nenhuma — nem zero', () => {
+    expect(comPlacing('NS').placing).toBeNull();
+  });
+
+  it('NS é marcado como não comparecimento', () => {
+    expect(comPlacing('NS').didNotShow).toBe(true);
+  });
+
+  it('a marca não depende da caixa nem de espaço em volta', () => {
+    for (const texto of ['ns', 'Ns', ' NS ', 'nS']) {
+      expect(comPlacing(texto).didNotShow, texto).toBe(true);
+    }
+  });
+
+  it('colocação de verdade NÃO é não comparecimento', () => {
+    for (const lugar of ['1', '5', '13']) {
+      expect(comPlacing(lugar).didNotShow, lugar).toBe(false);
+      expect(comPlacing(lugar).placing, lugar).toBe(Number(lugar));
+    }
+  });
+
+  it('campo vazio continua sendo ausência, não NS', () => {
+    // Célula em branco é informação que faltou. Chamar isso de "não
+    // compareceu" inventaria um fato esportivo a partir de um buraco.
+    const vazio = comPlacing('');
+    expect(vazio.placing).toBeNull();
+    expect(vazio.didNotShow).toBe(false);
+  });
+
+  it('texto desconhecido não é promovido a NS', () => {
+    for (const lixo of ['XX', 'ABC', '--']) {
+      expect(comPlacing(lixo).didNotShow, lixo).toBe(false);
+    }
+  });
+
+  it('NS não produz campeão de Overall', () => {
+    expect(comPlacing('NS').isOverallChampion).toBe(false);
+  });
+
+  it('NS continua recebendo chave de idempotência', () => {
+    // Sem chave a linha seria recusada de novo, agora por outro motivo.
+    expect(comPlacing('NS').externalResultId).toBe('IPIRANGA-88281-BIKINI_OPEN');
+  });
+});
+
+// ==========================================================================
+// A COLUNA `Class` CARREGA TRÊS INFORMAÇÕES, E O MCI GUARDA AS TRÊS SEPARADAS.
+//
+// "Men's Bodybuilding - Masters 35+" é categoria, divisão e classe numa string
+// só. Sem decompor, o ponto entrava com categoria NULA e o ranking por
+// categoria ficava vazio — o número existia e não tinha onde aparecer.
+//
+// O TEXTO ORIGINAL CONTINUA SENDO `className`, E ISSO É DELIBERADO. A chave de
+// idempotência é montada com ele. Trocar `className` pela classe decomposta
+// faria "Men's Bodybuilding - Novice" e "Men's Classic Physique - Novice"
+// virarem a MESMA chave `...-NOVICE` — a segunda entraria como DUPLICATE e o
+// atleta perderia 5 pontos legítimos do acumulado.
+// ==========================================================================
+
+describe('decomposição da classe composta', () => {
+  const decompor = classe => adapter.parse('CSV', csv([
+    'Member Number,Class,First Name,Last Name,Placing', `88281,${classe},Yuri,Santinelli,1`
+  ]))[0];
+
+  // Os dez casos que a homologação mandou cobrir, um a um.
+  const CASOS = [
+    ["Women's Bikini - Open Class A", 'BIKINI', 'Open', 'A'],
+    ["Women's Bikini - Open Class B", 'BIKINI', 'Open', 'B'],
+    ["Women's Bikini - Masters 35+", 'BIKINI', 'Masters', '35+'],
+    ["Women's Fit Model - True Novice", 'FITMODEL', 'True Novice', null],
+    ["Women's Fit Model - Open Class B", 'FITMODEL', 'Open', 'B'],
+    ["Women's Wellness - Open Class A", 'WELLNESS', 'Open', 'A'],
+    ["Men's Bodybuilding - Masters 35+", 'MENS_BODYBUILDING', 'Masters', '35+'],
+    ["Men's Bodybuilding - Open Light Heavyweight", 'MENS_BODYBUILDING', 'Open', 'Light Heavyweight'],
+    ["Men's Classic Physique - Open Class B", 'CLASSIC_PHYSIQUE', 'Open', 'B'],
+    ["Men's Physique - Masters 45+", 'MENS_PHYSIQUE', 'Masters', '45+']
+  ];
+
+  it.each(CASOS)('%s → %s / %s / %s', (classe, categoria, divisao, rotulo) => {
+    const r = decompor(classe);
+    expect(r.categoryCode).toBe(categoria);
+    expect(r.divisionName).toBe(divisao);
+    expect(r.classLabel).toBe(rotulo);
+  });
+
+  it('o texto original é preservado inteiro', () => {
+    expect(decompor("Men's Bodybuilding - Masters 35+").className)
+      .toBe("Men's Bodybuilding - Masters 35+");
+  });
+
+  it('as divisões sem classe não inventam rótulo', () => {
+    for (const d of ['Novice', 'True Novice', 'Junior', 'Teenage', 'Special']) {
+      const r = decompor(`Men's Classic Physique - ${d}`);
+      expect(r.divisionName, d).toBe(d);
+      expect(r.classLabel, d).toBeNull();
+    }
+  });
+
+  it('a chave de idempotência continua saindo do texto INTEIRO', () => {
+    // A prova de que a decomposição não funde participações: mesmo atleta,
+    // mesma divisão Novice, categorias diferentes, chaves diferentes.
+    const chave = classe => adapter.parse('CSV', csv([
+      'Member Number,Class,First Name,Last Name,Placing', `88281,${classe},Yuri,Santinelli,1`
+    ]), { externalIdPrefix: 'IPIRANGA' })[0].externalResultId;
+
+    const a = chave("Men's Bodybuilding - Novice");
+    const b = chave("Men's Classic Physique - Novice");
+    expect(a).not.toBe(b);
+    expect(a).toBe('IPIRANGA-88281-MEN_S_BODYBUILDING_NOVICE');
+  });
+
+  it('uma categoria informada pelo ARQUIVO tem precedência sobre a derivada', () => {
+    const comColuna = adapter.parse('CSV', csv([
+      'Member Number,Class,categoria,First Name,Last Name,Placing',
+      "88281,Men's Bodybuilding - Novice,WELLNESS,Yuri,Santinelli,1"
+    ]))[0];
+    expect(comColuna.categoryCode).toBe('WELLNESS');
+  });
+
+  it('classe sem o separador não é decomposta, e não inventa categoria', () => {
+    const r = decompor('OPEN');
+    expect(r.className).toBe('OPEN');
+    expect(r.categoryCode).toBeNull();
+    expect(r.divisionName).toBeNull();
+    expect(r.classLabel).toBeNull();
+  });
+
+  it('categoria fora do mapa conhecido fica nula em vez de ser adivinhada', () => {
+    const r = decompor('Categoria Que Nao Existe - Open Class A');
+    expect(r.categoryCode).toBeNull();
+    // A divisão é estrutural e continua legível mesmo sem a categoria.
+    expect(r.divisionName).toBe('Open');
+  });
+});
+
+// ==========================================================================
+// AS 57 CLASSES DA ETAPA, UMA A UMA.
+//
+// Os dez casos acima cobrem as formas. Este cobre o CONJUNTO: nenhuma das 57
+// pode sair com categoria nula, porque categoria nula é ponto sem recorte —
+// o número existe e não aparece em ranking nenhum.
+//
+// A lista vive aqui, no teste, e não num arquivo de dados: são 57 strings de
+// catálogo esportivo, sem nome de atleta e sem matrícula. O arquivo da etapa
+// não é versionado — ele traz dado pessoal de 191 pessoas e o repositório é
+// público.
+// ==========================================================================
+
+const CATEGORIAS_DA_ETAPA = Object.freeze({
+  "Men's Bodybuilding": 'MENS_BODYBUILDING',
+  "Men's Classic Physique": 'CLASSIC_PHYSIQUE',
+  "Men's Physique": 'MENS_PHYSIQUE',
+  "Women's Bikini": 'BIKINI',
+  "Women's Figure": 'FIGURE',
+  "Women's Fit Model": 'FITMODEL',
+  "Women's Physique": 'WOMENS_PHYSIQUE',
+  "Women's Wellness": 'WELLNESS'
+});
+
+const RECORTES_DA_ETAPA = Object.freeze({
+  "Men's Bodybuilding": ['True Novice', 'Novice', 'Junior', 'Masters 35+', 'Masters 40+',
+    'Open Middleweight', 'Open Light Heavyweight', 'Open Heavyweight', 'Open Super Heavyweight'],
+  "Men's Classic Physique": ['True Novice', 'Novice', 'Junior', 'Teenage', 'Special',
+    'Masters 35+', 'Masters 40+', 'Open Class A', 'Open Class B', 'Open Class C', 'Open Class D'],
+  "Men's Physique": ['True Novice', 'Novice', 'Junior', 'Teenage', 'Masters 35+', 'Masters 45+',
+    'Open Class A', 'Open Class C', 'Open Class D'],
+  "Women's Bikini": ['True Novice', 'Novice', 'Junior', 'Teenage', 'Masters 35+', 'Masters 40+',
+    'Open Class A', 'Open Class B', 'Open Class C', 'Open Class D'],
+  "Women's Figure": ['Masters 40+', 'Open Class A', 'Open Class B'],
+  "Women's Fit Model": ['True Novice', 'Novice', 'Junior', 'Open Class B', 'Open Class C', 'Open Class D'],
+  "Women's Physique": ['Masters 35+', 'Open Class A'],
+  "Women's Wellness": ['True Novice', 'Novice', 'Masters 35+', 'Masters 45+',
+    'Open Class A', 'Open Class B', 'Open Class C']
+});
+
+const TODAS_AS_CLASSES = Object.entries(RECORTES_DA_ETAPA)
+  .flatMap(([categoria, recortes]) => recortes.map(recorte => `${categoria} - ${recorte}`));
+
+describe('as 57 classes da etapa', () => {
+  const ler = classe => adapter.parse('CSV', csv([
+    'Member Number,Class,First Name,Last Name,Placing', `88281,${classe},Yuri,Santinelli,1`
+  ]), { externalIdPrefix: 'IPIRANGA' })[0];
+
+  it('são exatamente 57', () => {
+    expect(TODAS_AS_CLASSES).toHaveLength(57);
+    expect(new Set(TODAS_AS_CLASSES).size).toBe(57);
+  });
+
+  it('nenhuma sai com categoria nula', () => {
+    const semCategoria = TODAS_AS_CLASSES.filter(c => ler(c).categoryCode === null);
+    expect(semCategoria).toEqual([]);
+  });
+
+  it('cada uma cai na categoria do seu próprio prefixo', () => {
+    for (const [categoria, recortes] of Object.entries(RECORTES_DA_ETAPA)) {
+      for (const recorte of recortes) {
+        expect(ler(`${categoria} - ${recorte}`).categoryCode, `${categoria} - ${recorte}`)
+          .toBe(CATEGORIAS_DA_ETAPA[categoria]);
+      }
+    }
+  });
+
+  it('nenhuma sai sem divisão', () => {
+    const semDivisao = TODAS_AS_CLASSES.filter(c => !ler(c).divisionName);
+    expect(semDivisao).toEqual([]);
+  });
+
+  it('as 57 produzem 57 chaves de idempotência distintas', () => {
+    // A prova de que decompor não funde participações do mesmo atleta.
+    const chaves = TODAS_AS_CLASSES.map(c => ler(c).externalResultId);
+    expect(new Set(chaves).size).toBe(57);
+  });
+
+  it('só as divisões Open e Masters produzem rótulo de classe', () => {
+    for (const classe of TODAS_AS_CLASSES) {
+      const r = ler(classe);
+      const temRotulo = r.classLabel !== null;
+      const ehRecortada = ['Open', 'Masters'].includes(r.divisionName);
+      expect(temRotulo, classe).toBe(ehRecortada);
+    }
+  });
+});
