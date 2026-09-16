@@ -51,6 +51,13 @@ function enviarArquivo(res, stream, { mimeType, fileName, inline = false }) {
 //
 // Só aparece quando o corte existe: ausência de cabeçalho é lista inteira.
 function declararCorte(req, res, payload) {
+  // Quantas linhas o banco materializou para produzir esta resposta.
+  // Observabilidade: é o número que denuncia uma rota que voltou a ler a
+  // temporada inteira para devolver cinco linhas — que foi exatamente o
+  // defeito que a medição de carga da FASE 13 encontrou.
+  const lidas = Array.isArray(payload) ? payload.rowsRead : payload?.items?.rowsRead;
+  if (Number.isFinite(lidas)) res.set('X-MCI-Rows-Read', String(lidas));
+
   const linhas = Array.isArray(payload) ? payload : payload?.items;
   // `publicView` é a marca que o service anexa — não uma dedução pelo tamanho
   // da lista, que rotularia como cortada uma lista com cinco linhas de fato.

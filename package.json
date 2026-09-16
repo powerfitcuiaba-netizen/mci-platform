@@ -17,7 +17,9 @@
     "db:seed": "node prisma/seed.js",
     "qa:estabilidade": "node scripts/qa/estabilidade.mjs",
     "qa:responsividade": "node scripts/qa/responsividade.mjs",
-    "qa:ambiente": "node scripts/qa/responsividade.mjs --manter"
+    "qa:ambiente": "node scripts/qa/responsividade.mjs --manter",
+    "qa:carga": "node scripts/qa/carga.mjs",
+    "qa:dataset": "node scripts/qa/dataset.mjs"
   },
   "keywords": [],
   "author": "",

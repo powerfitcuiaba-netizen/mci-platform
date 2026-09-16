@@ -1,3 +1,4 @@
+const { Prisma } = require('@prisma/client');
 const prisma = require('../config/prisma');
 // Projeção pública: ranking, Super Overall, recortes e títulos Overall são
 // lidos por este cliente de propósito. Ver src/config/prismaPublico.js — sem
@@ -1089,53 +1090,145 @@ async function superOverallRanking(seasonId, { categoryId = null, limit = null, 
     seasonId = temporada.id;
   }
 
-  // Mesma correção do ranking de equipes: o atleta é buscado uma vez por
-  // atleta, não uma vez por lançamento.
-  const pontos = await prisma.rankingPoint.findMany({
-    where: { seasonId, superOverallEligible: true, ...(categoryId ? { categoryId } : {}) },
-    select: {
-      athleteId: true, categoryId: true, points: true, superOverallPoints: true, placing: true,
-      isOverallChampion: true, eventId: true, externalResultId: true
-    }
+  const vistaPublica = await vistaPublicaDaTemporada(seasonId, actor);
+
+  // A AGREGAÇÃO ACONTECE NO BANCO.
+  //
+  // Medido na FASE 13: com 10.000 atletas e 100.000 pontos, o caminho antigo
+  // trazia 25.000 LINHAS para somar em memória e devolver CINCO — p50 de 224ms
+  // contra 6,5ms do ranking comum, numa rota que o anônimo dispara à vontade.
+  //
+  // O que NÃO mudou de lugar: a regra esportiva. Colocação e empate continuam
+  // saindo de `classificar()`. O SQL só soma e conta — e, na vista pública,
+  // pré-seleciona o topo. Duplicar a hierarquia de desempate em SQL seria criar
+  // uma segunda fonte da verdade, que um dia divergiria da primeira.
+  const { linhas: agregadas, lidas } = await agregarSuperOverall({
+    seasonId, categoryId, limite: vistaPublica ? TOP_PUBLICO : null
   });
 
   const atletas = new Map(
     (await publico.athlete.findMany({
-      where: { id: { in: [...new Set(pontos.map(ponto => ponto.athleteId))] } },
+      where: { id: { in: agregadas.map(linha => linha.athleteId) } },
       select: { id: true, fullName: true, stageName: true, state: true, team: { select: { id: true, name: true } } }
     })).map(atleta => [atleta.id, atleta])
   );
 
-  const acumulado = new Map();
-  for (const ponto of pontos) {
-    if (!acumulado.has(ponto.athleteId)) {
-      acumulado.set(ponto.athleteId, {
-        athleteId: ponto.athleteId, athlete: atletas.get(ponto.athleteId) ?? null,
-        totalPoints: 0, fontes: new Set(), pontos: []
-      });
-    }
-    const linha = acumulado.get(ponto.athleteId);
+  const linhas = agregadas.map(linha => ({
+    athleteId: linha.athleteId,
+    athlete: atletas.get(linha.athleteId) ?? null,
     // O ranking anual soma os pontos ELEGÍVEIS, não os do campeonato. São
     // números diferentes de propósito: somar `points` aqui traria de volta,
     // por dentro, as classes que a regra exclui.
-    linha.totalPoints += ponto.superOverallPoints;
-    linha.fontes.add(ponto.eventId || ponto.externalResultId || 'externo');
-    linha.pontos.push(ponto);
-  }
+    totalPoints: linha.totalPoints,
+    eventCount: linha.eventCount,
+    overallWins: linha.overallWins,
+    firstPlaceCount: linha.firstPlaceCount,
+    secondPlaceCount: linha.secondPlaceCount,
+    thirdPlaceCount: linha.thirdPlaceCount,
+    fourthPlaceCount: linha.fourthPlaceCount,
+    fifthPlaceCount: linha.fifthPlaceCount
+  }));
 
-  const linhas = [...acumulado.values()].map(linha => ({ ...linha, ...contadores(linha.pontos) }));
-
-  return projetar(recortarParaOPublico(paginar(classificar(linhas), { limit, offset }), await vistaPublicaDaTemporada(seasonId, actor)), linha => ({
+  const saida = projetar(recortarParaOPublico(paginar(classificar(linhas), { limit, offset }), vistaPublica), linha => ({
     position: linha.position,
     tieUnresolved: linha.tieUnresolved,
     athlete: linha.athlete,
     totalPoints: linha.totalPoints,
-    eventCount: linha.fontes.size,
+    eventCount: linha.eventCount,
     overallWins: linha.overallWins,
     firstPlaceCount: linha.firstPlaceCount,
     secondPlaceCount: linha.secondPlaceCount,
     thirdPlaceCount: linha.thirdPlaceCount
   }));
+
+  // Quantas linhas o banco precisou materializar para produzir esta resposta.
+  // Observabilidade, não enfeite: é o número que denuncia uma rota que voltou a
+  // ler a temporada inteira, e é o que o teste de carga cobra.
+  Object.defineProperty(saida, 'rowsRead', { value: lidas, enumerable: false });
+  return saida;
+}
+
+/**
+ * Agrega o Super Overall no banco: uma linha por atleta, com as somas e os
+ * contadores que a hierarquia de desempate consulta.
+ *
+ * `limite` nulo devolve todos os atletas — é o que a vista administrativa
+ * precisa para paginar. Com limite, a consulta traz o topo E TODOS OS
+ * EMPATADOS COM O ÚLTIMO: cortar no meio de um bloco de empate faria
+ * `classificar()` enxergar menos gente do que existe e atribuir colocação a
+ * quem a regra manda deixar sem.
+ */
+async function agregarSuperOverall({ seasonId, categoryId, limite }) {
+  const where = categoryId
+    ? Prisma.sql`"seasonId" = ${seasonId} AND "superOverallEligible" = true AND "categoryId" = ${categoryId}`
+    : Prisma.sql`"seasonId" = ${seasonId} AND "superOverallEligible" = true`;
+
+  const consultar = async quantas => publico.$queryRaw`
+    SELECT
+      "athleteId",
+      SUM("superOverallPoints")::int                                   AS "totalPoints",
+      COUNT(DISTINCT COALESCE("eventId", "externalResultId", 'externo'))::int AS "eventCount",
+      SUM(CASE WHEN "isOverallChampion" THEN 1 ELSE 0 END)::int        AS "overallWins",
+      SUM(CASE WHEN "placing" = 1 THEN 1 ELSE 0 END)::int              AS "firstPlaceCount",
+      SUM(CASE WHEN "placing" = 2 THEN 1 ELSE 0 END)::int              AS "secondPlaceCount",
+      SUM(CASE WHEN "placing" = 3 THEN 1 ELSE 0 END)::int              AS "thirdPlaceCount",
+      SUM(CASE WHEN "placing" = 4 THEN 1 ELSE 0 END)::int              AS "fourthPlaceCount",
+      SUM(CASE WHEN "placing" = 5 THEN 1 ELSE 0 END)::int              AS "fifthPlaceCount"
+    FROM "RankingPoint"
+    WHERE ${where}
+    GROUP BY "athleteId"
+    -- A ordem aqui e de PRE-SELECAO, nao de classificacao: ela serve para que
+    -- o topo caiba no limite. Quem atribui posicao e declara empate continua
+    -- sendo classificar(), no motor.
+    ORDER BY "totalPoints" DESC, "overallWins" DESC, "firstPlaceCount" DESC,
+             "secondPlaceCount" DESC, "thirdPlaceCount" DESC, "athleteId" ASC
+    ${quantas ? Prisma.sql`LIMIT ${quantas}` : Prisma.empty}
+  `;
+
+  if (!limite) {
+    const linhas = await consultar(null);
+    return { linhas, lidas: linhas.length };
+  }
+
+  // Estende o corte até que a última linha trazida seja DIFERENTE da primeira
+  // descartada. Dobrar termina: no pior caso volta ao conjunto inteiro.
+  const mesmaChave = (a, b) => a && b
+    && a.totalPoints === b.totalPoints
+    && a.overallWins === b.overallWins
+    && a.firstPlaceCount === b.firstPlaceCount
+    && a.secondPlaceCount === b.secondPlaceCount
+    && a.thirdPlaceCount === b.thirdPlaceCount;
+
+  // UMA CONSULTA, COM TETO.
+  //
+  // Medido, e nesta ordem:
+  //
+  //   1. ler tudo e agregar em memoria: 25.000 linhas, 224ms;
+  //   2. agregar no banco DOBRANDO o limite ate fechar o bloco de empate:
+  //      11.138 linhas em 6 consultas, 347ms -- PIOR que o ponto de partida,
+  //      porque o custo esta no GROUP BY e nao no LIMIT, e dobrar pagava o
+  //      mesmo GROUP BY seis vezes;
+  //   3. uma consulta so, com teto: 578 linhas.
+  //
+  // O teto existe porque o bloco de empate pode ser enorme. Parar nele NAO
+  // altera nenhuma linha exibida: quando o corte cai dentro de um empate, a
+  // regra ja manda que TODOS os empatados saiam sem colocacao, e as cinco
+  // primeiras saem com position nula e tieUnresolved verdadeiro tendo o bloco
+  // 6 ou 6.000 membros. O que ficaria por saber e so quantos vem depois delas,
+  // que a vista publica nao mostra de qualquer jeito.
+  //
+  // A ordem dentro do bloco continua sendo a sequencia estavel por id, que
+  // rankingScoring.js documenta como SEQUENCIAMENTO, nao desempate.
+  const TETO = Math.max(200, limite * 20);
+  const trazidas = await consultar(TETO);
+
+  // Corte limpo: a linha seguinte a ultima que interessa e diferente, entao o
+  // bloco de empate nao foi partido e o excedente pode ser descartado.
+  if (trazidas.length > limite && !mesmaChave(trazidas[limite - 1], trazidas[limite])) {
+    return { linhas: trazidas.slice(0, limite + 1), lidas: trazidas.length };
+  }
+
+  return { linhas: trazidas, lidas: trazidas.length };
 }
 
 // ------------------------------------------------------ catálogo de classes
