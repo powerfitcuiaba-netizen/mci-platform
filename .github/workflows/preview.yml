@@ -103,7 +103,11 @@ jobs:
         run: |
           set -e
           PSQL="psql -h localhost -U mci -d mci_preview -v ON_ERROR_STOP=1"
-          $PSQL -c "CREATE ROLE mci_owner LOGIN PASSWORD 'mci_owner_preview' NOSUPERUSER CREATEROLE"
+          # CREATEDB porque os testes essenciais rodam num banco PRÓPRIO: usar o
+          # mesmo banco do preview deixaria resíduo de teste dentro do
+          # ambiente que o responsável vai abrir. CREATEROLE pelo mesmo motivo
+          # da CI. Nenhum dos dois é superusuário — o RLS continua valendo.
+          $PSQL -c "CREATE ROLE mci_owner LOGIN PASSWORD 'mci_owner_preview' NOSUPERUSER CREATEROLE CREATEDB"
           $PSQL -c "GRANT ALL ON DATABASE mci_preview TO mci_owner"
           $PSQL -c "ALTER SCHEMA public OWNER TO mci_owner"
           PGPASSWORD=mci_owner_preview psql -h localhost -U mci_owner -d mci_preview -v ON_ERROR_STOP=1 -qc \
