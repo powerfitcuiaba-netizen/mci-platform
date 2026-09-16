@@ -299,6 +299,15 @@ jobs:
         continue-on-error: true
         run: |
           set -e
+          # O pacote é instalado SEM gravar no package.json: o Playwright não é
+          # dependência do projeto — a interface não precisa dele para rodar, e
+          # colocá-lo no pacote faria todo deploy baixar um navegador.
+          #
+          # `npx playwright install` sozinho não basta: ele baixa o NAVEGADOR,
+          # não o módulo. A primeira execução deste workflow morreu exatamente
+          # aí — o `import 'playwright'` estourava antes da primeira asserção, e
+          # a verificação "falhava" sem ter medido nada.
+          npm install --no-save playwright
           npx playwright install --with-deps chromium
           node scripts/qa/preview-verificacao.mjs \
             --web "$URL_WEB" \
@@ -371,22 +380,29 @@ jobs:
           Não insira dado real aqui.
           FIM
 
-          # Branch próprio, recriado a cada execução: ele é um QUADRO DE AVISO,
-          # não histórico. Nada aqui entra no branch de trabalho nem na main.
-          conteudo=$(base64 -w0 /tmp/PREVIEW-ATUAL.md)
-          sha_atual=$(gh api "repos/${GITHUB_REPOSITORY}/contents/PREVIEW-ATUAL.md?ref=preview-estado" \
-            --jq .sha 2>/dev/null || true)
+          # Um clone à parte, e não a árvore de trabalho: a API e o servidor
+          # estático estão rodando de dentro dela, e trocar de branch debaixo de
+          # processos vivos é pedir para o preview cair no momento em que ele
+          # deveria ser anunciado.
+          #
+          # A publicação é por git, e não pela API de conteúdo: a API exige que
+          # o branch já exista, e criar a ref antes foi o que falhou na execução
+          # anterior — "Branch preview-estado not found".
+          git clone --quiet --depth 1 \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" /tmp/estado
+          cd /tmp/estado
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
 
-          if [ -z "$sha_atual" ]; then
-            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-              -f ref=refs/heads/preview-estado -f sha="${SHA_PUBLICADO}" >/dev/null 2>&1 || true
-          fi
-
-          gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/PREVIEW-ATUAL.md" \
-            -f message="preview no ar — ${SHA_CURTO}" \
-            -f content="$conteudo" \
-            -f branch=preview-estado \
-            ${sha_atual:+-f sha="$sha_atual"} >/dev/null
+          # Branch órfão, recriado a cada execução: é QUADRO DE AVISO, não
+          # histórico. Nada aqui entra no branch de trabalho nem na main.
+          git switch --orphan preview-estado
+          git rm -rq --cached . 2>/dev/null || true
+          find . -maxdepth 1 -mindepth 1 ! -name .git -exec rm -rf {} +
+          cp /tmp/PREVIEW-ATUAL.md PREVIEW-ATUAL.md
+          git add PREVIEW-ATUAL.md
+          git commit --quiet -m "preview no ar — ${SHA_CURTO}"
+          git push --quiet --force origin preview-estado
 
           echo "estado publicado em preview-estado/PREVIEW-ATUAL.md"
 

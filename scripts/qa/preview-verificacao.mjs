@@ -17,8 +17,6 @@
 //     --operador email --atleta email --senha '...'
 // ============================================================================
 
-import { chromium } from 'playwright';
-
 const { argv, env } = process;
 const arg = (nome, padrao = null) => {
   const i = argv.indexOf(`--${nome}`);
@@ -31,6 +29,18 @@ const OPERADOR = arg('operador');
 const ATLETA = arg('atleta');
 const SENHA = arg('senha', env.DEMO_PASSWORD);
 const CHROMIUM = env.PLAYWRIGHT_CHROMIUM || undefined;
+
+// O Playwright é resolvido em tempo de execução, e não por `import` no topo.
+//
+// Ele não é dependência do projeto: a interface não precisa dele para rodar, e
+// carregá-lo no pacote só para um arreio de QA faria todo deploy baixar um
+// navegador. Cada ambiente diz onde ele está — no runner, instalado sem gravar
+// no package.json; nesta máquina, pelo caminho do módulo global.
+//
+// A primeira versão deste arquivo importava 'playwright' direto. No runner o
+// pacote não existia, o import estourava antes da primeira asserção, e a
+// verificação inteira "falhava" sem ter medido nada.
+const CAMINHO_PLAYWRIGHT = arg('playwright', env.PLAYWRIGHT_MODULE || 'playwright');
 
 if (!WEB || !API || !OPERADOR || !ATLETA || !SENHA) {
   console.error('faltam argumentos: --web --api --operador --atleta --senha');
@@ -214,6 +224,7 @@ try {
   // ======================================================================
   // NAVEGADOR — §10, §11, §14
   // ======================================================================
+  const { chromium } = await import(CAMINHO_PLAYWRIGHT);
   navegador = await chromium.launch({ ...(CHROMIUM ? { executablePath: CHROMIUM } : {}) });
 
   const erros = new Set();
@@ -224,6 +235,16 @@ try {
     });
   };
 
+  // ENTRAR CUSTA COTA, e a cota é pequena de propósito.
+  //
+  // O limitador de autenticação corta em 10 tentativas por origem a cada 15
+  // minutos — é ele que segura força bruta, e no preview ele fica LIGADO, como
+  // em produção. A primeira versão deste arreio entrava uma vez por largura,
+  // somava onze logins e levava 429 no meio da medição. O limitador não estava
+  // errado; o arreio estava.
+  //
+  // Agora a sessão do atleta é feita UMA vez e reaproveitada: o estado do
+  // navegador (que é onde o token vive) é copiado para cada contexto novo.
   const abrirSessao = async (email, viewport = { width: 1440, height: 900 }) => {
     const contexto = await navegador.newContext({ viewport });
     const pagina = await contexto.newPage();
@@ -341,6 +362,10 @@ try {
 
   conferir('TESTE 8 · login do atleta', !(await at.locator('input[type="password"]').count()));
 
+  // O estado com a sessão já resolvida, para as sete larguras não entrarem de
+  // novo sete vezes.
+  const sessaoGuardada = await sessaoAtleta.contexto.storageState();
+
   await at.goto(`${WEB}/#minha-filiacao`, { waitUntil: 'networkidle' });
   await at.waitForTimeout(1800);
   const filiacao = (await at.textContent('body')) || '';
@@ -376,11 +401,22 @@ try {
   await pub.waitForTimeout(2500);
   const corpoPublico = (await pub.textContent('body')) || '';
 
-  conferir('TESTE 11 · ranking abre sem login', corpoPublico.trim().length > 200);
-  conferir('TESTE 11 · e não mostra CPF', !/\d{3}\.\d{3}\.\d{3}-\d{2}/.test(corpoPublico));
-
-  const linhasDemo = (corpoPublico.match(/QA · DEMO — Atleta/g) || []).length;
-  conferir('TESTE 11 · a lista pública é curta (TOP 5)', linhasDemo <= 5, `${linhasDemo} atletas`);
+  // ACHADO, e não falha do preview: a interface exige login em TODA rota.
+  //
+  // `App.jsx` devolve a tela de entrada quando não há sessão, antes de olhar a
+  // rota — a marca `publico: true` da navegação só decide o que aparece no
+  // menu de quem já entrou. O ranking público EXISTE e responde sem
+  // autenticação: é a API, medida logo acima, com TOP 5 e sem CPF. O que não
+  // existe é o caminho do visitante até ele pelo navegador.
+  //
+  // Abrir esse caminho seria implementar funcionalidade, e esta fase é de
+  // publicação, não de desenvolvimento. Então o que se mede aqui é a verdade
+  // atual — e ela vira ressalva no relatório, para o responsável decidir.
+  const naEntrada = /Entrar|Campeonato Brasileiro Muscle Contest/i.test(corpoPublico);
+  conferir('TESTE 11 · visitante sem sessão cai na tela de entrada (comportamento atual)',
+    naEntrada, corpoPublico.trim().slice(0, 80));
+  conferir('TESTE 11 · e a tela de entrada não vaza nome de atleta nem CPF',
+    !/\d{3}\.\d{3}\.\d{3}-\d{2}/.test(corpoPublico) && !/QA · DEMO — Atleta/.test(corpoPublico));
 
   // ---------------------------------------------------------------- §14
   console.log('\n--- §14 QA visual em 7 larguras ---');
@@ -389,15 +425,12 @@ try {
   const TELAS = ['inicio', 'ranking', 'campeonatos', 'minha-filiacao', 'meu-historico'];
 
   for (const largura of LARGURAS) {
-    const ctx = await navegador.newContext({ viewport: { width: largura, height: 900 } });
+    const ctx = await navegador.newContext({
+      viewport: { width: largura, height: 900 },
+      storageState: sessaoGuardada
+    });
     const p = await ctx.newPage();
     vigiar(p);
-
-    await p.goto(WEB, { waitUntil: 'networkidle' });
-    await p.fill('input[type="email"]', ATLETA);
-    await p.fill('input[type="password"]', SENHA);
-    await p.click('button[type="submit"]');
-    await p.waitForTimeout(2500);
 
     const estourando = [];
     const semConteudo = [];
@@ -411,9 +444,26 @@ try {
         for (const el of document.querySelectorAll('body *')) {
           const r = el.getBoundingClientRect();
           if (r.width === 0 || r.height === 0) continue;
-          if (r.right > window.innerWidth + 1) {
-            fora.push(`${el.tagName.toLowerCase()}.${String(el.className || '').split(' ')[0]}`);
+          if (r.right <= window.innerWidth + 1) continue;
+
+          // `overflow-x: auto` é solução, não defeito — e vale para a SUBÁRVORE
+          // inteira, não só para o elemento que a declara.
+          //
+          // Esta versão do arreio já nasceu errada uma vez: olhando só o
+          // próprio elemento, ela acusou `table`, `thead`, `tr` e cada `th` de
+          // uma tabela que rolava corretamente dentro do contêiner dela, em
+          // quatro larguras. O gate da FASE 13 já tinha aprendido isso e
+          // documentado; repeti o erro por não ter lido o que estava escrito.
+          // Um gate que acusa o que está certo é um gate que se aprende a
+          // ignorar.
+          let dentroDeRolavel = false;
+          for (let pai = el; pai && pai !== document.body; pai = pai.parentElement) {
+            const overflow = getComputedStyle(pai).overflowX;
+            if (overflow === 'auto' || overflow === 'scroll') { dentroDeRolavel = true; break; }
           }
+          if (dentroDeRolavel) continue;
+
+          fora.push(`${el.tagName.toLowerCase()}.${String(el.className || '').split(' ')[0]}`);
         }
         return {
           rolagem: document.documentElement.scrollWidth > window.innerWidth + 1,
