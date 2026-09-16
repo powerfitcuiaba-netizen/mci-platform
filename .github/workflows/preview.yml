@@ -47,7 +47,13 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  # Escrita porque o endereço do preview precisa sair do runner por um canal
+  # LEGÍVEL enquanto o job ainda roda. O log de Actions só fica disponível
+  # depois que o job termina — e este job termina quando o ambiente cai, o que
+  # é tarde demais para quem precisa da URL agora. O workflow publica o estado
+  # num branch próprio, `preview-estado`, que não é a main nem o branch de
+  # trabalho.
+  contents: write
 
 jobs:
   preview:
@@ -332,6 +338,57 @@ jobs:
           echo "ATLETA:      ${EMAIL_ATLETA}"
           echo "SENHA:       ${DEMO_PASSWORD}"
           echo "==================================================="
+
+      - name: Publicar o estado num branch legível
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          cat > /tmp/PREVIEW-ATUAL.md <<FIM
+          # PREVIEW ONLINE — MCI Platform
+
+          | | |
+          |---|---|
+          | **PREVIEW URL** | ${URL_WEB} |
+          | **API URL** | ${URL_API} |
+          | **BRANCH** | ${GITHUB_REF_NAME} |
+          | **SHA** | ${SHA_PUBLICADO} |
+          | **AMBIENTE** | QA/PREVIEW |
+          | **VERIFICAÇÃO** | ${{ steps.verificacao.outcome }} |
+          | **Subiu em** | $(date -u '+%Y-%m-%d %H:%M UTC') |
+          | **Vive por** | ${MINUTOS_NO_AR} minutos |
+          | **Execução** | ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} |
+
+          ## Credenciais de QA
+
+          | Papel | Usuário | Senha |
+          |---|---|---|
+          | Operador (direção de evento + gerência de ranking) | ${EMAIL_OPERADOR} | ${DEMO_PASSWORD} |
+          | Atleta | ${EMAIL_ATLETA} | ${DEMO_PASSWORD} |
+
+          Ambiente **público e efêmero**, com dados **fictícios**. Nenhuma destas
+          contas existe em produção, e nenhuma senha de produção foi usada.
+          Não insira dado real aqui.
+          FIM
+
+          # Branch próprio, recriado a cada execução: ele é um QUADRO DE AVISO,
+          # não histórico. Nada aqui entra no branch de trabalho nem na main.
+          conteudo=$(base64 -w0 /tmp/PREVIEW-ATUAL.md)
+          sha_atual=$(gh api "repos/${GITHUB_REPOSITORY}/contents/PREVIEW-ATUAL.md?ref=preview-estado" \
+            --jq .sha 2>/dev/null || true)
+
+          if [ -z "$sha_atual" ]; then
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref=refs/heads/preview-estado -f sha="${SHA_PUBLICADO}" >/dev/null 2>&1 || true
+          fi
+
+          gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/PREVIEW-ATUAL.md" \
+            -f message="preview no ar — ${SHA_CURTO}" \
+            -f content="$conteudo" \
+            -f branch=preview-estado \
+            ${sha_atual:+-f sha="$sha_atual"} >/dev/null
+
+          echo "estado publicado em preview-estado/PREVIEW-ATUAL.md"
 
       - name: Manter o ambiente no ar
         run: |
