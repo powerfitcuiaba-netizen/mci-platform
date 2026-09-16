@@ -34,10 +34,28 @@ const ip = req => req.ip || req.headers['x-forwarded-for'] || null;
 
 // Envia um stream de arquivo com cabeçalhos seguros: nada é interpretado pelo
 // navegador como HTML e o nome do arquivo vai citado.
+// O nome vai para dentro de um cabeçalho, e cabeçalho tem regras próprias.
+//
+// Aspas e barra invertida fechariam o valor citado. CR e LF fechariam o
+// CABEÇALHO — e o `busboy` já os entrega percent-codificados, mas depender
+// disso é depender de uma biblioteca para uma garantia que é nossa.
+//
+// O corte de tamanho não é estética: medido na FASE 13.12, um nome de 5.000
+// caracteres produz um `Content-Disposition` de 5.027 bytes. Proxies e
+// servidores recusam respostas cujo conjunto de cabeçalhos passa de 8 KB, e a
+// recusa aconteceria no meio do caminho, sem explicação para ninguém.
+const LIMITE_DO_NOME_NO_CABECALHO = 120;
+
+const nomeParaCabecalho = fileName => String(fileName || 'arquivo')
+  .replace(/[\r\n]/g, ' ')
+  .replace(/["\\]/g, '')
+  .slice(0, LIMITE_DO_NOME_NO_CABECALHO)
+  || 'arquivo';
+
 function enviarArquivo(res, stream, { mimeType, fileName, inline = false }) {
   res.setHeader('Content-Type', mimeType || 'application/octet-stream');
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${String(fileName || 'arquivo').replace(/["\\]/g, '')}"`);
+  res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${nomeParaCabecalho(fileName)}"`);
   stream.on('error', () => res.destroy());
   stream.pipe(res);
 }

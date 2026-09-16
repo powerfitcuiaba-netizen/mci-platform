@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import apiRoutes from '../src/routes/index.js';
 import { rateLimit, reset, identificar } from '../src/middlewares/rateLimit.js';
 
@@ -191,5 +194,143 @@ describe('o limitador não se deixa contornar por cabeçalho', () => {
 
     expect(atacada).toBe(429);
     expect(inocente).toBe(200);
+  });
+});
+
+// ============================================================================
+// FASE 13.15 — O LIMITADOR LIGADO, NA PILHA INTEIRA.
+//
+// Os testes acima medem o middleware isolado e a lista de rotas. Nenhum dos
+// dois responde a pergunta que importa no dia do go-live: com a aplicação
+// rodando como roda em produção, uma enxurrada de login é barrada?
+//
+// Isolado, o limitador pode contar certo e mesmo assim não barrar nada — foi
+// literalmente o caso no gate final, quando a origem vinha do cabeçalho cru.
+// A lista de rotas pode estar completa e o `config.rateLimitEnabled` vir
+// desligado. As duas coisas passam despercebidas separadamente.
+//
+// Aqui a aplicação sobe num PROCESSO de verdade, com NODE_ENV=production e o
+// limitador no padrão de produção (ligado), e apanha.
+// ============================================================================
+
+const RAIZ_DO_PROJETO = path.resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
+
+function inundar({ rota, corpo, quantas, origem = 'rotativa', ambiente = {} }) {
+  const programa = `
+    process.env.NODE_ENV = 'production';
+    const request = require('supertest');
+    const app = require(process.env.CAMINHO_DO_APP).default || require(process.env.CAMINHO_DO_APP);
+    (async () => {
+      const codigos = [];
+      let retryAfter = null;
+      for (let i = 0; i < Number(process.env.QUANTAS); i += 1) {
+        const enderecoDeclarado = process.env.ORIGEM === 'fixa'
+          ? '203.0.113.7'
+          : '203.0.113.' + ((i % 200) + 1);
+        const r = await request(app).post(process.env.ROTA)
+          .set('X-Forwarded-For', enderecoDeclarado)
+          .send(JSON.parse(process.env.CORPO));
+        codigos.push(r.status);
+        if (r.status === 429 && retryAfter === null) retryAfter = r.headers['retry-after'] ?? null;
+      }
+      process.stdout.write(JSON.stringify({ codigos, retryAfter }));
+      process.exit(0);
+    })().catch(erro => { process.stdout.write(JSON.stringify({ erro: String(erro) })); process.exit(0); });
+  `;
+
+  const saida = execFileSync(process.execPath, ['-e', programa], {
+    encoding: 'utf8',
+    cwd: RAIZ_DO_PROJETO,
+    env: {
+      ...process.env,
+      NODE_ENV: 'production',
+      LOG_LEVEL: 'silent',
+      BCRYPT_ROUNDS: '4',
+      JWT_SECRET: 'rate-limit-em-processo-segredo-com-tamanho-suficiente-0001',
+      STORAGE_DIR: './uploads-test',
+      CORS_ORIGINS: 'http://127.0.0.1:5173',
+      CAMINHO_DO_APP: path.join(RAIZ_DO_PROJETO, 'src', 'app.js'),
+      ROTA: rota,
+      CORPO: JSON.stringify(corpo),
+      QUANTAS: String(quantas),
+      ORIGEM: origem,
+      ...ambiente
+    },
+    maxBuffer: 10 * 1024 * 1024
+  });
+
+  return JSON.parse(saida);
+}
+
+describe('com a aplicação em modo produção, o limitador barra de verdade', () => {
+  it('de um endereço só, o balde de ORIGEM corta em 10', () => {
+    const { codigos, retryAfter, erro } = inundar({
+      rota: '/api/v1/auth/login',
+      corpo: { email: 'vitima@mci.test', password: 'senha-errada-de-proposito' },
+      quantas: 20,
+      origem: 'fixa'
+    });
+
+    expect(erro, 'a sonda subiu a aplicação').toBeUndefined();
+    expect(codigos.indexOf(429), `códigos: ${codigos.join(',')}`).toBe(10);
+
+    // Retry-After não é enfeite: sem ele, quem caiu no limite não sabe quando
+    // voltar, e a única estratégia que sobra é insistir.
+    expect(Number(retryAfter), 'a resposta diz quando tentar de novo').toBeGreaterThan(0);
+  }, 120000);
+
+  it('trocando de endereço, quem segura é o balde por CONTA ALVO — em 20', () => {
+    // MEDIDO, e o número importa.
+    //
+    // Em produção `trust proxy` vale 1, porque há um proxy na frente. Com um
+    // único X-Forwarded-For, o valor que o Express usa como `req.ip` é o que o
+    // cliente escreveu — e trocá-lo a cada tentativa RENOVA o balde de origem.
+    // Isso não é defeito de configuração: é o que "um proxy na frente"
+    // significa, e é exatamente por isso que existe o segundo balde.
+    //
+    // O que sobra, então, é 20 tentativas por 15 minutos contra UMA conta,
+    // venham de onde vierem. É esse o número que protege a senha de alguém, e
+    // é ele que este teste tranca.
+    const { codigos } = inundar({
+      rota: '/api/v1/auth/login',
+      corpo: { email: 'alvo-fixo@mci.test', password: 'errada' },
+      quantas: 30,
+      origem: 'rotativa'
+    });
+
+    expect(codigos.indexOf(429),
+      `endereço novo a cada vez: ${codigos.join(',')}`).toBe(20);
+    expect(codigos.slice(20).every(c => c === 429), 'e continua barrando').toBe(true);
+  }, 120000);
+
+  it('em desenvolvimento o limitador segue desligado — e isso é deliberado', () => {
+    // Não é descuido: quem desenvolve recarrega a tela dezenas de vezes por
+    // minuto. O que o teste tranca é que a decisão seja do AMBIENTE, e não um
+    // acidente que também valha em produção.
+    const { codigos } = inundar({
+      rota: '/api/v1/auth/login',
+      corpo: { email: 'qualquer@mci.test', password: 'errada' },
+      quantas: 15,
+      ambiente: { NODE_ENV: 'development', RATE_LIMIT_ENABLED: 'false' }
+    });
+    expect(codigos.filter(c => c === 429), `códigos: ${codigos.join(',')}`).toHaveLength(0);
+  }, 120000);
+});
+
+describe('as rotas de escrita que faltavam na lista', () => {
+  const mapa = rotasComLimitador();
+
+  // Cada uma destas estava fora do teste estrutural. Um limitador que some
+  // numa refatoração de rota não aparece em nenhum teste de comportamento.
+  it.each([
+    ['POST /profile/password', 'auth'],
+    ['POST /athletes/:id/documents', 'upload'],
+    ['POST /events/:id/documents', 'upload'],
+    ['POST /social/me/avatar', 'upload'],
+    ['POST /social/stories', 'upload'],
+    ['POST /athlete-requests/:id/photo', 'upload']
+  ])('%s está atrás do limitador "%s"', (rota, nome) => {
+    expect(mapa.get(rota), `rota ${rota} não encontrada no router`).toBeTruthy();
+    expect(mapa.get(rota)).toContain(nome);
   });
 });

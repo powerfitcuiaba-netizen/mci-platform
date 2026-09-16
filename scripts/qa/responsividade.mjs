@@ -628,6 +628,76 @@ try {
   conferir('listeners não se acumulam', crescimentoListeners <= 25, `${crescimentoListeners}`);
   conferir('documentos não vazam', final.documentos <= inicial.documentos + 2, `${inicial.documentos} → ${final.documentos}`);
 
+  // ------------------------------------------------------------------------
+  // FASE 13.18 — MOVIMENTO REDUZIDO.
+  //
+  // `prefers-reduced-motion: reduce` não é preferência estética: quem tem
+  // enxaqueca vestibular passa mal com movimento na tela. A regra existe no
+  // CSS, mas regra escrita não é regra aplicada — basta uma animação declarada
+  // com `!important` depois dela, ou um efeito feito em JavaScript, para que a
+  // preferência deixe de valer sem que nada acuse.
+  //
+  // Aqui a preferência é EMULADA no navegador e o que se mede é o estilo
+  // COMPUTADO de cada elemento animado, que é o que o usuário recebe.
+  // ------------------------------------------------------------------------
+  console.log('\n--- Movimento reduzido (prefers-reduced-motion) ---');
+
+  const medirMovimento = async () => pagina.evaluate(() => {
+    const emMs = valor => {
+      const n = parseFloat(valor || '0');
+      return valor && valor.includes('ms') ? n : n * 1000;
+    };
+    const moventes = [];
+    for (const elemento of document.querySelectorAll('*')) {
+      const estilo = getComputedStyle(elemento);
+      const animacao = Math.max(...estilo.animationDuration.split(',').map(emMs), 0);
+      const transicao = Math.max(...estilo.transitionDuration.split(',').map(emMs), 0);
+      if (animacao > 1 || transicao > 1) {
+        moventes.push({
+          alvo: `${elemento.tagName.toLowerCase()}${elemento.className && typeof elemento.className === 'string' ? `.${elemento.className.trim().split(/\s+/)[0]}` : ''}`,
+          animacao, transicao
+        });
+      }
+    }
+    return {
+      moventes: moventes.slice(0, 12),
+      quantos: moventes.length,
+      rolagem: getComputedStyle(document.documentElement).scrollBehavior,
+      texto: (document.body.textContent || '').trim().length
+    };
+  });
+
+  const TELAS_DO_MOVIMENTO = ['admin/overall', 'ranking', 'campeonatos', 'admin'];
+
+  // Primeiro SEM a preferência: se nada se move nem aqui, a medição seguinte
+  // não prova nada — é o controle que impede um falso APROVADO.
+  await pagina.emulateMedia({ reducedMotion: 'no-preference' });
+  let comMovimento = 0;
+  for (const rota of TELAS_DO_MOVIMENTO) {
+    await pagina.goto(`${BASE_WEB}/#${rota}`, { waitUntil: 'networkidle' });
+    await esperar(150);
+    comMovimento += (await medirMovimento()).quantos;
+  }
+  conferir('controle: com movimento permitido, há movimento na tela', comMovimento > 0, `${comMovimento} elementos`);
+
+  await pagina.emulateMedia({ reducedMotion: 'reduce' });
+  for (const rota of TELAS_DO_MOVIMENTO) {
+    await pagina.goto(`${BASE_WEB}/#${rota}`, { waitUntil: 'networkidle' });
+    await esperar(150);
+    const m = await medirMovimento();
+
+    conferir(
+      `${rota} — nenhuma animação ou transição sobrevive ao movimento reduzido`,
+      m.quantos === 0,
+      m.moventes.map(x => `${x.alvo} anim ${x.animacao}ms trans ${x.transicao}ms`).join(', ')
+    );
+    conferir(`${rota} — rolagem deixa de ser suave`, m.rolagem === 'auto', m.rolagem);
+    // A preferência tira o movimento, não o conteúdo.
+    conferir(`${rota} — a tela continua mostrando conteúdo`, m.texto > 50, `${m.texto} caracteres`);
+  }
+
+  await pagina.emulateMedia({ reducedMotion: 'no-preference' });
+
   conferir('nenhum erro de página nem resposta 5xx', erros.size === 0, [...erros].join(' · '));
 
   await navegador.close();
