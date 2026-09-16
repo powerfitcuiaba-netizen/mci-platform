@@ -259,7 +259,16 @@ describe('o calendário não pede migration nenhuma', () => {
       // perde a corrida entre duas requisições simultâneas.
       //
       // Nenhuma coluna criada, nenhuma linha alterada, nenhuma RLS tocada.
-      '20260916010000_um_overall_por_recorte'
+      '20260916010000_um_overall_por_recorte',
+      // Índice do ranking por posição. ADITIVA: um índice em
+      // "Ranking"(seasonId, position, totalPoints, id), espelhando o ORDER BY
+      // da leitura pública.
+      //
+      // Justificativa MEDIDA com EXPLAIN ANALYZE, e não presumida: a rota
+      // pública fazia Seq Scan na temporada inteira para devolver cinco linhas
+      // (2,43ms contra 0,045ms). A varredura cresce com a temporada; o índice
+      // não. Nenhum índice removido, nenhuma linha alterada.
+      '20260916120000_indice_do_ranking_por_posicao'
     ]);
   });
 });

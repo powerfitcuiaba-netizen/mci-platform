@@ -11,9 +11,43 @@ const { config } = require('../config/environment');
 const ehJsonQuebrado = err =>
   err instanceof SyntaxError && err.status === 400 && 'body' in err;
 
+// Violação de unicidade e linha ausente são REGRA DE NEGÓCIO chegando pela
+// porta do banco, não falha da aplicação.
+//
+// O caso que motivou o mapa: duas requisições simultâneas declarando o mesmo
+// título Overall. A verificação no serviço não impede a corrida — entre o
+// `findFirst` e o `create` cabe a outra requisição —, e quem impedia era o
+// índice único, levantando P2002. Sem tradução isso saía 500, que diz ao
+// cliente "a aplicação quebrou" quando o certo é "alguém chegou antes".
+//
+// Cada serviço continua traduzindo o SEU caso, com mensagem que explica o que
+// fazer. Este mapa é a rede embaixo: garante que nenhum caminho esquecido
+// devolva 500 para uma condição que o banco previu.
+const POR_CODIGO_DO_PRISMA = Object.freeze({
+  P2002: { status: 409, code: 'CONFLICT', message: 'Registro já existe' },
+  P2025: { status: 404, code: 'NOT_FOUND', message: 'Registro não encontrado' }
+});
+
 function errorHandler(err, req, res, next) { // eslint-disable-line no-unused-vars
   if (ehJsonQuebrado(err)) {
     return res.status(400).json({ error: { code: 'INVALID_JSON', message: 'Corpo da requisição não é um JSON válido' } });
+  }
+
+  // O Prisma só mapeia para P2002 os índices que conhece pelo schema. Índice
+  // PARCIAL (como o que protege o Overall do evento inteiro) vive só na
+  // migration, e a violação dele chega como erro desconhecido com o código do
+  // PostgreSQL dentro da mensagem.
+  const unicidadeCrua = !err.status && !err.code
+    && typeof err.message === 'string' && err.message.includes('23505');
+
+  const doPrisma = unicidadeCrua
+    ? POR_CODIGO_DO_PRISMA.P2002
+    : (!err.status && POR_CODIGO_DO_PRISMA[err.code]);
+  if (doPrisma) {
+    logger.warn('condição prevista pelo banco', {
+      rota: `${req.method} ${req.originalUrl}`, prisma: err.code || '23505', status: doPrisma.status
+    });
+    return res.status(doPrisma.status).json({ error: { code: doPrisma.code, message: doPrisma.message } });
   }
 
   const status = err.status || 500;

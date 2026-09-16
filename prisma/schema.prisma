@@ -1398,6 +1398,11 @@ model Ranking {
 
   @@unique([seasonId, athleteId, categoryId])
   @@index([seasonId, totalPoints])
+  /// Espelha o ORDER BY da leitura do ranking (posição, total, id), que é o
+  /// que permite ao PostgreSQL pular o sort. Sem ele a rota pública fazia
+  /// Seq Scan na temporada inteira para devolver cinco linhas — medido com
+  /// EXPLAIN ANALYZE: 2,43ms contra 0,045ms.
+  @@index([seasonId, position, totalPoints, id])
 }
 
 // ============================================================================

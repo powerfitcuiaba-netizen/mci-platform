@@ -555,6 +555,18 @@ async function teamRanking(seasonId, { categoryId = null, organizationId = null 
  * tentar descobri-lo sozinho. Não é lacuna de implementação: é a regra. Por
  * isso o título é registrado com autoria e data, nunca calculado.
  */
+// Violação de unicidade, reconhecida pelas DUAS formas que ela chega.
+//
+// O Prisma só mapeia para P2002 os índices que conhece pelo schema. O índice
+// PARCIAL que protege o Overall do evento inteiro (categoryId IS NULL) vive só
+// na migration — o Prisma não o modela —, e a violação dele chega como erro
+// desconhecido, com o código do PostgreSQL dentro da mensagem. Olhar só para
+// P2002 deixaria justamente esse caso escapar como 500.
+function ehViolacaoDeUnicidade(erro) {
+  if (erro?.code === 'P2002') return true;
+  return typeof erro?.message === 'string' && erro.message.includes('23505');
+}
+
 async function declareOverall(eventId, { athleteId, categoryId = null, note = null }, actor) {
   const event = await prisma.event.findUnique({
     where: { id: eventId },
@@ -658,14 +670,44 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
   // Repetir a MESMA homologação é idempotente: o operador que clica duas vezes,
   // ou dois operadores que confirmam o mesmo fato, não produzem dois títulos —
   // nem dois bônus.
-  const titulo = existente
-    ? await prisma.eventOverallTitle.update({
-      where: { id: existente.id },
-      data: { note: note ?? existente.note, declaredById: actor?.id ?? null, declaredAt: new Date() }
-    })
-    : await prisma.eventOverallTitle.create({
-      data: { eventId, athleteId, categoryId, note, declaredById: actor?.id ?? null }
-    });
+  // A CORRIDA. Dois operadores na mesma sala, ou duas abas do mesmo operador:
+  // ambos leem "não existe título" e ambos tentam criar. O `findFirst` acima
+  // não impede nada — entre ele e o `create` cabe a outra requisição.
+  //
+  // Quem impede é o índice único no banco, e ele impede DEPOIS: a segunda
+  // escrita levanta P2002. Traduzir isso aqui é o que transforma uma corrida
+  // perdida em resposta com sentido. Sem esta tradução a segunda requisição
+  // respondia 500 — medido na FASE 13, disparando as duas em paralelo.
+  let titulo;
+  try {
+    titulo = existente
+      ? await prisma.eventOverallTitle.update({
+        where: { id: existente.id },
+        data: { note: note ?? existente.note, declaredById: actor?.id ?? null, declaredAt: new Date() }
+      })
+      : await prisma.eventOverallTitle.create({
+        data: { eventId, athleteId, categoryId, note, declaredById: actor?.id ?? null }
+      });
+  } catch (erro) {
+    if (!ehViolacaoDeUnicidade(erro)) throw erro;
+
+    // Perdeu a corrida, e NÃO dá para reler aqui dentro.
+    //
+    // A requisição inteira roda numa transação — é assim que o contexto de RLS
+    // é definido (ver withUserContext). A violação de unicidade ABORTA essa
+    // transação, e qualquer consulta seguinte falha com 25P02 ("current
+    // transaction is aborted"). A primeira tentativa de correção fazia
+    // exatamente isso: relia o vencedor para decidir entre idempotência e
+    // conflito, e trocava um 500 por outro.
+    //
+    // A resposta honesta é o conflito: alguém declarou este recorte enquanto
+    // esta requisição estava a caminho. Repetir a chamada agora encontra o
+    // título pelo caminho normal e responde idempotente.
+    throw new AppError(
+      409, 'OVERALL_ALREADY_DECLARED',
+      'Esta categoria já possui um Overall homologado. Revogue a homologação atual antes de declarar outro campeão.'
+    );
+  }
 
   await audit.record({
     actor, action: 'OVERALL_DECLARE', entity: 'Event', entityId: eventId,
