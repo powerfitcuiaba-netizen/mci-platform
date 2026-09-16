@@ -340,6 +340,33 @@ try {
     const depois = (await op.textContent('body')) || '';
     homologou = /Overall declarado oficialmente/i.test(depois) || /Homologado/.test(depois);
     conferir('TESTE 6 · o título fica HOMOLOGADO', homologou);
+
+    // O QUE A VERIFICAÇÃO ESCREVE, ELA DESFAZ.
+    //
+    // ACHADO DO TESTE HUMANO. Esta verificação homologa um Overall de verdade
+    // — é o que o teste vale — e antes deixava o título lá. O ambiente era
+    // então anunciado com uma narrativa ("um Overall homologado") que os
+    // próprios dados já não contavam mais: a atleta aparecia com dois títulos
+    // e 30 pontos, e quem abriu a tela teve toda a razão de estranhar.
+    //
+    // O arreio de QA não pode deixar rastro no artefato que ele verifica.
+    // Revogar é a via própria, registrada em auditoria, e não um DELETE no
+    // banco: o que se desfaz aqui se desfaz como um operador desfaria.
+    const titulos = await chamar(`/events/${valor}/overall`, { token: tokenOperador });
+    const declarado = (titulos.corpo?.items ?? titulos.corpo ?? [])
+      .find(t => t?.id) ?? null;
+
+    if (declarado) {
+      const revogacao = await chamar(`/events/${valor}/overall/${declarado.id}`, {
+        metodo: 'DELETE', token: tokenOperador,
+        corpo: { reason: 'Verificação automática do preview: desfazendo o que o teste declarou' }
+      });
+      conferir('TESTE 6 · a verificação desfaz o que declarou, pela via própria',
+        revogacao.status === 200, `status ${revogacao.status}`);
+    } else {
+      conferir('TESTE 6 · o título declarado foi encontrado para revogação', false,
+        JSON.stringify(titulos.corpo ?? {}).slice(0, 160));
+    }
     break;
   }
 
@@ -353,6 +380,18 @@ try {
   const rankingAdmin = (await op.textContent('body')) || '';
   conferir('TESTE 7 · o ranking administrativo mostra o Overall',
     /Overall/i.test(rankingAdmin) && rankingAdmin.trim().length > 200);
+
+  // O ACUMULADO PRECISA SER EXPLICÁVEL — foi disso que o teste humano sentiu
+  // falta. A campeã da demonstração vale 19: 5 da vitória na 1ª etapa, +10 do
+  // título, 4 do 2º lugar na 2ª. Um título, duas etapas.
+  const rankingDaCampea = await chamar(`/ranking?seasonId=${(await chamar('/seasons', { token: tokenOperador })).corpo?.items?.[0]?.id ?? ''}&limit=50`,
+    { token: tokenOperador });
+  const linhasDoRanking = rankingDaCampea.corpo?.items ?? rankingDaCampea.corpo ?? [];
+  const campea = linhasDoRanking.find(l => l.athlete?.fullName?.includes('Campeã Overall'));
+  conferir('TESTE 7 · o total da campeã é explicável (5 + 10 + 4 = 19)',
+    campea?.totalPoints === 19, `totalPoints=${campea?.totalPoints}`);
+  conferir('TESTE 7 · e ela tem UM título, não dois',
+    campea?.overallWins === 1, `overallWins=${campea?.overallWins}`);
 
   // ---------------------------------------------------------------- §11
   console.log('\n--- §11 Fluxo do atleta ---');

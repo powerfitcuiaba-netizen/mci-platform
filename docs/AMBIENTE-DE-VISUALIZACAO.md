@@ -101,7 +101,8 @@ aplicação demonstra um sistema que não existe.
 | 8 atletas | o suficiente para o corte público de TOP 5 existir |
 | 3 classes por etapa: Open (absoluta), Novice, Master | sem as não absolutas, a diferença entre pontuação do campeonato e Super Overall fica invisível |
 | **Atleta Que Trocou de Filiação** | compete pela NPC-MT na 1ª etapa e pela NPC-SP na 3ª |
-| **Atleta Campeã Overall** | título homologado pelo operador, +10 uma vez |
+| **Atleta Campeã Overall** | título homologado, +10 uma vez: 5 + 10 na 1ª etapa, 4 na 2ª = **19** |
+| **Atleta Candidata ao Overall** | vence a Open da 2ª etapa e **não** tem título — é nela que o roteiro manda homologar |
 | **Atleta Empatada A / B** | mesmo total e mesmos contadores: nenhuma recebe colocação |
 
 Números conferidos na execução:
@@ -114,8 +115,17 @@ atletas com título Overall: 1
 linhas sem colocação (empate não resolvido): 2
 ```
 
-A campeã termina com **20 pontos**: 5 + 5 de colocação e **+10 de Overall, uma
-única vez**.
+A campeã termina com **19 pontos**: 5 da vitória na 1ª etapa, **+10 do título**
+e 4 do 2º lugar na 2ª. Um título, duas etapas.
+
+> **Por que a 2ª etapa tem outra vencedora.** Um teste humano encontrou o
+> problema: antes, a mesma atleta vencia a Open das duas primeiras etapas, e o
+> roteiro manda homologar um Overall (TESTE 6). Quem seguia o roteiro criava um
+> **segundo** título para ela e via "Etapas: 2 · Pontos: 30" numa demonstração
+> que prometia *um* Overall homologado. O número estava certo — dois títulos,
+> dois bônus, um por campeonato, como manda a regra —, mas a demonstração
+> estava armada para confundir. Agora a homologação do roteiro cai na
+> **Candidata**, e o total da campeã continua explicável.
 
 ---
 

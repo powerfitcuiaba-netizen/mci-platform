@@ -768,6 +768,15 @@ h1, h2, h3 { margin: 0; }
 .import-contagem { font-size: 13px; color: var(--cinza-fraco); margin-left: auto; }
 .import-mais { display: flex; justify-content: center; margin-top: var(--e3); }
 
+/* A conta do ranking, por extenso. Existe porque um total sem explicação na
+   própria tela é um total em que ninguém confia — foi um teste humano que
+   mostrou isso. */
+.ranking-legenda {
+  margin: var(--e3) 0 0; padding: var(--e3) var(--e4);
+  font-size: 12px; line-height: 1.6; color: var(--cinza-fraco);
+  background: var(--superficie-2); border: 1px solid var(--linha); border-radius: 6px;
+}
+
 .kv { display: grid; grid-template-columns: auto 1fr; gap: var(--e2) var(--e4); font-size: 12.5px; }
 .kv dt { color: var(--cinza-fraco); font-weight: 600; }
 .kv dd { margin: 0; }

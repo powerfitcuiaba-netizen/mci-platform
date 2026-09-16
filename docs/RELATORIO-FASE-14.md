@@ -70,9 +70,12 @@ Tudo fictício, tudo marcado `QA · DEMO`. Construído **pela API**, nunca
 escrevendo no banco: se uma regra recusasse, a semeadura falharia alto.
 
 Uma federação, duas filiações (NPC-MT e NPC-SP), temporada 2026, três etapas
-encerradas e uma com inscrições abertas, oito atletas, três classes por etapa
+encerradas e uma com inscrições abertas, nove atletas, três classes por etapa
 (Open absoluta, Novice e Master), um Overall homologado, um empate sem
 desempate e uma atleta que **trocou de filiação entre etapas**.
+
+Cada etapa tem uma vencedora diferente na Open, e isso é deliberado — ver
+[`RELATORIO-BUG-OVERALL-ACUMULADO.md`](RELATORIO-BUG-OVERALL-ACUMULADO.md).
 
 Nenhum CPF real, nenhum telefone real, nenhum dado pessoal real.
 

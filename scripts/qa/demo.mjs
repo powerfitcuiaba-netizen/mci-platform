@@ -95,6 +95,10 @@ const conta = (papel, nome) => ({
 const ATLETAS = [
   { chave: 'migrante', nome: 'Atleta Que Trocou de Filiação', matricula: 'MT-1001' },
   { chave: 'campea', nome: 'Atleta Campeã Overall', matricula: 'MT-1002' },
+  // Vence a Open da 2ª etapa e NÃO tem título: é ela que o roteiro de
+  // conferência manda homologar. Existe por causa de um defeito real — ver o
+  // comentário das etapas, logo abaixo.
+  { chave: 'candidata', nome: 'Atleta Candidata ao Overall', matricula: 'MT-1009' },
   { chave: 'empatadaA', nome: 'Atleta Empatada A', matricula: 'MT-1003' },
   { chave: 'empatadaB', nome: 'Atleta Empatada B', matricula: 'MT-1004' },
   { chave: 'novata', nome: 'Atleta Só de Novice', matricula: 'MT-1005' },
@@ -207,9 +211,22 @@ async function principal() {
       overall: 'campea'
     },
     {
+      // A 2ª etapa é vencida por OUTRA atleta, e isso não é detalhe.
+      //
+      // ACHADO DO TESTE HUMANO: antes, a mesma atleta vencia a Open das duas
+      // primeiras etapas. O roteiro de conferência manda homologar um Overall
+      // (TESTE 6) — e o único campeonato sem título era justamente o outro
+      // dela. Quem seguia o roteiro criava um SEGUNDO título para a mesma
+      // atleta e via "Etapas: 2 · Pontos: 30" numa demonstração que prometia
+      // "um Overall homologado".
+      //
+      // O número estava certo: dois títulos, dois bônus, um por evento, como
+      // manda a regra. A demonstração é que estava armada para confundir.
+      // Agora a homologação do roteiro cai numa atleta própria, e o total da
+      // campeã continua explicável: 5 + 10 na 1ª etapa, 4 na 2ª.
       nome: 'Etapa Várzea Grande', data: '2026-06-20T12:00:00.000Z',
       colocacoes: {
-        OPEN: ['campea', 'empatadaB', 'quinta', 'sexta'],
+        OPEN: ['candidata', 'campea', 'empatadaB', 'quinta', 'sexta'],
         NOVICE: ['novata'],
         MASTER: ['master']
       },
@@ -405,6 +422,20 @@ async function principal() {
 
   const comBonus = linhas.filter(l => (l.overallWins ?? 0) > 0);
   console.log(`  atletas com título Overall: ${comBonus.length}`);
+
+  // O total da campeã precisa ser EXPLICÁVEL, e a demonstração confere isso
+  // antes de se declarar pronta: 5 da vitória na 1ª etapa, +10 do título, 4 do
+  // 2º lugar na 2ª. Se mudar, é porque a narrativa mudou — e aí a documentação
+  // mudou junto, ou a demonstração voltou a confundir quem a abre.
+  const campea = linhas.find(l => l.athlete?.fullName?.includes('Campeã Overall'));
+  const esperado = 19;
+  console.log(`  total da campeã: ${campea?.totalPoints} (5 + 10 na 1ª etapa, 4 na 2ª = ${esperado})`);
+  console.log(`  títulos da campeã: ${campea?.overallWins}`);
+  if (campea?.totalPoints !== esperado || campea?.overallWins !== 1) {
+    console.log('\n  ATENÇÃO: o total da campeã não é o que a documentação promete.');
+    console.log('  A demonstração subiu, mas vai confundir quem a abrir.');
+    process.exitCode = 1;
+  }
   const semColocacao = linhas.filter(l => l.position == null);
   console.log(`  linhas sem colocação (empate não resolvido): ${semColocacao.length}`);
 
