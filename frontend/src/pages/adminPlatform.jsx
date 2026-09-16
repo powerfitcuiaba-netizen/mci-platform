@@ -516,10 +516,15 @@ export function AdminMuscleWar({ notificar }) {
   );
 }
 
-function NovaImportacao({ notificar, onClose, onCriada }) {
+// Exportado pelo mesmo motivo que a revisão: o teste precisa montar o
+// formulário direto, sem atravessar a listagem de lotes para chegar nele.
+export function NovaImportacao({ notificar, onClose, onCriada }) {
   const organizacoes = useFetch(() => api.organizations.list(), []);
   const temporadas = useFetch(() => api.ranking.seasons(), []);
-  const [form, setForm] = useState({ organizationId: '', seasonId: '', sourceType: 'CSV', sourceRef: '', content: '' });
+  const [form, setForm] = useState({
+    organizationId: '', seasonId: '', sourceType: 'CSV', sourceRef: '', content: '',
+    externalIdPrefix: '', defaultAffiliationCode: ''
+  });
   const [salvando, setSalvando] = useState(false);
 
   const lerArquivo = async evento => {
@@ -543,7 +548,12 @@ function NovaImportacao({ notificar, onClose, onCriada }) {
         seasonId: form.seasonId || null,
         sourceType: form.sourceType,
         sourceRef: form.sourceRef,
-        content: form.content
+        content: form.content,
+        // Campos vazios NÃO viajam: o servidor trata ausência como "não
+        // declarado" e string vazia como valor, e mandar '' ligaria a
+        // derivação de identificador sem que ninguém tivesse pedido.
+        ...(form.externalIdPrefix.trim() ? { externalIdPrefix: form.externalIdPrefix.trim() } : {}),
+        ...(form.defaultAffiliationCode.trim() ? { defaultAffiliationCode: form.defaultAffiliationCode.trim() } : {})
       });
       notificar('Pré-visualização gerada. Nada foi aplicado ainda.');
       onCriada(previa.import.id);
@@ -568,8 +578,26 @@ function NovaImportacao({ notificar, onClose, onCriada }) {
             {(temporadas.data?.items || []).map(temporada => <option key={temporada.id} value={temporada.id}>{temporada.name} ({temporada.year})</option>)}
           </select>
         </Field>
-        <Field label="Arquivo" required hint="CSV ou JSON. Colunas reconhecidas: id, cpf, atleta, filiação, categoria, classe, colocação, pontos, evento, data.">
+        <Field label="Arquivo" required hint="CSV ou JSON. Reconhece nome inteiro ou First Name + Last Name, e Member Number como matrícula. Total Score não é lido como pontuação: a colocação é que pontua.">
           <input type="file" accept=".csv,.json,text/csv,application/json" onChange={lerArquivo} required />
+        </Field>
+        <Field
+          label="Filiação de toda a etapa"
+          hint="Para arquivos sem coluna de filiação. O reconhecimento por matrícula exige as duas juntas — matrícula sozinha não identifica ninguém. Linha que já traz a sua própria filiação não é sobrescrita."
+        >
+          <input
+            type="text" value={form.defaultAffiliationCode} maxLength={40} placeholder="Ex.: NPC"
+            onChange={evt => setForm({ ...form, defaultAffiliationCode: evt.target.value })}
+          />
+        </Field>
+        <Field
+          label="Prefixo do identificador"
+          hint="Só para arquivos que não trazem identificador de resultado. A chave fica prefixo + matrícula + classe, e é ela que impede que importar duas vezes some os pontos duas vezes. Em branco, um arquivo sem identificador é recusado em vez de importado."
+        >
+          <input
+            type="text" value={form.externalIdPrefix} maxLength={40} placeholder="Ex.: IPIRANGA"
+            onChange={evt => setForm({ ...form, externalIdPrefix: evt.target.value })}
+          />
         </Field>
         {form.content && (
           <div className="alert alert-info" style={{ marginBottom: 12 }}>
