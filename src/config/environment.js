@@ -43,6 +43,14 @@ const config = Object.freeze({
   isDevelopment: NODE_ENV === 'development',
 
   port: inteiro(process.env.PORT, 3000),
+  // Interface de escuta. Vazio mantém o padrão do Node — todas as interfaces —,
+  // que é o que um contêiner precisa: atrás de um proxy, escutar só em
+  // 127.0.0.1 deixaria o serviço inalcançável pelo próprio orquestrador.
+  //
+  // Existe para o caso oposto: um ambiente de visualização que deve ficar
+  // preso à máquina onde roda pede HOST=127.0.0.1, e sem este campo não havia
+  // como pedir isso.
+  host: process.env.HOST || undefined,
   databaseUrl: process.env.DATABASE_URL || '',
   databaseKind: String(process.env.DATABASE_URL || '').startsWith('postgres') ? 'postgresql' : 'desconhecido',
 

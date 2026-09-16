@@ -93,9 +93,14 @@ process.on('SIGINT', () => encerrar('SIGINT'));
 async function iniciar() {
   await conferirRls();
 
-  servidor = app.listen(config.port, () => {
-    logger.info('API iniciada', { porta: config.port, ambiente: config.env, banco: config.databaseKind, storage: config.storageDriver });
+  const anunciar = () => logger.info('API iniciada', {
+    porta: config.port, host: config.host || '(todas as interfaces)',
+    ambiente: config.env, banco: config.databaseKind, storage: config.storageDriver
   });
+
+  servidor = config.host
+    ? app.listen(config.port, config.host, anunciar)
+    : app.listen(config.port, anunciar);
 
   return servidor;
 }
