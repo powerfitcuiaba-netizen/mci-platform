@@ -487,6 +487,10 @@ Não existe variável financeira, e o teste de ausência confere isso.
 - **[`docs/TESTE-MANUAL.md`](docs/TESTE-MANUAL.md)** — roteiro de aceitação em
   21 etapas, cada uma com o que fazer, o que deve acontecer e **o que não pode
   acontecer**.
+- **[`docs/RELATORIO-FASE-14.md`](docs/RELATORIO-FASE-14.md)** — o ambiente de
+  PREVIEW para teste humano: como ele sobe no runner do GitHub (a única saída
+  de rede disponível), o que foi verificado pela URL pública e o que fica de
+  ressalva. O endereço vigente fica em `preview-estado/PREVIEW-ATUAL.md`.
 - **[`docs/RELATORIO-FASE-13.md`](docs/RELATORIO-FASE-13.md)** — performance,
   estabilidade, segurança e endurecimento final, em 23 seções com veredito.
   Traz o que a medição **quebrou**: o importador recusava 1.000 linhas, e a
