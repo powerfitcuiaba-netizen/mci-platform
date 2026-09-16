@@ -6,22 +6,32 @@ produção não foi tocado.
 
 ---
 
-## URL
+## URL — onde encontrar a que está valendo
 
-| | |
-|---|---|
-| **PREVIEW URL** | https://experienced-implied-acid-streaming.trycloudflare.com |
-| **API URL** | https://added-ram-studio-frankfurt.trycloudflare.com |
-| **BRANCH** | `claude/mci-platform-muscle-contest-o6haz9` |
-| **SHA** | `a7773910fae077d1f7ecb5edef4fe1a4eed7f496` |
-| **AMBIENTE** | QA/PREVIEW |
-| **STATUS** | ONLINE |
-| **Subiu em** | 2026-09-16 03:26 UTC |
-| **Janela** | 330 minutos |
+Este documento **não** guarda o endereço. Cada execução do preview sorteia um
+endereço novo da Cloudflare, e um endereço escrito aqui envelhece no primeiro
+reinício — foi exatamente assim que o link entregue na primeira rodada parou de
+abrir. O endereço vigente, com as credenciais de QA da rodada, fica sempre em:
 
-O endereço vigente fica sempre em
-[`preview-estado/PREVIEW-ATUAL.md`](https://github.com/powerfitcuiaba-netizen/mci-platform/blob/preview-estado/PREVIEW-ATUAL.md).
-Cada execução sorteia um endereço novo.
+**[`preview-estado/PREVIEW-ATUAL.md`](https://github.com/powerfitcuiaba-netizen/mci-platform/blob/preview-estado/PREVIEW-ATUAL.md)**
+
+O arquivo é reescrito pelo próprio workflow assim que o ambiente responde de
+fora, e traz URL, credenciais, SHA, hora de subida e o resultado da verificação.
+
+### Quando o link não abrir
+
+O ambiente vive **330 minutos** e morre junto com o job do Actions: o túnel da
+Cloudflare não sobrevive ao fim da execução. Link que não abre quase sempre
+significa janela encerrada, não defeito.
+
+Para levantar de novo, sem depender de commit e sem depender de mim:
+
+> **Actions → Preview QA → Run workflow →** branch
+> `claude/mci-platform-muscle-contest-o6haz9` **→ Run workflow**
+
+Em torno de seis minutos o `PREVIEW-ATUAL.md` acima já mostra o endereço novo.
+A `main` continua intocada: o workflow roda a partir do branch de trabalho e
+não faz merge nem deploy.
 
 ## Por que o preview nasce no runner do GitHub
 
