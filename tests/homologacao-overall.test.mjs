@@ -29,9 +29,8 @@ import {
 //       correções possíveis.
 // ============================================================================
 
-let admin, diretor, gerente, semPermissao, contaDeAtleta, orgId, seasonId, categoria;
+let admin, diretor, gerente, semPermissao, contaDeAtleta, orgId, seasonId;
 let evento, classeOpen, classeNovice, classeMaster;
-let atletaA, atletaB;
 
 const cpfSeq = (() => { let n = 440000000; return () => gerarCpf(n += 6871); })();
 let cpfPorNome = new Map();
@@ -147,7 +146,6 @@ beforeEach(async () => {
 
   const montado = await montarEvento();
   evento = montado.event;
-  categoria = montado.category;
   classeOpen = montado.classes.OPEN;
   classeNovice = montado.classes.NOVICE;
   classeMaster = montado.classes.MASTER;

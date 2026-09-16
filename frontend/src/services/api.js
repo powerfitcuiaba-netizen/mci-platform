@@ -74,7 +74,7 @@ export async function apiRequest(path, options = {}) {
       erro.details = corpo?.error?.details;
       throw erro;
     }
-    return corpo;
+    return normalizarLista(corpo, path);
   } catch (error) {
     // A mensagem trocada é para o usuário; `cause` preserva o erro original
     // para quem for depurar. Sem isso, a falha de rede vira uma frase sem
@@ -85,6 +85,26 @@ export async function apiRequest(path, options = {}) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+// `items` que não é lista NÃO é dado — é resposta malformada.
+//
+// Toda tela de listagem faz `(dados.items || []).map(...)`, e esse `|| []` não
+// defende contra `items: "alguma coisa"`: o `map` some, o `filter` some, e a
+// tela quebra. O erro aparecia como "((intermediate value) || []).filter is
+// not a function" — encontrado pela matriz de estados de erro da FASE 13.
+//
+// Normalizar aqui defende TODAS as telas de uma vez, em vez de espalhar
+// `Array.isArray` por vinte arquivos. E avisa no console: payload malformado é
+// defeito do servidor, e engoli-lo em silêncio esconderia a causa de quem
+// precisa corrigi-la.
+function normalizarLista(corpo, path) {
+  if (!corpo || typeof corpo !== 'object') return corpo;
+  if (!('items' in corpo) || Array.isArray(corpo.items)) return corpo;
+
+  // eslint-disable-next-line no-console
+  console.warn(`[api] ${path} devolveu "items" que não é lista (${typeof corpo.items}); tratando como vazia.`);
+  return { ...corpo, items: [] };
 }
 
 const get = (path, params) => apiRequest(withQuery(path, params));

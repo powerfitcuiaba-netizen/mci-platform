@@ -17,7 +17,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 const api = { ranking: { athletePoints: vi.fn() } };
 vi.mock('../services/api', () => ({ default: api, refreshData: vi.fn(), fetchMediaObjectUrl: vi.fn(), releaseMediaObjectUrl: vi.fn() }));
 
-const { AdminRanking, OrigemDosPontos } = await import('./adminPlatform');
+const { OrigemDosPontos } = await import('./adminPlatform');
 
 const ponto = extras => ({
   id: 'p1',

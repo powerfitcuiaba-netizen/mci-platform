@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
-  api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
+  api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
   vincular, criarEventoCompleto, transicionar, gerarCpf, unico, comoAtor
 } from './helpers.mjs';
 
@@ -255,7 +255,7 @@ describe('o corte NÃO alcança o ledger nem o histórico', () => {
   });
 
   it('o histórico individual do atleta vem inteiro para quem pode lê-lo', async () => {
-    const { inscritos } = await temporadaComOitoPontuadoras();
+    await temporadaComOitoPontuadoras();
     const historico = await api().get(`/api/v1/athletes/${atletaPorNome.get('A1')}/ranking-points`)
       .set(diretor.auth()).query({ seasonId });
     expect(historico.status, JSON.stringify(historico.body)).toBe(200);

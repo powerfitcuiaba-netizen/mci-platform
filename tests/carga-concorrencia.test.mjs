@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
-  api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
+  api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
   vincular, criarEventoCompleto, transicionar, gerarCpf, unico, comoAtor
 } from './helpers.mjs';
 
@@ -19,7 +19,7 @@ import {
 // requisições em paralelo, e confere o estado final.
 // ============================================================================
 
-let admin, diretor, gerente, orgId, seasonId, evento, classeOpen, inscritos;
+let admin, diretor, gerente, orgId, seasonId, evento, inscritos;
 
 const cpfSeq = (() => { let n = 660000000; return () => gerarCpf(n += 5273); })();
 
@@ -73,7 +73,6 @@ beforeEach(async () => {
 
   const montado = await montarEtapa(['ATLETA A', 'ATLETA B', 'ATLETA C']);
   evento = montado.event;
-  classeOpen = montado.competitionClass;
   inscritos = montado.inscritos;
 });
 
@@ -102,10 +101,20 @@ describe('13.7 — dois operadores ao mesmo tempo', () => {
     ]);
 
     const criados = respostas.filter(r => r.status === 201);
-    const recusados = respostas.filter(r => r.status === 409 || r.status === 500);
+    const recusados = respostas.filter(r => r.status !== 201);
 
     expect(criados.length, 'exatamente um título nasce').toBe(1);
     expect(recusados.length, 'o outro é recusado, não aceito em silêncio').toBe(1);
+
+    // 409 COM O CÓDIGO DO NEGÓCIO, e não 500 nem um CONFLICT genérico.
+    //
+    // Quando esta asserção aceitava 500, ela documentava a falha em vez de
+    // cobrá-la: perder a corrida virava "a aplicação quebrou" para quem estava
+    // na sala. O código também importa — `CONFLICT` vindo da rede do
+    // errorHandler significaria que o serviço deixou o erro passar cru, e o
+    // operador perderia a instrução de revogar antes de declarar.
+    expect(recusados[0].status, JSON.stringify(recusados[0].body)).toBe(409);
+    expect(recusados[0].body.error.code).toBe('OVERALL_ALREADY_DECLARED');
 
     const titulos = await comoAtor(diretor, tx => tx.eventOverallTitle.findMany({ where: { eventId: evento.id } }));
     expect(titulos).toHaveLength(1);
@@ -125,7 +134,8 @@ describe('13.7 — dois operadores ao mesmo tempo', () => {
 
     const respostas = await Promise.all([revogar(diretor), revogar(gerente)]);
     expect(respostas.some(r => r.status === 200), 'ao menos uma revoga').toBe(true);
-    expect(respostas.every(r => [200, 404, 409, 500].includes(r.status))).toBe(true);
+    expect(respostas.every(r => [200, 404, 409].includes(r.status)),
+      JSON.stringify(respostas.map(r => ({ s: r.status, b: r.body })))).toBe(true);
 
     const titulos = await comoAtor(diretor, tx => tx.eventOverallTitle.findMany({ where: { eventId: evento.id } }));
     expect(titulos, 'o título sumiu, e só uma vez').toHaveLength(0);
@@ -200,5 +210,68 @@ describe('13.8 — idempotência: repetir converge', () => {
       select: { athleteId: true, totalPoints: true, position: true, overallWins: true }
     }));
     expect(depois, 'três recomputações, mesmo resultado').toEqual(referencia);
+  });
+});
+
+// ============================================================================
+// A CORRIDA, SEM SORTE.
+//
+// O teste acima DISPARA duas requisições em paralelo e confere o estado final.
+// Ele é honesto, mas depende de as duas se cruzarem no ponto certo: se a
+// primeira terminar antes de a segunda ler a tabela, a segunda encontra o
+// título pelo caminho normal e nunca chega ao índice. O caminho de exceção —
+// o que traduz a violação do índice PARCIAL em 409 — fica sem cobrança em uma
+// parte das execuções, e uma regressão nele passaria despercebida.
+//
+// Aqui a corrida é ENCENADA, não sorteada: uma transação do teste insere o
+// título e NÃO confirma. A requisição HTTP não enxerga a linha pendente (o
+// PostgreSQL lê o confirmado), segue para a escrita e FICA BLOQUEADA no
+// índice. O teste então confirma sua transação, e o bloqueio se resolve do
+// único jeito possível: violação de unicidade dentro da requisição.
+//
+// É exatamente a corrida do dia de competição, com o relógio nas mãos do
+// teste.
+// ============================================================================
+describe('13.7 — a corrida perdida no índice, de forma determinística', () => {
+  it('quem perde recebe 409 com o código do negócio, nunca 500', async () => {
+    let resposta = null;
+    let soltar;
+
+    // O disparo é ARMADO AQUI FORA de propósito. O contexto de RLS viaja por
+    // AsyncLocalStorage e é capturado no momento em que a continuação é
+    // REGISTRADA: uma requisição disparada de dentro do callback herdaria a
+    // transação do teste, enxergaria a linha pendente e jamais chegaria ao
+    // índice — o teste passaria medindo outro caminho. Registrada aqui, ela
+    // corre em contexto próprio, como uma requisição de verdade.
+    const gatilho = new Promise(resolve => { soltar = resolve; });
+    const emVoo = gatilho
+      .then(() => declarar(gerente, { athleteId: idDe('ATLETA B') }))
+      .then(r => { resposta = { status: r.status, body: r.body }; })
+      .catch(erro => { resposta = { status: 'erro de transporte', body: String(erro) }; });
+
+    await comoAtor(diretor, async tx => {
+      // O vencedor da corrida, ainda NÃO confirmado.
+      await tx.eventOverallTitle.create({
+        data: { eventId: evento.id, athleteId: idDe('ATLETA A'), categoryId: null, declaredById: diretor.id }
+      });
+
+      soltar();
+      // Tempo para a requisição percorrer validação e chegar à escrita.
+      await new Promise(resolve => { setTimeout(resolve, 1500); });
+      expect(resposta, 'a requisição precisa estar travada no índice neste ponto').toBeNull();
+    }, { timeout: 25000, maxWait: 25000 });
+
+    // Fora do callback a transação já foi confirmada: o bloqueio se resolve.
+    await emVoo;
+
+    expect(resposta, 'a requisição respondeu').not.toBeNull();
+    expect(resposta.status, JSON.stringify(resposta.body)).toBe(409);
+    expect(resposta.body.error.code, 'traduzido pelo serviço, não pela rede genérica')
+      .toBe('OVERALL_ALREADY_DECLARED');
+    expect(resposta.body.error.message).toMatch(/Revogue/);
+
+    const titulos = await comoAtor(diretor, tx => tx.eventOverallTitle.findMany({ where: { eventId: evento.id } }));
+    expect(titulos, 'o vencedor ficou, e sozinho').toHaveLength(1);
+    expect(titulos[0].athleteId).toBe(idDe('ATLETA A'));
   });
 });

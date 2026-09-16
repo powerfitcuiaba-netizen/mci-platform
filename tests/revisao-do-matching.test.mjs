@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
-  api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
+  api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
   vincular, criarAtleta, gerarCpf, unico, comoAtor
 } from './helpers.mjs';
 

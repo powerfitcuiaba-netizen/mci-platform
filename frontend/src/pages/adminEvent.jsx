@@ -30,7 +30,12 @@ import {
 // problema no lugar errado enquanto a fila cresce.
 export function SeletorDeEvento({ eventId, onChange, filtroStatus }) {
   const estado = useFetch(() => api.events.list({ limit: 50 }), []);
-  const lista = (estado.data?.items || []).filter(evento => (filtroStatus ? filtroStatus.includes(evento.status) : true));
+  // `Array.isArray` e não `|| []`: um `items` que veio como texto passa pelo
+  // `||` e quebra no `.filter`. A normalização no cliente da API já defende o
+  // caso, e esta linha é a segunda camada — a lista aqui também vem de
+  // `estado.data`, que um teste pode montar à mão.
+  const lista = (Array.isArray(estado.data?.items) ? estado.data.items : [])
+    .filter(evento => (filtroStatus ? filtroStatus.includes(evento.status) : true));
   const falhou = Boolean(estado.error);
 
   return (

@@ -6,7 +6,7 @@ const prisma = require('../config/prisma');
 // o visitante anônimo, porque a política do atleta libera a leitura só quando
 // não há ator definido.
 const publico = require('../config/prismaPublico');
-const { AppError } = require('../utils/errors');
+const { AppError, ehViolacaoDeUnicidade } = require('../utils/errors');
 const { assertCan, organizationFilter } = require('../utils/tenant');
 const { can, belongsToOrganization } = require('../utils/permissions');
 const audit = require('./auditService');
@@ -555,18 +555,6 @@ async function teamRanking(seasonId, { categoryId = null, organizationId = null 
  * tentar descobri-lo sozinho. Não é lacuna de implementação: é a regra. Por
  * isso o título é registrado com autoria e data, nunca calculado.
  */
-// Violação de unicidade, reconhecida pelas DUAS formas que ela chega.
-//
-// O Prisma só mapeia para P2002 os índices que conhece pelo schema. O índice
-// PARCIAL que protege o Overall do evento inteiro (categoryId IS NULL) vive só
-// na migration — o Prisma não o modela —, e a violação dele chega como erro
-// desconhecido, com o código do PostgreSQL dentro da mensagem. Olhar só para
-// P2002 deixaria justamente esse caso escapar como 500.
-function ehViolacaoDeUnicidade(erro) {
-  if (erro?.code === 'P2002') return true;
-  return typeof erro?.message === 'string' && erro.message.includes('23505');
-}
-
 async function declareOverall(eventId, { athleteId, categoryId = null, note = null }, actor) {
   const event = await prisma.event.findUnique({
     where: { id: eventId },
@@ -1503,5 +1491,11 @@ module.exports = {
   declareOverall, listOverall, overallCandidates, overallPreview, revokeOverall,
   superOverallRanking, listClasses, upsertClass, companyRanking,
   athleteRankingBy,
-  TABELA_OFICIAL_COLOCACAO, BONUS_OVERALL
+  TABELA_OFICIAL_COLOCACAO, BONUS_OVERALL,
+  // Exportada para medição: a pré-seleção tem um contrato próprio — trazer o
+  // topo E o bloco de empate inteiro que encosta no corte — e esse contrato
+  // não é observável pela resposta pública, que mostra só as cinco primeiras
+  // linhas. Medi-lo pela porta da frente é impossível; medi-lo aqui é a única
+  // forma de travar a promessa que o comentário da função faz.
+  agregarSuperOverall
 };

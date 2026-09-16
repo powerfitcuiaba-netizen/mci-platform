@@ -289,3 +289,111 @@ describe('mídia protegida', () => {
     expect(opcoes.signal).toBeInstanceOf(AbortSignal);
   });
 });
+
+// ==========================================================================
+// FASE 13.16 — A FRONTEIRA DA API NORMALIZA O QUE CHEGA TORTO.
+//
+// A matriz de estados de erro monta as telas com a API INTEIRA dublada. Isso
+// prova que a tela aguenta o corpo malformado que o dublê entrega — e não
+// toca no código que faz a defesa de verdade, que mora aqui. A mutação
+// mostrou isso sem margem: desligar a normalização não reprovava nada.
+//
+// Aqui a fronteira é medida DIRETO, com o `fetch` dublado e o módulo real no
+// meio. É o único lugar onde `items` malformado encontra a defesa.
+// ==========================================================================
+
+const responderCom = (corpo, status = 200) => vi.fn().mockResolvedValue({
+  ok: status >= 200 && status < 300,
+  status,
+  json: () => Promise.resolve(corpo)
+});
+
+describe('items malformado não chega às telas', () => {
+  let avisos;
+
+  beforeEach(() => {
+    clearAuthToken();
+    avisos = [];
+    vi.spyOn(console, 'warn').mockImplementation((...args) => { avisos.push(args.join(' ')); });
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  // As formas realmente observadas quando um servidor erra a serialização.
+  // Nenhuma tem `.map` nem `.filter`, e todas passam ilesas pelo `|| []` que
+  // as telas usam.
+  for (const [rotulo, valor] of [
+    ['string', 'nada disso'],
+    ['objeto', { 0: 'a', 1: 'b' }],
+    ['número', 7],
+    ['nulo', null],
+    ['booleano', true]
+  ]) {
+    it(`${rotulo} vira lista vazia`, async () => {
+      global.fetch = responderCom({ items: valor, total: 3 });
+
+      const dados = await apiRequest('/ranking');
+
+      expect(Array.isArray(dados.items), 'a tela recebe algo que tem map e filter').toBe(true);
+      expect(dados.items).toEqual([]);
+      // O resto do corpo continua intacto: normalizar não é descartar.
+      expect(dados.total).toBe(3);
+    });
+  }
+
+  it('avisa no console — payload torto é defeito do servidor, não se engole calado', async () => {
+    global.fetch = responderCom({ items: 'nada disso' });
+    await apiRequest('/ranking');
+    expect(avisos.some(a => a.includes('/ranking') && a.includes('items')),
+      JSON.stringify(avisos)).toBe(true);
+  });
+});
+
+describe('o que está bem formado passa intacto', () => {
+  let avisos;
+
+  beforeEach(() => {
+    clearAuthToken();
+    avisos = [];
+    vi.spyOn(console, 'warn').mockImplementation((...args) => { avisos.push(args.join(' ')); });
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('lista de verdade não é tocada', async () => {
+    const original = { items: [{ id: 'a' }, { id: 'b' }], total: 2, nextCursor: 'x' };
+    global.fetch = responderCom(original);
+
+    const dados = await apiRequest('/ranking');
+    expect(dados).toEqual(original);
+    expect(avisos, 'nenhum aviso para corpo correto').toEqual([]);
+  });
+
+  it('lista vazia continua vazia, sem aviso', async () => {
+    global.fetch = responderCom({ items: [], total: 0 });
+    const dados = await apiRequest('/ranking');
+    expect(dados.items).toEqual([]);
+    expect(avisos).toEqual([]);
+  });
+
+  it('corpo sem items não é inventado', async () => {
+    global.fetch = responderCom({ id: 'evento-1', name: 'Etapa' });
+    const dados = await apiRequest('/events/evento-1');
+    expect(dados).toEqual({ id: 'evento-1', name: 'Etapa' });
+    expect('items' in dados, 'a normalização não cria campo que o servidor não mandou').toBe(false);
+    expect(avisos).toEqual([]);
+  });
+
+  it('corpo nulo e 204 continuam nulos', async () => {
+    global.fetch = responderCom(null);
+    expect(await apiRequest('/qualquer')).toBeNull();
+
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 204, json: () => Promise.resolve(null) });
+    expect(await apiRequest('/qualquer')).toBeNull();
+    expect(avisos).toEqual([]);
+  });
+
+  it('resposta que é lista na raiz passa intacta', async () => {
+    const lista = [{ id: 'a' }];
+    global.fetch = responderCom(lista);
+    expect(await apiRequest('/catalogo')).toEqual(lista);
+  });
+});

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
-  api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
+  api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
   vincular, criarEventoCompleto, transicionar, gerarCpf, unico, comoAtor
 } from './helpers.mjs';
 
@@ -17,7 +17,7 @@ import {
 // ============================================================================
 
 let adminA, diretorA, atletaContaA, orgA, seasonA, eventoA, atletaA;
-let adminB, diretorB, atletaContaB, orgB, seasonB, eventoB, atletaB;
+let diretorB, orgB, seasonB, eventoB, atletaB;
 
 const cpfSeq = (() => { let n = 770000000; return () => gerarCpf(n += 8117); })();
 
@@ -59,7 +59,7 @@ beforeEach(async () => {
   const a = await montarCasa('A');
   const b = await montarCasa('B');
   ({ admin: adminA, diretor: diretorA, conta: atletaContaA, org: orgA, seasonId: seasonA, evento: eventoA, athleteId: atletaA } = a);
-  ({ admin: adminB, diretor: diretorB, conta: atletaContaB, org: orgB, seasonId: seasonB, evento: eventoB, athleteId: atletaB } = b);
+  ({ diretor: diretorB, org: orgB, seasonId: seasonB, evento: eventoB, athleteId: atletaB } = b);
 });
 
 const recusado = status => [400, 401, 403, 404, 422].includes(status);

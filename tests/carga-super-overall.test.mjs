@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
-  api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
+  api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
   vincular, criarEventoCompleto, transicionar, gerarCpf, unico, comoAtor
 } from './helpers.mjs';
+import rankingService from '../src/services/rankingService.js';
 
 // ============================================================================
 // FASE 13 — O SUPER OVERALL PÚBLICO NÃO PODE CARREGAR A TEMPORADA INTEIRA.
@@ -149,5 +150,171 @@ describe('a vista pública lê pouco — e responde o mesmo', () => {
     const lidas = Number(publico.headers['x-mci-rows-read']);
     expect(Number.isFinite(lidas), 'a rota informa quantas linhas leu').toBe(true);
     expect(lidas, 'a vista pública lê o topo, não a temporada inteira').toBeLessThan(totalDePontos);
+  });
+});
+
+// ============================================================================
+// O TETO SÓ APARECE QUANDO HÁ O QUE CORTAR.
+//
+// Com uma dúzia de atletas, "ler tudo" e "ler o topo" são a mesma coisa: a
+// consulta traz doze linhas dos dois jeitos, e o teto de 200 nunca encosta.
+// Foi exatamente isso que a mutação mostrou — desligar o teto não reprovava
+// nada, porque nenhum teste chegava perto dele.
+//
+// Aqui a temporada tem mais atletas pontuando do que o teto permite trazer. A
+// semeadura é DIRETA, por SQL, e não pelo fluxo de inscrição: o que está sob
+// medição é o volume lido pela consulta de agregação, e montar 260 campeonatos
+// pela porta da frente mediria o helper de teste, não a consulta.
+//
+// Dados de QA, marcados como tal no nome.
+// ============================================================================
+describe('a consulta pública tem teto, e o teto vale', () => {
+  const QUANTOS = 260;
+  const TETO_DECLARADO = 200;
+
+  async function semearPontuadoras() {
+    await comoAtor(diretor, async tx => {
+      await tx.$executeRawUnsafe(`
+        INSERT INTO "Athlete" (id, "organizationId", "fullName", sex, country, "updatedAt")
+        SELECT 'qa-so-atleta-' || lpad(g::text, 4, '0'), $1,
+               'QA SUPER OVERALL ' || lpad(g::text, 4, '0'), 'FEMALE', 'BR', now()
+        FROM generate_series(1, ${QUANTOS}) AS g
+      `, orgId);
+
+      // Totais DISTINTOS e decrescentes: sem empate, o corte é limpo e o
+      // número de linhas lidas responde só ao teto.
+      await tx.$executeRawUnsafe(`
+        INSERT INTO "RankingPoint"
+          -- As colunas placing e points VÃO ENTRE ASPAS. PLACING é palavra reservada do
+          -- PostgreSQL (vem de OVERLAY(... PLACING ...)), e sem aspas o parser
+          -- reprova a lista inteira com "syntax error at or near".
+          (id, "seasonId", "athleteId", "source", "placing",
+           "placementPoints", "overallBonus", "superOverallEligible", "points", "superOverallPoints")
+        SELECT 'qa-so-ponto-' || lpad(g::text, 4, '0'), $1,
+               'qa-so-atleta-' || lpad(g::text, 4, '0'), 'EVENT', NULL,
+               ${QUANTOS + 10} - g, 0, true, ${QUANTOS + 10} - g, ${QUANTOS + 10} - g
+        FROM generate_series(1, ${QUANTOS}) AS g
+      `, seasonId);
+    });
+  }
+
+  it('lê o teto, e não a temporada inteira, mesmo com centenas pontuando', async () => {
+    await semearPontuadoras();
+
+    const pontuadoras = await comoAtor(diretor, tx => tx.rankingPoint.count({
+      where: { seasonId, superOverallEligible: true }
+    }));
+    expect(pontuadoras, 'há mais pontuadoras que o teto').toBeGreaterThan(TETO_DECLARADO);
+
+    const publico = await api().get('/api/v1/ranking/super-overall')
+      .set('X-MCI-QA-Metrics', '1')
+      .query({ seasonId, limit: 100 });
+
+    expect(publico.status).toBe(200);
+    const lidas = Number(publico.headers['x-mci-rows-read']);
+    expect(Number.isFinite(lidas), 'a rota informa quantas linhas leu').toBe(true);
+    expect(lidas, 'o teto da pré-seleção segura a consulta').toBeLessThanOrEqual(TETO_DECLARADO);
+    expect(lidas, 'e o teto é o que está segurando, não a falta de dados').toBeLessThan(pontuadoras);
+  });
+
+  it('cortar no teto não muda quem aparece no topo público', async () => {
+    await semearPontuadoras();
+
+    const publico = await api().get('/api/v1/ranking/super-overall').query({ seasonId, limit: 100 });
+    const operador = await api().get('/api/v1/ranking/super-overall').set(diretor.auth()).query({ seasonId, limit: 100 });
+
+    const doPublico = publico.body.items ?? publico.body;
+    const doOperador = operador.body.items ?? operador.body;
+
+    expect(doPublico).toHaveLength(5);
+    // O operador lê sem teto: as cinco primeiras linhas dele são a referência.
+    expect(doPublico, 'o corte econômico devolve o MESMO topo').toEqual(doOperador.slice(0, 5));
+    expect(doPublico[0].athlete.fullName).toBe('QA SUPER OVERALL 0001');
+    expect(doPublico.map(l => l.position)).toEqual([1, 2, 3, 4, 5]);
+  });
+});
+
+// ============================================================================
+// O CONTRATO DA PRÉ-SELEÇÃO, MEDIDO ONDE ELE EXISTE.
+//
+// A promessa da consulta com teto é: trazer o topo E, se o corte cair dentro
+// de um bloco de empate, trazer o BLOCO INTEIRO — para que `classificar()`
+// decida vendo o mesmo conjunto que veria sem corte.
+//
+// Essa promessa NÃO é observável pela resposta pública: ela mostra cinco
+// linhas, e os campos dessas cinco já estão determinados pela sexta. Partir o
+// bloco na sexta devolveria exatamente o mesmo JSON. Medir só pela porta da
+// frente, portanto, não mede isto — foi o que a mutação mostrou ao partir o
+// bloco sem reprovar nada.
+//
+// Aqui a pré-seleção é chamada direto.
+// ============================================================================
+describe('pré-seleção: o bloco de empate não é partido no corte', () => {
+  // Três totais distintos no topo e SETE atletas empatadas logo abaixo: o
+  // corte de cinco cai no meio do bloco.
+  async function semearEmpateNoCorte() {
+    await comoAtor(diretor, async tx => {
+      await tx.$executeRawUnsafe(`
+        INSERT INTO "Athlete" (id, "organizationId", "fullName", sex, country, "updatedAt")
+        SELECT 'qa-emp-atleta-' || lpad(g::text, 3, '0'), $1,
+               'QA EMPATE ' || lpad(g::text, 3, '0'), 'FEMALE', 'BR', now()
+        FROM generate_series(1, 10) AS g
+      `, orgId);
+
+      // g de 1 a 3: totais 30, 29, 28. g de 4 a 10: todas com 20.
+      await tx.$executeRawUnsafe(`
+        INSERT INTO "RankingPoint"
+          (id, "seasonId", "athleteId", "source", "placing",
+           "placementPoints", "overallBonus", "superOverallEligible", "points", "superOverallPoints")
+        SELECT 'qa-emp-ponto-' || lpad(g::text, 3, '0'), $1,
+               'qa-emp-atleta-' || lpad(g::text, 3, '0'), 'EVENT', NULL,
+               CASE WHEN g <= 3 THEN 31 - g ELSE 20 END, 0, true,
+               CASE WHEN g <= 3 THEN 31 - g ELSE 20 END,
+               CASE WHEN g <= 3 THEN 31 - g ELSE 20 END
+        FROM generate_series(1, 10) AS g
+      `, seasonId);
+    });
+  }
+
+  it('o corte dentro do empate traz o bloco inteiro, não limite + 1', async () => {
+    await semearEmpateNoCorte();
+
+    const { linhas } = await comoAtor(diretor, () => rankingService.agregarSuperOverall({
+      seasonId, categoryId: undefined, limite: 5
+    }));
+
+    const empatadas = linhas.filter(l => l.totalPoints === 20).map(l => l.athleteId).sort();
+    expect(empatadas.length, 'as SETE empatadas chegam ao motor, não só as que cabem no corte')
+      .toBe(7);
+    expect(linhas.length, 'topo distinto + bloco inteiro').toBe(10);
+  });
+
+  it('corte limpo devolve limite + 1, e não mais', async () => {
+    // Dez atletas com totais TODOS distintos: o corte de cinco não encosta em
+    // empate nenhum, e a pré-seleção pode descartar o excedente.
+    await comoAtor(diretor, async tx => {
+      await tx.$executeRawUnsafe(`
+        INSERT INTO "Athlete" (id, "organizationId", "fullName", sex, country, "updatedAt")
+        SELECT 'qa-lmp-atleta-' || lpad(g::text, 3, '0'), $1,
+               'QA LIMPO ' || lpad(g::text, 3, '0'), 'FEMALE', 'BR', now()
+        FROM generate_series(1, 10) AS g
+      `, orgId);
+      await tx.$executeRawUnsafe(`
+        INSERT INTO "RankingPoint"
+          (id, "seasonId", "athleteId", "source", "placing",
+           "placementPoints", "overallBonus", "superOverallEligible", "points", "superOverallPoints")
+        SELECT 'qa-lmp-ponto-' || lpad(g::text, 3, '0'), $1,
+               'qa-lmp-atleta-' || lpad(g::text, 3, '0'), 'EVENT', NULL,
+               40 - g, 0, true, 40 - g, 40 - g
+        FROM generate_series(1, 10) AS g
+      `, seasonId);
+    });
+
+    const { linhas, lidas } = await comoAtor(diretor, () => rankingService.agregarSuperOverall({
+      seasonId, categoryId: undefined, limite: 5
+    }));
+
+    expect(linhas.length, 'cinco do corte mais a vizinha que prova que não há empate').toBe(6);
+    expect(lidas, 'lidas conta o que a consulta trouxe, não o que sobrou do corte').toBe(10);
   });
 });

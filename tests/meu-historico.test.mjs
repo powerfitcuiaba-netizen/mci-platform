@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
   api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, criarEventoCompleto, transicionar, gerarCpf, unico, comoAtor
+  vincular, transicionar, gerarCpf, unico, comoAtor
 } from './helpers.mjs';
 
 // ============================================================================
@@ -29,7 +29,7 @@ import {
 // ============================================================================
 
 let admin, diretor, orgId, seasonId, fedA, fedB;
-let atleta, contaDoAtleta, outroAtleta, contaDoOutro;
+let contaDoAtleta, contaDoOutro;
 
 const cpfSeq = (() => { let n = 330000000; return () => gerarCpf(n += 7919); })();
 let cpfPorNome = new Map();
@@ -387,7 +387,7 @@ describe('ATHLETE CHANGES AFFILIATION — HISTORICAL IMMUTABILITY', () => {
 
     // ANO 2 — a TROCA, e um resultado novo.
     await filiar(id, fedB, 'Y-99999');
-    const ano2 = await etapa({
+    await etapa({
       nome: 'Etapa Ano 2',
       classes: [{ division: 'Absoluta', divisionCode: 'ABS', name: 'Open', code: 'OPEN' }],
       colocacoes: { OPEN: ['ATLETA MIGRANTE'] }

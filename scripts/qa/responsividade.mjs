@@ -565,6 +565,69 @@ try {
     }
   }
 
+  // ------------------------------------------------- 13.19/13.20 ESTABILIDADE
+  //
+  // Fluxo prolongado no navegador: entrar, passear por todas as telas, repetir.
+  // O que se procura não é lentidão — é CRESCIMENTO: heap que sobe e não
+  // volta, listener que se acumula, timer que nunca é limpo. Um vazamento não
+  // aparece numa visita; aparece na centésima.
+  //
+  // A coleta é FORÇADA antes de cada leitura: sem isso o heap medido é lixo
+  // ainda não recolhido, e qualquer número serve para provar qualquer coisa.
+  console.log('\n--- Estabilidade (fluxo prolongado) ---');
+
+  const CICLOS = Number(arg('ciclos-estabilidade', 25));
+  const cdp = await contextoOperador.newCDPSession(pagina);
+  await cdp.send('Performance.enable');
+  await cdp.send('HeapProfiler.enable');
+
+  const ROTEIRO = ['admin/overall', 'admin/ranking', 'admin/resultados', 'ranking', 'campeonatos', 'admin'];
+
+  const medirEstado = async () => {
+    await cdp.send('HeapProfiler.collectGarbage');
+    const { metrics } = await cdp.send('Performance.getMetrics');
+    const m = Object.fromEntries(metrics.map(x => [x.name, x.value]));
+    return {
+      heap: m.JSHeapUsedSize ?? 0,
+      listeners: m.JSEventListeners ?? 0,
+      nos: m.Nodes ?? 0,
+      documentos: m.Documents ?? 0
+    };
+  };
+
+  // Aquecimento: a primeira volta paga compilação e cache, e misturá-la com o
+  // resto faria qualquer medida parecer um vazamento.
+  for (const rota of ROTEIRO) {
+    await pagina.goto(`${BASE_WEB}/#${rota}`, { waitUntil: 'networkidle' });
+    await esperar(120);
+  }
+  const inicial = await medirEstado();
+
+  for (let ciclo = 0; ciclo < CICLOS; ciclo += 1) {
+    for (const rota of ROTEIRO) {
+      await pagina.goto(`${BASE_WEB}/#${rota}`, { waitUntil: 'networkidle' });
+      await esperar(80);
+    }
+  }
+  const final = await medirEstado();
+
+  const crescimentoHeap = (final.heap - inicial.heap) / Math.max(1, inicial.heap);
+  const crescimentoListeners = final.listeners - inicial.listeners;
+
+  console.log(`  ${CICLOS} ciclos × ${ROTEIRO.length} telas = ${CICLOS * ROTEIRO.length} navegações`);
+  console.log(`  heap      ${(inicial.heap / 1e6).toFixed(1)}MB → ${(final.heap / 1e6).toFixed(1)}MB  (${(crescimentoHeap * 100).toFixed(1)}%)`);
+  console.log(`  listeners ${inicial.listeners} → ${final.listeners}  (${crescimentoListeners >= 0 ? '+' : ''}${crescimentoListeners})`);
+  console.log(`  nós DOM   ${inicial.nos} → ${final.nos}`);
+  console.log(`  documentos ${inicial.documentos} → ${final.documentos}`);
+
+  // Os tetos são de FORMA, não de valor absoluto: 40% de folga cobre variação
+  // de cache e de coletor, e ainda reprova um heap que dobra. Listener é mais
+  // rígido porque ele não deveria crescer: a mesma tela montada de novo
+  // desmonta o que montou.
+  conferir('heap não cresce sem parar', crescimentoHeap < 0.40, `${(crescimentoHeap * 100).toFixed(1)}%`);
+  conferir('listeners não se acumulam', crescimentoListeners <= 25, `${crescimentoListeners}`);
+  conferir('documentos não vazam', final.documentos <= inicial.documentos + 2, `${inicial.documentos} → ${final.documentos}`);
+
   conferir('nenhum erro de página nem resposta 5xx', erros.size === 0, [...erros].join(' · '));
 
   await navegador.close();

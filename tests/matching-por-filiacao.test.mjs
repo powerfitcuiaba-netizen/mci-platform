@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
-  api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
+  api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
   vincular, criarAtleta, gerarCpf, unico, comoAtor
 } from './helpers.mjs';
 import visibility from '../src/utils/visibility.js';
@@ -30,7 +30,7 @@ import visibility from '../src/utils/visibility.js';
 // ou sobre o cadastro, e quem decide é gente.
 // ============================================================================
 
-let admin, gerente, deFora, organizationId, seasonId, fedMT, fedSP;
+let admin, gerente, deFora, organizationId, seasonId, fedMT;
 
 const CPF_YURI = gerarCpf(510510510);
 const CPF_KANANDA = gerarCpf(610610610);
@@ -76,8 +76,10 @@ beforeEach(async () => {
 
   fedMT = (await api().post('/api/v1/affiliations').set(admin.auth())
     .send({ organizationId, name: 'NPC Mato Grosso', code: 'NPC-MT' })).body;
-  fedSP = (await api().post('/api/v1/affiliations').set(admin.auth())
-    .send({ organizationId, name: 'NPC São Paulo', code: 'NPC-SP' })).body;
+  // Segunda federação: existe para que a matrícula NÃO seja única no mundo.
+  // Nenhum teste precisa da entidade em si, só de que ela esteja lá.
+  await api().post('/api/v1/affiliations').set(admin.auth())
+    .send({ organizationId, name: 'NPC São Paulo', code: 'NPC-SP' });
 
   const temporada = await api().post('/api/v1/seasons').set(admin.auth())
     .send({ organizationId, name: unico('Temporada'), year: 2026 });
