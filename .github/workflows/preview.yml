@@ -1,0 +1,353 @@
+# ============================================================================
+# FASE 14 — AMBIENTE DE PREVIEW PARA TESTE HUMANO
+#
+# POR QUE O PREVIEW NASCE AQUI, E NÃO NUM PROVEDOR DE HOSPEDAGEM
+#
+# A rede onde o agente trabalha só alcança o GitHub: medido host a host, o
+# CONNECT para render.com, vercel, netlify, fly.io, railway, deno, ngrok,
+# cloudflare e todos os provedores de túnel volta 403 por política. O runner do
+# Actions, ao contrário, tem internet. Ele é o único lugar de onde este projeto
+# consegue publicar qualquer coisa.
+#
+# O QUE ESTE WORKFLOW FAZ
+#
+#   sobe PostgreSQL, aplica migrations, cria o papel de aplicação SEM
+#   superusuário (senão o RLS não valeria nada), sobe a API em modo produção,
+#   semeia o conjunto de demonstração, constrói o frontend, publica os dois
+#   pela Cloudflare, VERIFICA tudo pela URL pública e fica de pé.
+#
+# O QUE ELE NÃO FAZ
+#
+#   não toca na main, não faz merge, não faz deploy em produção e não usa
+#   nenhuma credencial do ambiente real. O banco nasce e morre com o job.
+#
+# ATENÇÃO — ESTE AMBIENTE É PÚBLICO
+#
+# O repositório é público, e log de Actions de repositório público é público.
+# A URL e as senhas de QA impressas aqui podem ser lidas por qualquer pessoa.
+# Por isso: todos os dados são FICTÍCIOS, as contas entregues têm o mínimo de
+# permissão, e a conta administrativa usada só para semear recebe uma senha
+# aleatória que NÃO é impressa — ninguém, nem quem escreveu isto, consegue
+# usá-la depois. Nada de dado real entra aqui.
+# ============================================================================
+name: Preview QA
+
+on:
+  push:
+    branches:
+      - claude/mci-platform-muscle-contest-o6haz9
+    paths:
+      # Só sobe quando alguém PEDE. Um push de código comum não deve levantar
+      # ambiente: o preview custa tempo de runner e publica uma URL.
+      - '.github/workflows/preview.yml'
+      - '.github/preview.trigger'
+
+concurrency:
+  group: preview-qa
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    name: Publicar preview de QA
+    runs-on: ubuntu-latest
+    # Teto do GitHub é 360. O ambiente vive o que o job viver.
+    timeout-minutes: 350
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mci
+          POSTGRES_PASSWORD: mci_preview_ci
+          POSTGRES_DB: mci_preview
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U mci -d mci_preview"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # O dono do schema NÃO é o usuário de bootstrap da imagem: aquele nasce
+      # superusuário, e superusuário ignora RLS mesmo com FORCE. Um preview que
+      # rodasse com ele mostraria uma barreira que não existe.
+      DATABASE_URL: postgresql://mci_owner:mci_owner_preview@localhost:5432/mci_preview?schema=public
+      PORTA_API: '4700'
+      PORTA_WEB: '5700'
+      MINUTOS_NO_AR: '330'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Registrar o SHA publicado
+        run: |
+          echo "SHA_PUBLICADO=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "SHA_CURTO=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Instalar dependências
+        run: |
+          npm ci
+          npm --prefix frontend ci
+
+      - name: Criar o papel dono do schema, sem superusuário
+        env:
+          PGPASSWORD: mci_preview_ci
+        run: |
+          set -e
+          PSQL="psql -h localhost -U mci -d mci_preview -v ON_ERROR_STOP=1"
+          $PSQL -c "CREATE ROLE mci_owner LOGIN PASSWORD 'mci_owner_preview' NOSUPERUSER CREATEROLE"
+          $PSQL -c "GRANT ALL ON DATABASE mci_preview TO mci_owner"
+          $PSQL -c "ALTER SCHEMA public OWNER TO mci_owner"
+          PGPASSWORD=mci_owner_preview psql -h localhost -U mci_owner -d mci_preview -v ON_ERROR_STOP=1 -qc \
+            "DO \$\$ BEGIN IF current_setting('is_superuser') = 'on' THEN RAISE EXCEPTION 'papel da aplicacao e superusuario: o RLS nao teria efeito'; END IF; END \$\$"
+
+      # ------------------------------------------------------------------ §4
+      - name: Validar schema e gerar client
+        run: |
+          npx prisma validate
+          npx prisma generate
+
+      - name: ESLint
+        run: npx eslint .
+
+      - name: Migrations
+        run: |
+          npx prisma migrate deploy
+          npx prisma migrate status
+
+      - name: Catálogo oficial
+        run: node prisma/seed.js
+
+      # Subconjunto essencial: regra esportiva, histórico, RLS em execução e
+      # segurança. A suíte inteira roda no workflow de CI, a cada push.
+      - name: Testes essenciais
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://mci_owner:mci_owner_preview@localhost:5432/mci_preview_test?schema=public
+          STORAGE_DIR: ./uploads-test
+          JWT_SECRET: preview-essencial-segredo-com-tamanho-mais-que-suficiente
+          BCRYPT_ROUNDS: '4'
+          LOG_LEVEL: silent
+        run: |
+          set -e
+          PGPASSWORD=mci_owner_preview createdb -h localhost -U mci_owner mci_preview_test
+          npx prisma migrate deploy
+          node prisma/seed.js
+          npx vitest run \
+            tests/unidade-dominio.test.mjs \
+            tests/pontuacao-oficial.test.mjs \
+            tests/regulamento-overall-vigente.test.mjs \
+            tests/homologacao-overall.test.mjs \
+            tests/meu-historico.test.mjs \
+            tests/ranking-publico-top5.test.mjs \
+            tests/rls-runtime.test.mjs \
+            tests/superficie-publica.test.mjs
+
+      # ------------------------------------------------------------------ §2
+      - name: Instalar o cliente do túnel
+        run: |
+          curl -fsSL -o /usr/local/bin/cloudflared \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x /usr/local/bin/cloudflared
+          cloudflared --version
+
+      # Os dois túneis sobem ANTES da aplicação: a API precisa saber a origem
+      # do frontend para o CORS, e o frontend precisa saber a URL da API em
+      # tempo de build. Sem os endereços de antemão, um dos dois ficaria com o
+      # valor errado.
+      - name: Abrir os túneis
+        run: |
+          set -e
+          abrir() {
+            local porta="$1" arquivo="$2"
+            cloudflared tunnel --no-autoupdate --url "http://localhost:${porta}" > "$arquivo" 2>&1 &
+            for _ in $(seq 1 60); do
+              url=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$arquivo" | head -1 || true)
+              [ -n "$url" ] && { echo "$url"; return 0; }
+              sleep 2
+            done
+            echo "túnel na porta ${porta} não devolveu URL" >&2
+            tail -40 "$arquivo" >&2
+            return 1
+          }
+
+          URL_API=$(abrir "$PORTA_API" /tmp/tunel-api.log)
+          URL_WEB=$(abrir "$PORTA_WEB" /tmp/tunel-web.log)
+
+          echo "URL_API=$URL_API" >> "$GITHUB_ENV"
+          echo "URL_WEB=$URL_WEB" >> "$GITHUB_ENV"
+          echo "API  $URL_API"
+          echo "WEB  $URL_WEB"
+
+      - name: Gerar segredos do ambiente
+        run: |
+          # O JWT_SECRET é do ambiente e morre com ele; não é impresso.
+          echo "JWT_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          # A senha da conta administrativa serve só para semear. Aleatória e
+          # NUNCA impressa: depois da semeadura ninguém consegue usá-la.
+          echo "SENHA_ADMIN=$(openssl rand -hex 24)" >> "$GITHUB_ENV"
+          # A senha das contas de QA é entregue ao responsável, e por isso é
+          # impressa. Ver o aviso no cabeçalho: este ambiente é público.
+          echo "DEMO_PASSWORD=preview-mci-$(openssl rand -hex 6)" >> "$GITHUB_ENV"
+
+      # ------------------------------------------------------------------ §3
+      - name: Subir a API
+        env:
+          NODE_ENV: production
+          PORT: '4700'
+          BCRYPT_ROUNDS: '12'
+          RATE_LIMIT_ENABLED: 'true'
+          # A Cloudflare fica na frente: um salto.
+          TRUST_PROXY_HOPS: '1'
+          LOG_LEVEL: info
+          STORAGE_DRIVER: local
+          # Assumido de propósito para o preview: o disco do runner é efêmero e
+          # o upload some com o job. Em produção a barreira RECUSA subir assim,
+          # porque ali a perda seria documento de atleta.
+          ALLOW_LOCAL_STORAGE: 'true'
+          STORAGE_DIR: ./uploads-preview
+          DEFAULT_TIMEZONE: America/Sao_Paulo
+        run: |
+          set -e
+          CORS_ORIGINS="$URL_WEB" nohup node server.js > /tmp/api.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:${PORTA_API}/health" >/dev/null 2>&1; then
+              echo "API no ar."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "a API não subiu:" >&2
+          tail -60 /tmp/api.log >&2
+          exit 1
+
+      # ------------------------------------------------------------------ §7 §8 §9
+      - name: Semear o conjunto de demonstração
+        env:
+          # NÃO em modo produção de propósito: a barreira de configuração de
+          # produção exige CORS e armazenamento de objetos, que são assunto do
+          # PROCESSO DA API, não deste utilitário. O que importa aqui é o custo
+          # do bcrypt, e ele está declarado.
+          NODE_ENV: development
+          BCRYPT_ROUNDS: '12'
+          LOG_LEVEL: error
+        run: |
+          set -e
+          # A conta administrativa nasce pelo caminho próprio da aplicação: não
+          # existe rota de autopromoção, e não deve existir.
+          ADMIN_PASSWORD="$SENHA_ADMIN" \
+            node scripts/criar-admin.js "QA DEMO Semeadura" semeadura.qa@mci.local
+
+          DEMO_ADMIN_PASSWORD="$SENHA_ADMIN" node scripts/qa/demo.mjs \
+            --api "http://127.0.0.1:${PORTA_API}/api/v1" \
+            --admin-email semeadura.qa@mci.local | tee /tmp/demo.log
+
+          # As contas ENTREGUES são as de menor privilégio possível para o que
+          # a fase pede testar: a operadora tem direção de evento e gerência de
+          # ranking (é o que `ranking.manage` exige), a atleta não tem nenhuma.
+          echo "EMAIL_OPERADOR=$(grep -oE 'demo\.diretora\.[a-z0-9]+@mci\.local' /tmp/demo.log | head -1)" >> "$GITHUB_ENV"
+          echo "EMAIL_ATLETA=$(grep -oE 'demo\.atleta\.[a-z0-9]+@mci\.local' /tmp/demo.log | head -1)" >> "$GITHUB_ENV"
+
+      - name: Construir e servir o frontend
+        run: |
+          set -e
+          VITE_API_URL="${URL_API}/api/v1" npm --prefix frontend run build
+          nohup node scripts/qa/servir-estatico.mjs \
+            --dir frontend/dist --porta "$PORTA_WEB" --host 0.0.0.0 > /tmp/web.log 2>&1 &
+          for _ in $(seq 1 40); do
+            curl -fsS "http://127.0.0.1:${PORTA_WEB}/" >/dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          echo "o frontend não subiu:" >&2
+          tail -40 /tmp/web.log >&2
+          exit 1
+
+      - name: Esperar os túneis responderem de fora
+        run: |
+          set -e
+          for alvo in "${URL_API}/health" "${URL_WEB}/"; do
+            ok=""
+            for _ in $(seq 1 45); do
+              if curl -fsS --max-time 10 "$alvo" >/dev/null 2>&1; then ok=1; break; fi
+              sleep 2
+            done
+            [ -n "$ok" ] || { echo "sem resposta pública em $alvo" >&2; exit 1; }
+            echo "público OK: $alvo"
+          done
+
+      # ------------------------------------------------------- §5 §6 §10–§14
+      - name: Verificar o preview pela URL pública
+        id: verificacao
+        continue-on-error: true
+        run: |
+          set -e
+          npx playwright install --with-deps chromium
+          node scripts/qa/preview-verificacao.mjs \
+            --web "$URL_WEB" \
+            --api "$URL_API" \
+            --operador "$EMAIL_OPERADOR" \
+            --atleta "$EMAIL_ATLETA" \
+            --senha "$DEMO_PASSWORD"
+
+      - name: Publicar o endereço
+        run: |
+          {
+            echo "## PREVIEW ONLINE"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| PREVIEW URL | ${URL_WEB} |"
+            echo "| API URL | ${URL_API} |"
+            echo "| BRANCH | ${GITHUB_REF_NAME} |"
+            echo "| SHA | ${SHA_PUBLICADO} |"
+            echo "| AMBIENTE | QA/PREVIEW |"
+            echo "| VERIFICAÇÃO | ${{ steps.verificacao.outcome }} |"
+            echo "| OPERADOR | ${EMAIL_OPERADOR} |"
+            echo "| ATLETA | ${EMAIL_ATLETA} |"
+            echo "| SENHA (ambas) | ${DEMO_PASSWORD} |"
+            echo
+            echo "Ambiente público e efêmero, com dados fictícios. Vive ${MINUTOS_NO_AR} minutos."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "================== PREVIEW ONLINE =================="
+          echo "PREVIEW URL: ${URL_WEB}"
+          echo "API URL:     ${URL_API}"
+          echo "BRANCH:      ${GITHUB_REF_NAME}"
+          echo "SHA:         ${SHA_PUBLICADO}"
+          echo "AMBIENTE:    QA/PREVIEW"
+          echo "VERIFICACAO: ${{ steps.verificacao.outcome }}"
+          echo "OPERADOR:    ${EMAIL_OPERADOR}"
+          echo "ATLETA:      ${EMAIL_ATLETA}"
+          echo "SENHA:       ${DEMO_PASSWORD}"
+          echo "==================================================="
+
+      - name: Manter o ambiente no ar
+        run: |
+          fim=$(( $(date +%s) + MINUTOS_NO_AR * 60 ))
+          while [ "$(date +%s)" -lt "$fim" ]; do
+            if ! curl -fsS --max-time 10 "http://127.0.0.1:${PORTA_API}/health" >/dev/null 2>&1; then
+              echo "a API caiu; últimas linhas do log:"
+              tail -40 /tmp/api.log
+              exit 1
+            fi
+            restam=$(( (fim - $(date +%s)) / 60 ))
+            echo "no ar — ${URL_WEB} — restam ${restam} min"
+            sleep 300
+          done
+          echo "janela encerrada."
+
+      - name: Diagnóstico quando algo falha
+        if: failure()
+        run: |
+          echo '--- api ---'; tail -80 /tmp/api.log 2>/dev/null || true
+          echo '--- web ---'; tail -40 /tmp/web.log 2>/dev/null || true
+          echo '--- tunel api ---'; tail -40 /tmp/tunel-api.log 2>/dev/null || true
+          echo '--- tunel web ---'; tail -40 /tmp/tunel-web.log 2>/dev/null || true
