@@ -42,6 +42,11 @@ on:
       - '.github/workflows/preview.yml'
       - '.github/preview.trigger'
 
+  # O tunel da Cloudflare morre junto com o job, e o job tem teto de tempo.
+  # Quando o ambiente cai, quem precisa dele tem de poder levanta-lo sozinho,
+  # sem depender de um commit: Actions -> Preview QA -> Run workflow.
+  workflow_dispatch:
+
 concurrency:
   group: preview-qa
   cancel-in-progress: true
