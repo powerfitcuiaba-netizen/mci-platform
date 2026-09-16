@@ -487,6 +487,11 @@ Não existe variável financeira, e o teste de ausência confere isso.
 - **[`docs/TESTE-MANUAL.md`](docs/TESTE-MANUAL.md)** — roteiro de aceitação em
   21 etapas, cada uma com o que fazer, o que deve acontecer e **o que não pode
   acontecer**.
+- **[`docs/RELATORIO-BUG-OVERALL-ACUMULADO.md`](docs/RELATORIO-BUG-OVERALL-ACUMULADO.md)**
+  — o bug que um teste humano encontrou no preview: "Etapas: 2 · Pontos: 30".
+  O ledger estava certo; o arreio de QA, os dados de demonstração e a
+  explicabilidade da tela é que não estavam. Auditoria linha a linha, as três
+  correções, sete testes e sete mutantes mortos.
 - **[`docs/RELATORIO-FASE-14.md`](docs/RELATORIO-FASE-14.md)** — o ambiente de
   PREVIEW para teste humano: como ele sobe no runner do GitHub (a única saída
   de rede disponível), o que foi verificado pela URL pública e o que fica de
