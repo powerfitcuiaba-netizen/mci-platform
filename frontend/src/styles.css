@@ -759,6 +759,15 @@ h1, h2, h3 { margin: 0; }
 .import-summary .metric { padding: var(--e3) var(--e4); }
 .import-summary .metric strong { font-size: 28px; }
 
+/* Recorte da revisão. Em 320px o seletor e a contagem empilham: o seletor tem
+   min-width: auto por ser item de flex, e sem a quebra ele empurra a largura
+   da tabela inteira para fora da tela. */
+.import-filtros { display: flex; flex-wrap: wrap; align-items: center; gap: var(--e2); margin-bottom: var(--e3); }
+.import-filtros label { font-size: 13px; color: var(--cinza-fraco); }
+.import-filtros select { min-width: 0; max-width: 100%; }
+.import-contagem { font-size: 13px; color: var(--cinza-fraco); margin-left: auto; }
+.import-mais { display: flex; justify-content: center; margin-top: var(--e3); }
+
 .kv { display: grid; grid-template-columns: auto 1fr; gap: var(--e2) var(--e4); font-size: 12.5px; }
 .kv dt { color: var(--cinza-fraco); font-weight: 600; }
 .kv dd { margin: 0; }

@@ -165,3 +165,83 @@ describe('CONFLICT — os candidatos em disputa na tela', () => {
     expect(within(linha).getByRole('button', { name: /vincular/i })).toBeTruthy();
   });
 });
+
+// ==========================================================================
+// A LISTA CORTADA NÃO PODE PARECER COMPLETA.
+//
+// A pré-visualização passou a vir paginada: com 10.000 linhas, a resposta
+// antiga tinha 12,2 MB. O corte é seguro — os totais continuam sendo do lote
+// inteiro —, mas só se a tela DISSER que cortou. Uma tabela que mostra 200 de
+// 10.000 sem avisar leva o operador a concluir que não há mais nada a revisar
+// e aplicar o lote assim.
+// ==========================================================================
+describe('a revisão diz que a lista está cortada', () => {
+  const comPagina = (itens, page, summary) => ({
+    ...lote(itens),
+    summary: { ...lote(itens).summary, ...summary },
+    page
+  });
+
+  it('mostra quantas linhas vieram e quantas existem', async () => {
+    api.muscleWar.preview.mockResolvedValue(comPagina(
+      [item({ id: 'i1', rowNumber: 1 })],
+      { limit: 200, offset: 0, matchStatus: null, returned: 1, total: 10000, hasMore: true },
+      { totalRecords: 10000, recognized: 9000, pending: 1000, valid: 9000 }
+    ));
+
+    render(<RevisarImportacao importId="imp1" notificar={() => {}} onClose={() => {}} onMudou={() => {}} />);
+
+    const contagem = await screen.findByText(/Mostrando 1 de 10000/i);
+    expect(contagem).toBeTruthy();
+    // E oferece o caminho para ver o resto.
+    expect(await screen.findByRole('button', { name: /Carregar mais/i })).toBeTruthy();
+  });
+
+  it('os totais mostrados são os do LOTE, não os da página', async () => {
+    api.muscleWar.preview.mockResolvedValue(comPagina(
+      [item({ id: 'i1', rowNumber: 1 })],
+      { limit: 200, offset: 0, matchStatus: null, returned: 1, total: 10000, hasMore: true },
+      { totalRecords: 10000, recognized: 8500, pending: 1200, conflicts: 300, valid: 8500 }
+    ));
+
+    render(<RevisarImportacao importId="imp1" notificar={() => {}} onClose={() => {}} onMudou={() => {}} />);
+
+    // Uma linha na tela, 1.200 pendentes no lote: é o número do lote que
+    // precisa aparecer, senão o aviso de revisão nunca dispara.
+    expect(await screen.findByText('1200')).toBeTruthy();
+    expect(await screen.findByText(/Aplicar agora vai trazer apenas os 8500/i)).toBeTruthy();
+  });
+
+  it('lista inteira na primeira página não oferece "carregar mais"', async () => {
+    api.muscleWar.preview.mockResolvedValue(comPagina(
+      [item({ id: 'i1', rowNumber: 1 })],
+      { limit: 200, offset: 0, matchStatus: null, returned: 1, total: 1, hasMore: false },
+      { totalRecords: 1, recognized: 1, valid: 1 }
+    ));
+
+    render(<RevisarImportacao importId="imp1" notificar={() => {}} onClose={() => {}} onMudou={() => {}} />);
+    await screen.findByText(/Mostrando 1 de 1/i);
+    expect(screen.queryByRole('button', { name: /Carregar mais/i })).toBeNull();
+  });
+
+  it('o filtro por situação é pedido ao SERVIDOR', async () => {
+    api.muscleWar.preview.mockResolvedValue(comPagina(
+      [item({ id: 'i1', rowNumber: 1 })],
+      { limit: 200, offset: 0, matchStatus: null, returned: 1, total: 10000, hasMore: true },
+      { totalRecords: 10000, pending: 1000, valid: 9000 }
+    ));
+
+    const { default: usuario } = await import('@testing-library/user-event');
+    render(<RevisarImportacao importId="imp1" notificar={() => {}} onClose={() => {}} onMudou={() => {}} />);
+    await screen.findByText(/Mostrando 1 de 10000/i);
+
+    await usuario.selectOptions(screen.getByLabelText(/Situação/i), 'MATCH_PENDING');
+
+    // Filtrar no navegador exigiria ter baixado as dez mil linhas — que é
+    // exatamente o que a paginação deixou de fazer.
+    await vi.waitFor(() => {
+      const ultima = api.muscleWar.preview.mock.calls.at(-1);
+      expect(ultima[1]).toMatchObject({ matchStatus: 'MATCH_PENDING' });
+    });
+  });
+});

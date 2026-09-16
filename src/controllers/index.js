@@ -232,7 +232,7 @@ module.exports = {
   muscleWar: {
     list: async (req, res) => res.json({ items: await muscleWar.listImports(req.query, req.user) }),
     create: async (req, res) => res.status(201).json(await muscleWar.createImport(req.body, req.user)),
-    preview: async (req, res) => res.json(await muscleWar.preview(req.params.id, req.user)),
+    preview: async (req, res) => res.json(await muscleWar.preview(req.params.id, req.user, req.query)),
     link: async (req, res) => res.json(await muscleWar.linkItem(req.params.itemId, req.body, req.user)),
     apply: async (req, res) => res.json(await muscleWar.apply(req.params.id, req.user)),
     reject: async (req, res) => res.json(await muscleWar.reject(req.params.id, req.body, req.user))

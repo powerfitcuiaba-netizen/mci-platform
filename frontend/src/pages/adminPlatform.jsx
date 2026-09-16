@@ -584,10 +584,39 @@ function NovaImportacao({ notificar, onClose, onCriada }) {
 
 // Exportado para que o teste renderize a revisão direto, sem atravessar a
 // listagem de lotes para chegar até ela.
+// SITUAÇÕES QUE O OPERADOR FILTRA.
+//
+// Com dez mil linhas, achar as cem pendentes rolando a tabela não é difícil:
+// é inviável. O filtro vai ao servidor — filtrar no navegador exigiria ter
+// baixado as dez mil, que é justamente o que a paginação deixou de fazer.
+const FILTROS_DA_REVISAO = [
+  ['', 'Todas'],
+  ['MATCH_PENDING', 'Pendentes'],
+  ['CONFLICT', 'Conflitos'],
+  ['MATCHED', 'Reconhecidas'],
+  ['DUPLICATE', 'Duplicadas'],
+  ['IMPORT_REJECTED', 'Rejeitadas'],
+  ['APPLIED', 'Aplicadas']
+];
+
+const POR_PAGINA_NA_REVISAO = 200;
+
 export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
-  const estado = useFetch(() => api.muscleWar.preview(importId), [importId]);
+  const [situacao, setSituacao] = useState('');
+  const [mostrando, setMostrando] = useState(POR_PAGINA_NA_REVISAO);
+
+  // O lote inteiro não vem mais de uma vez: a resposta de uma importação de
+  // 10.000 linhas passava de 12 MB. "Carregar mais" aumenta o recorte pedido
+  // ao servidor — e não acumula páginas no navegador, para que voltar atrás
+  // no filtro não deixe lixo na tela.
+  const estado = useFetch(
+    () => api.muscleWar.preview(importId, { limit: mostrando, ...(situacao ? { matchStatus: situacao } : {}) }),
+    [importId, situacao, mostrando]
+  );
   const [vinculando, setVinculando] = useState(null);
   const [aplicando, setAplicando] = useState(false);
+
+  const trocarFiltro = valor => { setSituacao(valor); setMostrando(POR_PAGINA_NA_REVISAO); };
 
   const aplicar = async () => {
     try {
@@ -625,6 +654,22 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                 </div>
               </div>
             )}
+
+            <div className="import-filtros">
+              <label htmlFor="filtro-situacao">Situação</label>
+              <select id="filtro-situacao" value={situacao} onChange={evento => trocarFiltro(evento.target.value)}>
+                {FILTROS_DA_REVISAO.map(([valor, rotulo]) => (
+                  <option key={valor || 'todas'} value={valor}>{rotulo}</option>
+                ))}
+              </select>
+              {/* "Mostrando X de Y" não é enfeite: uma lista cortada em
+                  silêncio parece completa, e o operador conclui que não há
+                  mais nada a revisar. */}
+              <span className="import-contagem">
+                Mostrando {dados.items.length} de {dados.page?.total ?? dados.items.length}
+                {situacao ? ' no filtro' : ' registros'}
+              </span>
+            </div>
 
             <div className="table-wrap" style={{ maxHeight: 340, overflowY: 'auto' }}>
               <table className="table">
@@ -732,6 +777,15 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                 </tbody>
               </table>
             </div>
+
+            {dados.page?.hasMore && (
+              <div className="import-mais">
+                <button type="button" className="button button-secondary button-sm"
+                  onClick={() => setMostrando(atual => atual + POR_PAGINA_NA_REVISAO)}>
+                  Carregar mais {POR_PAGINA_NA_REVISAO}
+                </button>
+              </div>
+            )}
 
             <div className="modal-actions">
               <button type="button" className="button button-secondary" onClick={onClose}>Fechar</button>

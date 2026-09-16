@@ -1,6 +1,11 @@
 const logger = require('../utils/logger');
 const { config } = require('../config/environment');
 
+// A mensagem de recusa precisa dizer o NÚMERO ao operador: um "grande demais"
+// sem tamanho não permite decidir em quantas partes dividir o arquivo. O valor
+// vem de onde o `express.json` também o lê — ver src/config/limites.js.
+const { CORPO_MAXIMO_LEGIVEL: LIMITE_DO_CORPO } = require('../config/limites');
+
 // A resposta de erro nunca carrega stack trace: em produção isso é entrega de
 // mapa da aplicação. O rastro vai para o log estruturado, que já redige senha,
 // token e segredo.
@@ -28,9 +33,29 @@ const POR_CODIGO_DO_PRISMA = Object.freeze({
   P2025: { status: 404, code: 'NOT_FOUND', message: 'Registro não encontrado' }
 });
 
+// Corpo maior que o teto do servidor. O `body-parser` já responde 413, mas com
+// `type: 'entity.too.large'` e a mensagem crua "request entity too large" — e
+// sem `code`, o que fazia a resposta sair como `{"code":"ERROR"}`.
+//
+// Medido na FASE 13.6: um arquivo de importação de 10,7 MB recebia exatamente
+// isso. Para quem está do outro lado, "ERROR" não diz o que aconteceu nem o
+// que fazer; o limite, sim.
+const ehCorpoGrandeDemais = err => err?.type === 'entity.too.large' || err?.status === 413;
+
 function errorHandler(err, req, res, next) { // eslint-disable-line no-unused-vars
   if (ehJsonQuebrado(err)) {
     return res.status(400).json({ error: { code: 'INVALID_JSON', message: 'Corpo da requisição não é um JSON válido' } });
+  }
+
+  if (ehCorpoGrandeDemais(err) && !err.code) {
+    logger.warn('corpo recusado por tamanho', { rota: `${req.method} ${req.originalUrl}`, limite: LIMITE_DO_CORPO });
+    return res.status(413).json({
+      error: {
+        code: 'PAYLOAD_TOO_LARGE',
+        message: `Corpo da requisição excede o limite de ${LIMITE_DO_CORPO}. `
+          + 'Divida o arquivo em partes menores e envie uma de cada vez.'
+      }
+    });
   }
 
   // O Prisma só mapeia para P2002 os índices que conhece pelo schema. Índice

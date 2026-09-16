@@ -10,6 +10,10 @@ const { pontuarResultado, conferirPontuacaoImportada } = require('../utils/ranki
 
 const SOURCE = 'MUSCLEWAR';
 
+// Quantas linhas uma importação aceita. O porquê do número está onde ele é
+// aplicado, em `createImport`.
+const MAXIMO_DE_LINHAS = 20000;
+
 // ============================================================================
 // Importação de resultados do MuscleWar.
 //
@@ -52,38 +56,23 @@ function resumoDeCandidato(athlete, matchedBy) {
 // Chave 1: o PAR filiação + matrícula. Uma sem a outra não identifica ninguém
 // — duas federações emitem o mesmo número, e uma federação tem milhares de
 // filiados.
-async function atletaPorFiliacao(organizationId, registro) {
-  // As duas, sempre. Exigir só a matrícula é observável: a busca da entidade
-  // logo abaixo recebe um código indefinido e o Prisma não trata isso como
-  // "não encontrei". A guarda é a regra, e não uma formalidade.
+//
+// As duas, sempre. Exigir só a matrícula é observável: a entidade seria
+// procurada por um código indefinido, e isso não é "não encontrei".
+function atletaPorFiliacao(indice, registro) {
   if (!registro.affiliationCode || !registro.memberNumber) return null;
 
-  const filiacao = await prisma.affiliation.findUnique({
-    where: { organizationId_code: { organizationId, code: registro.affiliationCode } },
-    select: { id: true }
-  });
-  if (!filiacao) return null;
+  const filiacaoId = indice.filiacoesPorCodigo.get(String(registro.affiliationCode).toUpperCase());
+  if (!filiacaoId) return null;
 
-  return prisma.athlete.findFirst({
-    where: { organizationId, affiliationId: filiacao.id, affiliationNumber: registro.memberNumber },
-    select: RESUMO_DE_ATLETA
-  });
+  return indice.atletasPorMatricula.get(`${filiacaoId}|${registro.memberNumber}`) ?? null;
 }
 
 // Chave 2: a identidade já vinculada. O CPF vive em AthleteIdentity, sob RLS.
-async function atletaPorCpf(organizationId, cpf) {
+function atletaPorCpf(indice, cpf) {
   if (!cpf) return null;
-
-  const identidade = await prisma.athleteIdentity.findUnique({
-    where: { organizationId_cpf: { organizationId, cpf } },
-    select: { athleteId: true }
-  });
-  if (!identidade) return null;
-
-  return prisma.athlete.findUnique({
-    where: { id: identidade.athleteId },
-    select: RESUMO_DE_ATLETA
-  });
+  const athleteId = indice.atletaPorCpf.get(cpf);
+  return athleteId ? (indice.atletasPorId.get(athleteId) ?? null) : null;
 }
 
 // Acento, caixa e espaço repetido não separam o mesmo nome — e também não
@@ -104,16 +93,13 @@ function normalizarNome(nome) {
 // delas fosse ver o próprio histórico. Por isso: nome único bate → sugestão;
 // mais de um bate → sugestão NENHUMA, porque escolher entre as duas seria
 // decidir no lugar de quem tem competência.
-async function sugerirPorNome(organizationId, athleteName) {
+async function sugerirPorNome(indice, athleteName) {
   const alvo = normalizarNome(athleteName);
   if (!alvo) {
     return { athleteId: null, reason: 'Sem CPF, sem filiação/matrícula e sem nome: nada a reconhecer' };
   }
 
-  const candidatos = await prisma.athlete.findMany({
-    where: { organizationId }, select: { id: true, fullName: true }
-  });
-  const iguais = candidatos.filter(atleta => normalizarNome(atleta.fullName) === alvo);
+  const iguais = await indice.homonimosDe(alvo);
 
   if (iguais.length === 1) {
     return {
@@ -132,7 +118,155 @@ async function sugerirPorNome(organizationId, athleteName) {
   return { athleteId: null, reason: `Atleta não encontrado por CPF, filiação/matrícula ou nome ("${athleteName}")` };
 }
 
-async function analisarLinha(registro, organizationId, seasonId, catalogoDeClasses = null) {
+
+// ============================================================================
+// ÍNDICE DO LOTE — por que a análise deixou de consultar o banco por linha.
+//
+// A FASE 13.6 mediu: com 1.000 linhas, a criação da importação devolvia 500.
+// O log do servidor dava a causa — P2028, prazo da transação esgotado. A
+// requisição inteira roda numa transação (é assim que o ator de RLS é
+// definido), com prazo padrão de 5 segundos, e a análise gastava entre cinco e
+// sete idas ao banco POR LINHA. Pior: a linha sem chave carregava o cadastro
+// INTEIRO de atletas da organização para procurar homônimo — de novo, por
+// linha.
+//
+// Não era lentidão, era recusa: o operador subia o arquivo do campeonato e
+// recebia "erro interno", sem nada importado.
+//
+// Aqui tudo o que a análise precisa é carregado de uma vez, com um número de
+// consultas que depende das CHAVES DISTINTAS do arquivo, não da quantidade de
+// linhas. A regra de reconhecimento não muda em nada — a mesma cadeia, na
+// mesma ordem, com os mesmos conflitos. O que muda é de onde a resposta vem.
+//
+// O índice de nomes é PREGUIÇOSO: só nasce se alguma linha chegar sem chave
+// nenhuma, que é quando o nome entra em cena. Um arquivo bem formado nunca
+// paga por ele.
+// ============================================================================
+
+// `IN (...)` tem teto: o PostgreSQL aceita no máximo 65.535 parâmetros por
+// instrução, e um arquivo grande estoura isso com folga. Partir em lotes é o
+// que mantém a consulta legal sem voltar a consultar por linha.
+const TAMANHO_DO_LOTE_DE_CHAVES = 5000;
+
+async function emLotes(valores, consultar) {
+  const saida = [];
+  for (let i = 0; i < valores.length; i += TAMANHO_DO_LOTE_DE_CHAVES) {
+    saida.push(...await consultar(valores.slice(i, i + TAMANHO_DO_LOTE_DE_CHAVES)));
+  }
+  return saida;
+}
+
+const distintos = (registros, extrair) => [
+  ...new Set(registros.map(extrair).filter(valor => valor != null && valor !== ''))
+];
+
+async function montarIndiceDoLote(registros, organizationId, seasonId) {
+  const idsExternos = distintos(registros, r => r.externalResultId);
+  const cpfs = distintos(registros, r => r.cpf);
+  const codigosDeFiliacao = distintos(registros, r => String(r.affiliationCode).toUpperCase());
+  const matriculas = distintos(registros, r => r.memberNumber);
+  const codigosDeCategoria = distintos(registros, r => String(r.categoryCode).toUpperCase());
+
+  const [jaAplicados, filiacoes, identidades, categorias, tabela] = await Promise.all([
+    emLotes(idsExternos, lote => prisma.externalResult.findMany({
+      where: { source: SOURCE, externalId: { in: lote } },
+      select: { externalId: true, athleteId: true }
+    })),
+    codigosDeFiliacao.length
+      ? emLotes(codigosDeFiliacao, lote => prisma.affiliation.findMany({
+        where: { organizationId, code: { in: lote } },
+        select: { id: true, code: true }
+      }))
+      : [],
+    emLotes(cpfs, lote => prisma.athleteIdentity.findMany({
+      where: { organizationId, cpf: { in: lote } },
+      select: { cpf: true, athleteId: true }
+    })),
+    emLotes(codigosDeCategoria, lote => prisma.category.findMany({
+      where: { code: { in: lote } }, select: { code: true }
+    })),
+    seasonId
+      ? prisma.rankingPointsRule.findMany({ where: { seasonId }, select: { placing: true, points: true } })
+      : []
+  ]);
+
+  const filiacoesPorCodigo = new Map(filiacoes.map(f => [f.code.toUpperCase(), f.id]));
+
+  // Atletas alcançados pelas duas chaves, numa consulta cada.
+  //
+  // A busca por matrícula é deliberadamente ordenada por id: a versão anterior
+  // usava `findFirst` sem ordenação, e "o primeiro" era o que o banco
+  // devolvesse. Duas linhas com a mesma matrícula na mesma entidade é defeito
+  // de cadastro, mas enquanto existir o reconhecimento tem de ser o MESMO em
+  // toda execução — senão o mesmo arquivo importa atletas diferentes em dois
+  // dias.
+  const [porMatricula, porIdentidade] = await Promise.all([
+    (filiacoesPorCodigo.size && matriculas.length)
+      ? emLotes(matriculas, lote => prisma.athlete.findMany({
+        where: {
+          organizationId,
+          affiliationId: { in: [...filiacoesPorCodigo.values()] },
+          affiliationNumber: { in: lote }
+        },
+        select: { ...RESUMO_DE_ATLETA, affiliationId: true },
+        orderBy: { id: 'asc' }
+      }))
+      : [],
+    emLotes(identidades.map(i => i.athleteId), lote => prisma.athlete.findMany({
+      where: { id: { in: lote } }, select: RESUMO_DE_ATLETA
+    }))
+  ]);
+
+  const atletasPorMatricula = new Map();
+  for (const atleta of porMatricula) {
+    const chave = `${atleta.affiliationId}|${atleta.affiliationNumber}`;
+    if (!atletasPorMatricula.has(chave)) atletasPorMatricula.set(chave, atleta);
+  }
+
+  const atletasPorId = new Map(porIdentidade.map(a => [a.id, a]));
+
+  // Índice de nomes: uma consulta, na primeira linha que precisar dele.
+  //
+  // Carrega o cadastro da organização — é o preço de comparar nome NORMALIZADO
+  // (sem acento, sem caixa, sem espaço repetido), que o banco não sabe fazer
+  // sem extensão. Antes esse preço era pago UMA VEZ POR LINHA sem chave.
+  let porNome = null;
+  const homonimosDe = async alvo => {
+    if (!porNome) {
+      porNome = new Map();
+      const todos = await prisma.athlete.findMany({
+        where: { organizationId }, select: { id: true, fullName: true }
+      });
+      for (const atleta of todos) {
+        const chave = normalizarNome(atleta.fullName);
+        if (!porNome.has(chave)) porNome.set(chave, []);
+        porNome.get(chave).push(atleta);
+      }
+    }
+    return porNome.get(alvo) ?? [];
+  };
+
+  return {
+    aplicadoPorIdExterno: new Map(jaAplicados.map(r => [r.externalId, r.athleteId])),
+    filiacoesPorCodigo,
+    atletasPorMatricula,
+    atletaPorCpf: new Map(identidades.map(i => [i.cpf, i.athleteId])),
+    atletasPorId,
+    categoriasConhecidas: new Set(categorias.map(c => c.code.toUpperCase())),
+    tabelaDaTemporada: tabela,
+    homonimosDe,
+    // Quantas linhas do cadastro o índice de nomes chegou a carregar. Serve à
+    // medição: é o número que dizia "carregou tudo, de novo".
+    get cadastroCarregado() { return porNome ? porNome.size : 0; }
+  };
+}
+
+// `indice` é o do lote. Quando não vem — chamada avulsa, de fora do arreio de
+// importação —, um índice de UMA linha é montado na hora: o custo é o mesmo de
+// antes, e o contrato da função continua sendo o de sempre.
+async function analisarLinha(registro, organizationId, seasonId, catalogoDeClasses = null, indice = null) {
+  const doLote = indice ?? await montarIndiceDoLote([registro], organizationId, seasonId);
+
   // Sem identificador externo não há como garantir idempotência para a linha.
   if (!registro.externalResultId) {
     return { matchStatus: 'IMPORT_REJECTED', reason: 'Registro sem identificador externo (external_result_id)', athleteId: null };
@@ -151,11 +285,12 @@ async function analisarLinha(registro, organizationId, seasonId, catalogoDeClass
   }
 
   // Já aplicado antes: duplicado, não erro.
-  const jaAplicado = await prisma.externalResult.findUnique({
-    where: { source_externalId: { source: SOURCE, externalId: registro.externalResultId } }
-  });
-  if (jaAplicado) {
-    return { matchStatus: 'DUPLICATE', reason: 'Resultado já importado anteriormente', athleteId: jaAplicado.athleteId };
+  if (doLote.aplicadoPorIdExterno.has(registro.externalResultId)) {
+    return {
+      matchStatus: 'DUPLICATE',
+      reason: 'Resultado já importado anteriormente',
+      athleteId: doLote.aplicadoPorIdExterno.get(registro.externalResultId)
+    };
   }
 
   // ------------------------------------------------- CADEIA DE RECONHECIMENTO
@@ -170,8 +305,8 @@ async function analisarLinha(registro, organizationId, seasonId, catalogoDeClass
   // vezes sem CPF nenhum. Reconhecer só por CPF jogava essas linhas inteiras
   // para revisão manual.
 
-  const porFiliacao = await atletaPorFiliacao(organizationId, registro);
-  const porCpf = await atletaPorCpf(organizationId, registro.cpf);
+  const porFiliacao = atletaPorFiliacao(doLote, registro);
+  const porCpf = atletaPorCpf(doLote, registro.cpf);
 
   // Duas chaves que apontam para pessoas DIFERENTES é um fato sobre o arquivo
   // ou sobre o cadastro, e quem resolve é gente. Escolher "a que eu achei
@@ -197,7 +332,7 @@ async function analisarLinha(registro, organizationId, seasonId, catalogoDeClass
 
   if (!athlete) {
     // Chave 3: o nome. Não reconhece — prepara a decisão de quem pode tomá-la.
-    const sugestao = await sugerirPorNome(organizationId, registro.athleteName);
+    const sugestao = await sugerirPorNome(doLote, registro.athleteName);
     return {
       matchStatus: 'MATCH_PENDING',
       reason: sugestao.reason,
@@ -222,16 +357,13 @@ async function analisarLinha(registro, organizationId, seasonId, catalogoDeClass
   // Categoria informada precisa existir no catálogo; sem isso o ponto entraria
   // sem recorte e o ranking por categoria ficaria incoerente.
   if (registro.categoryCode) {
-    const categoria = await prisma.category.findUnique({ where: { code: registro.categoryCode.toUpperCase() } });
-    if (!categoria) {
+    if (!doLote.categoriasConhecidas.has(registro.categoryCode.toUpperCase())) {
       return { matchStatus: 'CONFLICT', reason: `Categoria desconhecida no MCI: ${registro.categoryCode}`, athleteId: athlete.id };
     }
   }
 
   if (seasonId && registro.placing != null) {
-    const tabela = await prisma.rankingPointsRule.findMany({
-      where: { seasonId }, select: { placing: true, points: true }
-    });
+    const tabela = doLote.tabelaDaTemporada;
 
     // Temporada SEM tabela nenhuma é conflito: não há regra a aplicar, e
     // atribuir zero a todo mundo seria inventar um resultado.
@@ -297,6 +429,33 @@ async function createImport(data, actor) {
   const registros = adapter.parse(data.sourceType, data.content, { fieldMap: data.fieldMap });
   if (!registros.length) throw new AppError(422, 'IMPORT_EMPTY', 'Nenhum registro encontrado na origem');
 
+  // TETO DE LINHAS — medido, não estimado.
+  //
+  // O limite de BYTES do corpo (8 MB) não é o limite útil: ele deixa passar um
+  // arquivo que a aplicação não termina. Medido na FASE 13.6, contra
+  // PostgreSQL na mesma máquina:
+  //
+  //     10.000 linhas  →  criar 2,0s   aplicar  26s
+  //     44.000 linhas  →  criar 8,5s   aplicar 139s
+  //
+  // A aplicação roda dentro da transação da requisição, cujo prazo é 180s (ver
+  // src/routes/index.js). 139s é 77% dele COM o banco ao lado; com o banco
+  // gerenciado, a 30ms de latência por ida e volta, o mesmo arquivo não
+  // termina — e não terminar significa perder as 139s inteiras, porque a
+  // transação desfaz tudo.
+  //
+  // Recusar na porta é melhor que aceitar e desfazer no fim: o operador divide
+  // o arquivo e as partes entram. Dividir é seguro por construção — a
+  // idempotência é por `externalResultId`, então reimportar uma parte já
+  // aplicada não duplica nada.
+  if (registros.length > MAXIMO_DE_LINHAS) {
+    throw new AppError(
+      422, 'IMPORT_TOO_LARGE',
+      `A origem tem ${registros.length} registros e o limite por importação é ${MAXIMO_DE_LINHAS}. `
+      + 'Divida o arquivo em partes e envie uma de cada vez — reimportar uma parte já aplicada não duplica resultado.'
+    );
+  }
+
   // Catálogo de classes carregado UMA vez para o lote — a regra é a mesma para
   // todas as linhas, e é o mesmo mapa que a aplicação usa depois.
   const catalogoDeClasses = new Map(
@@ -305,6 +464,11 @@ async function createImport(data, actor) {
       select: { code: true, superOverallEligible: true }
     })).map(classe => [classe.code.toUpperCase(), classe.superOverallEligible])
   );
+
+  // Tudo o que a análise consulta, carregado de uma vez para o arquivo inteiro.
+  // Ver o cabeçalho de `montarIndiceDoLote`: é o que separa "importa" de
+  // "devolve 500 no meio".
+  const indice = await montarIndiceDoLote(registros, data.organizationId, data.seasonId ?? null);
 
   // Duplicidade dentro do próprio arquivo: a segunda ocorrência do mesmo
   // identificador é duplicada, não um segundo resultado.
@@ -319,7 +483,7 @@ async function createImport(data, actor) {
       repetidoNoArquivo = true;
       analise = { matchStatus: 'DUPLICATE', reason: `Identificador ${registro.externalResultId} repetido no próprio arquivo`, athleteId: null };
     } else {
-      analise = await analisarLinha(registro, data.organizationId, data.seasonId ?? null, catalogoDeClasses);
+      analise = await analisarLinha(registro, data.organizationId, data.seasonId ?? null, catalogoDeClasses, indice);
       if (registro.externalResultId) vistos.add(registro.externalResultId);
     }
     analisados.push({ registro, analise, repetidoNoArquivo });
@@ -346,9 +510,18 @@ async function createImport(data, actor) {
       }
     });
 
-    let sequencia = 0;
-    for (const { registro, analise, repetidoNoArquivo } of analisados) {
-      sequencia += 1;
+    // Inserção em LOTE, e não uma instrução por linha.
+    //
+    // Um `create` por registro é uma ida e volta ao banco por registro — com
+    // 1.000 linhas são 1.000, dentro da mesma transação da requisição. Os
+    // itens são independentes entre si e não precisam de id devolvido aqui,
+    // que é exatamente o caso em que `createMany` se aplica.
+    //
+    // O corte em blocos existe pelo mesmo motivo do `IN (...)`: uma instrução
+    // com dezenas de milhares de VALUES estoura o teto de parâmetros.
+    const BLOCO = 1000;
+    const paraGravar = analisados.map(({ registro, analise, repetidoNoArquivo }, posicao) => {
+      const sequencia = posicao + 1;
 
       // A chave do item é única dentro do lote. Linha sem identificador e
       // linha repetida ainda precisam existir para poderem ser revisadas —
@@ -359,35 +532,37 @@ async function createImport(data, actor) {
           ? `${registro.externalResultId}__repetida:${sequencia}`
           : registro.externalResultId;
 
-      await tx.muscleWarImportItem.create({
-        data: {
-          importId: criado.id,
-          externalResultId: chaveDoItem,
-          rowNumber: registro.rowNumber,
-          isOverallChampion: registro.isOverallChampion === true,
-          teamName: registro.teamName,
-          companyName: registro.companyName,
-          cpf: registro.cpf,
-          athleteName: registro.athleteName,
-          affiliationCode: registro.affiliationCode,
-          memberNumber: registro.memberNumber ?? null,
-          suggestedAthleteId: analise.suggestedAthleteId ?? null,
-          matchedBy: analise.matchedBy ?? null,
-          matchCandidates: analise.matchCandidates ?? undefined,
-          categoryCode: registro.categoryCode,
-          divisionName: registro.divisionName,
-          className: registro.className,
-          placing: registro.placing,
-          points: registro.points,
-          eventName: registro.eventName,
-          eventDate: registro.eventDate,
-          raw: registro.raw,
-          matchStatus: analise.matchStatus,
-          reason: analise.reason,
-          pointsMismatch: analise.pointsMismatch ?? null,
-          athleteId: analise.athleteId
-        }
-      });
+      return {
+        importId: criado.id,
+        externalResultId: chaveDoItem,
+        rowNumber: registro.rowNumber,
+        isOverallChampion: registro.isOverallChampion === true,
+        teamName: registro.teamName,
+        companyName: registro.companyName,
+        cpf: registro.cpf,
+        athleteName: registro.athleteName,
+        affiliationCode: registro.affiliationCode,
+        memberNumber: registro.memberNumber ?? null,
+        suggestedAthleteId: analise.suggestedAthleteId ?? null,
+        matchedBy: analise.matchedBy ?? null,
+        matchCandidates: analise.matchCandidates ?? undefined,
+        categoryCode: registro.categoryCode,
+        divisionName: registro.divisionName,
+        className: registro.className,
+        placing: registro.placing,
+        points: registro.points,
+        eventName: registro.eventName,
+        eventDate: registro.eventDate,
+        raw: registro.raw,
+        matchStatus: analise.matchStatus,
+        reason: analise.reason,
+        pointsMismatch: analise.pointsMismatch ?? null,
+        athleteId: analise.athleteId
+      };
+    });
+
+    for (let i = 0; i < paraGravar.length; i += BLOCO) {
+      await tx.muscleWarImportItem.createMany({ data: paraGravar.slice(i, i + BLOCO) });
     }
 
     return criado;
@@ -429,7 +604,29 @@ function contar(status) {
   return base;
 }
 
-async function preview(importId, actor) {
+// PÁGINA, E NÃO O LOTE INTEIRO.
+//
+// Medido na FASE 13.6: uma importação de 10.000 linhas devolvia 12,2 MB —
+// três vezes, porque criar, revisar e aplicar terminam todos chamando esta
+// função. A memória do processo da API subia de 121 MB para 718 MB no mesmo
+// ciclo, e a tela recebia dez mil linhas para mostrar num quadro de 340 pixels
+// de altura.
+//
+// Os TOTAIS continuam sendo do lote inteiro — eles vêm de uma contagem no
+// banco, não da soma do que coube na página. Essa distinção é a razão de o
+// corte ser seguro: o operador continua vendo quantos reconhecidos, pendentes
+// e conflitos existem de fato; o que ele deixa de receber de uma vez é a
+// LISTA, que ele lê aos poucos.
+//
+// O filtro por situação não é enfeite: com dez mil linhas, achar as cem
+// pendentes rolando a tabela é inviável, e era a única forma que existia.
+const ITENS_POR_PAGINA = 200;
+const TETO_DE_ITENS = 1000;
+
+async function preview(importId, actor, { limit, offset = 0, matchStatus = null } = {}) {
+  const porPagina = Math.min(Math.max(1, Number(limit) || ITENS_POR_PAGINA), TETO_DE_ITENS);
+  const aPartirDe = Math.max(0, Number(offset) || 0);
+
   const lote = await prisma.muscleWarImport.findUnique({
     where: { id: importId },
     include: {
@@ -443,8 +640,12 @@ async function preview(importId, actor) {
 
   assertCan(actor, 'musclewar.review', lote.organizationId);
 
+  const recorte = { importId, ...(matchStatus ? { matchStatus } : {}) };
+
   const items = await prisma.muscleWarImportItem.findMany({
-    where: { importId },
+    where: recorte,
+    skip: aPartirDe,
+    take: porPagina,
     include: {
       athlete: { select: { id: true, fullName: true, stageName: true, athleteNumber: true } },
       // O SUGERIDO vem inteiro, e não só o id: a tela precisa mostrar QUEM foi
@@ -464,12 +665,27 @@ async function preview(importId, actor) {
     orderBy: { rowNumber: 'asc' }
   });
 
-  const totais = contar(items.map(item => item.matchStatus));
+  // Os totais saem de uma contagem AGRUPADA no banco: uma consulta, o lote
+  // inteiro. Somar o que veio na página diria "3 pendentes" quando há 300.
+  const agrupados = await prisma.muscleWarImportItem.groupBy({
+    by: ['matchStatus'],
+    where: { importId },
+    _count: { _all: true }
+  });
+
+  const totais = { MATCHED: 0, MATCH_PENDING: 0, CONFLICT: 0, DUPLICATE: 0, IMPORT_REJECTED: 0, APPLIED: 0 };
+  let totalDeItens = 0;
+  for (const linha of agrupados) {
+    totais[linha.matchStatus] = linha._count._all;
+    totalDeItens += linha._count._all;
+  }
+
+  const noRecorte = matchStatus ? (totais[matchStatus] ?? 0) : totalDeItens;
 
   return {
     import: lote,
     summary: {
-      totalRecords: items.length,
+      totalRecords: totalDeItens,
       recognized: totais.MATCHED,
       pending: totais.MATCH_PENDING,
       conflicts: totais.CONFLICT,
@@ -478,6 +694,17 @@ async function preview(importId, actor) {
       applied: totais.APPLIED,
       // O que efetivamente entraria se o lote fosse aplicado agora.
       valid: totais.MATCHED
+    },
+    // O recorte que esta resposta representa. Sem isto a tela não tem como
+    // dizer "mostrando 200 de 10.000" — e mostrar 200 calada é pior do que
+    // mostrar tudo, porque parece completo.
+    page: {
+      limit: porPagina,
+      offset: aPartirDe,
+      matchStatus: matchStatus ?? null,
+      returned: items.length,
+      total: noRecorte,
+      hasMore: aPartirDe + items.length < noRecorte
     },
     items
   };
@@ -850,4 +1077,4 @@ async function listImports(filtros, actor) {
   });
 }
 
-module.exports = { createImport, preview, linkItem, apply, reject, listImports, analisarLinha, SOURCE };
+module.exports = { createImport, preview, linkItem, apply, reject, listImports, analisarLinha, SOURCE, MAXIMO_DE_LINHAS };

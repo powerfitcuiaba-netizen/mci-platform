@@ -537,6 +537,14 @@ const muscleWarImportCreate = z.object({
 
 const muscleWarLink = z.object({ athleteId: id });
 
+// Recorte da revisão. O teto vive no serviço; aqui a guarda é de FORMA — um
+// `limit=abc` ou um `offset` negativo não podem chegar ao Prisma.
+const muscleWarPreviewQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(1000).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+  matchStatus: z.enum(['MATCHED', 'MATCH_PENDING', 'CONFLICT', 'DUPLICATE', 'IMPORT_REJECTED', 'APPLIED']).optional()
+});
+
 // -------------------------------------------------------- equipes e parceiros
 const teamCreate = z.object({
   organizationId: id, name: texto(2, 120),
@@ -757,7 +765,7 @@ module.exports = {
   seasonCreate, pointsRuleSet, rankingQuery, rankingCutQuery, overallDeclare,
   overallPreviewQuery, overallRevoke, teamRankingQuery,
   classCatalogUpsert, superOverallQuery,
-  muscleWarImportCreate, muscleWarLink,
+  muscleWarImportCreate, muscleWarLink, muscleWarPreviewQuery,
   teamCreate, companyCreate, coachCreate, gymCreate, brandCreate, sponsorCreate, sponsorshipCreate,
   partnershipCreate, partnershipStatus,
   profileCreate, profileUpdateSocial, postCreate, commentCreate, shareCreate, storyCaption, feedQuery,

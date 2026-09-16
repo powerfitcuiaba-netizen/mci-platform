@@ -233,12 +233,24 @@ router.delete('/events/:id/overall/:titleId', requireAuth, validate(s.paramsComT
 router.get('/athletes/:id/ranking-points', requireAuth, validate(s.paramsWithId, 'params'), validate(s.rankingPointsQuery, 'query'), wrap(c.ranking.athletePoints));
 
 // ================================================================= MUSCLEWAR
+// PRAZO DILATADO, E SÓ AQUI.
+//
+// Criar e aplicar uma importação são as únicas operações do MCI que recebem a
+// planilha de uma temporada inteira numa requisição. O prazo padrão da
+// transação (5s) é generoso para todo o resto e curto para estas duas — medido
+// na FASE 13.6, com 1.000 linhas estourando e devolvendo 500.
+//
+// O número não é chute: é teto de operação, não de expectativa. O caminho
+// rápido continua sendo o rápido; o prazo existe para que o arquivo grande
+// TERMINE em vez de morrer pela metade.
+const PRAZO_DA_IMPORTACAO = { timeout: 180_000, maxWait: 30_000 };
+
 router.route('/musclewar/imports')
   .get(requireAuth, perm('musclewar.review', orgDaQuery), validate(s.importQuery, 'query'), wrap(c.muscleWar.list))
-  .post(requireAuth, limiteImportacao, perm('musclewar.import', orgDoCorpo), validate(s.muscleWarImportCreate), wrap(c.muscleWar.create));
-router.get('/musclewar/imports/:id', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.muscleWar.preview));
+  .post(requireAuth, limiteImportacao, perm('musclewar.import', orgDoCorpo), validate(s.muscleWarImportCreate), wrap(c.muscleWar.create, PRAZO_DA_IMPORTACAO));
+router.get('/musclewar/imports/:id', requireAuth, validate(s.paramsWithId, 'params'), validate(s.muscleWarPreviewQuery, 'query'), wrap(c.muscleWar.preview));
 router.post('/musclewar/items/:itemId/link', requireAuth, validate(s.muscleWarLink), wrap(c.muscleWar.link));
-router.post('/musclewar/imports/:id/apply', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.muscleWar.apply));
+router.post('/musclewar/imports/:id/apply', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.muscleWar.apply, PRAZO_DA_IMPORTACAO));
 router.post('/musclewar/imports/:id/reject', requireAuth, validate(s.paramsWithId, 'params'), validate(s.rejectImport), wrap(c.muscleWar.reject));
 
 // ================================== EQUIPES, ACADEMIAS, COACHES, MARCAS, PATROCÍNIO

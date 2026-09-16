@@ -311,7 +311,7 @@ export const api = {
   muscleWar: {
     list: params => get('/musclewar/imports', params),
     create: dados => post('/musclewar/imports', dados),
-    preview: id => get(`/musclewar/imports/${id}`),
+    preview: (id, params) => get(`/musclewar/imports/${id}`, params),
     link: (itemId, dados) => post(`/musclewar/items/${itemId}/link`, dados),
     apply: id => post(`/musclewar/imports/${id}/apply`),
     reject: (id, dados) => post(`/musclewar/imports/${id}/reject`, dados)
