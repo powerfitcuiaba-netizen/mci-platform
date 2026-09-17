@@ -333,3 +333,89 @@ describe('conferência da pontuação declarada — a elegibilidade entra na con
     expect(item.pointsMismatch).toEqual({ importedPoints: 15, calculatedPoints: 5, difference: 10 });
   });
 });
+
+// ==========================================================================
+// A INVARIANTE DO LANÇAMENTO MUSCLEWAR — O QUE VALE E O QUE NÃO VALE.
+//
+// Os ciclos terminaram com 2 RankingPoint `source: MUSCLEWAR` sem
+// `externalResultId` e sem `eventId`, e a pergunta certa foi feita: isso é
+// artefato de teste ou porta aberta no produto? São coisas diferentes, e a
+// resposta é diferente para cada campo.
+//
+//   `externalResultId` — o fluxo público NUNCA produz nulo. `aplicarLote`
+//   cria o ExternalResult e grava o id na mesma transação; sem ele não há
+//   idempotência, porque é `externalResultId @unique` que impede o segundo
+//   lançamento. Um ponto MUSCLEWAR órfão de resultado externo só existe se
+//   alguém escrever direto no banco — e é exatamente isso que o fixture de
+//   `ranking-temporada-padrao` faz, por ser teste de LEITURA.
+//
+//   `eventId` — pode ser nulo, e isso é DESENHO, não falha:
+//   `MuscleWarImport.eventId` é opcional, e existe resultado histórico cujo
+//   evento nunca foi cadastrado na plataforma. O que não pode acontecer é o
+//   ponto divergir do lote: se o lote declara evento, o ponto carrega AQUELE
+//   evento, nunca outro e nunca nulo.
+//
+// É esta segunda formulação que estes testes trancam. Exigir evento sempre
+// seria decisão de homologação, não de implementação.
+// ==========================================================================
+describe('invariante do lançamento MUSCLEWAR', () => {
+  const lancamentosMuscleWar = () => comoAtor(admin, tx => tx.rankingPoint.findMany({
+    where: { source: 'MUSCLEWAR' },
+    select: { eventId: true, externalResultId: true, athleteId: true }
+  }));
+
+  it('publicado COM evento: o ponto carrega o evento do lote e o resultado externo', async () => {
+    const lote = (await criarLote(csv([linha(MATRICULA)]), { eventId: eventoA.id })).body.import;
+    expect((await api().post(`/api/v1/musclewar/imports/${lote.id}/apply`)
+      .set(operador.auth()).send({})).status).toBe(200);
+
+    const lancamentos = await lancamentosMuscleWar();
+    expect(lancamentos).toHaveLength(1);
+    expect(lancamentos[0].eventId).toBe(lote.eventId);
+    expect(lancamentos[0].externalResultId).not.toBeNull();
+  });
+
+  it('publicado SEM evento: eventId nulo é o caso legítimo, mas o resultado externo continua obrigatório', async () => {
+    const lote = (await criarLote(csv([linha(MATRICULA)]))).body.import;
+    expect(lote.eventId ?? null).toBeNull();
+    expect((await api().post(`/api/v1/musclewar/imports/${lote.id}/apply`)
+      .set(operador.auth()).send({})).status).toBe(200);
+
+    const lancamentos = await lancamentosMuscleWar();
+    expect(lancamentos).toHaveLength(1);
+    // O ponto acompanha o lote: lote sem evento, ponto sem evento.
+    expect(lancamentos[0].eventId).toBeNull();
+    // E mesmo sem evento, a âncora de idempotência existe.
+    expect(lancamentos[0].externalResultId).not.toBeNull();
+  });
+
+  it('NENHUM lançamento publicado pelo fluxo fica órfão de resultado externo', async () => {
+    // Três lotes, dois com evento e um sem, e um deles reaplicado: a varredura
+    // final não pode achar um único ponto MUSCLEWAR sem `externalResultId`.
+    const comA = (await criarLote(csv([linha(MATRICULA, 1)]), { eventId: eventoA.id })).body.import;
+    const comB = (await criarLote(csv([linha(MATRICULA, 2)]), { eventId: eventoB.id })).body.import;
+    const semEvento = (await criarLote(csv([linha(MATRICULA, 3)]))).body.import;
+
+    for (const lote of [comA, comB, semEvento, comA]) {
+      await api().post(`/api/v1/musclewar/imports/${lote.id}/apply`).set(operador.auth()).send({});
+    }
+
+    const lancamentos = await lancamentosMuscleWar();
+    expect(lancamentos).toHaveLength(3);
+    expect(lancamentos.filter(l => l.externalResultId === null)).toHaveLength(0);
+    // E cada um no seu evento — o sem evento é o único nulo.
+    expect(lancamentos.map(l => l.eventId).sort())
+      .toEqual([eventoA.id, eventoB.id, null].sort());
+  }, 60_000);
+
+  it('o ponto nunca herda um evento que o lote não declarou', async () => {
+    const lote = (await criarLote(csv([linha(MATRICULA)]))).body.import;
+    // Tentativa de injetar o evento na hora de publicar, já coberta acima para
+    // lote COM evento; aqui o lote não tem nenhum, e o corpo não pode criar um.
+    await api().post(`/api/v1/musclewar/imports/${lote.id}/apply`)
+      .set(operador.auth()).send({ eventId: eventoA.id });
+
+    const [lancamento] = await lancamentosMuscleWar();
+    expect(lancamento.eventId).toBeNull();
+  });
+});

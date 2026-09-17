@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { api, prisma, comoAtor, limparBanco, criarUsuario, criarOrganizacao, criarAtleta, unico } from './helpers.mjs';
 
 // ==========================================================================
@@ -66,6 +66,17 @@ beforeAll(async () => {
     await lancar(temporadaAtual, 7);
   });
 });
+
+// ESTE ARQUIVO ESCREVE RankingPoint DIRETO, E PRECISA LIMPAR O QUE ESCREVEU.
+//
+// O fixture acima grava dois lançamentos `source: MUSCLEWAR` sem
+// `externalResultId` e sem `eventId` — combinação que o fluxo público NÃO
+// produz. Sem esta limpeza, quando este arquivo é o último do lote a rodar,
+// os dois ficam no banco e aparecem em qualquer medição posterior como
+// "lançamento MuscleWar órfão de evento". Foi exatamente o que os dez ciclos
+// mistos mostraram, e custou uma investigação para descartar defeito de
+// produto. O `beforeAll` limpa o que veio antes; faltava limpar o que fica.
+afterAll(limparBanco);
 
 const totalDaEquipe = corpo => corpo.find(linha => linha.team?.id === equipe.id)?.totalPoints
   ?? corpo.find(linha => linha.team?.id === equipe.id)?.points;
