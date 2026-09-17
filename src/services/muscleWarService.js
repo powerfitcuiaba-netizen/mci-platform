@@ -1,5 +1,5 @@
 const prisma = require('../config/prisma');
-const { AppError } = require('../utils/errors');
+const { AppError, ehViolacaoDeUnicidade } = require('../utils/errors');
 const { assertCan } = require('../utils/tenant');
 const { isValidCpf } = require('../utils/cpf');
 const adapter = require('../utils/musclewar/adapter');
@@ -1057,6 +1057,24 @@ async function aplicarLote(lote, actor) {
 
   if (lote.status === 'REJECTED') throw new AppError(422, 'IMPORT_REJECTED', 'Lote rejeitado não pode ser aplicado');
 
+  // TRAVA DE APLICAÇÃO, POR LOTE.
+  //
+  // Duplo clique, retry de HTTP, duas abas, dois operadores: medido com 20
+  // chamadas simultâneas, o resultado era 1 sucesso, 11 recusas corretas e
+  // OITO respostas 500 — e, pior, nenhum ponto gravado. A causa é que a
+  // violação de unicidade em `ExternalResult` aborta a transação da
+  // REQUISIÇÃO inteira (PostgreSQL 25P02), e o tratamento do duplicado, que
+  // tentava escrever logo em seguida, escrevia numa transação já morta.
+  //
+  // A trava é de transação: solta sozinha no commit ou no rollback, e não
+  // deixa cadeado preso se o processo cair. Quem chega depois espera, encontra
+  // as linhas já `APPLIED` e recebe a recusa idempotente de sempre — em vez de
+  // colidir no banco.
+  // `$executeRaw`, e não `$queryRaw`: a função devolve `void`, e o leitor de
+  // resultados do Prisma não sabe desserializar isso — o pedido do cadeado
+  // virava 500 antes de a aplicação começar.
+  await prisma.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`musclewar:apply:${importId}`}))`;
+
   const aplicaveis = await prisma.muscleWarImportItem.findMany({
     where: { importId, matchStatus: 'MATCHED', athleteId: { not: null } },
     orderBy: { rowNumber: 'asc' }
@@ -1151,6 +1169,27 @@ async function aplicarLote(lote, actor) {
     // Cada linha em sua própria transação: uma colisão de idempotência no meio
     // do lote não desfaz o que já entrou legitimamente.
     try {
+      // CONFERIR ANTES DE INSERIR, em vez de inserir e tratar o erro.
+      //
+      // Não é preferência de estilo: a violação de unicidade aborta a
+      // transação da requisição, e tudo que viesse depois dela — inclusive
+      // marcar o item como DUPLICATE — falharia junto. Perguntar primeiro
+      // mantém a transação viva e o duplicado vira o que ele é: uma linha
+      // ignorada, com motivo, e não um erro de servidor.
+      const jaExiste = await prisma.externalResult.findUnique({
+        where: { source_externalId: { source: SOURCE, externalId: item.externalResultId } },
+        select: { id: true }
+      });
+
+      if (jaExiste) {
+        await prisma.muscleWarImportItem.update({
+          where: { id: item.id },
+          data: { matchStatus: 'DUPLICATE', reason: 'Resultado já existente na plataforma' }
+        });
+        ignorados += 1;
+        continue;
+      }
+
       await prisma.$transaction(async tx => {
         const externo = await tx.externalResult.create({
           data: {
@@ -1184,15 +1223,25 @@ async function aplicarLote(lote, actor) {
 
           const { placementPoints, overallBonus, points, superOverallPoints } = item.placing != null
             ? pontuarResultado(item.placing, tabela, item.isOverallChampion, superOverallEligible)
-            : {
-              // Linha sem colocação: não há regra a aplicar, e o número do
-              // arquivo é o único dado disponível. A elegibilidade continua
-              // valendo — o que muda é apenas a origem do valor.
-              placementPoints: item.points ?? 0,
-              overallBonus: 0,
-              points: item.points ?? 0,
-              superOverallPoints: superOverallEligible ? (item.points ?? 0) : 0
-            };
+            : item.didNotShow
+              ? {
+                // NÃO COMPARECEU VALE ZERO, E O ARQUIVO NÃO OPINA.
+                //
+                // Medido: um arquivo declarando `Placing: NS` e `pontos: 5`
+                // colocava 5 pontos no ledger — a pontuação vinha da planilha
+                // porque a linha não tinha colocação para a regra aplicar. É a
+                // fraude mais barata que um arquivo pode tentar, e a regra
+                // homologada é explícita: NS = 0.
+                placementPoints: 0, overallBonus: 0, points: 0, superOverallPoints: 0
+              }
+              : {
+                // Linha sem colocação e sem ausência declarada: não há regra a
+                // aplicar, e o número do arquivo é o único dado disponível.
+                placementPoints: item.points ?? 0,
+                overallBonus: 0,
+                points: item.points ?? 0,
+                superOverallPoints: superOverallEligible ? (item.points ?? 0) : 0
+              };
 
           const categoria = item.categoryCode
             ? await tx.category.findUnique({ where: { code: item.categoryCode.toUpperCase() } })
@@ -1234,14 +1283,14 @@ async function aplicarLote(lote, actor) {
       });
       aplicados += 1;
     } catch (error) {
-      if (error.code === 'P2002') {
-        // Outro lote já trouxe este resultado: duplicado, não erro.
-        await prisma.muscleWarImportItem.update({
-          where: { id: item.id },
-          data: { matchStatus: 'DUPLICATE', reason: 'Resultado já existente na plataforma' }
-        });
-        ignorados += 1;
-        continue;
+      // A conferência acima resolve o duplicado sem provocar a violação. Se
+      // ela ainda assim escapar — corrida que passou entre o SELECT e o
+      // INSERT —, a transação da requisição já está abortada e NÃO dá para
+      // escrever mais nada nela: tentar era exatamente o que produzia 500.
+      // Vira conflito explícito, que o operador entende e pode repetir.
+      if (ehViolacaoDeUnicidade(error)) {
+        throw new AppError(409, 'IMPORT_CONCURRENT',
+          'Outra aplicação deste lote aconteceu ao mesmo tempo. Confira o resultado e repita se necessário.');
       }
       throw error;
     }
