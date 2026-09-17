@@ -276,6 +276,47 @@ async function montarIndiceDoLote(registros, organizationId, seasonId) {
 // `indice` é o do lote. Quando não vem — chamada avulsa, de fora do arreio de
 // importação —, um índice de UMA linha é montado na hora: o custo é o mesmo de
 // antes, e o contrato da função continua sendo o de sempre.
+// ELEGIBILIDADE AO SUPER OVERALL: LIDA NA DIVISÃO, NÃO NO TEXTO INTEIRO.
+//
+// `className` guarda a classe COMO O ARQUIVO ESCREVEU — "Men's Bodybuilding -
+// Open" —, porque é dela que sai a chave de idempotência. O catálogo da
+// organização, porém, é indexado por CÓDIGO DE DIVISÃO: ESTREANTE, NOVICE,
+// OPEN, MASTER.
+//
+// Medido: `catalogo.get("MEN'S BODYBUILDING - OPEN")` nunca casa com `OPEN`.
+// O efeito não era um erro visível — era um silêncio. Toda linha importada
+// saía com `superOverallEligible: false`, e como o bônus é
+// `isOverallChampion && superOverallEligible`, NENHUM Overall vindo de
+// importação jamais somou +10, e o Super Overall anual não recebeu um ponto
+// sequer de resultado importado.
+//
+// `divisionName` é o campo que o adaptador já decompõe e o item já persiste, e
+// é ele que corresponde ao catálogo. A regra homologada não muda em nada: só
+// a Open alimenta o Super Overall, e é exatamente o que esta leitura produz —
+// "Open" casa com OPEN; "Novice" casa com NOVICE, que está no catálogo como
+// não elegível; "Masters", "True Novice", "Teenage", "Junior" e "Special" não
+// têm entrada e seguem não elegíveis.
+function ehElegivelAoSuperOverall(linha, catalogo) {
+  if (!catalogo) return false;
+  // AS DUAS FORMAS QUE OS ARQUIVOS REAIS USAM, nesta ordem:
+  //
+  //   1. classe COMPOSTA — "Men's Bodybuilding - Open". O adaptador decompõe e
+  //      `divisionName` vira "Open". É a forma dos arquivos MuscleWar.
+  //   2. classe SIMPLES — a coluna já traz "OPEN". Não há o que decompor, e
+  //      `divisionName` fica nulo: o próprio texto da classe É a divisão.
+  //
+  // Tentar só a divisão apagaria o caso 2 — foi exatamente o que a regressão
+  // pegou, num teste que importa `classe=OPEN` e espera os 15 pontos. Tentar
+  // só o texto inteiro apaga o caso 1, que era o defeito original. Os dois
+  // caminhos levam ao mesmo código de catálogo, e nenhum dos dois inventa
+  // classe: o que não estiver no catálogo da organização segue não elegível.
+  for (const candidato of [linha?.divisionName, linha?.className]) {
+    if (!candidato) continue;
+    if (catalogo.get(candidato.trim().toUpperCase()) === true) return true;
+  }
+  return false;
+}
+
 async function analisarLinha(registro, organizationId, seasonId, catalogoDeClasses = null, indice = null) {
   const doLote = indice ?? await montarIndiceDoLote([registro], organizationId, seasonId);
 
@@ -418,9 +459,7 @@ async function analisarLinha(registro, organizationId, seasonId, catalogoDeClass
     // pela regra vigente o +10 só vale na absoluta, então conferir sem saber a
     // classe calcularia 5 onde o arquivo, corretamente, informa 15 — e a
     // pré-visualização acusaria conflito onde não há.
-    const superOverallEligible = Boolean(
-      registro.className && catalogoDeClasses?.get(registro.className.trim().toUpperCase())
-    );
+    const superOverallEligible = ehElegivelAoSuperOverall(registro, catalogoDeClasses);
 
     const divergencia = conferirPontuacaoImportada(
       registro.placing, tabela, registro.isOverallChampion === true, registro.points, superOverallEligible
@@ -671,7 +710,10 @@ async function preview(importId, actor, { limit, offset = 0, matchStatus = null 
     where: { id: importId },
     include: {
       season: { select: { id: true, name: true, year: true } },
-      event: { select: { id: true, name: true, slug: true } },
+      // Data e cidade acompanham o nome porque a REVISÃO precisa desambiguar,
+      // não só identificar: duas etapas da mesma federação podem ter nomes
+      // parecidos, e o operador está prestes a publicar ranking nacional.
+      event: { select: { id: true, name: true, slug: true, startDate: true, city: true, state: true } },
       createdBy: { select: { id: true, name: true, email: true } },
       appliedBy: { select: { id: true, name: true, email: true } }
     }
@@ -1217,9 +1259,7 @@ async function aplicarLote(lote, actor) {
           // contra o catálogo da organização. O código "OPEN" não aparece aqui.
           // Resolvida ANTES da pontuação porque é ela que decide quanto deste
           // lançamento alimenta o ranking anual.
-          const superOverallEligible = Boolean(
-            item.className && catalogo.get(item.className.trim().toUpperCase())
-          );
+          const superOverallEligible = ehElegivelAoSuperOverall(item, catalogo);
 
           const { placementPoints, overallBonus, points, superOverallPoints } = item.placing != null
             ? pontuarResultado(item.placing, tabela, item.isOverallChampion, superOverallEligible)
@@ -1258,6 +1298,24 @@ async function aplicarLote(lote, actor) {
               athleteId: item.athleteId,
               categoryId: categoria?.id ?? null,
               source: 'MUSCLEWAR',
+              // O EVENTO ACOMPANHA O PONTO.
+              //
+              // O caminho interno (`source: 'EVENT'`) sempre gravou
+              // `eventId`. O da importação não gravava nada: o evento
+              // sobrevivia só como TEXTO livre em `ExternalResult.eventName`,
+              // digitado no arquivo de origem.
+              //
+              // Sem o vínculo, a pergunta "de qual evento veio este ponto?"
+              // dependia de conferir um nome digitado — e a regra homologada
+              // do Overall, que vale +10 uma vez POR EVENTO, não tinha como
+              // ser verificada nos próprios dados do ledger. Com o Ipiranga
+              // seguido de um segundo e de um terceiro campeonato, essa trilha
+              // deixa de ser conveniência e vira a única forma de auditar.
+              //
+              // Nulo quando o lote não declara evento — caso legítimo e
+              // preservado: `MuscleWarImport.eventId` é opcional, e existe
+              // resultado histórico cujo evento nunca foi cadastrado aqui.
+              eventId: lote.eventId ?? null,
               externalResultId: externo.id,
               placing: item.placing,
               // A ausência acompanha o lançamento: sem ela o histórico mostra

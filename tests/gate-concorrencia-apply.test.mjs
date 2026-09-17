@@ -88,15 +88,12 @@ describe('gate de concorrência — 20 /apply simultâneos', () => {
     }, {});
     const finais = await totais();
 
-    // Registro legível no log da execução — é o que o gate audita rodada a rodada.
-    console.log(`[GATE-CONCORRENCIA] distribuicao=${JSON.stringify(porStatus)} ` +
-      `rankingPoint=${finais.pontos} externalResult=${finais.externos}`);
-
-    expect(porStatus[200]).toBe(1);
-    expect(porStatus[422]).toBe(SIMULTANEAS - 1);
-    expect(porStatus[500] ?? 0).toBe(0);
-    expect(Object.keys(porStatus).sort()).toEqual(['200', '422']);
-    expect(finais.pontos).toBe(1);
-    expect(finais.externos).toBe(1);
+    // A DISTRIBUIÇÃO INTEIRA numa asserção só, e não status a status: assim a
+    // falha imprime o mapa recebido — `{"200":2,"422":18}` ou um 500 avulso
+    // dizem na hora QUAL barreira caiu. Conferir os status em asserções
+    // separadas esconderia um status inesperado que nenhuma delas menciona.
+    expect(porStatus).toEqual({ 200: 1, 422: SIMULTANEAS - 1 });
+    expect({ rankingPoint: finais.pontos, externalResult: finais.externos })
+      .toEqual({ rankingPoint: 1, externalResult: 1 });
   }, 120_000);
 });

@@ -20,7 +20,7 @@ import userEvent from '@testing-library/user-event';
 //   * a tela diz que a prévia não aplica nada.
 // ==========================================================================
 
-const api = { muscleWar: { create: vi.fn() }, organizations: { list: vi.fn() }, ranking: { seasons: vi.fn() } };
+const api = { muscleWar: { create: vi.fn() }, organizations: { list: vi.fn() }, ranking: { seasons: vi.fn() }, events: { list: vi.fn() } };
 vi.mock('../services/api', () => ({ default: api, refreshData: vi.fn(), fetchMediaObjectUrl: vi.fn(), releaseMediaObjectUrl: vi.fn() }));
 
 const { NovaImportacao } = await import('./adminPlatform');
@@ -31,6 +31,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   api.organizations.list.mockResolvedValue({ items: [{ id: 'org1', name: 'MCI Brasil' }] });
   api.ranking.seasons.mockResolvedValue({ items: [{ id: 's1', name: 'Temporada', year: 2026 }] });
+  api.events.list.mockResolvedValue({ items: [
+    { id: 'ev1', name: 'Etapa Ipiranga', startDate: '2026-09-12T12:00:00.000Z', city: 'São Paulo', state: 'SP', status: 'PUBLISHED', organizationId: 'org1' },
+    { id: 'ev2', name: 'Etapa Anhembi', startDate: '2026-10-03T12:00:00.000Z', city: 'Campinas', state: 'SP', status: 'DRAFT', organizationId: 'org1' }
+  ] });
   api.muscleWar.create.mockResolvedValue({ import: { id: 'imp1' } });
 });
 afterEach(cleanup);
@@ -101,5 +105,90 @@ describe('declaração do lote no formulário de importação', () => {
   it('o operador é avisado de que Total Score não pontua', async () => {
     render(<NovaImportacao notificar={vi.fn()} onClose={vi.fn()} onCriada={vi.fn()} />);
     expect(await screen.findByText(/Total Score não é lido como pontuação/i)).toBeTruthy();
+  });
+});
+
+
+// ==========================================================================
+// B1–B4 — O EVENTO É O DESTINO DA PUBLICAÇÃO, E PRECISA SER ESCOLHIDO.
+//
+// O backend já aceitava `eventId` e já recusava evento de outra organização.
+// A tela não oferecia o campo: o operador publicava sem saber em qual evento
+// o resultado ia cair, e o ponto nascia órfão de evento no ledger.
+//
+// Escolher pelo NOME do arquivo seria pior do que não escolher — "ipiranga.csv"
+// não é declaração de ninguém. A escolha é do operador, explícita.
+// ==========================================================================
+describe('B1–B4 — seleção do evento', () => {
+  it('a lista de eventos é pedida para a organização escolhida, e só para ela', async () => {
+    const usuario = userEvent.setup();
+    render(<NovaImportacao notificar={vi.fn()} onClose={vi.fn()} onCriada={vi.fn()} />);
+    await usuario.selectOptions(await screen.findByRole('combobox', { name: /organização/i }), 'org1');
+
+    await vi.waitFor(() => expect(api.events.list).toHaveBeenCalled());
+    const [argumentos] = api.events.list.mock.calls.at(-1);
+    expect(argumentos.organizationId).toBe('org1');
+  });
+
+  it('cada evento aparece com nome, data e cidade/UF', async () => {
+    const usuario = userEvent.setup();
+    render(<NovaImportacao notificar={vi.fn()} onClose={vi.fn()} onCriada={vi.fn()} />);
+    await usuario.selectOptions(await screen.findByRole('combobox', { name: /organização/i }), 'org1');
+
+    const seletor = await screen.findByRole('combobox', { name: /evento/i });
+    const texto = [...seletor.options].map(o => o.textContent).join(' | ');
+    expect(texto).toMatch(/Etapa Ipiranga/);
+    expect(texto).toMatch(/12\/09\/2026/);
+    expect(texto).toMatch(/São Paulo\/SP/);
+  });
+
+  it('o eventId escolhido viaja no corpo da criação do lote', async () => {
+    const usuario = userEvent.setup();
+    const { container } = render(<NovaImportacao notificar={vi.fn()} onClose={vi.fn()} onCriada={vi.fn()} />);
+    await usuario.selectOptions(await screen.findByRole('combobox', { name: /organização/i }), 'org1');
+    await usuario.selectOptions(await screen.findByRole('combobox', { name: /evento/i }), 'ev1');
+
+    await usuario.upload(container.querySelector('input[type="file"]'),
+      new File([ARQUIVO], 'etapa.csv', { type: 'text/csv' }));
+    await screen.findByText(/caracteres lidos/i);
+    fireEvent.submit(container.querySelector('form'));
+
+    await vi.waitFor(() => expect(api.muscleWar.create).toHaveBeenCalled());
+    expect(api.muscleWar.create.mock.calls[0][0].eventId).toBe('ev1');
+  });
+
+  it('sem evento escolhido o campo NÃO viaja — ausência não é string vazia', async () => {
+    const usuario = userEvent.setup();
+    const { container } = render(<NovaImportacao notificar={vi.fn()} onClose={vi.fn()} onCriada={vi.fn()} />);
+    await usuario.selectOptions(await screen.findByRole('combobox', { name: /organização/i }), 'org1');
+
+    await usuario.upload(container.querySelector('input[type="file"]'),
+      new File([ARQUIVO], 'etapa.csv', { type: 'text/csv' }));
+    await screen.findByText(/caracteres lidos/i);
+    fireEvent.submit(container.querySelector('form'));
+
+    await vi.waitFor(() => expect(api.muscleWar.create).toHaveBeenCalled());
+    expect(api.muscleWar.create.mock.calls[0][0]).not.toHaveProperty('eventId');
+  });
+
+  it('trocar de organização limpa o evento escolhido — nunca publicar no evento da organização anterior', async () => {
+    api.organizations.list.mockResolvedValue({ items: [
+      { id: 'org1', name: 'MCI Brasil' }, { id: 'org2', name: 'Federacao Sul' }
+    ] });
+    const usuario = userEvent.setup();
+    const { container } = render(<NovaImportacao notificar={vi.fn()} onClose={vi.fn()} onCriada={vi.fn()} />);
+    await usuario.selectOptions(await screen.findByRole('combobox', { name: /organização/i }), 'org1');
+    await usuario.selectOptions(await screen.findByRole('combobox', { name: /evento/i }), 'ev1');
+
+    api.events.list.mockResolvedValue({ items: [] });
+    await usuario.selectOptions(screen.getByRole('combobox', { name: /organização/i }), 'org2');
+
+    await usuario.upload(container.querySelector('input[type="file"]'),
+      new File([ARQUIVO], 'etapa.csv', { type: 'text/csv' }));
+    await screen.findByText(/caracteres lidos/i);
+    fireEvent.submit(container.querySelector('form'));
+
+    await vi.waitFor(() => expect(api.muscleWar.create).toHaveBeenCalled());
+    expect(api.muscleWar.create.mock.calls[0][0]).not.toHaveProperty('eventId');
   });
 });

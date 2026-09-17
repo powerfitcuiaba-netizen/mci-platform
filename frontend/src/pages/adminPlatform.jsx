@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, Building2, Plus, Upload, Users } from 'lucide-react';
+import { AlertTriangle, Building2, CalendarDays, Plus, Upload, Users } from 'lucide-react';
 import api, { refreshData } from '../services/api';
 import { useFetch, useListaPaginada } from '../lib/hooks';
 import { AsyncSection, AtualizadoEm, Avatar, Badge, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead, Paginacao } from '../components/ui';
@@ -385,9 +385,24 @@ function NovaTemporada({ notificar, onClose, onSalvo }) {
     <Modal title="Nova temporada" onClose={onClose}>
       <form onSubmit={salvar}>
         <Field label="Organização" required>
-          <select value={form.organizationId} onChange={evt => setForm({ ...form, organizationId: evt.target.value })} required>
+          <select value={form.organizationId} onChange={evt => escolherOrganizacao(evt.target.value)} required>
             <option value="">Selecione…</option>
             {(organizacoes.data?.items || []).map(organizacao => <option key={organizacao.id} value={organizacao.id}>{organizacao.name}</option>)}
+          </select>
+        </Field>
+        <Field
+          label="Evento"
+          hint="É o evento onde os resultados serão publicados. Escolher aqui é o que permite responder depois de qual etapa veio cada ponto do ranking. Sem evento, o resultado entra no histórico sem etapa."
+        >
+          <select
+            value={form.eventId}
+            disabled={!form.organizationId}
+            onChange={evt => setForm({ ...form, eventId: evt.target.value })}
+          >
+            <option value="">{form.organizationId ? 'Sem evento' : 'Escolha a organização primeiro'}</option>
+            {(eventos.data?.items || []).map(evento => (
+              <option key={evento.id} value={evento.id}>{descreverEvento(evento)}</option>
+            ))}
           </select>
         </Field>
         <Field label="Nome" required><input value={form.name} onChange={evt => setForm({ ...form, name: evt.target.value })} required maxLength={90} placeholder="Ex: Temporada 2026" /></Field>
@@ -518,14 +533,59 @@ export function AdminMuscleWar({ notificar }) {
 
 // Exportado pelo mesmo motivo que a revisão: o teste precisa montar o
 // formulário direto, sem atravessar a listagem de lotes para chegar nele.
+// Data e local de um evento em uma linha. Separado de `descreverEvento`
+// porque a revisão já mostra o nome em destaque e repeti-lo na mesma frase
+// seria ruído.
+function detalheDoEvento(evento) {
+  const partes = [];
+  if (evento.startDate) partes.push(new Date(evento.startDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' }));
+  if (evento.city) partes.push(evento.state ? `${evento.city}/${evento.state}` : evento.city);
+  return partes.join(' · ') || 'sem data e local informados';
+}
+
+// O EVENTO PRECISA SER RECONHECÍVEL NA LISTA, NÃO SÓ IDENTIFICÁVEL.
+//
+// Duas etapas da mesma federação podem ter nomes muito parecidos — e o
+// operador está publicando resultado de campeonato nacional. Nome sozinho não
+// desambigua; data e cidade desambiguam.
+function descreverEvento(evento) {
+  const partes = [evento.name];
+  if (evento.startDate) partes.push(new Date(evento.startDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' }));
+  if (evento.city) partes.push(evento.state ? `${evento.city}/${evento.state}` : evento.city);
+  return partes.join(' · ');
+}
+
 export function NovaImportacao({ notificar, onClose, onCriada }) {
   const organizacoes = useFetch(() => api.organizations.list(), []);
   const temporadas = useFetch(() => api.ranking.seasons(), []);
   const [form, setForm] = useState({
-    organizationId: '', seasonId: '', sourceType: 'CSV', sourceRef: '', content: '',
+    organizationId: '', seasonId: '', eventId: '', sourceType: 'CSV', sourceRef: '', content: '',
     externalIdPrefix: '', defaultAffiliationCode: ''
   });
   const [salvando, setSalvando] = useState(false);
+
+  // OS EVENTOS SÃO PEDIDOS PARA A ORGANIZAÇÃO ESCOLHIDA, E SÓ DEPOIS DELA.
+  //
+  // Sem organização não há lista a pedir — `ativo: false` evita a busca sem
+  // escopo, que voltaria com o calendário de todo mundo. O servidor recorta de
+  // novo por conta própria (`organizationFilter`) e recusa evento de outra
+  // organização na criação do lote: este filtro é conveniência de tela, nunca
+  // a barreira.
+  const eventos = useFetch(
+    () => api.events.list({ organizationId: form.organizationId, limit: 100 }),
+    [form.organizationId],
+    { ativo: Boolean(form.organizationId) }
+  );
+
+  // TROCAR DE ORGANIZAÇÃO APAGA O EVENTO ESCOLHIDO.
+  //
+  // Sem isto o `eventId` da organização anterior continuaria no estado e
+  // viajaria no corpo — o servidor recusaria com EVENT_INVALID, mas o operador
+  // levaria um erro sem entender de onde veio. Pior: se as duas organizações
+  // fossem acessíveis ao mesmo usuário, a publicação iria para o evento
+  // errado sem erro nenhum.
+  const escolherOrganizacao = valor =>
+    setForm(atual => ({ ...atual, organizationId: valor, eventId: '' }));
 
   const lerArquivo = async evento => {
     const arquivo = evento.target.files?.[0];
@@ -547,6 +607,10 @@ export function NovaImportacao({ notificar, onClose, onCriada }) {
         organizationId: form.organizationId,
         seasonId: form.seasonId || null,
         sourceType: form.sourceType,
+        // Mesmo critério dos outros campos opcionais: ausência não é string
+        // vazia. Sem evento escolhido, a chave não viaja, e o lote nasce sem
+        // evento — que é um caso legítimo e declarado.
+        ...(form.eventId ? { eventId: form.eventId } : {}),
         sourceRef: form.sourceRef,
         content: form.content,
         // Campos vazios NÃO viajam: o servidor trata ausência como "não
@@ -567,9 +631,24 @@ export function NovaImportacao({ notificar, onClose, onCriada }) {
     <Modal title="Importar resultados MuscleWar" description="O arquivo é lido e conferido; nada é aplicado antes da sua confirmação." onClose={onClose}>
       <form onSubmit={enviar}>
         <Field label="Organização" required>
-          <select value={form.organizationId} onChange={evt => setForm({ ...form, organizationId: evt.target.value })} required>
+          <select value={form.organizationId} onChange={evt => escolherOrganizacao(evt.target.value)} required>
             <option value="">Selecione…</option>
             {(organizacoes.data?.items || []).map(organizacao => <option key={organizacao.id} value={organizacao.id}>{organizacao.name}</option>)}
+          </select>
+        </Field>
+        <Field
+          label="Evento"
+          hint="É o evento onde os resultados serão publicados. Escolher aqui é o que permite responder depois de qual etapa veio cada ponto do ranking. Sem evento, o resultado entra no histórico sem etapa."
+        >
+          <select
+            value={form.eventId}
+            disabled={!form.organizationId}
+            onChange={evt => setForm({ ...form, eventId: evt.target.value })}
+          >
+            <option value="">{form.organizationId ? 'Sem evento' : 'Escolha a organização primeiro'}</option>
+            {(eventos.data?.items || []).map(evento => (
+              <option key={evento.id} value={evento.id}>{descreverEvento(evento)}</option>
+            ))}
           </select>
         </Field>
         <Field label="Temporada" hint="Sem temporada, o resultado entra no histórico mas não pontua no ranking.">
@@ -663,6 +742,20 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
       <AsyncSection state={estado} linhas={4}>
         {dados => (
           <>
+            {/* O DESTINO ANTES DOS NÚMEROS.
+                Os totais respondem "o que vai entrar"; o evento responde
+                "onde". Sem ele a revisão inteira descreve uma publicação sem
+                dizer para onde ela vai. */}
+            <div className={`alert ${dados.import.event ? 'alert-info' : 'alert-alerta'}`} style={{ marginBottom: 14 }}>
+              <CalendarDays size={16} />
+              <div>
+                <strong>{dados.import.event ? dados.import.event.name : 'Sem evento'}</strong>
+                <p>{dados.import.event
+                  ? detalheDoEvento(dados.import.event)
+                  : 'Os resultados entram no histórico sem etapa, e o ponto do ranking não saberá de qual campeonato veio.'}</p>
+              </div>
+            </div>
+
             <div className="import-summary">
               <Metric label="Registros" value={dados.summary.totalRecords} />
               <Metric label="Reconhecidos" value={dados.summary.recognized} destaque />
@@ -827,7 +920,11 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
             {aplicando && (
               <ConfirmDialog
                 title="Aplicar importação"
-                message={`Serão aplicados ${dados.summary.valid} resultado(s) reconhecido(s). Resultados já importados não pontuam de novo.`}
+                // O DESTINO NO INSTANTE DA DECISÃO, e não só na tela anterior.
+                // Este é o último ponto em que dá para voltar atrás.
+                message={`Publicar ${dados.summary.valid} resultado(s) em: ${dados.import.event
+                  ? `${dados.import.event.name} — ${detalheDoEvento(dados.import.event)}`
+                  : 'SEM EVENTO — os resultados ficarão sem etapa no histórico'}. Resultados já importados não pontuam de novo.`}
                 confirmLabel="Aplicar"
                 onConfirm={aplicar}
                 onClose={() => setAplicando(false)}
