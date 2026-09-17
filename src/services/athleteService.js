@@ -82,6 +82,7 @@ async function create(data, actor) {
         email: data.email ?? null,
         athleteNumber: data.athleteNumber ?? null,
         affiliationId: data.affiliationId ?? null,
+        affiliationNumber: data.affiliationNumber ?? null,
         // O vínculo com equipe é criado logo abaixo, junto da linha de
         // AthleteTeamMembership. Este campo é o espelho do vínculo corrente e
         // não deve ser escrito por outro caminho.
@@ -167,7 +168,11 @@ async function update(id, data, actor) {
 
   // Vínculo esportivo e número de atleta não são autoedição: mudam a
   // elegibilidade e só saem por operador.
-  const camposRestritos = ['affiliationId', 'teamId', 'coachId', 'gymId', 'athleteNumber', 'userId'];
+  // `affiliationNumber` entra na lista pelo mesmo motivo que `affiliationId`:
+  // é a outra metade da filiação, e é por ela que o resultado oficial
+  // reconhece o atleta. Atleta que editasse o próprio número de registro
+  // poderia se apropriar do histórico de outra pessoa.
+  const camposRestritos = ['affiliationId', 'affiliationNumber', 'teamId', 'coachId', 'gymId', 'athleteNumber', 'userId'];
   const payload = { ...data };
   if (ehODono && !can(actor, 'athletes.update', athlete.organizationId)) {
     for (const campo of camposRestritos) delete payload[campo];

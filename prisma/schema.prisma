@@ -218,6 +218,7 @@ model Affiliation {
   athletes               Athlete[]
   registrations          Registration[]
   athleteProfileRequests AthleteProfileRequest[]
+  rankingPoints          RankingPoint[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -301,6 +302,7 @@ model Athlete {
   rankings               Ranking[]
   externalResults        ExternalResult[]
   muscleWarItems         MuscleWarImportItem[]
+  muscleWarSuggestions   MuscleWarImportItem[]     @relation("MuscleWarSuggestion")
   socialProfile          SocialProfile?
   sponsorships           Sponsorship[]
   brandPartnerships      AthleteBrandPartnership[]
@@ -313,6 +315,9 @@ model Athlete {
   @@index([organizationId, fullName])
   @@index([organizationId, proStatus])
   @@index([affiliationId])
+  // Serve ao reconhecimento pelo par filiação + matrícula, que é a chave
+  // primária de identificação dos arquivos oficiais.
+  @@index([affiliationId, affiliationNumber])
   @@index([teamId])
   @@index([coachId])
 }
@@ -1266,6 +1271,8 @@ model RankingPoint {
   /// Resolvido no momento da atribuição, a partir da classe — e gravado, para
   /// que uma mudança futura na configuração da classe não reescreva a
   /// história de um campeonato já encerrado.
+  /// Não comparecimento: a participação existe no histórico e vale zero.
+  didNotShow           Boolean     @default(false)
   superOverallEligible Boolean     @default(false)
   /// Pontos do CAMPEONATO: toda classe pontua, pela tabela da temporada.
   points               Int
@@ -1283,6 +1290,18 @@ model RankingPoint {
   /// a história do ranking.
   companyId            String?
   classId              String?
+  /// Filiação do atleta no momento em que o ponto foi ganho — a ENTIDADE.
+  /// Gravada aqui pela mesma razão que `teamId` e `companyId`: um atleta que
+  /// troca de federação continua tendo ganho os pontos antigos pela antiga, e
+  /// ler a filiação do cadastro na hora da consulta faria a troca reescrever o
+  /// passado.
+  affiliationId        String?
+  /// Matrícula do atleta NAQUELA entidade, no mesmo momento. A filiação são as
+  /// duas coisas: duas federações podem emitir o mesmo número, e a entidade
+  /// sozinha não diz por qual registro o resultado foi reconhecido. Por isso o
+  /// par viaja junto — e o número é COPIADO, não referenciado, porque ele pode
+  /// mudar dentro da mesma entidade.
+  affiliationNumber    String?
   // Versão do resultado que originou o ponto: permite conferir que o ranking
   // reflete a versão válida, e não uma anterior.
   resultVersion        Int?
@@ -1299,6 +1318,7 @@ model RankingPoint {
   team             Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
   company          Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
   competitionClass CompetitionClass? @relation(fields: [classId], references: [id], onDelete: SetNull)
+  affiliation      Affiliation?      @relation(fields: [affiliationId], references: [id], onDelete: SetNull)
   awardedBy        User?             @relation("RankingPointAwardedBy", fields: [awardedById], references: [id], onDelete: SetNull)
 
   // Um mesmo resultado de evento não pontua duas vezes para o mesmo atleta na
@@ -1311,6 +1331,7 @@ model RankingPoint {
   // SQL some sem aviso no primeiro `db push` — foi exatamente assim que esta
   // base perdeu a coluna maxHeightCm e os DEFAULT de participantIds.
   @@index([seasonId, superOverallEligible])
+  @@index([seasonId, affiliationId])
   @@index([source])
 }
 
@@ -1379,6 +1400,11 @@ model Ranking {
 
   @@unique([seasonId, athleteId, categoryId])
   @@index([seasonId, totalPoints])
+  /// Espelha o ORDER BY da leitura do ranking (posição, total, id), que é o
+  /// que permite ao PostgreSQL pular o sort. Sem ele a rota pública fazia
+  /// Seq Scan na temporada inteira para devolver cinco linhas — medido com
+  /// EXPLAIN ANALYZE: 2,43ms contra 0,045ms.
+  @@index([seasonId, position, totalPoints, id])
 }
 
 // ============================================================================
@@ -1442,44 +1468,74 @@ enum MatchStatus {
 }
 
 model MuscleWarImportItem {
-  id                String      @id @default(cuid())
-  importId          String
-  externalResultId  String
-  rowNumber         Int
-  cpf               String?
-  athleteName       String?
-  affiliationCode   String?
-  categoryCode      String?
-  divisionName      String?
-  className         String?
-  placing           Int?
+  id                 String      @id @default(cuid())
+  importId           String
+  externalResultId   String
+  rowNumber          Int
+  cpf                String?
+  athleteName        String?
+  affiliationCode    String?
+  /// Matrícula informada pelo arquivo — o "Member Number" dos arquivos
+  /// oficiais. Guardada como todo o resto do que a origem informou, para que a
+  /// decisão do operador seja conferível contra o que estava escrito.
+  memberNumber       String?
+  categoryCode       String?
+  divisionName       String?
+  className          String?
+  /// A classe decomposta do texto composto da origem: "35+", "A", "Light
+  /// Heavyweight". `className` acima guarda o texto INTEIRO, que é o que a
+  /// chave de idempotência usa — separar as duas leituras é o que impede que
+  /// "Bodybuilding - Novice" e "Classic Physique - Novice" virem a mesma chave.
+  classLabel         String?
+  placing            Int?
+  /// Não comparecimento CONFIRMADO pela origem, distinto de colocação que
+  /// faltou. Pela regra homologada NS vale 0 — e valer 0 é participar, não é
+  /// ser linha inválida. Sem esta coluna a tela não tem como diferenciar
+  /// "consta como NS" de "não deu para ler a colocação".
+  didNotShow         Boolean     @default(false)
   /// Campeão Overall informado pela origem. A pontuação (+10) é regra
   /// homologada; QUEM é o campeão continua sendo dado informado, nunca
   /// deduzido pelo sistema.
-  isOverallChampion Boolean     @default(false)
+  isOverallChampion  Boolean     @default(false)
   /// Equipe declarada pela origem. `className`, logo acima, é o que resolve a
   /// elegibilidade ao Super Overall contra o catálogo da organização.
-  teamName          String?
-  companyName       String?
-  points            Int?
-  eventName         String?
-  eventDate         DateTime?
-  raw               Json
-  matchStatus       MatchStatus @default(MATCH_PENDING)
-  reason            String?
+  teamName           String?
+  companyName        String?
+  points             Int?
+  eventName          String?
+  eventDate          DateTime?
+  raw                Json
+  matchStatus        MatchStatus @default(MATCH_PENDING)
+  /// A chave que reconheceu a linha: "AFFILIATION_NUMBER" ou "CPF". NULO
+  /// quando não houve reconhecimento — inclusive quando houve apenas SUGESTÃO
+  /// por nome, porque nome não reconhece ninguém.
+  matchedBy          String?
+  /// Em CONFLICT de identidade: os candidatos em disputa e o que cada chave
+  /// afirma. JSON porque é um retrato do momento da análise, não uma relação a
+  /// manter sincronizada — o operador precisa ver o que o sistema viu quando
+  /// decidiu parar.
+  matchCandidates    Json?
+  reason             String?
   /// Divergência entre a pontuação do arquivo e a calculada pela regra oficial:
   /// { importedPoints, calculatedPoints, difference }. Preenchida junto com o
   /// CONFLICT, para que o operador veja os números e não só a frase.
-  pointsMismatch    Json?
-  athleteId         String?
-  linkedById        String?
-  linkedAt          DateTime?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  pointsMismatch     Json?
+  athleteId          String?
+  /// Pista por semelhança de nome. É SUGESTÃO, nunca vínculo — mora numa
+  /// coluna diferente de `athleteId` justamente para que nenhum caminho de
+  /// aplicação a confunda com reconhecimento. Semelhança de nome não
+  /// reconhece ninguém: duas atletas chamadas "Ana Silva" existem, e fundir as
+  /// duas num cadastro só apaga uma carreira.
+  suggestedAthleteId String?
+  linkedById         String?
+  linkedAt           DateTime?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
 
-  import         MuscleWarImport @relation(fields: [importId], references: [id], onDelete: Cascade)
-  athlete        Athlete?        @relation(fields: [athleteId], references: [id], onDelete: SetNull)
-  externalResult ExternalResult?
+  import           MuscleWarImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  athlete          Athlete?        @relation(fields: [athleteId], references: [id], onDelete: SetNull)
+  suggestedAthlete Athlete?        @relation("MuscleWarSuggestion", fields: [suggestedAthleteId], references: [id], onDelete: SetNull)
+  externalResult   ExternalResult?
 
   // O mesmo identificador externo não entra duas vezes no mesmo lote.
   @@unique([importId, externalResultId])

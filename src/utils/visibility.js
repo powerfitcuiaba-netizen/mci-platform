@@ -70,7 +70,15 @@ function athleteFor(athlete, viewer, organizationId = null) {
     // A camada de aplicação continua decidindo entre inteiro e mascarado, mas
     // deixou de ser a única coisa entre o número e a resposta.
     cpf: cpfDe(athlete, ehODono || podeVerCpfIntegral ? formatCpf : maskCpf),
-    cpfMasked: cpfDe(athlete, maskCpf)
+    cpfMasked: cpfDe(athlete, maskCpf),
+    // A MATRÍCULA na entidade de filiação fica na camada restrita, junto de
+    // nascimento, telefone e e-mail — e fora de `athletePublic`.
+    //
+    // Ela não é documento pessoal, mas é a chave pela qual os resultados
+    // oficiais reconhecem o atleta: publicá-la ao lado do nome entregaria, a
+    // quem quiser, o par (nome, matrícula) que basta para reivindicar um
+    // histórico. A entidade continua pública; o número dentro dela, não.
+    affiliationNumber: athlete.affiliationNumber ?? null
   };
 }
 

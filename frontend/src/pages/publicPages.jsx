@@ -599,6 +599,16 @@ export function Ranking() {
                     <th>Categoria</th>
                     <th>UF</th>
                     <th className="num">Etapas</th>
+                    {/* A COLUNA QUE FALTAVA.
+                        Um teste humano leu "Etapas: 2 · Pontos: 30" e não teve
+                        como explicar o 30 — porque a tela não dizia que ali
+                        havia DOIS títulos de Overall, cada um valendo +10 no
+                        seu próprio campeonato. O número estava certo e mesmo
+                        assim parecia defeito.
+                        Total que não se explica pela própria tela é total em
+                        que ninguém confia. A tabela do Super Overall já trazia
+                        esta coluna; a do campeonato, não. */}
+                    <th className="num">Overall</th>
                     <th className="num">Pontos</th>
                   </tr>
                 </thead>
@@ -618,11 +628,23 @@ export function Ranking() {
                       <td>{linha.category?.name || 'Geral'}</td>
                       <td>{linha.state || '—'}</td>
                       <td className="num">{linha.eventCount}</td>
+                      <td className="num">
+                        {linha.overallWins
+                          ? <Badge tom="ok">{linha.overallWins}</Badge>
+                          : <span style={{ color: 'var(--cinza-fraco)' }}>—</span>}
+                      </td>
                       <td className="num"><strong style={{ color: 'var(--vermelho-claro)' }}>{linha.totalPoints}</strong></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              {/* A conta, por extenso, embaixo da tabela: sem isso a coluna
+                  nova é só mais um número. */}
+              <p className="ranking-legenda">
+                Cada colocação vale pela tabela oficial da temporada (1º = 5, 2º = 4, 3º = 3, 4º = 2, 5º = 1).
+                Cada título de <strong>Overall</strong> soma <strong>+10</strong>, uma vez por campeonato —
+                quem venceu o Overall de dois campeonatos soma +20 na temporada.
+              </p>
             </div>
           )
           : <EmptyState title="Ranking vazio" description="A pontuação aparece quando resultados forem publicados ou importados." />

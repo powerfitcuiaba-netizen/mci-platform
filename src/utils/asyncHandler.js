@@ -38,7 +38,23 @@ function reterResposta(res) {
   return { restaurar, enviar };
 }
 
-module.exports = function asyncHandler(handler) {
+// PRAZO DA TRANSAÇÃO — por que existe um parâmetro aqui.
+//
+// A transação interativa do Prisma tem prazo PADRÃO de 5 segundos, e ele vale
+// para a requisição inteira, porque é ela que abre a transação. Para tudo o
+// que o MCI faz numa requisição isso é folgado — menos para a IMPORTAÇÃO, que
+// recebe a planilha de uma temporada de uma vez.
+//
+// Medido na FASE 13.6: 1.000 linhas estouravam o prazo e a requisição
+// devolvia 500 (P2028). A correção principal foi parar de consultar o banco
+// por linha; mas mesmo depois dela, gravar dezenas de milhares de itens leva
+// mais de cinco segundos, e fingir que não leva seria voltar a apostar.
+//
+// O prazo é declarado NA ROTA, e só nas rotas que precisam. Nenhuma outra
+// muda de comportamento: sem o parâmetro, o padrão do Prisma continua valendo.
+module.exports = function asyncHandler(handler, { timeout = undefined, maxWait = undefined } = {}) {
+  const opcoes = (timeout || maxWait) ? { timeout, maxWait } : undefined;
+
   return (req, res, next) => {
     const ator = req.user?.id ?? null;
 
@@ -55,7 +71,7 @@ module.exports = function asyncHandler(handler) {
       } finally {
         resposta.restaurar();
       }
-    })
+    }, opcoes)
       .then(() => { if (resposta) resposta.enviar(); })
       .catch(next);
   };

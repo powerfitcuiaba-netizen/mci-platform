@@ -84,6 +84,14 @@ router.post('/affiliations/:id/deactivate', requireAuth, validate(s.paramsWithId
 // serviço, que deriva a organização da FILIAÇÃO e não do corpo.
 router.post('/athlete-requests', requireAuth, validate(s.athleteRequestCreate), wrap(c.athleteRequests.criar));
 router.get('/athlete-requests/me', requireAuth, wrap(c.athleteRequests.meus));
+
+// ===================================================== MINHA FILIAÇÃO / MEU HISTÓRICO
+//
+// Sem id no caminho, de propósito: o atleta vem do token. Uma rota que não
+// aceita identificador de pessoa não tem IDOR a defender — não existe
+// parâmetro capaz de apontar para outra pessoa. Ver src/services/meService.js.
+router.get('/me/affiliation', requireAuth, wrap(c.me.affiliation));
+router.get('/me/history', requireAuth, validate(s.meuHistoricoQuery, 'query'), wrap(c.me.history));
 router.post('/athlete-requests/:id/cancel', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.athleteRequests.cancelar));
 // A foto sobe PELO SERVIDOR (multipart), como todo upload daqui: nenhuma
 // credencial de armazenamento chega ao navegador. `uploadAvatar` já aplica o
@@ -214,15 +222,35 @@ router.route('/events/:id/overall')
   .get(optionalAuth, validate(s.paramsWithId, 'params'), wrap(c.ranking.listOverall))
   .post(requireAuth, validate(s.paramsWithId, 'params'), validate(s.overallDeclare), wrap(c.ranking.declareOverall));
 
+// Homologação administrativa do Overall: os candidatos da classe absoluta, a
+// prévia do impacto e a revogação. Todas exigem `ranking.manage` NA
+// ORGANIZAÇÃO DO EVENTO — verificado no serviço, a partir do evento do
+// caminho, e nunca de um id enviado pelo cliente.
+router.get('/events/:id/overall/candidates', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.ranking.overallCandidates));
+router.get('/events/:id/overall/preview', requireAuth, validate(s.paramsWithId, 'params'), validate(s.overallPreviewQuery, 'query'), wrap(c.ranking.overallPreview));
+router.delete('/events/:id/overall/:titleId', requireAuth, validate(s.paramsComTitulo, 'params'), validate(s.overallRevoke), wrap(c.ranking.revokeOverall));
+
 router.get('/athletes/:id/ranking-points', requireAuth, validate(s.paramsWithId, 'params'), validate(s.rankingPointsQuery, 'query'), wrap(c.ranking.athletePoints));
 
 // ================================================================= MUSCLEWAR
+// PRAZO DILATADO, E SÓ AQUI.
+//
+// Criar e aplicar uma importação são as únicas operações do MCI que recebem a
+// planilha de uma temporada inteira numa requisição. O prazo padrão da
+// transação (5s) é generoso para todo o resto e curto para estas duas — medido
+// na FASE 13.6, com 1.000 linhas estourando e devolvendo 500.
+//
+// O número não é chute: é teto de operação, não de expectativa. O caminho
+// rápido continua sendo o rápido; o prazo existe para que o arquivo grande
+// TERMINE em vez de morrer pela metade.
+const PRAZO_DA_IMPORTACAO = { timeout: 180_000, maxWait: 30_000 };
+
 router.route('/musclewar/imports')
   .get(requireAuth, perm('musclewar.review', orgDaQuery), validate(s.importQuery, 'query'), wrap(c.muscleWar.list))
-  .post(requireAuth, limiteImportacao, perm('musclewar.import', orgDoCorpo), validate(s.muscleWarImportCreate), wrap(c.muscleWar.create));
-router.get('/musclewar/imports/:id', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.muscleWar.preview));
+  .post(requireAuth, limiteImportacao, perm('musclewar.import', orgDoCorpo), validate(s.muscleWarImportCreate), wrap(c.muscleWar.create, PRAZO_DA_IMPORTACAO));
+router.get('/musclewar/imports/:id', requireAuth, validate(s.paramsWithId, 'params'), validate(s.muscleWarPreviewQuery, 'query'), wrap(c.muscleWar.preview));
 router.post('/musclewar/items/:itemId/link', requireAuth, validate(s.muscleWarLink), wrap(c.muscleWar.link));
-router.post('/musclewar/imports/:id/apply', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.muscleWar.apply));
+router.post('/musclewar/imports/:id/apply', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.muscleWar.apply, PRAZO_DA_IMPORTACAO));
 router.post('/musclewar/imports/:id/reject', requireAuth, validate(s.paramsWithId, 'params'), validate(s.rejectImport), wrap(c.muscleWar.reject));
 
 // ================================== EQUIPES, ACADEMIAS, COACHES, MARCAS, PATROCÍNIO

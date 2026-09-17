@@ -31,6 +31,10 @@ const ACTIONS = Object.freeze({
   SCORE_CONFLICT: 'SCORE_CONFLICT',
   SUPER_OVERALL_UPDATE: 'SUPER_OVERALL_UPDATE',
   OVERALL_DECLARE: 'OVERALL_DECLARE',
+  // Revogação de título homologado. Ação PRÓPRIA, e não um DECLARE com valor
+  // nulo: corrigir uma homologação é ato administrativo distinto de fazê-la, e
+  // quem audita precisa distinguir os dois na trilha sem interpretar metadado.
+  OVERALL_REVOKE: 'OVERALL_REVOKE',
   CLASS_CATALOG_SET: 'CLASS_CATALOG_SET',
   ATHLETE_TEAM_LINK: 'ATHLETE_TEAM_LINK',
   ATHLETE_TEAM_TRANSFER: 'ATHLETE_TEAM_TRANSFER',

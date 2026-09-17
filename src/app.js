@@ -1,3 +1,4 @@
+const { CORPO_MAXIMO } = require('./config/limites');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -29,7 +30,7 @@ app.use(helmet());
 
 // A importação MuscleWar envia o arquivo inteiro no corpo; o teto acomoda um
 // lote grande sem abrir espaço para envio arbitrário.
-app.use(express.json({ limit: '8mb' }));
+app.use(express.json({ limit: CORPO_MAXIMO }));
 
 // Depois do parser do corpo, porque a guarda precisa enxergar o JSON já
 // interpretado; antes de tudo o mais, porque o byte recusado aqui não deve

@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { AlertTriangle, Building2, Plus, Upload, Users } from 'lucide-react';
+import { AlertTriangle, Building2, CalendarDays, Plus, Upload, Users } from 'lucide-react';
 import api, { refreshData } from '../services/api';
 import { useFetch, useListaPaginada } from '../lib/hooks';
 import { AsyncSection, AtualizadoEm, Avatar, Badge, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead, Paginacao } from '../components/ui';
 // Só a classe de cartão clicável é usada aqui — é CSS, não precisa do motor
 // em JS. Importar o que não se usa é ruído que o lint acusa e o leitor não.
-import { ESTADO_MATCH, formatarDataHora, papel, estadoDoUsuario, tipoDeFiliacao, estadoDaImportacao } from '../lib/format';
+import { CRITERIO_DE_MATCH, ESTADO_MATCH, formatarDataHora, papel, estadoDoUsuario, tipoDeFiliacao, estadoDaImportacao } from '../lib/format';
 
 // Painel administrativo, ranking, importação MuscleWar, auditoria e
 // configurações da plataforma.
@@ -253,7 +253,9 @@ function ConferirPontuacao({ temporada, onClose }) {
 // pontos?". A resposta é a linha inteira — evento, classe, colocação, e as
 // PARCELAS separadas, porque o total tem de ser reconstituível a partir delas
 // e não apenas conferido no agregado.
-function OrigemDosPontos({ atleta, temporada, onClose }) {
+// Exportado sob nome interno para que o teste renderize o modal diretamente,
+// sem ter de atravessar a tela de ranking inteira para chegar até ele.
+export function OrigemDosPontos({ atleta, temporada, onClose }) {
   const estado = useFetch(
     () => api.ranking.athletePoints(atleta.id, { seasonId: temporada.id }),
     [atleta.id, temporada.id]
@@ -275,6 +277,7 @@ function OrigemDosPontos({ atleta, temporada, onClose }) {
                   <thead>
                     <tr>
                       <th>Evento</th>
+                      <th>Filiação</th>
                       <th>Categoria</th>
                       <th>Classe</th>
                       <th className="num">Col.</th>
@@ -289,6 +292,18 @@ function OrigemDosPontos({ atleta, temporada, onClose }) {
                     {dados.items.map(ponto => (
                       <tr key={ponto.id}>
                         <td>{ponto.event?.name || ponto.externalResult?.eventName || '—'}</td>
+                        {/* A filiação DA ÉPOCA — a que veio gravada no ponto, e
+                            não a do cadastro de hoje. Um atleta que trocou de
+                            federação tem, nesta mesma tabela, linhas de duas
+                            entidades diferentes; é isso que precisa aparecer. */}
+                        <td>
+                          {ponto.affiliation?.name || '—'}
+                          {ponto.affiliationNumber && (
+                            <small style={{ display: 'block', color: 'var(--cinza-fraco)', fontSize: 10 }}>
+                              nº {ponto.affiliationNumber}
+                            </small>
+                          )}
+                        </td>
                         <td>{ponto.category?.name || '—'}</td>
                         <td>
                           {ponto.competitionClass?.code || ponto.competitionClass?.name || '—'}
@@ -321,7 +336,7 @@ function OrigemDosPontos({ atleta, temporada, onClose }) {
                   </tbody>
                   <tfoot>
                     <tr>
-                      <td colSpan={6} style={{ textAlign: 'right' }}><strong>Totais</strong></td>
+                      <td colSpan={7} style={{ textAlign: 'right' }}><strong>Totais</strong></td>
                       <td className="num">
                         <strong>{dados.items.reduce((soma, p) => soma + p.points, 0)}</strong>
                       </td>
@@ -501,11 +516,61 @@ export function AdminMuscleWar({ notificar }) {
   );
 }
 
-function NovaImportacao({ notificar, onClose, onCriada }) {
+// Exportado pelo mesmo motivo que a revisão: o teste precisa montar o
+// formulário direto, sem atravessar a listagem de lotes para chegar nele.
+// Data e local de um evento em uma linha. Separado de `descreverEvento`
+// porque a revisão já mostra o nome em destaque e repeti-lo na mesma frase
+// seria ruído.
+function detalheDoEvento(evento) {
+  const partes = [];
+  if (evento.startDate) partes.push(new Date(evento.startDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' }));
+  if (evento.city) partes.push(evento.state ? `${evento.city}/${evento.state}` : evento.city);
+  return partes.join(' · ') || 'sem data e local informados';
+}
+
+// O EVENTO PRECISA SER RECONHECÍVEL NA LISTA, NÃO SÓ IDENTIFICÁVEL.
+//
+// Duas etapas da mesma federação podem ter nomes muito parecidos — e o
+// operador está publicando resultado de campeonato nacional. Nome sozinho não
+// desambigua; data e cidade desambiguam.
+function descreverEvento(evento) {
+  const partes = [evento.name];
+  if (evento.startDate) partes.push(new Date(evento.startDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' }));
+  if (evento.city) partes.push(evento.state ? `${evento.city}/${evento.state}` : evento.city);
+  return partes.join(' · ');
+}
+
+export function NovaImportacao({ notificar, onClose, onCriada }) {
   const organizacoes = useFetch(() => api.organizations.list(), []);
   const temporadas = useFetch(() => api.ranking.seasons(), []);
-  const [form, setForm] = useState({ organizationId: '', seasonId: '', sourceType: 'CSV', sourceRef: '', content: '' });
+  const [form, setForm] = useState({
+    organizationId: '', seasonId: '', eventId: '', sourceType: 'CSV', sourceRef: '', content: '',
+    externalIdPrefix: '', defaultAffiliationCode: ''
+  });
   const [salvando, setSalvando] = useState(false);
+
+  // OS EVENTOS SÃO PEDIDOS PARA A ORGANIZAÇÃO ESCOLHIDA, E SÓ DEPOIS DELA.
+  //
+  // Sem organização não há lista a pedir — `ativo: false` evita a busca sem
+  // escopo, que voltaria com o calendário de todo mundo. O servidor recorta de
+  // novo por conta própria (`organizationFilter`) e recusa evento de outra
+  // organização na criação do lote: este filtro é conveniência de tela, nunca
+  // a barreira.
+  const eventos = useFetch(
+    () => api.events.list({ organizationId: form.organizationId, limit: 100 }),
+    [form.organizationId],
+    { ativo: Boolean(form.organizationId) }
+  );
+
+  // TROCAR DE ORGANIZAÇÃO APAGA O EVENTO ESCOLHIDO.
+  //
+  // Sem isto o `eventId` da organização anterior continuaria no estado e
+  // viajaria no corpo — o servidor recusaria com EVENT_INVALID, mas o operador
+  // levaria um erro sem entender de onde veio. Pior: se as duas organizações
+  // fossem acessíveis ao mesmo usuário, a publicação iria para o evento
+  // errado sem erro nenhum.
+  const escolherOrganizacao = valor =>
+    setForm(atual => ({ ...atual, organizationId: valor, eventId: '' }));
 
   const lerArquivo = async evento => {
     const arquivo = evento.target.files?.[0];
@@ -527,8 +592,17 @@ function NovaImportacao({ notificar, onClose, onCriada }) {
         organizationId: form.organizationId,
         seasonId: form.seasonId || null,
         sourceType: form.sourceType,
+        // Mesmo critério dos outros campos opcionais: ausência não é string
+        // vazia. Sem evento escolhido, a chave não viaja, e o lote nasce sem
+        // evento — que é um caso legítimo e declarado.
+        ...(form.eventId ? { eventId: form.eventId } : {}),
         sourceRef: form.sourceRef,
-        content: form.content
+        content: form.content,
+        // Campos vazios NÃO viajam: o servidor trata ausência como "não
+        // declarado" e string vazia como valor, e mandar '' ligaria a
+        // derivação de identificador sem que ninguém tivesse pedido.
+        ...(form.externalIdPrefix.trim() ? { externalIdPrefix: form.externalIdPrefix.trim() } : {}),
+        ...(form.defaultAffiliationCode.trim() ? { defaultAffiliationCode: form.defaultAffiliationCode.trim() } : {})
       });
       notificar('Pré-visualização gerada. Nada foi aplicado ainda.');
       onCriada(previa.import.id);
@@ -542,9 +616,24 @@ function NovaImportacao({ notificar, onClose, onCriada }) {
     <Modal title="Importar resultados MuscleWar" description="O arquivo é lido e conferido; nada é aplicado antes da sua confirmação." onClose={onClose}>
       <form onSubmit={enviar}>
         <Field label="Organização" required>
-          <select value={form.organizationId} onChange={evt => setForm({ ...form, organizationId: evt.target.value })} required>
+          <select value={form.organizationId} onChange={evt => escolherOrganizacao(evt.target.value)} required>
             <option value="">Selecione…</option>
             {(organizacoes.data?.items || []).map(organizacao => <option key={organizacao.id} value={organizacao.id}>{organizacao.name}</option>)}
+          </select>
+        </Field>
+        <Field
+          label="Evento"
+          hint="É o evento onde os resultados serão publicados. Escolher aqui é o que permite responder depois de qual etapa veio cada ponto do ranking. Sem evento, o resultado entra no histórico sem etapa."
+        >
+          <select
+            value={form.eventId}
+            disabled={!form.organizationId}
+            onChange={evt => setForm({ ...form, eventId: evt.target.value })}
+          >
+            <option value="">{form.organizationId ? 'Sem evento' : 'Escolha a organização primeiro'}</option>
+            {(eventos.data?.items || []).map(evento => (
+              <option key={evento.id} value={evento.id}>{descreverEvento(evento)}</option>
+            ))}
           </select>
         </Field>
         <Field label="Temporada" hint="Sem temporada, o resultado entra no histórico mas não pontua no ranking.">
@@ -553,8 +642,26 @@ function NovaImportacao({ notificar, onClose, onCriada }) {
             {(temporadas.data?.items || []).map(temporada => <option key={temporada.id} value={temporada.id}>{temporada.name} ({temporada.year})</option>)}
           </select>
         </Field>
-        <Field label="Arquivo" required hint="CSV ou JSON. Colunas reconhecidas: id, cpf, atleta, filiação, categoria, classe, colocação, pontos, evento, data.">
+        <Field label="Arquivo" required hint="CSV ou JSON. Reconhece nome inteiro ou First Name + Last Name, e Member Number como matrícula. Total Score não é lido como pontuação: a colocação é que pontua.">
           <input type="file" accept=".csv,.json,text/csv,application/json" onChange={lerArquivo} required />
+        </Field>
+        <Field
+          label="Filiação de toda a etapa"
+          hint="Para arquivos sem coluna de filiação. O reconhecimento por matrícula exige as duas juntas — matrícula sozinha não identifica ninguém. Linha que já traz a sua própria filiação não é sobrescrita."
+        >
+          <input
+            type="text" value={form.defaultAffiliationCode} maxLength={40} placeholder="Ex.: NPC"
+            onChange={evt => setForm({ ...form, defaultAffiliationCode: evt.target.value })}
+          />
+        </Field>
+        <Field
+          label="Prefixo do identificador"
+          hint="Só para arquivos que não trazem identificador de resultado. A chave fica prefixo + matrícula + classe, e é ela que impede que importar duas vezes some os pontos duas vezes. Em branco, um arquivo sem identificador é recusado em vez de importado."
+        >
+          <input
+            type="text" value={form.externalIdPrefix} maxLength={40} placeholder="Ex.: IPIRANGA"
+            onChange={evt => setForm({ ...form, externalIdPrefix: evt.target.value })}
+          />
         </Field>
         {form.content && (
           <div className="alert alert-info" style={{ marginBottom: 12 }}>
@@ -567,10 +674,41 @@ function NovaImportacao({ notificar, onClose, onCriada }) {
   );
 }
 
-function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
-  const estado = useFetch(() => api.muscleWar.preview(importId), [importId]);
+// Exportado para que o teste renderize a revisão direto, sem atravessar a
+// listagem de lotes para chegar até ela.
+// SITUAÇÕES QUE O OPERADOR FILTRA.
+//
+// Com dez mil linhas, achar as cem pendentes rolando a tabela não é difícil:
+// é inviável. O filtro vai ao servidor — filtrar no navegador exigiria ter
+// baixado as dez mil, que é justamente o que a paginação deixou de fazer.
+const FILTROS_DA_REVISAO = [
+  ['', 'Todas'],
+  ['MATCH_PENDING', 'Pendentes'],
+  ['CONFLICT', 'Conflitos'],
+  ['MATCHED', 'Reconhecidas'],
+  ['DUPLICATE', 'Duplicadas'],
+  ['IMPORT_REJECTED', 'Rejeitadas'],
+  ['APPLIED', 'Aplicadas']
+];
+
+const POR_PAGINA_NA_REVISAO = 200;
+
+export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
+  const [situacao, setSituacao] = useState('');
+  const [mostrando, setMostrando] = useState(POR_PAGINA_NA_REVISAO);
+
+  // O lote inteiro não vem mais de uma vez: a resposta de uma importação de
+  // 10.000 linhas passava de 12 MB. "Carregar mais" aumenta o recorte pedido
+  // ao servidor — e não acumula páginas no navegador, para que voltar atrás
+  // no filtro não deixe lixo na tela.
+  const estado = useFetch(
+    () => api.muscleWar.preview(importId, { limit: mostrando, ...(situacao ? { matchStatus: situacao } : {}) }),
+    [importId, situacao, mostrando]
+  );
   const [vinculando, setVinculando] = useState(null);
   const [aplicando, setAplicando] = useState(false);
+
+  const trocarFiltro = valor => { setSituacao(valor); setMostrando(POR_PAGINA_NA_REVISAO); };
 
   const aplicar = async () => {
     try {
@@ -589,6 +727,20 @@ function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
       <AsyncSection state={estado} linhas={4}>
         {dados => (
           <>
+            {/* O DESTINO ANTES DOS NÚMEROS.
+                Os totais respondem "o que vai entrar"; o evento responde
+                "onde". Sem ele a revisão inteira descreve uma publicação sem
+                dizer para onde ela vai. */}
+            <div className={`alert ${dados.import.event ? 'alert-info' : 'alert-alerta'}`} style={{ marginBottom: 14 }}>
+              <CalendarDays size={16} />
+              <div>
+                <strong>{dados.import.event ? dados.import.event.name : 'Sem evento'}</strong>
+                <p>{dados.import.event
+                  ? detalheDoEvento(dados.import.event)
+                  : 'Os resultados entram no histórico sem etapa, e o ponto do ranking não saberá de qual campeonato veio.'}</p>
+              </div>
+            </div>
+
             <div className="import-summary">
               <Metric label="Registros" value={dados.summary.totalRecords} />
               <Metric label="Reconhecidos" value={dados.summary.recognized} destaque />
@@ -609,11 +761,33 @@ function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
               </div>
             )}
 
+            <div className="import-filtros">
+              <label htmlFor="filtro-situacao">Situação</label>
+              <select id="filtro-situacao" value={situacao} onChange={evento => trocarFiltro(evento.target.value)}>
+                {FILTROS_DA_REVISAO.map(([valor, rotulo]) => (
+                  <option key={valor || 'todas'} value={valor}>{rotulo}</option>
+                ))}
+              </select>
+              {/* "Mostrando X de Y" não é enfeite: uma lista cortada em
+                  silêncio parece completa, e o operador conclui que não há
+                  mais nada a revisar. */}
+              <span className="import-contagem">
+                Mostrando {dados.items.length} de {dados.page?.total ?? dados.items.length}
+                {situacao ? ' no filtro' : ' registros'}
+              </span>
+            </div>
+
             <div className="table-wrap" style={{ maxHeight: 340, overflowY: 'auto' }}>
               <table className="table">
                 <thead>
                   <tr>
-                    <th>#</th><th>CPF</th><th>Atleta</th><th>Filiação</th><th>Categoria</th>
+                    <th>#</th><th>CPF</th><th>Atleta</th><th>Filiação</th>
+                    {/* A matrícula de FILIAÇÃO — o "Member Number" dos arquivos
+                        oficiais. Não é `athleteNumber`, que é outra coisa no
+                        modelo; confundir os dois faria o operador conferir o
+                        campo errado. */}
+                    <th>Matrícula</th>
+                    <th>Categoria</th>
                     {/* A classe é o que decide se o resultado alimenta o Super
                         Overall — sem ela na tela o operador não consegue
                         conferir a elegibilidade. */}
@@ -632,6 +806,7 @@ function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                         <td className="num">{item.cpf || '—'}</td>
                         <td>{item.athlete?.fullName || item.athleteName || '—'}</td>
                         <td>{item.affiliationCode || '—'}</td>
+                        <td className="num">{item.memberNumber || '—'}</td>
                         <td>{item.categoryCode || '—'}</td>
                         <td>
                           {item.className || '—'}
@@ -641,7 +816,47 @@ function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                         <td className="num">{item.points ?? '—'}</td>
                         <td>
                           <Badge tom={info.tom}>{info.rotulo}</Badge>
+
+                          {/* POR QUE casou, e não só QUE casou. Quem revisa sem
+                              saber a chave não tem como conferir se casou
+                              certo. */}
+                          {item.matchedBy && (
+                            <small style={{ display: 'block', marginTop: 3 }}>
+                              por <strong>{CRITERIO_DE_MATCH[item.matchedBy] || item.matchedBy}</strong>
+                            </small>
+                          )}
+
                           {item.reason && <small style={{ display: 'block', color: 'var(--cinza-fraco)', marginTop: 3 }}>{item.reason}</small>}
+
+                          {/* A SUGESTÃO, com o que a sustenta. Fica visualmente
+                              separada do vínculo: sugestão por nome não
+                              reconhece ninguém, e a tela não pode dar a
+                              entender que reconheceu. */}
+                          {item.suggestedAthlete && (
+                            <small style={{ display: 'block', marginTop: 4 }}>
+                              <span className="chip">sugerido</span>{' '}
+                              <strong>{item.suggestedAthlete.fullName}</strong>
+                              {item.suggestedAthlete.affiliation && ` · ${item.suggestedAthlete.affiliation.code}`}
+                              {item.suggestedAthlete.affiliationNumber && ` · nº ${item.suggestedAthlete.affiliationNumber}`}
+                            </small>
+                          )}
+
+                          {/* CONFLITO DE IDENTIDADE: os candidatos em disputa, e
+                              o que cada chave afirma. Sem isto o operador
+                              aperta "vincular" no escuro. */}
+                          {Array.isArray(item.matchCandidates) && item.matchCandidates.length > 0 && (
+                            <small style={{ display: 'block', marginTop: 4 }}>
+                              <strong>Conflito de identidade</strong>
+                              {item.matchCandidates.map(candidato => (
+                                <span key={`${candidato.matchedBy}-${candidato.athleteId}`} style={{ display: 'block' }}>
+                                  {CRITERIO_DE_MATCH[candidato.matchedBy] || candidato.matchedBy}:{' '}
+                                  {candidato.fullName}
+                                  {candidato.affiliation && ` · ${candidato.affiliation.code}`}
+                                  {candidato.affiliationNumber && ` · nº ${candidato.affiliationNumber}`}
+                                </span>
+                              ))}
+                            </small>
+                          )}
                           {/* Divergência de pontuação: os três números lado a
                               lado, para o operador decidir o que corrigir — o
                               arquivo ou a tabela da temporada. */}
@@ -669,6 +884,15 @@ function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
               </table>
             </div>
 
+            {dados.page?.hasMore && (
+              <div className="import-mais">
+                <button type="button" className="button button-secondary button-sm"
+                  onClick={() => setMostrando(atual => atual + POR_PAGINA_NA_REVISAO)}>
+                  Carregar mais {POR_PAGINA_NA_REVISAO}
+                </button>
+              </div>
+            )}
+
             <div className="modal-actions">
               <button type="button" className="button button-secondary" onClick={onClose}>Fechar</button>
               {dados.import.status !== 'REJECTED' && (
@@ -681,7 +905,11 @@ function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
             {aplicando && (
               <ConfirmDialog
                 title="Aplicar importação"
-                message={`Serão aplicados ${dados.summary.valid} resultado(s) reconhecido(s). Resultados já importados não pontuam de novo.`}
+                // O DESTINO NO INSTANTE DA DECISÃO, e não só na tela anterior.
+                // Este é o último ponto em que dá para voltar atrás.
+                message={`Publicar ${dados.summary.valid} resultado(s) em: ${dados.import.event
+                  ? `${dados.import.event.name} — ${detalheDoEvento(dados.import.event)}`
+                  : 'SEM EVENTO — os resultados ficarão sem etapa no histórico'}. Resultados já importados não pontuam de novo.`}
                 confirmLabel="Aplicar"
                 onConfirm={aplicar}
                 onClose={() => setAplicando(false)}

@@ -12,6 +12,7 @@ const registrations = require('../services/registrationService');
 const operations = require('../services/operationsService');
 const results = require('../services/resultService');
 const ranking = require('../services/rankingService');
+const meService = require('../services/meService');
 const muscleWar = require('../services/muscleWarService');
 const partners = require('../services/partnerService');
 const social = require('../services/socialService');
@@ -33,12 +34,53 @@ const ip = req => req.ip || req.headers['x-forwarded-for'] || null;
 
 // Envia um stream de arquivo com cabeçalhos seguros: nada é interpretado pelo
 // navegador como HTML e o nome do arquivo vai citado.
+// O nome vai para dentro de um cabeçalho, e cabeçalho tem regras próprias.
+//
+// Aspas e barra invertida fechariam o valor citado. CR e LF fechariam o
+// CABEÇALHO — e o `busboy` já os entrega percent-codificados, mas depender
+// disso é depender de uma biblioteca para uma garantia que é nossa.
+//
+// O corte de tamanho não é estética: medido na FASE 13.12, um nome de 5.000
+// caracteres produz um `Content-Disposition` de 5.027 bytes. Proxies e
+// servidores recusam respostas cujo conjunto de cabeçalhos passa de 8 KB, e a
+// recusa aconteceria no meio do caminho, sem explicação para ninguém.
+const LIMITE_DO_NOME_NO_CABECALHO = 120;
+
+const nomeParaCabecalho = fileName => String(fileName || 'arquivo')
+  .replace(/[\r\n]/g, ' ')
+  .replace(/["\\]/g, '')
+  .slice(0, LIMITE_DO_NOME_NO_CABECALHO)
+  || 'arquivo';
+
 function enviarArquivo(res, stream, { mimeType, fileName, inline = false }) {
   res.setHeader('Content-Type', mimeType || 'application/octet-stream');
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${String(fileName || 'arquivo').replace(/["\\]/g, '')}"`);
+  res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${nomeParaCabecalho(fileName)}"`);
   stream.on('error', () => res.destroy());
   stream.pipe(res);
+}
+
+// Declara o corte da vista pública num cabeçalho.
+//
+// As listas de ranking de equipe, empresa, Super Overall e recortes respondem
+// um ARRAY. Não há envelope onde colocar `publicView`, e trocar o contrato de
+// resposta só para carregar um booleano quebraria frontend e testes sem
+// necessidade. O cabeçalho diz a mesma coisa sem mexer no corpo.
+//
+// Só aparece quando o corte existe: ausência de cabeçalho é lista inteira.
+function declararCorte(req, res, payload) {
+  // Quantas linhas o banco materializou para produzir esta resposta.
+  // Observabilidade: é o número que denuncia uma rota que voltou a ler a
+  // temporada inteira para devolver cinco linhas — que foi exatamente o
+  // defeito que a medição de carga da FASE 13 encontrou.
+  const lidas = Array.isArray(payload) ? payload.rowsRead : payload?.items?.rowsRead;
+  if (Number.isFinite(lidas)) res.set('X-MCI-Rows-Read', String(lidas));
+
+  const linhas = Array.isArray(payload) ? payload : payload?.items;
+  // `publicView` é a marca que o service anexa — não uma dedução pelo tamanho
+  // da lista, que rotularia como cortada uma lista com cinco linhas de fato.
+  if (linhas?.publicView) res.set('X-MCI-Public-View', `top-${ranking.TOP_PUBLICO}`);
+  return res.json(payload);
 }
 
 module.exports = {
@@ -56,6 +98,13 @@ module.exports = {
     me: async (req, res) => res.json(await auth.me(req.user.id)),
     updateProfile: async (req, res) => res.json(await auth.updateProfile(req.user.id, req.body)),
     changePassword: async (req, res) => res.json(await auth.changePassword(req.user.id, req.body))
+  },
+
+  // Minha Filiação e Meu Histórico. `req.user` e nada mais: nenhum parâmetro
+  // de cliente entra na identificação de quem está perguntando.
+  me: {
+    affiliation: async (req, res) => res.json(await meService.affiliation(req.user)),
+    history: async (req, res) => res.json(await meService.history(req.user, req.query))
   },
 
   organizations: {
@@ -148,15 +197,28 @@ module.exports = {
   },
 
   ranking: {
-    // Projeção pública: a resposta é a mesma para visitante e para quem está
-    // autenticado, então o ator não entra. Ver src/config/prismaPublico.js.
-    list: async (req, res) => res.json(await ranking.list(req.query)),
+    // A PROJEÇÃO dos dados continua sendo pública (src/config/prismaPublico.js):
+    // ninguém vê campo que o visitante não veria. O que o ator decide agora é
+    // OUTRA coisa — quantas linhas vêm.
+    //
+    // Regra homologada: a superfície pública mostra o TOP 5. Quem tem
+    // `ranking.read` na organização dona da temporada recebe a tabela inteira,
+    // com filtros e paginação. O ator entra por isso, e só por isso.
+    list: async (req, res) => {
+      const resposta = await ranking.list(req.query, req.user);
+      if (resposta.publicView) res.set('X-MCI-Public-View', `top-${resposta.publicLimit}`);
+      return res.json(resposta);
+    },
     listSeasons: async (req, res) => res.json({ items: await ranking.listSeasons(req.query, req.user) }),
     createSeason: async (req, res) => res.status(201).json(await ranking.createSeason(req.body, req.user)),
     setPointsRules: async (req, res) => res.json({ items: await ranking.setPointsRules(req.params.id, req.body, req.user) }),
     recompute: async (req, res) => res.json(await ranking.recompute(req.params.id, req.user)),
     athletePoints: async (req, res) => res.json({ items: await ranking.athletePoints(req.params.id, req.query.seasonId, req.user) }),
-    by: async (req, res) => res.json(await ranking.athleteRankingBy(req.query.seasonId, {
+    // Estes três respondem uma LISTA, sem envelope onde declarar o corte. O
+    // cabeçalho `X-MCI-Public-View` cumpre esse papel sem trocar o contrato de
+    // resposta — que é consumido pelo frontend e por testes — só para carregar
+    // um booleano.
+    by: async (req, res) => declararCorte(req, res, await ranking.athleteRankingBy(req.query.seasonId, {
       classId: req.query.classId ?? null,
       eventId: req.query.eventId ?? null,
       divisionId: req.query.divisionId ?? null,
@@ -164,25 +226,31 @@ module.exports = {
       organizationId: req.query.organizationId ?? null,
       limit: req.query.limit ?? null,
       offset: req.query.offset ?? 0
-    })),
-    teams: async (req, res) => res.json(await ranking.teamRanking(req.query.seasonId, { categoryId: req.query.categoryId ?? null, organizationId: req.query.organizationId ?? null })),
+    }, req.user)),
+    teams: async (req, res) => declararCorte(req, res, await ranking.teamRanking(req.query.seasonId, { categoryId: req.query.categoryId ?? null, organizationId: req.query.organizationId ?? null }, req.user)),
     declareOverall: async (req, res) => res.status(201).json(await ranking.declareOverall(req.params.id, req.body, req.user)),
+    // Homologação do Overall: candidatos, prévia e revogação. `req.user` e os
+    // ids do CAMINHO — nada de organizationId vindo do corpo como prova de
+    // pertencimento.
+    overallCandidates: async (req, res) => res.json(await ranking.overallCandidates(req.params.id, req.user)),
+    overallPreview: async (req, res) => res.json(await ranking.overallPreview(req.params.id, req.query, req.user)),
+    revokeOverall: async (req, res) => res.json(await ranking.revokeOverall(req.params.id, req.params.titleId, req.body, req.user)),
     listOverall: async (req, res) => res.json({ items: await ranking.listOverall(req.params.id) }),
-    superOverall: async (req, res) => res.json(await ranking.superOverallRanking(req.query.seasonId, {
+    superOverall: async (req, res) => declararCorte(req, res, await ranking.superOverallRanking(req.query.seasonId, {
       categoryId: req.query.categoryId ?? null,
       organizationId: req.query.organizationId ?? null,
       limit: req.query.limit ?? null,
       offset: req.query.offset ?? 0
-    })),
+    }, req.user)),
     listClasses: async (req, res) => res.json({ items: await ranking.listClasses(req.query.organizationId, req.user) }),
     upsertClass: async (req, res) => res.status(201).json(await ranking.upsertClass(req.body.organizationId, req.body, req.user)),
-    companies: async (req, res) => res.json(await ranking.companyRanking(req.query.seasonId, { categoryId: req.query.categoryId ?? null, organizationId: req.query.organizationId ?? null }))
+    companies: async (req, res) => declararCorte(req, res, await ranking.companyRanking(req.query.seasonId, { categoryId: req.query.categoryId ?? null, organizationId: req.query.organizationId ?? null }, req.user))
   },
 
   muscleWar: {
     list: async (req, res) => res.json({ items: await muscleWar.listImports(req.query, req.user) }),
     create: async (req, res) => res.status(201).json(await muscleWar.createImport(req.body, req.user)),
-    preview: async (req, res) => res.json(await muscleWar.preview(req.params.id, req.user)),
+    preview: async (req, res) => res.json(await muscleWar.preview(req.params.id, req.user, req.query)),
     link: async (req, res) => res.json(await muscleWar.linkItem(req.params.itemId, req.body, req.user)),
     apply: async (req, res) => res.json(await muscleWar.apply(req.params.id, req.user)),
     reject: async (req, res) => res.json(await muscleWar.reject(req.params.id, req.body, req.user))

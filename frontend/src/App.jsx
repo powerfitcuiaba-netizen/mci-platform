@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Bell, ClipboardCheck, Home, LayoutDashboard, LogOut, Menu, MessageSquare,
+  Bell, ClipboardCheck, History, Home, IdCard, LayoutDashboard, LogOut, Menu, MessageSquare,
   QrCode, Scale, Search, Settings, ShieldCheck, Trophy, Upload, UserCircle, Users, Users2,
   Volume2, VolumeX, Zap
 } from 'lucide-react';
@@ -23,6 +23,8 @@ import { AdminCheckin, AdminCredenciamento, AdminEventoDetalhe, AdminEventos, Ad
 import { AdminResultados } from './pages/adminResults';
 import { AdminAuditoria, AdminConfiguracoes, AdminMuscleWar, AdminPainel, AdminRanking } from './pages/adminPlatform';
 import { MeuPainel, MinhaConta } from './pages/mePages';
+import { MeuHistorico, MinhaFiliacao } from './pages/minhaCarreira';
+import { AdminOverall } from './pages/adminOverall';
 import MinhaSolicitacao from './pages/minhaSolicitacao';
 import AdminSolicitacoes from './pages/adminSolicitacoes';
 
@@ -38,7 +40,12 @@ const NAVEGACAO_PRINCIPAL = [
   { rota: 'social', rotulo: 'Social', icone: LayoutDashboard },
   { rota: 'messenger', rotulo: 'Messenger', icone: MessageSquare, contador: 'mensagens' },
   { rota: 'comunidades', rotulo: 'Comunidades', icone: Users2 },
-  { rota: 'meu-painel', rotulo: 'Meu painel', icone: UserCircle }
+  { rota: 'meu-painel', rotulo: 'Meu painel', icone: UserCircle },
+  // Duas telas, e não uma aba escondida dentro do painel: filiação e histórico
+  // são as duas perguntas que o atleta faz sobre si mesmo, e as duas têm de
+  // estar a um toque.
+  { rota: 'minha-filiacao', rotulo: 'Minha filiação', icone: IdCard },
+  { rota: 'meu-historico', rotulo: 'Meu histórico', icone: History }
 ];
 
 // Cada item administrativo declara a permissão que o habilita.
@@ -53,6 +60,9 @@ const NAVEGACAO_ADMIN = [
   { rota: 'admin/palco', rotulo: 'Palco', icone: Users2, permissao: 'stage.read' },
   { rota: 'admin/resultados', rotulo: 'Resultados', icone: ShieldCheck, permissao: 'results.read_unpublished' },
   { rota: 'admin/ranking', rotulo: 'Ranking', icone: Zap, permissao: 'ranking.manage' },
+  // Item PRÓPRIO, e não uma aba dentro de Ranking: homologar Overall é o ato
+  // esportivo oficial da plataforma, e precisa ser encontrável sem caça.
+  { rota: 'admin/overall', rotulo: 'Overall', icone: Trophy, permissao: 'ranking.manage' },
   { rota: 'admin/musclewar', rotulo: 'MuscleWar', icone: Upload, permissao: 'musclewar.review' },
   { rota: 'admin/auditoria', rotulo: 'Auditoria', icone: ShieldCheck, permissao: 'audit.read' },
   { rota: 'admin/configuracoes', rotulo: 'Configurações', icone: Settings, permissao: 'users.read' }
@@ -283,6 +293,8 @@ function Shell() {
       case 'notificacoes': return <Notificacoes />;
       case 'meu-painel': return <MeuPainel navegar={navegar} />;
       case 'minha-conta': return <MinhaConta notificar={notificar} />;
+      case 'minha-filiacao': return <MinhaFiliacao />;
+      case 'meu-historico': return <MeuHistorico />;
       case 'minha-solicitacao': return <MinhaSolicitacao notificar={notificar} />;
       // Laboratório de experiência: existe para calibrar os efeitos num lugar
       // só, antes de espalhá-los. Fica FORA do pacote de produção (ver o
@@ -305,6 +317,7 @@ function Shell() {
         if (segundo === 'palco') return <AdminPalco notificar={notificar} />;
         if (segundo === 'resultados') return <AdminResultados notificar={notificar} />;
         if (segundo === 'ranking') return <AdminRanking notificar={notificar} />;
+        if (segundo === 'overall') return <AdminOverall notificar={notificar} />;
         if (segundo === 'musclewar') return <AdminMuscleWar notificar={notificar} />;
         if (segundo === 'auditoria') return <AdminAuditoria />;
         if (segundo === 'configuracoes') return <AdminConfiguracoes notificar={notificar} />;

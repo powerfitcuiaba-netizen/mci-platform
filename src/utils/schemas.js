@@ -38,6 +38,12 @@ const buscaPublica = paginacao.extend({
 
 const paramsWithId = z.object({ id });
 
+// Dois ids no caminho. Precisa existir porque `validate(..., 'params')`
+// SUBSTITUI `req.params` pelo resultado do Zod, e o Zod descarta chave não
+// declarada: com `paramsWithId`, `titleId` chegava ao serviço como `undefined`
+// — e o Prisma respondia 500 numa rota de regra de negócio.
+const paramsComTitulo = z.object({ id, titleId: id });
+
 // ---------------------------------------------------------------- autenticação
 const authRegister = z.object({
   name: texto(2, 120),
@@ -206,6 +212,12 @@ const athleteCreate = z.object({
   email: opcional(z.string().trim().toLowerCase().email().max(180)),
   athleteNumber: opcional(texto(1, 20)),
   affiliationId: opcional(id),
+  // Matrícula do atleta DENTRO da entidade. Filiação são as duas coisas — a
+  // entidade e o número —, e sem este campo o operador da federação não tinha
+  // como gravar a metade que os arquivos oficiais usam para identificar
+  // (o "Member Number"). Continua fora do cadastro da CONTA (ver acima): quem
+  // grava é o operador, no perfil de atleta.
+  affiliationNumber: opcional(texto(1, 40)),
   teamId: opcional(id),
   coachId: opcional(id),
   gymId: opcional(id),
@@ -456,10 +468,32 @@ const overallDeclare = z.object({
   note: opcional(texto(1, 300))
 });
 
+// Prévia da homologação. `athleteId` é obrigatório: prévia sem atleta não
+// tem o que prever.
+const overallPreviewQuery = z.object({
+  athleteId: id,
+  categoryId: id.optional()
+});
+
+// Revogação. O MOTIVO é obrigatório — revogar título homologado sem dizer por
+// quê deixa o próximo operador sem saber o que já foi analisado, que é o mesmo
+// raciocínio da recusa de solicitação de perfil.
+const overallRevoke = z.object({
+  reason: texto(3, 500)
+});
+
 const teamRankingQuery = z.object({
   seasonId: id.optional(),
   categoryId: id.optional(),
   organizationId: id.optional()
+});
+
+// Meu Histórico. NÃO declara `athleteId` nem `organizationId`: o Zod descarta
+// chave não declarada, então esses parâmetros somem antes de o serviço existir
+// — e o serviço, por sua vez, deriva o atleta do token. Duas camadas dizendo a
+// mesma coisa, que é o que se quer numa superfície de identidade.
+const meuHistoricoQuery = paginacao.extend({
+  seasonId: id.optional()
 });
 
 const rankingQuery = paginacao.extend({
@@ -498,10 +532,28 @@ const muscleWarImportCreate = z.object({
   sourceRef: texto(1, 200),
   // O conteúdo bruto: texto CSV, JSON serializado ou corpo devolvido pela API.
   content: z.string().min(1).max(5_000_000),
-  fieldMap: z.record(z.string(), z.string()).optional()
+  fieldMap: z.record(z.string(), z.string()).optional(),
+  // Prefixo para DERIVAR o identificador de resultado quando o arquivo de
+  // origem não traz nenhum. Opcional de propósito: sem ele nada é derivado, e
+  // um arquivo sem identidade é recusado em vez de importado com uma chave
+  // inventada. O formato restrito mantém a chave legível na auditoria e no
+  // ledger — quem lê `IPIRANGA-88281-BIKINI_OPEN` sabe de onde o ponto veio.
+  externalIdPrefix: z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{1,39}$/,
+    'O prefixo aceita letras, números, hífen e sublinhado, entre 2 e 40 caracteres').optional(),
+  // Filiação de TODA a etapa, para arquivos que não trazem a coluna. Não
+  // sobrescreve linha que já declara a sua.
+  defaultAffiliationCode: opcional(texto(1, 40))
 });
 
 const muscleWarLink = z.object({ athleteId: id });
+
+// Recorte da revisão. O teto vive no serviço; aqui a guarda é de FORMA — um
+// `limit=abc` ou um `offset` negativo não podem chegar ao Prisma.
+const muscleWarPreviewQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(1000).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+  matchStatus: z.enum(['MATCHED', 'MATCH_PENDING', 'CONFLICT', 'DUPLICATE', 'IMPORT_REJECTED', 'APPLIED']).optional()
+});
 
 // -------------------------------------------------------- equipes e parceiros
 const teamCreate = z.object({
@@ -718,9 +770,12 @@ module.exports = {
   checkInCreate, weighInCreate, credentialCreate, credentialScan,
   batchCreate, batchStatusUpdate, stageOrderSet,
   resultReceive, resultPublish, resultOverride,
-  seasonCreate, pointsRuleSet, rankingQuery, rankingCutQuery, overallDeclare, teamRankingQuery,
+  meuHistoricoQuery,
+  paramsComTitulo,
+  seasonCreate, pointsRuleSet, rankingQuery, rankingCutQuery, overallDeclare,
+  overallPreviewQuery, overallRevoke, teamRankingQuery,
   classCatalogUpsert, superOverallQuery,
-  muscleWarImportCreate, muscleWarLink,
+  muscleWarImportCreate, muscleWarLink, muscleWarPreviewQuery,
   teamCreate, companyCreate, coachCreate, gymCreate, brandCreate, sponsorCreate, sponsorshipCreate,
   partnershipCreate, partnershipStatus,
   profileCreate, profileUpdateSocial, postCreate, commentCreate, shareCreate, storyCaption, feedQuery,

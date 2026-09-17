@@ -1,0 +1,107 @@
+# ==========================================================================
+# MCI Platform — blueprint de VISUALIZAÇÃO (FASE 13.25).
+#
+# Este arquivo existe para responder uma pergunta específica: como o
+# responsável abre o sistema num navegador comum, de qualquer lugar, SEM que
+# isso toque na `main` e SEM que isso chegue perto do ambiente de produção.
+#
+# O QUE O SEPARA DO render.yaml DE PRODUÇÃO
+#
+#   * outros NOMES de serviço e outro banco — `mci-preview-*` contra
+#     `mci-api` / `mci-web` / `mci-db`. Nada aqui pode ser confundido com
+#     produção nem sobrescrevê-la;
+#   * o branch é o de desenvolvimento, não `main`;
+#   * `ALLOW_LOCAL_STORAGE=true`, assumido de propósito: em visualização o
+#     upload some no redeploy, e isso é aceitável para dado fictício. Em
+#     produção seria perda de documento de atleta, e por isso lá a barreira
+#     recusa subir sem armazenamento de objetos.
+#
+# O QUE ELE NÃO FAZ
+#
+#   Não cria conta, não semeia dado e não sobe sozinho. Depois de aplicado,
+#   rode UMA VEZ, pelo shell do serviço da API:
+#
+#       ADMIN_PASSWORD='<escolha>' node scripts/criar-admin.js "Nome" email@dominio
+#       DEMO_PASSWORD='<escolha>' node scripts/qa/demo.mjs \
+#           --api https://<a-url-da-api>/api/v1 \
+#           --admin-email email@dominio
+#
+#   As duas senhas são escolhidas por quem executa. Nenhuma senha de produção
+#   entra aqui, e nenhuma senha aparece neste arquivo ou em qualquer log.
+#
+# ESTE ARQUIVO NÃO FOI APLICADO CONTRA O RENDER.
+# O ambiente onde ele foi escrito tem egress bloqueado para render.com —
+# medido: CONNECT a api.render.com devolve 403 pela política da rede. Não foi
+# possível validar o schema nem aplicar o blueprint. Trate um erro de
+# validação como esperado, e confira em https://render.com/docs/blueprint-spec.
+# ==========================================================================
+
+databases:
+  - name: mci-preview-db
+    databaseName: mci_preview
+    user: mci_preview
+    plan: free
+    postgresMajorVersion: "16"
+
+services:
+  - type: web
+    name: mci-preview-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    branch: claude/mci-platform-muscle-contest-o6haz9
+    preDeployCommand: npx prisma migrate deploy
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mci-preview-db
+          property: connectionString
+
+      - key: JWT_SECRET
+        generateValue: true
+
+      # Preencher com a URL do mci-preview-web depois que ele existir.
+      - key: CORS_ORIGINS
+        sync: false
+
+      - key: BCRYPT_ROUNDS
+        value: "12"
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      - key: TRUST_PROXY_HOPS
+        value: "1"
+      - key: LOG_LEVEL
+        value: "info"
+      - key: DEFAULT_TIMEZONE
+        value: America/Sao_Paulo
+
+      # VISUALIZAÇÃO, e só. O disco do contêiner é efêmero: todo upload
+      # desaparece no primeiro redeploy. Para dado fictício isso não custa
+      # nada; para documento de atleta custaria o documento, e é por isso que
+      # em produção a aplicação RECUSA subir assim.
+      - key: STORAGE_DRIVER
+        value: local
+      - key: ALLOW_LOCAL_STORAGE
+        value: "true"
+
+  - type: web
+    name: mci-preview-web
+    runtime: static
+    branch: claude/mci-platform-muscle-contest-o6haz9
+    buildCommand: npm --prefix frontend ci && npm --prefix frontend run build
+    staticPublishPath: ./frontend/dist
+    envVars:
+      # A URL do mci-preview-api, com /api/v1 no fim. Lida em tempo de BUILD:
+      # mudá-la exige reconstruir o site, não basta salvar a variável.
+      - key: VITE_API_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

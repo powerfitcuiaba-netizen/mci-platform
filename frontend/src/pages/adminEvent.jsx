@@ -30,11 +30,23 @@ import {
 // problema no lugar errado enquanto a fila cresce.
 export function SeletorDeEvento({ eventId, onChange, filtroStatus }) {
   const estado = useFetch(() => api.events.list({ limit: 50 }), []);
-  const lista = (estado.data?.items || []).filter(evento => (filtroStatus ? filtroStatus.includes(evento.status) : true));
+  // `Array.isArray` e não `|| []`: um `items` que veio como texto passa pelo
+  // `||` e quebra no `.filter`. A normalização no cliente da API já defende o
+  // caso, e esta linha é a segunda camada — a lista aqui também vem de
+  // `estado.data`, que um teste pode montar à mão.
+  const lista = (Array.isArray(estado.data?.items) ? estado.data.items : [])
+    .filter(evento => (filtroStatus ? filtroStatus.includes(evento.status) : true));
   const falhou = Boolean(estado.error);
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+    // `minWidth: 0` e `maxWidth: '100%'` no INVÓLUCRO, e não só no `select`:
+    // um item de flex tem `min-width: auto` por padrão e se recusa a encolher
+    // abaixo do próprio conteúdo. Com nomes longos de campeonato o bloco ficava
+    // com 342px dentro de uma viewport de 320 e empurrava a página inteira para
+    // fora. `max-width: 100%` no filho não resolvia: 100% de 342 é 342.
+    //
+    // Medido pelo gate visual, que devolveu a geometria com nome e número.
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0, maxWidth: '100%' }}>
       <select
         className="select-control"
         value={eventId || ''}

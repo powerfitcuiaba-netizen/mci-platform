@@ -329,3 +329,138 @@ recusada, e só uma correção versionada — com motivo e autor — o resolve. 
 
 Sem apuração interna não há mais o que ratificar nesta parte. As pendências
 reais do MCI estão na Parte II.
+
+---
+
+## Minha Filiação, Meu Histórico e a revisão do matching (FASE 9)
+
+### A identidade esportiva é um par
+
+Um atleta é identificado por **organização + entidade de filiação + matrícula**.
+`affiliationId` é a entidade; `affiliationNumber` é a matrícula dele dentro
+dela — o *Member Number* dos arquivos oficiais. Nenhuma das duas identifica
+sozinha: duas federações emitem o mesmo número, e uma federação tem milhares de
+filiados. Nome nunca identifica.
+
+### Superfície do próprio atleta
+
+`GET /me/affiliation` e `GET /me/history` respondem sobre **quem pede**. O
+atleta é derivado do token (`Athlete.userId`), e não de um id no caminho, na
+query ou no corpo. Rota sem identificador de pessoa não tem IDOR a defender:
+não existe parâmetro capaz de apontar para outra pessoa.
+
+A rota do operador (`GET /athletes/:id/ranking-points`) continua existindo, com
+id e autorização por vínculo. As duas superfícies coexistem de propósito —
+afrouxar a do operador para servir o atleta abriria o histórico de terceiros
+para todo mundo que tem conta.
+
+O TOP 5 público **não** alcança o histórico individual: o teto é regra da
+vitrine, e a carreira de alguém não é vitrine.
+
+### Filiação histórica
+
+Cada `RankingPoint` guarda a filiação **da época** — entidade e matrícula.
+Trocar de federação não reescreve o passado. Lançamentos anteriores à coluna
+ficam com filiação **nula**, e nulo significa *snapshot histórico
+indisponível*: preenchê-los com a filiação atual seria exatamente o defeito que
+a coluna existe para corrigir.
+
+A matrícula só acompanha quando é da mesma entidade — copiar o número de uma
+federação para um ponto de outra produziria um registro que não existe.
+
+### O Overall no histórico
+
+Colocação e bônus são **parcelas**, exibidas separadas: `5` de pódio, `+10` de
+título, `15` de total. Nunca `15` numa coluna só. O `+10` aparece somente na
+participação da classe absoluta, e uma vez por título.
+
+### Revisão do matching
+
+A revisão mostra **por que** o sistema decidiu:
+
+| Situação | Rótulo na tela | O que a linha mostra |
+|---|---|---|
+| `MATCHED` | Reconhecido | a chave usada (`filiação + matrícula` ou `CPF`) |
+| `MATCH_PENDING` | Não identificado | o atleta sugerido por nome, se houver, com entidade e matrícula |
+| `CONFLICT` | Conflito de identidade | os candidatos em disputa e a chave que apontou cada um |
+
+Sugestão por nome **nunca** é vínculo: mora em `suggestedAthleteId`, coluna
+separada de `athleteId`, e não vira vínculo ao aplicar o lote. Nome que bate em
+mais de um atleta não produz sugestão nenhuma — escolher entre homônimos é
+decisão de quem tem competência. Nenhum atleta é criado pela importação.
+
+A matrícula exibida é a de **filiação** (`memberNumber`), não `athleteNumber`,
+que é outra coisa no modelo.
+
+### Privacidade
+
+A matrícula fica na camada **restrita** da projeção de atleta, ao lado de
+nascimento, telefone e e-mail — fora de `athletePublic`. A entidade continua
+pública; o número dentro dela, não: publicar o par (nome, matrícula) entregaria
+a chave de reivindicação de histórico a qualquer visitante. O histórico do
+atleta não carrega CPF nem contato, e a revisão não devolve telefone ou e-mail
+do sugerido.
+
+---
+
+## Homologação administrativa do Overall (FASE 10)
+
+### O que a plataforma faz, e o que não faz
+
+Ela **registra** a decisão oficial da organização. Não calcula, não infere, não
+escolhe e não sugere campeão Overall. A tela administrativa existe para que
+esse registro seja feito com a informação à vista e o impacto conferido antes
+de assinar.
+
+### Fluxo
+
+1. **Candidatos** — `GET /events/:id/overall/candidates` lista **somente as
+   classes absolutas** do campeonato e quem competiu nelas, com colocação,
+   matrícula e filiação. A colocação aparece porque é fato do resultado
+   publicado; nenhum campo diz "este é o campeão", e todos os candidatos têm o
+   mesmo botão.
+2. **Prévia** — `GET /events/:id/overall/preview?athleteId=…` devolve a conta
+   aberta (colocação, +10, total da participação, impacto no acumulado) **sem
+   gravar nada**. Todas as validações da declaração rodam nela, de modo que uma
+   prévia que responde 200 é uma declaração que vai passar.
+3. **Confirmação explícita** — a homologação só ocorre no botão *Confirmar
+   homologação*. Um clique abre a prévia; ele não homologa.
+4. **Estado homologado** — o recorte passa a exibir *Overall declarado
+   oficialmente* e deixa de oferecer o botão de declarar.
+
+### Regras que a API impõe
+
+| Situação | Resposta |
+|---|---|
+| sem `ranking.manage` na organização do evento | `403` |
+| categoria que não é do campeonato | `422 CATEGORY_NOT_IN_EVENT` |
+| atleta sem participação em classe absoluta | `422 OVERALL_REQUIRES_ABSOLUTE_CLASS` |
+| atleta de outra organização | `422 ATHLETE_OTHER_ORGANIZATION` |
+| recorte já homologado, **outro** atleta | `409 OVERALL_ALREADY_DECLARED` |
+| recorte já homologado, **mesmo** atleta | idempotente — um título, um +10 |
+
+### Efeito no ponto
+
+`placementPoints` **não é alterado**. O bônus entra em `overallBonus`, na
+participação da classe absoluta, e `points = placementPoints + overallBonus`.
+Nenhuma outra participação recebe o +10, nenhum ponto novo é criado.
+
+Exemplo: Novice 1º (5), Master 2º (4), Open 3º (3) → total 12. Homologado o
+Overall na Open: Novice 5, Master 4, Open 13 → **22**. Nunca 15 + 14 + 13.
+
+### Correção
+
+Substituir em silêncio era o comportamento antigo, e foi classificado como
+defeito: trocava o campeão sem registro do que havia antes. O caminho agora é
+`DELETE /events/:id/overall/:titleId`, com **motivo obrigatório**, permissão
+`ranking.manage` e auditoria `OVERALL_REVOKE` — que guarda o campeão anterior,
+quem o declarara, quem revogou e por quê. Revogar retira o bônus e **preserva a
+colocação**. Depois de revogar, o recorte aceita um novo campeão.
+
+### Unicidade
+
+`@@unique([eventId, categoryId])` não protegia o Overall do evento inteiro: no
+PostgreSQL dois `NULL` são distintos. Um índice único **parcial** em
+`(eventId) WHERE categoryId IS NULL` fecha esse caso. A proteção mora no banco
+porque verificação em serviço perde a corrida entre duas requisições
+simultâneas.

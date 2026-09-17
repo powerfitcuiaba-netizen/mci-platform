@@ -61,9 +61,16 @@ describe('B/C) bônus Overall', () => {
   });
 
   it('o bônus acompanha a colocação de quem o recebeu', () => {
-    // Se o campeão Overall tiver vindo de um 2º lugar, o total é 4 + 10 = 14.
-    expect(pontuarResultado(2, TABELA, true).points).toBe(14);
-    expect(pontuarResultado(5, TABELA, true).points).toBe(11);
+    // Se o campeão Overall tiver vindo de um 2º lugar na absoluta, o total é
+    // 4 + 10 = 14. A elegibilidade passou a ser explícita porque, pela regra
+    // vigente, o bônus só existe na absoluta.
+    expect(pontuarResultado(2, TABELA, true, true).points).toBe(14);
+    expect(pontuarResultado(5, TABELA, true, true).points).toBe(11);
+  });
+
+  it('o mesmo 2º lugar com Overall FORA da absoluta vale 4 [REGRA VIGENTE]', () => {
+    expect(pontuarResultado(2, TABELA, true, false).points).toBe(4);
+    expect(pontuarResultado(5, TABELA, true, false).points).toBe(1);
   });
 });
 
@@ -208,7 +215,8 @@ describe('11) cenário numérico de homologação', () => {
       { nome: 'ATLETA D', placing: 3, overall: false },
       { nome: 'ATLETA E', placing: 5, overall: false }
     ].map(item => {
-      const pontos = pontuarResultado(item.placing, TABELA, item.overall);
+      // Cenário de uma classe ABSOLUTA: é onde o título e o bônus existem.
+      const pontos = pontuarResultado(item.placing, TABELA, item.overall, true);
       return { ...item, ...pontos };
     });
 
@@ -238,7 +246,7 @@ describe('11) cenário numérico de homologação', () => {
     // Etapa 1: A vence e leva o Overall (15). B é 2ª (4).
     // Etapa 2: B vence (5). A é 2ª (4).
     // Totais: A = 19, B = 9. Sem empate — A é campeã pelos pontos.
-    const a = { etapa1: pontuarResultado(1, TABELA, true), etapa2: pontuarResultado(2, TABELA) };
+    const a = { etapa1: pontuarResultado(1, TABELA, true, true), etapa2: pontuarResultado(2, TABELA) };
     const b = { etapa1: pontuarResultado(2, TABELA), etapa2: pontuarResultado(1, TABELA) };
 
     expect(a.etapa1.points + a.etapa2.points).toBe(19);

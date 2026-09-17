@@ -278,9 +278,21 @@ export const ESTADO_PRO = {
 // rótulo errado é um incômodo, tela branca é um chamado no meio do evento.
 export const estadoPro = codigo => rotulo(ESTADO_PRO, codigo);
 
+// A CHAVE que reconheceu a linha, em português de operador.
+//
+// `AFFILIATION_NUMBER` é o par entidade + matrícula: a matrícula sozinha não
+// identifica ninguém, porque duas federações emitem o mesmo número — e o
+// rótulo diz isso, em vez de "matrícula".
+export const CRITERIO_DE_MATCH = {
+  AFFILIATION_NUMBER: 'filiação + matrícula',
+  CPF: 'CPF'
+};
+
 export const ESTADO_MATCH = {
   MATCHED: { rotulo: 'Reconhecido', tom: 'ok' },
-  MATCH_PENDING: { rotulo: 'Pendente', tom: 'alerta' },
+  // "Pendente" não dizia o que estava pendente. O estado é: o sistema não
+  // identificou o atleta — que é o que o operador precisa resolver.
+  MATCH_PENDING: { rotulo: 'Não identificado', tom: 'alerta' },
   CONFLICT: { rotulo: 'Conflito', tom: 'perigo' },
   DUPLICATE: { rotulo: 'Duplicado', tom: 'neutro' },
   IMPORT_REJECTED: { rotulo: 'Rejeitado', tom: 'perigo' },

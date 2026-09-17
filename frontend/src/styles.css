@@ -412,6 +412,14 @@ h1, h2, h3 { margin: 0; }
   background: var(--superficie); border: 1px solid var(--linha-forte);
   border-radius: var(--raio); min-height: 40px; padding: 0 var(--e3); font-size: 12.5px;
   transition: border-color var(--t-rapido) ease, box-shadow var(--t-rapido) ease;
+  /* O `select` dimensiona pela opção mais LONGA, e nomes de campeonato são
+     longos: em 320px ele empurrava a página inteira para fora da viewport.
+     `max-width: 100%` mais `min-width: 0` o obrigam a caber e a reticenciar,
+     em vez de estourar. Encontrado pelo gate visual, e não pelos testes de
+     unidade — a largura do conteúdo só existe num navegador. */
+  max-width: 100%;
+  min-width: 0;
+  text-overflow: ellipsis;
 }
 .select-control:hover { border-color: #3b5064; }
 .select-control:focus { border-color: var(--ciano-puro); box-shadow: var(--brilho-ciano); outline: 0; }
@@ -750,6 +758,24 @@ h1, h2, h3 { margin: 0; }
 .import-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: var(--e3); margin-bottom: var(--e4); }
 .import-summary .metric { padding: var(--e3) var(--e4); }
 .import-summary .metric strong { font-size: 28px; }
+
+/* Recorte da revisão. Em 320px o seletor e a contagem empilham: o seletor tem
+   min-width: auto por ser item de flex, e sem a quebra ele empurra a largura
+   da tabela inteira para fora da tela. */
+.import-filtros { display: flex; flex-wrap: wrap; align-items: center; gap: var(--e2); margin-bottom: var(--e3); }
+.import-filtros label { font-size: 13px; color: var(--cinza-fraco); }
+.import-filtros select { min-width: 0; max-width: 100%; }
+.import-contagem { font-size: 13px; color: var(--cinza-fraco); margin-left: auto; }
+.import-mais { display: flex; justify-content: center; margin-top: var(--e3); }
+
+/* A conta do ranking, por extenso. Existe porque um total sem explicação na
+   própria tela é um total em que ninguém confia — foi um teste humano que
+   mostrou isso. */
+.ranking-legenda {
+  margin: var(--e3) 0 0; padding: var(--e3) var(--e4);
+  font-size: 12px; line-height: 1.6; color: var(--cinza-fraco);
+  background: var(--superficie-2); border: 1px solid var(--linha); border-radius: 6px;
+}
 
 .kv { display: grid; grid-template-columns: auto 1fr; gap: var(--e2) var(--e4); font-size: 12.5px; }
 .kv dt { color: var(--cinza-fraco); font-weight: 600; }
@@ -1753,3 +1779,114 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
 .cinema-roteiro li small { grid-column: 2; color: var(--cinza-fraco); font-size: 11.5px; }
 .cinema-roteiro li.is-agora { background: var(--superficie-2); }
 .cinema-roteiro li.is-agora strong { color: var(--vermelho-claro); }
+
+/* ==========================================================================
+   MEU HISTÓRICO NO TELEFONE — a tabela vira lista.
+   ==========================================================================
+
+   Sete colunas não cabem em 320px. Rolar de lado não quebra a página, mas
+   ESCONDE coluna — e a coluna que some primeiro é a da direita, que é
+   justamente o total. O gate visual (scripts/qa/responsividade.mjs) mede isso
+   como critério próprio, separado de "layout quebrado", porque é questão de
+   produto e não de CSS estourado.
+
+   Abaixo de 760px cada linha vira um cartão: o rótulo da coluna acompanha o
+   valor, e nada precisa ser arrastado para ser lido. Acima disso a tabela
+   continua tabela — no desktop ela é melhor, porque permite comparar linhas
+   com o olho. */
+@media (max-width: 760px) {
+  .historico-tabela thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  .historico-tabela,
+  .historico-tabela tbody,
+  .historico-tabela tr,
+  .historico-tabela td { display: block; width: 100%; }
+
+  .historico-tabela tr {
+    border: 1px solid var(--linha);
+    border-radius: var(--raio-caixa, 12px);
+    padding: 12px 14px;
+    margin-bottom: 10px;
+  }
+
+  .historico-tabela td {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 14px;
+    padding: 4px 0;
+    border: 0;
+    text-align: left;
+  }
+
+  /* O rótulo vem do `data-rotulo` da célula: sem ele o cartão seria uma pilha
+     de números sem nome. */
+  .historico-tabela td::before {
+    content: attr(data-rotulo);
+    color: var(--cinza-fraco);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    flex: 0 0 auto;
+  }
+
+  /* A primeira célula é o título do cartão: nome do campeonato, sem rótulo. */
+  .historico-tabela td:first-child {
+    display: block;
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--linha);
+    font-weight: 600;
+  }
+  .historico-tabela td:first-child::before { content: none; }
+
+  .historico-tabela td.num { text-align: right; }
+  .historico-tabela td small { display: block; }
+}
+
+/* Lista de definições da prévia de homologação: rótulo à esquerda, valor à
+   direita, como um comprovante. O operador está conferindo números antes de
+   assinar — alinhá-los em colunas é o que torna a conferência rápida. */
+.definicoes { margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.definicoes > div {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 16px;
+  padding: 7px 0; border-bottom: 1px solid var(--linha);
+}
+.definicoes > div:last-child { border-bottom: 0; }
+.definicoes dt { color: var(--cinza-fraco); font-size: 12px; }
+.definicoes dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Em 320px rótulo e valor não cabem lado a lado — "Total da participação"
+   sozinho já estoura a linha. Empilhar é melhor que encolher a fonte até o
+   operador precisar apertar os olhos num ato oficial. */
+@media (max-width: 400px) {
+  .definicoes > div { flex-direction: column; align-items: stretch; gap: 2px; }
+  .definicoes dd { text-align: left; }
+}
+
+/* A tabela de candidatos vira lista no telefone, pelo mesmo motivo do
+   histórico: cinco colunas não cabem em 320px, e rolar de lado esconde
+   justamente a coluna do botão. */
+@media (max-width: 760px) {
+  .homologacao-tabela thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .homologacao-tabela,
+  .homologacao-tabela tbody,
+  .homologacao-tabela tr,
+  .homologacao-tabela td { display: block; width: 100%; }
+  .homologacao-tabela tr {
+    border: 1px solid var(--linha); border-radius: var(--raio-caixa, 12px);
+    padding: 12px 14px; margin-bottom: 10px;
+  }
+  .homologacao-tabela td {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 14px; padding: 4px 0; border: 0; text-align: left;
+  }
+  .homologacao-tabela td::before {
+    content: attr(data-rotulo); color: var(--cinza-fraco); font-size: 11px;
+    letter-spacing: 0.04em; text-transform: uppercase; flex: 0 0 auto;
+  }
+  .homologacao-tabela td:last-child { justify-content: stretch; padding-top: 10px; }
+  .homologacao-tabela td:last-child::before { content: none; }
+  .homologacao-tabela td:last-child .button { width: 100%; }
+  .homologacao-tabela td.num { text-align: right; }
+}

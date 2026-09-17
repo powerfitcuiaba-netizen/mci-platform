@@ -5,6 +5,8 @@ const { normalizeCpf, isValidCpf } = require('../utils/cpf');
 const storage = require('./storageService');
 const imagem = require('./imagemService');
 const audit = require('./auditService');
+const logger = require('../utils/logger');
+const muscleWar = require('./muscleWarService');
 
 // ============================================================================
 // FILA DE PERFIL DE ATLETA.
@@ -353,6 +355,21 @@ async function aprovar(id, actor) {
     organizationId: pedido.organizationId,
     metadata: { athleteId: resultado.athlete.id, affiliationId: pedido.affiliationId }
   });
+
+  // A aprovação é o momento em que a identidade passa a existir para o MCI —
+  // e é só aqui, não no preenchimento do formulário: quem digitou a matrícula
+  // ainda não foi conferido por ninguém, e vincular resultado de campeonato a
+  // uma afirmação não analisada seria entregar pontos a quem os pedir.
+  //
+  // Fora da transação de propósito. Se o vínculo falhar, o atleta continua
+  // aprovado e existente; a operação é idempotente e pode ser repetida. Dentro
+  // dela, uma falha em resultado antigo desfaria um cadastro correto.
+  try {
+    await muscleWar.vincularPendentesDoAtleta(resultado.athlete, actor);
+  } catch (erro) {
+    logger.error({ erro: erro.message, athleteId: resultado.athlete.id },
+      'aprovação concluída, mas o vínculo de resultados pendentes falhou');
+  }
 
   return semChaves(resultado.pedido);
 }

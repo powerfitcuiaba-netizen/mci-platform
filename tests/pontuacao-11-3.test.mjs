@@ -74,15 +74,18 @@ describe('6–9) demais classes: pontuam no campeonato, NÃO no Super Overall', 
     expect(pontuar(1, { elegivel: NAO_OPEN })).toEqual({ campeonato: 5, superOverall: 0 });
   });
 
-  it('TESTE 9 — Novice, 1º, com Overall: 15 no campeonato, e NÃO 15 no Super Overall', () => {
-    // O caso que decide a regra: o Overall não carrega elegibilidade própria.
-    // Um +10 conquistado fora da OPEN vale no campeonato e não vale no anual.
-    // Presumir o contrário seria inventar regulamento.
+  it('TESTE 9 — Novice, 1º, com Overall: 5 e 0, porque o bônus é da absoluta [REGRA VIGENTE]', () => {
+    // ATUALIZADO. Este teste afirmava 15 no campeonato, pela leitura da fase
+    // 11.4 de que o bônus não carregava elegibilidade própria. O responsável
+    // REVOGOU essa leitura: o +10 é do campeão da OPEN/absoluta, e de mais
+    // ninguém.
+    //
+    // A colocação continua intacta: a NOVICE vale 5 no campeonato como sempre
+    // valeu. O que ela perdeu é um bônus que nunca foi dela.
     const r = pontuar(1, { overall: true, elegivel: NAO_OPEN });
 
-    expect(r.campeonato).toBe(15);
-    expect(r.superOverall, 'o bônus segue a elegibilidade da participação').not.toBe(15);
-    expect(r.superOverall).toBe(0);
+    expect(r.campeonato, 'a colocação, e só ela').toBe(5);
+    expect(r.superOverall, 'não elegível não alimenta o anual').toBe(0);
   });
 
   it('as classes não elegíveis NÃO somem do campeonato — só do Super Overall', () => {
@@ -178,16 +181,28 @@ describe('10–15) desempate: Overall → 1º → 2º → 3º → TIE_UNRESOLVED
 });
 
 describe('17) pontuação importada é conferida contra a regra oficial', () => {
-  it('TESTE 17 — 1º com Overall declarando 14 diverge dos 15 oficiais', () => {
-    const divergencia = conferirPontuacaoImportada(1, TABELA, true, 14);
+  it('TESTE 17 — 1º na absoluta com Overall declarando 14 diverge dos 15 oficiais', () => {
+    // A elegibilidade entrou na conferência porque entrou na regra: sem ela, o
+    // cálculo oficial de uma linha de Overall na absoluta daria 5, e a
+    // pré-visualização acusaria conflito em arquivo correto.
+    const divergencia = conferirPontuacaoImportada(1, TABELA, true, 14, OPEN);
 
     expect(divergencia).toEqual({ importedPoints: 14, calculatedPoints: 15, difference: -1 });
   });
 
+  it('Overall marcado fora da absoluta: o oficial é 5, e 15 no arquivo é divergência', () => {
+    // A outra ponta da regra vigente. O arquivo que credita +10 a uma linha de
+    // Novice está afirmando algo que a regra não permite — e a importação trava
+    // com a conta na mão, em vez de aplicar ou de corrigir em silêncio.
+    expect(conferirPontuacaoImportada(1, TABELA, true, 15, NAO_OPEN))
+      .toEqual({ importedPoints: 15, calculatedPoints: 5, difference: 10 });
+    expect(conferirPontuacaoImportada(1, TABELA, true, 5, NAO_OPEN)).toBeNull();
+  });
+
   it('o número coerente não gera divergência', () => {
-    expect(conferirPontuacaoImportada(1, TABELA, true, 15)).toBeNull();
-    expect(conferirPontuacaoImportada(1, TABELA, false, 5)).toBeNull();
-    expect(conferirPontuacaoImportada(6, TABELA, false, 0)).toBeNull();
+    expect(conferirPontuacaoImportada(1, TABELA, true, 15, OPEN)).toBeNull();
+    expect(conferirPontuacaoImportada(1, TABELA, false, 5, OPEN)).toBeNull();
+    expect(conferirPontuacaoImportada(6, TABELA, false, 0, OPEN)).toBeNull();
   });
 
   // A armadilha real da planilha, levantada na homologação operacional
@@ -195,8 +210,8 @@ describe('17) pontuação importada é conferida contra a regra oficial', () => 
   // pontos. Numa linha marcada como Overall isso é −10 do que a regra calcula,
   // e a importação tem de travar com a conta na mão — não aplicar o número do
   // arquivo, nem sobrescrevê-lo em silêncio.
-  it('5 pontos numa linha de campeã Overall é divergência de −10, não acerto', () => {
-    expect(conferirPontuacaoImportada(1, TABELA, true, 5))
+  it('5 pontos numa linha de campeã Overall DA ABSOLUTA é divergência de −10, não acerto', () => {
+    expect(conferirPontuacaoImportada(1, TABELA, true, 5, OPEN))
       .toEqual({ importedPoints: 5, calculatedPoints: 15, difference: -10 });
   });
 

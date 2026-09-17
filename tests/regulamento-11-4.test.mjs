@@ -95,13 +95,31 @@ describe('13–20) elegibilidade ao Super Overall: somente OPEN', () => {
     }
   });
 
-  it('TESTES 17–20 — 1º + Overall: 15 no campeonato em todas; 15 no anual só na OPEN', () => {
-    // O caso que decide a regra: o bônus NÃO carrega elegibilidade própria.
+  it('TESTES 17–20 — 1º + Overall: 15 SÓ na OPEN; 5 nas demais [REGRA VIGENTE]', () => {
+    // ATUALIZADO. A fase 11.4 tinha homologado 15 no campeonato em TODAS as
+    // classes, sob o argumento de que o bônus não carregava elegibilidade
+    // própria. O responsável REVOGOU essa leitura: o +10 é do campeão da
+    // absoluta e de mais ninguém.
+    //
+    // O teste não foi removido nem afrouxado — foi reescrito para a regra que
+    // vale, e continua cobrindo as quatro classes. A prova completa da regra
+    // vigente, incluindo o caminho da API, está em
+    // tests/regulamento-overall-vigente.test.mjs.
     for (const classe of CLASSES) {
       const r = pontuar(1, { overall: true, elegivel: classe.elegivel });
 
-      expect(r.campeonato, `${classe.nome} com Overall`).toBe(15);
+      expect(r.campeonato, `${classe.nome} com Overall`).toBe(classe.elegivel ? 15 : 5);
       expect(r.superOverall, `${classe.nome} com Overall, no anual`).toBe(classe.elegivel ? 15 : 0);
+    }
+  });
+
+  it('a colocação das classes não absolutas NÃO foi tocada pela nova regra', () => {
+    // O risco da mudança era tirar pontos de quem não devia perder nada.
+    // Estreante, Novice e Master continuam valendo 5/4/3/2/1 no campeonato.
+    for (const classe of CLASSES.filter(c => !c.elegivel)) {
+      expect(pontuar(1, { elegivel: false }).campeonato, classe.nome).toBe(5);
+      expect(pontuar(2, { elegivel: false }).campeonato, classe.nome).toBe(4);
+      expect(pontuar(5, { elegivel: false }).campeonato, classe.nome).toBe(1);
     }
   });
 
@@ -231,15 +249,18 @@ describe('equipes e empresas: a MESMA regra, sem exceção', () => {
     // A estrutura já suporta a regra sem tabela nova: cada lançamento carrega
     // superOverallPoints ao lado da equipe e da empresa. Somar por equipe
     // exclui Estreante, Novice e Master POR CONSTRUÇÃO.
-    const daOpen = pontuarResultado(1, TABELA, true, true);      // OPEN
-    const daNovice = pontuarResultado(1, TABELA, true, false);   // NOVICE
+    const daOpen = pontuarResultado(1, TABELA, true, true);      // OPEN:   5 + 10
+    const daNovice = pontuarResultado(1, TABELA, true, false);   // NOVICE: 5, sem bônus
 
     const equipe = [daOpen, daNovice];
 
     const campeonato = equipe.reduce((soma, p) => soma + p.points, 0);
     const anual = equipe.reduce((soma, p) => soma + p.superOverallPoints, 0);
 
-    expect(campeonato, 'as duas participações pontuam no campeonato').toBe(30);
+    // ATUALIZADO para a regra vigente: eram 30 quando o bônus valia em
+    // qualquer classe. A NOVICE continua pontuando no campeonato — perdeu só o
+    // bônus, que nunca foi dela.
+    expect(campeonato, 'as duas participações pontuam no campeonato').toBe(20);
     expect(anual, 'só a OPEN alimenta o anual').toBe(15);
   });
 });

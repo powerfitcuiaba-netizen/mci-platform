@@ -74,7 +74,7 @@ export async function apiRequest(path, options = {}) {
       erro.details = corpo?.error?.details;
       throw erro;
     }
-    return corpo;
+    return normalizarLista(corpo, path);
   } catch (error) {
     // A mensagem trocada é para o usuário; `cause` preserva o erro original
     // para quem for depurar. Sem isso, a falha de rede vira uma frase sem
@@ -87,11 +87,37 @@ export async function apiRequest(path, options = {}) {
   }
 }
 
+// `items` que não é lista NÃO é dado — é resposta malformada.
+//
+// Toda tela de listagem faz `(dados.items || []).map(...)`, e esse `|| []` não
+// defende contra `items: "alguma coisa"`: o `map` some, o `filter` some, e a
+// tela quebra. O erro aparecia como "((intermediate value) || []).filter is
+// not a function" — encontrado pela matriz de estados de erro da FASE 13.
+//
+// Normalizar aqui defende TODAS as telas de uma vez, em vez de espalhar
+// `Array.isArray` por vinte arquivos. E avisa no console: payload malformado é
+// defeito do servidor, e engoli-lo em silêncio esconderia a causa de quem
+// precisa corrigi-la.
+function normalizarLista(corpo, path) {
+  if (!corpo || typeof corpo !== 'object') return corpo;
+  if (!('items' in corpo) || Array.isArray(corpo.items)) return corpo;
+
+  // eslint-disable-next-line no-console
+  console.warn(`[api] ${path} devolveu "items" que não é lista (${typeof corpo.items}); tratando como vazia.`);
+  return { ...corpo, items: [] };
+}
+
 const get = (path, params) => apiRequest(withQuery(path, params));
 const post = (path, data) => apiRequest(path, { method: 'POST', body: JSON.stringify(data ?? {}) });
 const patch = (path, data) => apiRequest(path, { method: 'PATCH', body: JSON.stringify(data ?? {}) });
 const put = (path, data) => apiRequest(path, { method: 'PUT', body: JSON.stringify(data ?? {}) });
-const remove = path => apiRequest(path, { method: 'DELETE' });
+// DELETE com corpo opcional. A revogação do Overall exige MOTIVO, e motivo é
+// dado da operação — não cabe na query string, onde ficaria no log de acesso
+// do servidor junto com a URL.
+const remove = (path, data) => apiRequest(path, {
+  method: 'DELETE',
+  ...(data === undefined ? {} : { body: JSON.stringify(data) })
+});
 
 // O navegador monta o boundary do multipart sozinho: fixar Content-Type aqui
 // quebraria o envio.
@@ -246,6 +272,14 @@ export const api = {
     versions: classId => get(`/classes/${classId}/result/versions`)
   },
 
+  // Minha Filiação e Meu Histórico. Nenhuma das duas manda identificador de
+  // pessoa: o backend deriva o atleta do token, e não há id para esta camada
+  // passar errado.
+  me: {
+    affiliation: () => get('/me/affiliation'),
+    history: params => get('/me/history', params)
+  },
+
   ranking: {
     // Duas métricas, dois endpoints — de propósito. `list` é o ranking do
     // CAMPEONATO, onde toda classe pontua; `superOverall` é o classificatório
@@ -260,6 +294,11 @@ export const api = {
     // chamava — o bônus Overall não tinha como ser concedido pelo produto.
     listarOverall: eventId => get(`/events/${eventId}/overall`),
     declararOverall: (eventId, dados) => post(`/events/${eventId}/overall`, dados),
+    // Homologação do Overall: candidatos, prévia e revogação. Nenhuma manda
+    // organizationId — o servidor deriva a organização do evento do caminho.
+    overallCandidates: eventId => get(`/events/${eventId}/overall/candidates`),
+    overallPreview: (eventId, params) => get(`/events/${eventId}/overall/preview`, params),
+    revokeOverall: (eventId, titleId, dados) => remove(`/events/${eventId}/overall/${titleId}`, dados),
     teams: params => get('/ranking/teams', params),
     companies: params => get('/ranking/companies', params),
     athletePoints: (id, params) => get(`/athletes/${id}/ranking-points`, params),
@@ -272,7 +311,7 @@ export const api = {
   muscleWar: {
     list: params => get('/musclewar/imports', params),
     create: dados => post('/musclewar/imports', dados),
-    preview: id => get(`/musclewar/imports/${id}`),
+    preview: (id, params) => get(`/musclewar/imports/${id}`, params),
     link: (itemId, dados) => post(`/musclewar/items/${itemId}/link`, dados),
     apply: id => post(`/musclewar/imports/${id}/apply`),
     reject: (id, dados) => post(`/musclewar/imports/${id}/reject`, dados)

@@ -8,7 +8,8 @@
 // ------------------------------------ REGRA HOMOLOGADA (fase 11.1) ---------
 //
 // Pontuação por colocação:   1º=5  2º=4  3º=3  4º=2  5º=1
-// Campeão Overall:           +10, SOMADOS aos pontos da colocação
+// Campeão Overall:           +10, SOMADOS aos pontos da colocação, e SOMENTE
+//                            na classe ABSOLUTA (a marcada como elegível)
 // Equipes:                   a MESMA tabela, sem peso, multiplicador ou bônus
 //                            próprio
 //
@@ -31,6 +32,25 @@
 //   pela REGRA HOMOLOGADA, a OPEN — alimentam o ranking classificatório do
 //   Super Overall. A marca é atributo da classe, e não o código "OPEN" escrito
 //   aqui: é o que permite criar e desativar classes sem tocar neste arquivo.
+//
+// ------------------------------ O BÔNUS DE OVERALL EXIGE A ABSOLUTA --------
+//
+// REGRA VIGENTE, homologada pelo responsável e substituindo a leitura da fase
+// 11.4: o +10 é do campeão da OPEN/ABSOLUTA, e de mais ninguém.
+//
+// A fase 11.4 dizia que o bônus somava no campeonato em QUALQUER classe, e que
+// só o Super Overall anual era restrito. Essa leitura está REVOGADA. Nunca
+// Novice, Masters, Junior, Teenage, True Novice, Special ou qualquer outra
+// divisão recebe o +10, mesmo que o título esteja declarado para o atleta.
+//
+// A MESMA marca de elegibilidade identifica a absoluta: é ela que já define
+// qual classe alimenta o Super Overall, e é a classe absoluta que dá o título.
+// Continuar lendo a marca — em vez de comparar o texto "OPEN" — mantém a
+// promessa de que o operador governa a lista de classes sem tocar em programa.
+//
+// O que a restrição NÃO faz: tirar pontos de colocação de ninguém. Novice,
+// Master e as demais continuam valendo 5/4/3/2/1 no campeonato, exatamente
+// como antes. O que muda é só quem pode receber o bônus.
 //
 // Esgotada a hierarquia, o empate NÃO é quebrado. Nada de id, nome, CPF, data,
 // timestamp, ordem de inserção, alfabética ou sorteio: os empatados ficam sem
@@ -86,20 +106,24 @@ const CRITERIOS_DESEMPATE = Object.freeze([
  * @param {number|null} placing            Colocação obtida.
  * @param {Array}  tabela                  [{ placing, points }] da temporada.
  * @param {boolean} isOverallChampion      Se o atleta levou o Overall.
+ * @param {boolean} superOverallEligible    Se a participação é na ABSOLUTA.
+ *                                          Condição necessária para o bônus.
  */
 function pontuarResultado(placing, tabela, isOverallChampion = false, superOverallEligible = false) {
   const regra = (tabela || []).find(item => item.placing === placing);
   // Colocação fora da tabela vale ZERO — não um valor extrapolado. Pela regra
   // homologada a tabela vai até o 5º, então do 6º em diante é zero.
   const placementPoints = regra?.points ?? 0;
-  const overallBonus = isOverallChampion ? BONUS_OVERALL : 0;
+
+  // REGRA VIGENTE: as duas condições, e não só o título. Um Overall declarado
+  // para uma participação fora da absoluta não vale bônus — nem no campeonato,
+  // nem no anual.
+  const overallBonus = isOverallChampion && superOverallEligible ? BONUS_OVERALL : 0;
   const points = placementPoints + overallBonus;
 
-  // As duas métricas, calculadas juntas e devolvidas separadas. O bônus de
-  // Overall NÃO tem elegibilidade própria: segue a da participação que o
-  // originou. Um Overall numa classe não elegível soma no campeonato e não
-  // soma no Super Overall — tratá-lo de outro modo exigiria regra esportiva
-  // que não existe.
+  // As duas métricas, calculadas juntas e devolvidas separadas. Como o bônus
+  // só existe onde a participação é elegível, ele acompanha `points` para o
+  // anual sem precisar de regra própria.
   return {
     placementPoints,
     overallBonus,
@@ -116,15 +140,20 @@ function pontuarResultado(placing, tabela, isOverallChampion = false, superOvera
  * não é fonte: é uma afirmação a conferir. Divergir não pode ser resolvido em
  * silêncio — nem sobrescrevendo o arquivo, nem confiando nele.
  *
+ * @param {boolean} superOverallEligible Se a participação é na ABSOLUTA — parte
+ *        da regra, porque o bônus de Overall só existe lá.
  * @returns {null|{importedPoints,calculatedPoints,difference}} null quando não
  *          há divergência (ou quando não há o que comparar).
  */
-function conferirPontuacaoImportada(placing, tabela, isOverallChampion, pontosImportados) {
+function conferirPontuacaoImportada(placing, tabela, isOverallChampion, pontosImportados, superOverallEligible = false) {
   // Sem colocação não há regra a aplicar, e sem número informado não há o que
   // conferir: nos dois casos, nada a divergir.
   if (placing == null || pontosImportados == null) return null;
 
-  const { points } = pontuarResultado(placing, tabela, isOverallChampion);
+  // A elegibilidade da classe é PARTE da regra desde que o bônus passou a
+  // exigir a absoluta: conferir sem ela calcularia 5 onde o arquivo informa 15
+  // e acusaria conflito onde não há.
+  const { points } = pontuarResultado(placing, tabela, isOverallChampion, superOverallEligible);
   if (points === pontosImportados) return null;
 
   return {

@@ -214,7 +214,64 @@ describe('o calendário não pede migration nenhuma', () => {
       // com auditoria. Reaproveitar `active` teria aberto todas de uma vez,
       // como efeito colateral de uma migration — que é exatamente o que não se
       // quer.
-      '20260913220000_autocadastro_de_filiacao'
+      '20260913220000_autocadastro_de_filiacao',
+      // Filiação da época gravada no ponto de ranking. ADITIVA: DUAS colunas
+      // ANULÁVEIS em "RankingPoint" (`affiliationId` e `affiliationNumber`),
+      // um índice e uma chave estrangeira com ON DELETE SET NULL. Sem DROP,
+      // sem TRUNCATE, sem UPDATE de linha existente, sem política de RLS
+      // tocada.
+      //
+      // Anuláveis e SEM preenchimento retroativo, de propósito: os pontos que
+      // já existem foram ganhos antes de a filiação ser registrada, e nulo é a
+      // verdade sobre eles. Preenchê-los com a filiação ATUAL do atleta seria
+      // exatamente o defeito que a coluna existe para corrigir — a troca de
+      // federação reescrevendo o passado.
+      '20260915190000_filiacao_no_ponto_de_ranking',
+      // Reconhecimento por filiação + matrícula. ADITIVA: duas colunas
+      // ANULÁVEIS em "MuscleWarImportItem" (`memberNumber` e
+      // `suggestedAthleteId`), uma chave estrangeira com ON DELETE SET NULL e
+      // dois índices — um deles em "Athlete"(affiliationId, affiliationNumber),
+      // que é a chave de reconhecimento dos arquivos oficiais.
+      //
+      // `suggestedAthleteId` é coluna SEPARADA de `athleteId` de propósito:
+      // sugestão por semelhança de nome não é vínculo, e mantê-las distintas
+      // impede que algum caminho de aplicação confunda as duas.
+      //
+      // Nenhum DROP, nenhum UPDATE de linha existente, nenhuma política de RLS
+      // tocada. Lotes já importados ficam exatamente como estão.
+      '20260915210000_sugestao_de_atleta_na_importacao',
+      // Critério do matching na revisão. ADITIVA: duas colunas ANULÁVEIS em
+      // "MuscleWarImportItem" — `matchedBy` (qual chave reconheceu) e
+      // `matchCandidates` (quem disputava, em CONFLICT). Sem índice, sem chave
+      // estrangeira, sem UPDATE de linha existente, sem RLS tocada.
+      //
+      // Lotes já importados ficam com os dois campos nulos, que é a verdade
+      // sobre eles: foram analisados por um motor que não registrava o
+      // critério.
+      '20260915230000_criterio_do_matching',
+      // Um Overall por recorte, inclusive no recorte do EVENTO INTEIRO.
+      // ADITIVA: um índice único PARCIAL em "EventOverallTitle"(eventId) onde
+      // `categoryId IS NULL`.
+      //
+      // A unicidade `(eventId, categoryId)` não cobria esse caso: no
+      // PostgreSQL dois NULL são distintos, e dois títulos gerais cabiam na
+      // mesma tabela. A proteção mora no BANCO porque verificação em serviço
+      // perde a corrida entre duas requisições simultâneas.
+      //
+      // Nenhuma coluna criada, nenhuma linha alterada, nenhuma RLS tocada.
+      '20260916010000_um_overall_por_recorte',
+      // Índice do ranking por posição. ADITIVA: um índice em
+      // "Ranking"(seasonId, position, totalPoints, id), espelhando o ORDER BY
+      // da leitura pública.
+      //
+      // Justificativa MEDIDA com EXPLAIN ANALYZE, e não presumida: a rota
+      // pública fazia Seq Scan na temporada inteira para devolver cinco linhas
+      // (2,43ms contra 0,045ms). A varredura cresce com a temporada; o índice
+      // não. Nenhum índice removido, nenhuma linha alterada.
+      '20260916120000_indice_do_ranking_por_posicao',
+      // NS deixou de ser recusa e virou participação de zero ponto; a classe
+      // composta da origem passou a ser lida como categoria + divisão + classe.
+      '20260916130000_ns_e_classe_decomposta'
     ]);
   });
 });
