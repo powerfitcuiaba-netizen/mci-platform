@@ -24,7 +24,7 @@ import {
 const CLASSE = "Men's Bodybuilding - Open";
 const cabecalho = 'Athlete #,Class,First Name,Last Name,Member Number,Placing';
 
-let admin, operador, org, filiacao, season, athlete;
+let admin, operador, org, season, athlete;
 let eventoA, eventoB;
 
 const csv = linhas => [cabecalho, ...linhas].join('\n');
@@ -89,7 +89,7 @@ beforeEach(async () => {
   await limparBanco();
   const a = await montar('Federacao A', 951);
   admin = a.admin; org = a.org; operador = a.operador;
-  filiacao = a.filiacao; season = a.season; athlete = a.athlete;
+  season = a.season; athlete = a.athlete;
 
   eventoA = (await criarEvento(org, operador, 'Etapa Ipiranga QA', season)).body;
   eventoB = (await criarEvento(org, operador, 'Etapa Anhembi QA', season)).body;
@@ -283,5 +283,53 @@ describe('Parte E — o histórico consegue nomear o evento', () => {
     expect(ponto.event.name).toBe('Etapa Ipiranga QA');
     expect(ponto.externalResult).not.toBeNull();
     expect(ponto.externalResult.importItem.importId).toBe(lote.id);
+  });
+});
+
+// ==========================================================================
+// A CONFERÊNCIA DA PONTUAÇÃO DECLARADA TAMBÉM LÊ A ELEGIBILIDADE.
+//
+// Achado por mutação: zerar `superOverallEligible` dentro de `analisarLinha`
+// sobrevivia à suíte inteira. O efeito do mutante não é cosmético — a análise
+// alimenta `conferirPontuacaoImportada`, e sem a elegibilidade ela calcula 5
+// onde o arquivo informa 15, marca CONFLICT onde não há, e linha em CONFLICT
+// NÃO é aplicada. Ou seja: o campeão Overall perderia os pontos, e a prévia
+// diria que o arquivo está errado quando o errado é o cálculo.
+//
+// Nenhum teste cobria isto porque nenhum importava arquivo COM coluna de
+// pontos junto de Overall e classe absoluta — as três condições precisam
+// coincidir para a conferência ter o que comparar.
+// ==========================================================================
+describe('conferência da pontuação declarada — a elegibilidade entra na conta', () => {
+  const cabecalhoCompleto = `${cabecalho},Overall,Points`;
+  const comPontos = (classe, colocacao, overall, pontos) =>
+    [cabecalhoCompleto, `1,${classe},Atleta,Sobrenome,${MATRICULA},${colocacao},${overall},${pontos}`].join('\n');
+
+  const OPEN_BB = "Men's Bodybuilding - Open";
+  const NOVICE_BB = "Men's Bodybuilding - Novice";
+
+  it('Open 1º + Overall declarando 15 no arquivo NÃO acusa divergência', async () => {
+    const lote = (await criarLote(comPontos(OPEN_BB, 1, 'Overall', 15), { eventId: eventoA.id })).body;
+    const [item] = lote.items;
+    expect(item.pointsMismatch ?? null).toBeNull();
+    expect(item.matchStatus).toBe('MATCHED');
+
+    expect((await api().post(`/api/v1/musclewar/imports/${lote.import.id}/apply`)
+      .set(operador.auth()).send({})).status).toBe(200);
+    const [ponto] = await pontos();
+    expect(ponto.points).toBe(15);
+    expect(ponto.eventId).toBe(eventoA.id);
+  });
+
+  it('Open 1º + Overall declarando 5 acusa a divergência, com os três números', async () => {
+    const lote = (await criarLote(comPontos(OPEN_BB, 1, 'Overall', 5), { eventId: eventoA.id })).body;
+    const [item] = lote.items;
+    expect(item.pointsMismatch).toEqual({ importedPoints: 5, calculatedPoints: 15, difference: -10 });
+  });
+
+  it('Novice 1º + Overall declarando 15 acusa divergência — fora da absoluta não há bônus', async () => {
+    const lote = (await criarLote(comPontos(NOVICE_BB, 1, 'Overall', 15), { eventId: eventoA.id })).body;
+    const [item] = lote.items;
+    expect(item.pointsMismatch).toEqual({ importedPoints: 15, calculatedPoints: 5, difference: 10 });
   });
 });

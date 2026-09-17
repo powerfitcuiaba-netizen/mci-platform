@@ -385,24 +385,9 @@ function NovaTemporada({ notificar, onClose, onSalvo }) {
     <Modal title="Nova temporada" onClose={onClose}>
       <form onSubmit={salvar}>
         <Field label="Organização" required>
-          <select value={form.organizationId} onChange={evt => escolherOrganizacao(evt.target.value)} required>
+          <select value={form.organizationId} onChange={evt => setForm({ ...form, organizationId: evt.target.value })} required>
             <option value="">Selecione…</option>
             {(organizacoes.data?.items || []).map(organizacao => <option key={organizacao.id} value={organizacao.id}>{organizacao.name}</option>)}
-          </select>
-        </Field>
-        <Field
-          label="Evento"
-          hint="É o evento onde os resultados serão publicados. Escolher aqui é o que permite responder depois de qual etapa veio cada ponto do ranking. Sem evento, o resultado entra no histórico sem etapa."
-        >
-          <select
-            value={form.eventId}
-            disabled={!form.organizationId}
-            onChange={evt => setForm({ ...form, eventId: evt.target.value })}
-          >
-            <option value="">{form.organizationId ? 'Sem evento' : 'Escolha a organização primeiro'}</option>
-            {(eventos.data?.items || []).map(evento => (
-              <option key={evento.id} value={evento.id}>{descreverEvento(evento)}</option>
-            ))}
           </select>
         </Field>
         <Field label="Nome" required><input value={form.name} onChange={evt => setForm({ ...form, name: evt.target.value })} required maxLength={90} placeholder="Ex: Temporada 2026" /></Field>
