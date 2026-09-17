@@ -4,6 +4,7 @@ const { assertCan } = require('../utils/tenant');
 const { isValidCpf } = require('../utils/cpf');
 const adapter = require('../utils/musclewar/adapter');
 const audit = require('./auditService');
+const logger = require('../utils/logger');
 const notifications = require('./notificationService');
 const ranking = require('./rankingService');
 const { pontuarResultado, conferirPontuacaoImportada } = require('../utils/rankingScoring');
@@ -59,13 +60,16 @@ function resumoDeCandidato(athlete, matchedBy) {
 //
 // As duas, sempre. Exigir só a matrícula é observável: a entidade seria
 // procurada por um código indefinido, e isso não é "não encontrei".
-function atletaPorFiliacao(indice, registro) {
-  if (!registro.affiliationCode || !registro.memberNumber) return null;
+// Devolve SEMPRE uma lista — vazia, com um, ou com vários. Devolver `null`
+// num caminho e lista noutro obrigaria cada chamador a lembrar dos dois, e o
+// esquecimento não aparece em revisão: aparece como `null.length` em produção.
+function atletasPorFiliacao(indice, registro) {
+  if (!registro.affiliationCode || !registro.memberNumber) return [];
 
   const filiacaoId = indice.filiacoesPorCodigo.get(String(registro.affiliationCode).toUpperCase());
-  if (!filiacaoId) return null;
+  if (!filiacaoId) return [];
 
-  return indice.atletasPorMatricula.get(`${filiacaoId}|${registro.memberNumber}`) ?? null;
+  return indice.atletasPorMatricula.get(`${filiacaoId}|${registro.memberNumber}`) ?? [];
 }
 
 // Chave 2: a identidade já vinculada. O CPF vive em AthleteIdentity, sob RLS.
@@ -217,10 +221,18 @@ async function montarIndiceDoLote(registros, organizationId, seasonId) {
     }))
   ]);
 
+  // TODOS os donos de cada matrícula, não o primeiro.
+  //
+  // Guardar só o primeiro era escolher entre candidatos em silêncio: duas
+  // pessoas com a mesma matrícula na mesma filiação é um fato sobre o
+  // CADASTRO, e a linha era creditada a quem o banco devolvesse primeiro —
+  // sem nada na tela dizendo que havia outra. A revisão não tinha como
+  // desconfiar, porque o resultado saía como reconhecimento normal.
   const atletasPorMatricula = new Map();
   for (const atleta of porMatricula) {
     const chave = `${atleta.affiliationId}|${atleta.affiliationNumber}`;
-    if (!atletasPorMatricula.has(chave)) atletasPorMatricula.set(chave, atleta);
+    if (!atletasPorMatricula.has(chave)) atletasPorMatricula.set(chave, []);
+    atletasPorMatricula.get(chave).push(atleta);
   }
 
   const atletasPorId = new Map(porIdentidade.map(a => [a.id, a]));
@@ -311,7 +323,23 @@ async function analisarLinha(registro, organizationId, seasonId, catalogoDeClass
   // vezes sem CPF nenhum. Reconhecer só por CPF jogava essas linhas inteiras
   // para revisão manual.
 
-  const porFiliacao = atletaPorFiliacao(doLote, registro);
+  const candidatosDaMatricula = atletasPorFiliacao(doLote, registro);
+
+  // Matrícula com mais de um dono não reconhece ninguém. Não há desempate
+  // possível aqui: os dois são igualmente plausíveis pela chave, e o nome não
+  // desempata — creditar ao "mais parecido" é exatamente o erro que nenhuma
+  // revisão posterior desfaz, porque o ponto já estaria somando para o outro.
+  if (candidatosDaMatricula.length > 1) {
+    return {
+      matchStatus: 'CONFLICT',
+      reason: `Matrícula ${registro.memberNumber} pertence a mais de um atleta em ${registro.affiliationCode}: `
+        + `${candidatosDaMatricula.map(a => a.fullName).join(' | ')}. Corrija o cadastro antes de aplicar.`,
+      athleteId: null,
+      matchCandidates: candidatosDaMatricula.map(a => resumoDeCandidato(a, 'AFFILIATION_NUMBER'))
+    };
+  }
+
+  const porFiliacao = candidatosDaMatricula[0] ?? null;
   const porCpf = atletaPorCpf(doLote, registro.cpf);
 
   // Duas chaves que apontam para pessoas DIFERENTES é um fato sobre o arquivo
@@ -794,6 +822,191 @@ async function linkItem(itemId, { athleteId }, actor) {
   return atualizado;
 }
 
+// ============================================================================
+// VÍNCULO TARDIO — o resultado chega antes da pessoa.
+//
+// A importação não cria atleta, e isso continua valendo. A consequência era que
+// o resultado de quem ainda não se cadastrou ficava parado esperando alguém
+// reparar nele. Agora ele espera COM a identidade que o arquivo informou —
+// organização, filiação e matrícula — e o cadastro aprovado vem buscá-lo.
+//
+// A chave é a mesma do importador, pela mesma razão: filiação + matrícula
+// dentro da organização. Nome não entra. Um vínculo automático por nome
+// creditaria pontos de campeonato a um homônimo, e ninguém perceberia — é
+// exatamente o erro que nenhuma revisão posterior desfaz, porque o resultado
+// já estaria somando no ranking de outra pessoa.
+// ============================================================================
+
+const MOTIVO_AUTO = 'AUTO_LINK_AFFILIATION_NUMBER';
+
+// Comparação de nomes só para AVISAR. Acento, caixa e espaço repetido não
+// separam o mesmo nome — e nome nenhum decide vínculo aqui.
+const mesmoNome = (a, b) => {
+  const normal = texto => String(texto || '').trim().toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
+  return normal(a) === normal(b);
+};
+
+/**
+ * Procura resultados pendentes que pertençam a este atleta e os vincula.
+ *
+ * Roda DEPOIS que a aprovação do cadastro foi gravada, e nunca dentro dela: se
+ * o vínculo falhar, o atleta continua existindo e a operação pode ser repetida.
+ * É idempotente de propósito — rodar de novo não encontra mais nada para fazer.
+ *
+ * NÃO pontua por conta própria. Vincular é dizer QUEM; quanto vale continua
+ * sendo a aplicação do lote. A exceção é o lote que JÁ foi aplicado: ali o
+ * operador já fechou a conta, e deixar a linha recém-vinculada de fora faria o
+ * atleta ter o resultado reconhecido e nenhum ponto por ele.
+ */
+async function vincularPendentesDoAtleta(athlete, actor) {
+  const vazio = { vinculados: 0, conflitos: 0, lotesAplicados: 0 };
+
+  // Sem matrícula não há chave. Um atleta sem filiação registrada não pode ser
+  // alcançado por nenhuma linha, e tentar alcançá-lo pelo nome é justamente o
+  // que esta função existe para não fazer.
+  if (!athlete?.affiliationId || !athlete?.affiliationNumber) return vazio;
+
+  const filiacao = await prisma.affiliation.findUnique({
+    where: { id: athlete.affiliationId },
+    select: { id: true, code: true, organizationId: true }
+  });
+  if (!filiacao || filiacao.organizationId !== athlete.organizationId) return vazio;
+
+  const pendentes = await prisma.muscleWarImportItem.findMany({
+    where: {
+      matchStatus: 'MATCH_PENDING',
+      athleteId: null,
+      memberNumber: athlete.affiliationNumber,
+      // A fronteira da organização é da CONSULTA, não de uma conferência
+      // posterior: uma matrícula igual noutro tenant nem chega a ser candidata.
+      import: { organizationId: athlete.organizationId, status: { not: 'REJECTED' } }
+    },
+    select: {
+      id: true, importId: true, athleteName: true, affiliationCode: true,
+      externalResultId: true, import: { select: { id: true, status: true, organizationId: true } }
+    }
+  });
+
+  if (!pendentes.length) return vazio;
+
+  // Matrícula com mais de um dono na organização é fato sobre o CADASTRO, e
+  // quem resolve é gente. Vincular "ao que apareceu primeiro" creditaria o
+  // resultado ao atleta errado em silêncio.
+  const homonimosDeMatricula = await prisma.athlete.count({
+    where: {
+      organizationId: athlete.organizationId,
+      affiliationId: athlete.affiliationId,
+      affiliationNumber: athlete.affiliationNumber,
+      id: { not: athlete.id }
+    }
+  });
+
+  const codigoDoAtleta = String(filiacao.code || '').toUpperCase();
+  let vinculados = 0;
+  let conflitos = 0;
+  const lotesTocados = new Map();
+
+  for (const item of pendentes) {
+    const codigoDaLinha = String(item.affiliationCode || '').toUpperCase();
+    const filiacaoDivergente = Boolean(codigoDaLinha) && codigoDaLinha !== codigoDoAtleta;
+
+    if (homonimosDeMatricula > 0 || filiacaoDivergente) {
+      const motivo = homonimosDeMatricula > 0
+        ? `Matrícula ${athlete.affiliationNumber} pertence a mais de um atleta nesta filiação; vínculo exige decisão do operador`
+        : `Filiação divergente: o arquivo informa ${item.affiliationCode}, o cadastro está em ${filiacao.code}`;
+
+      // CONFLICT não escolhe e não altera o athleteId: só torna o impasse
+      // visível na revisão, onde existe quem possa decidir.
+      const marcados = await prisma.muscleWarImportItem.updateMany({
+        where: { id: item.id, athleteId: null, matchStatus: 'MATCH_PENDING' },
+        data: { matchStatus: 'CONFLICT', reason: motivo }
+      });
+      if (marcados.count) { conflitos += 1; lotesTocados.set(item.importId, item.import); }
+      continue;
+    }
+
+    const nomeDiverge = Boolean(item.athleteName) && !mesmoNome(item.athleteName, athlete.fullName);
+
+    // A GUARDA DE CORRIDA ESTÁ NO `where`. Duas aprovações simultâneas para a
+    // mesma identidade disputam a MESMA linha: a primeira encontra
+    // `athleteId: null` e vence; a segunda não encontra linha nenhuma e conta
+    // zero. Sem trava, sem segunda tentativa, sem vínculo em dobro.
+    const vinculo = await prisma.muscleWarImportItem.updateMany({
+      where: { id: item.id, athleteId: null, matchStatus: 'MATCH_PENDING' },
+      data: {
+        athleteId: athlete.id,
+        matchStatus: 'MATCHED',
+        matchedBy: 'AFFILIATION_NUMBER',
+        linkedById: actor?.id ?? null,
+        linkedAt: new Date(),
+        reason: nomeDiverge
+          ? `Vinculado automaticamente por filiação + matrícula. Nome do arquivo ("${item.athleteName}") difere do cadastro ("${athlete.fullName}") — conferir.`
+          : 'Vinculado automaticamente por filiação + matrícula'
+      }
+    });
+
+    if (!vinculo.count) continue;
+
+    vinculados += 1;
+    lotesTocados.set(item.importId, item.import);
+
+    await audit.record({
+      actor,
+      action: 'RESULTADO_EXTERNAL_LINKED',
+      entity: 'MuscleWarImportItem',
+      entityId: item.id,
+      organizationId: athlete.organizationId,
+      // Sem CPF, sem telefone: a auditoria precisa da CHAVE que decidiu, não
+      // dos dados pessoais de quem foi identificado por ela.
+      metadata: {
+        athleteId: athlete.id,
+        affiliationId: athlete.affiliationId,
+        affiliationNumber: athlete.affiliationNumber,
+        importItemId: item.id,
+        externalResultId: item.externalResultId,
+        motivo: MOTIVO_AUTO,
+        nomeDiverge
+      }
+    });
+  }
+
+  for (const importId of lotesTocados.keys()) await recontar(importId);
+
+  // Lote já aplicado: a linha recém-vinculada precisa dos pontos dela, senão o
+  // atleta fica com o resultado reconhecido e nada somando. `aplicarLote` só
+  // recolhe `MATCHED`, e o que já entrou está `APPLIED` — reaplicar não soma
+  // de novo, e a unicidade de (source, externalId) fecha a porta de qualquer
+  // jeito.
+  let lotesAplicados = 0;
+  if (vinculados) {
+    for (const lote of lotesTocados.values()) {
+      if (lote.status !== 'APPLIED') continue;
+      try {
+        await aplicarLote(await prisma.muscleWarImport.findUnique({ where: { id: lote.id } }), actor);
+        lotesAplicados += 1;
+      } catch (erro) {
+        // Falhar aqui não pode desfazer o vínculo nem a aprovação do cadastro:
+        // o reconhecimento está gravado e correto, e a aplicação pode ser
+        // repetida pela tela. Some em silêncio seria pior — vai para o log.
+        logger.error({ erro: erro.message, importId: lote.id, athleteId: athlete.id },
+          'vínculo tardio: falha ao aplicar o lote já aplicado');
+      }
+    }
+  }
+
+  if (vinculados && athlete.userId) {
+    await notifications.notify({
+      userIds: [athlete.userId], type: notifications.TYPES.ATHLETE_MATCHED,
+      title: 'Resultados anteriores vinculados ao seu perfil',
+      message: `${vinculados} resultado(s) de campeonato foram reconhecidos como seus.`,
+      entityType: 'Athlete', entityId: athlete.id, actorId: actor?.id ?? null
+    });
+  }
+
+  return { vinculados, conflitos, lotesAplicados };
+}
+
 async function recontar(importId) {
   const items = await prisma.muscleWarImportItem.findMany({ where: { importId }, select: { matchStatus: true } });
   const totais = contar(items.map(item => item.matchStatus));
@@ -822,6 +1035,25 @@ async function apply(importId, actor) {
   if (!lote) throw new AppError(404, 'IMPORT_NOT_FOUND', 'Importação não encontrada');
 
   assertCan(actor, 'musclewar.apply', lote.organizationId);
+
+  return aplicarLote(lote, actor);
+}
+
+/**
+ * O corpo da aplicação, sem a checagem de permissão.
+ *
+ * Separado porque existe um segundo caminho legítimo até aqui: quando um
+ * cadastro é APROVADO e o vínculo tardio encontra linhas de um lote que já
+ * havia sido aplicado, quem age é o SISTEMA, em consequência de uma aprovação
+ * que já passou pelo seu próprio controle de acesso. Exigir `musclewar.apply`
+ * de quem aprovou cadastro faria a operação depender de o mesmo operador
+ * acumular dois papéis sem relação entre si — e o resultado do atleta ficaria
+ * parado por um detalhe de RBAC que não diz respeito a ele.
+ *
+ * A porta pública continua sendo `apply`, com a checagem no lugar.
+ */
+async function aplicarLote(lote, actor) {
+  const importId = lote.id;
 
   if (lote.status === 'REJECTED') throw new AppError(422, 'IMPORT_REJECTED', 'Lote rejeitado não pode ser aplicado');
 
@@ -1093,4 +1325,5 @@ async function listImports(filtros, actor) {
   });
 }
 
-module.exports = { createImport, preview, linkItem, apply, reject, listImports, analisarLinha, SOURCE, MAXIMO_DE_LINHAS };
+module.exports = {
+  vincularPendentesDoAtleta, createImport, preview, linkItem, apply, reject, listImports, analisarLinha, SOURCE, MAXIMO_DE_LINHAS };
