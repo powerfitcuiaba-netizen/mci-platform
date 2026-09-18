@@ -83,10 +83,14 @@ describe('o nome do arquivo não governa nada', () => {
     '.htaccess'
   ]) {
     it(`"${nome}" não escapa da pasta de uploads`, async () => {
+      const t0 = Date.now();
       const antes = arquivosGuardados();
+      const t1 = Date.now();
 
       const resposta = await enviarDocumento(operador,
         { conteudo: PNG, opcoes: { filename: nome, contentType: 'image/png' } });
+      const t2 = Date.now();
+      console.error(`SONDA nome=${JSON.stringify(nome)} walk=${t1 - t0}ms requisicao=${t2 - t1}ms status=${resposta.status}`);
 
       // O envio pode ser aceito — o conteúdo É um PNG. O que não pode é o nome
       // decidir onde ele mora.
