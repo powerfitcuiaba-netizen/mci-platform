@@ -216,8 +216,26 @@ describe('D — declarar de novo não cria um segundo título', () => {
 // -------------------------------------------------------------------- F e G
 describe('F/G — o recorte por categoria', () => {
   it('declarar com categoryId cria um título SEPARADO, sem apagar o do evento', async () => {
-    const resposta = await declarar(gerenteDeRanking, evento.id, { athleteId: atletaA.id, categoryId: categoria.id });
-    expect(resposta.status).toBe(201);
+    // O QUE ESTE TESTE PROVA é que recorte nulo e recorte de categoria são
+    // LINHAS DISTINTAS, e que declarar uma não apaga a outra. Nunca foi sobre
+    // um mesmo atleta acumular dois títulos — isso passou a ser recusado
+    // enquanto a regra de pontuação para múltiplos Overall no mesmo evento não
+    // for homologada (ver docs/HOMOLOGACAO-ESPORTIVA.md).
+    //
+    // E o recorte de categoria vai para o OUTRO atleta por uma segunda razão,
+    // independente do bloqueio: o título do evento inteiro ficou com quem
+    // venceu a corrida do bloco D, e qual dos dois foi NÃO é decidível aqui.
+    // Fixar `atletaA` fazia este teste depender do resultado daquela corrida —
+    // passava ou falhava conforme o escalonamento, e isso já era frágil antes.
+    // Cada recorte com o seu campeão também é o caso real do campeonato.
+    const doEventoAntes = await prisma.eventOverallTitle.findMany({
+      where: { eventId: evento.id, categoryId: null }
+    });
+    expect(doEventoAntes.length, 'o bloco D deixou o título do evento inteiro').toBe(1);
+    const outro = doEventoAntes[0].athleteId === atletaA.id ? atletaB : atletaA;
+
+    const resposta = await declarar(gerenteDeRanking, evento.id, { athleteId: outro.id, categoryId: categoria.id });
+    expect(resposta.status, JSON.stringify(resposta.body)).toBe(201);
     expect(resposta.body.categoryId).toBe(categoria.id);
 
     const doEvento = await prisma.eventOverallTitle.findMany({ where: { eventId: evento.id, categoryId: null } });
