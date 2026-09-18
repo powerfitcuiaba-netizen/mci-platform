@@ -40,7 +40,7 @@ const SIMULTANEAS = 20;
 const CLASSE = "Men's Bodybuilding - Novice";
 const csv = linhas => ['Athlete #,Class,First Name,Last Name,Member Number,Placing', ...linhas].join('\n');
 
-let org, admin, operador, season, athlete, ponto;
+let org, admin, operador, season, athlete, ponto, evento, filiacao;
 
 const distribuicao = respostas => respostas.reduce((acc, r) => {
   acc[r.status] = (acc[r.status] ?? 0) + 1;
@@ -66,10 +66,11 @@ beforeEach(async () => {
   org = (await criarOrganizacao(admin, { name: 'Federacao Corrida' })).id;
 
   operador = await criarUsuario({ name: 'Operador Corrida' });
-  await vincular(org, operador, 'RANKING_MANAGER');
-  await vincular(org, operador, 'REGISTRATION_OPERATOR');
+  for (const papel of ['RANKING_MANAGER', 'REGISTRATION_OPERATOR', 'EVENT_DIRECTOR']) {
+    await vincular(org, operador, papel);
+  }
 
-  const filiacao = (await api().post('/api/v1/affiliations').set(admin.auth())
+  filiacao = (await api().post('/api/v1/affiliations').set(admin.auth())
     .send({ organizationId: org, name: 'NPC', code: 'NPC' })).body;
 
   season = (await api().post('/api/v1/seasons').set(admin.auth())
@@ -78,6 +79,12 @@ beforeEach(async () => {
     rules: [{ placing: 1, points: 5 }, { placing: 2, points: 4 }, { placing: 3, points: 3 },
       { placing: 4, points: 2 }, { placing: 5, points: 1 }]
   });
+
+  evento = (await api().post('/api/v1/events').set(operador.auth()).send({
+    organizationId: org, name: 'Etapa Corrida', slug: unico('ev'),
+    startDate: '2026-09-12T12:00:00.000Z', city: 'Cuiaba', state: 'MT', seasonId: season
+  })).body;
+  if (!evento?.id) throw new Error('evento nao criado: ' + JSON.stringify(evento));
 
   athlete = await comoAtor(operador, tx => tx.athlete.create({
     data: {
@@ -88,7 +95,7 @@ beforeEach(async () => {
   }));
 
   const lote = (await api().post('/api/v1/musclewar/imports').set(operador.auth()).send({
-    organizationId: org, seasonId: season, sourceType: 'CSV',
+    organizationId: org, seasonId: season, eventId: evento.id, sourceType: 'CSV',
     sourceRef: unico('etapa') + '.csv', content: csv([`1,${CLASSE},Atleta,Sobrenome,77777,1`]),
     externalIdPrefix: 'QA', defaultAffiliationCode: 'NPC'
   })).body.import;
@@ -99,6 +106,26 @@ beforeEach(async () => {
 
   ponto = await lancamento();
 });
+
+// A declaração de Overall precisa de uma classe absoluta e de uma inscrição
+// confirmada nela. Montar isso é o preço de medir a corrida entre o título e a
+// correção — que é justamente a que o bloqueio por temporada precisa cobrir.
+const prepararOverall = async () => {
+  const categoria = await comoAtor(admin, tx => tx.category.findUnique({ where: { code: 'MENS_BODYBUILDING' } }));
+  const ec = (await api().post(`/api/v1/events/${evento.id}/categories`).set(operador.auth())
+    .send({ categoryId: categoria.id })).body;
+  const div = (await api().post(`/api/v1/event-categories/${ec.id}/divisions`).set(operador.auth())
+    .send({ name: 'Open', code: 'OPEN' })).body;
+  const classe = (await api().post(`/api/v1/divisions/${div.id}/classes`).set(operador.auth())
+    .send({ name: 'Open', code: 'OPEN', superOverallEligible: true })).body;
+  await comoAtor(operador, tx => tx.registration.create({
+    data: {
+      eventId: evento.id, athleteId: athlete.id, affiliationId: filiacao.id, status: 'CONFIRMED',
+      items: { create: { status: 'CONFIRMED', competitionClass: { connect: { id: classe.id } } } }
+    }
+  }));
+  return categoria;
+};
 
 describe('gate de concorrência — correção administrativa sob 20 simultâneas', () => {
   it('20 invalidações simultâneas: uma vence, e o motivo registrado é o dela', async () => {
@@ -158,6 +185,35 @@ describe('gate de concorrência — correção administrativa sob 20 simultânea
     expect(depois.placing).toBe(1);
     expect(depois.points).toBe(5);
     expect(await totalNoRanking()).toBe(5);
+  }, 120_000);
+
+  it('declarar Overall contra invalidar: o invalidado não recebe o bônus', async () => {
+    const categoria = await prepararOverall();
+
+    // A declaração do título e a invalidação do lançamento disparam juntas.
+    // A normalização do bônus lê as linhas do recorte e reescreve os pontos;
+    // se ela não estiver sob a MESMA trava da invalidação, escreve por cima de
+    // um lançamento que acabou de ser invalidado — e o +10 pousa numa linha
+    // que a organização tirou do ranking.
+    const disparos = Array.from({ length: SIMULTANEAS }, (_, i) => (
+      i % 2 === 0
+        ? api().post(`/api/v1/events/${evento.id}/overall`).set(operador.auth())
+          .send({ athleteId: athlete.id, categoryId: categoria.id })
+        : api().post(`/api/v1/ranking/points/${ponto.id}/void`).set(operador.auth())
+          .send({ reason: 'desclassificado' })
+    ));
+    const respostas = await Promise.all(disparos);
+    expect(respostas.filter(r => r.status >= 500), 'nenhum 500').toHaveLength(0);
+
+    const depois = await lancamento();
+    if (depois.voidedAt) {
+      expect(depois.overallBonus, 'invalidado nao carrega bonus').toBe(0);
+      expect(depois.points, 'invalidado nao pontua').toBe(0);
+      expect(depois.isOverallChampion).toBe(false);
+      expect(await totalNoRanking()).toBe(0);
+    } else {
+      expect(await totalNoRanking()).toBe(depois.points);
+    }
   }, 120_000);
 
   it('corrigir contra invalidar: o invalidado não volta a pontuar', async () => {

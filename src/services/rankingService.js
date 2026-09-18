@@ -694,10 +694,24 @@ async function aplicarTitulosDoEvento(eventId, seasonId, actor) {
   // não pontua.
   if (!seasonId) return;
 
+  // SOB A MESMA TRAVA DA CORREÇÃO ADMINISTRATIVA, e pelo mesmo motivo.
+  //
+  // A normalização lê as linhas do recorte, decide, e só então escreve. Entre
+  // a leitura e a escrita cabe uma invalidação — e aí o +10 pousaria numa
+  // linha que a organização acabou de tirar do ranking. O recálculo entra na
+  // mesma transação porque lê a temporada inteira.
+  //
+  // REGISTRO HONESTO: escrevi o teste de 20 simultâneas (dez declarações
+  // contra dez invalidações do mesmo lançamento) esperando ver a corrida, e
+  // ela NÃO apareceu — o bloqueio de linha do PostgreSQL serializou as
+  // escritas no caso medido. Não reproduzir não é o mesmo que não existir: a
+  // janela entre a leitura e a escrita está no código, e depende de tempo.
+  // A trava fecha a janela por construção, em vez de por sorte de escalonamento.
   await prisma.$transaction(async tx => {
+    await travarTemporada(tx, seasonId);
     await normalizarBonusOverall(tx, { eventId, seasonId });
-  });
-  await recompute_(seasonId);
+    await recomputarEm(tx, seasonId);
+  }, OPCOES_TRANSACAO);
 }
 
 async function declareOverall(eventId, { athleteId, categoryId = null, note = null }, actor) {
