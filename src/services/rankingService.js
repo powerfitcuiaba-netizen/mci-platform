@@ -139,18 +139,44 @@ async function normalizarBonusOverall(tx, { eventId, seasonId }) {
   const titulos = await tx.eventOverallTitle.findMany({
     where: { eventId }, select: { athleteId: true, categoryId: true }
   });
-  if (!titulos.length) return;
+
+  // REVOGAR TAMBÉM É NORMALIZAR.
+  //
+  // Sem títulos a função voltava cedo, e no caminho interno isso funcionava por
+  // acidente: `awardForResult` apaga e reescreve os pontos do evento, então o
+  // bônus sumia junto. Ponto IMPORTADO não é reescrito — ele fica no ledger
+  // como o importador o gravou. Retornar aqui deixava o +10 de um título já
+  // revogado colado na linha, e o ranking continuava mostrando 15 onde a
+  // súmula diz 5.
+  //
+  // A varredura abaixo é a que fecha isso: tudo o que carrega bônus neste
+  // evento e NÃO é portador legítimo volta a valer só a colocação.
+  const portadoras = new Set();
 
   for (const titulo of titulos) {
     // Título com recorte de categoria alcança só as linhas daquela categoria;
     // título do evento inteiro (categoryId nulo) alcança todas.
+    // O TÍTULO É DO EVENTO, NÃO DA ORIGEM DO RESULTADO.
+    //
+    // Antes a consulta filtrava `source: 'EVENT'`, e o efeito era silencioso:
+    // um campeonato cujos resultados entraram por importação MuscleWare
+    // recebia a declaração oficial, gravava o título, registrava a auditoria —
+    // e o +10 não chegava a lugar nenhum. Pior, não havia como corrigir depois:
+    // reimportar o arquivo com a coluna Overall esbarra na idempotência, que
+    // marca tudo como DUPLICATE. A mesma barreira que protege o ranking de
+    // duplicação impedia a correção.
+    //
+    // Quem decide se a linha recebe o bônus continua sendo a REGRA, não a
+    // origem: `escolherPortadoraDoBonus` só olha participações elegíveis à
+    // absoluta, e uma linha fora dela segue com zero.
     const linhas = await tx.rankingPoint.findMany({
       where: {
-        seasonId, eventId, athleteId: titulo.athleteId, source: 'EVENT',
+        seasonId, eventId, athleteId: titulo.athleteId,
         ...(titulo.categoryId ? { categoryId: titulo.categoryId } : {})
       },
       select: {
-        id: true, placing: true, superOverallEligible: true,
+        id: true, placing: true, superOverallEligible: true, source: true,
+        didNotShow: true,
         placementPoints: true, overallBonus: true, isOverallChampion: true,
         points: true, superOverallPoints: true
       },
@@ -168,6 +194,8 @@ async function normalizarBonusOverall(tx, { eventId, seasonId }) {
     // título existe, mas não gera bônus em lugar nenhum.
     const portadora = escolherPortadoraDoBonus(linhas);
 
+    if (portadora) portadoras.add(portadora.id);
+
     for (const linha of linhas) {
       const ehPortadora = Boolean(portadora) && linha.id === portadora.id;
       const overallBonus = ehPortadora ? BONUS_OVERALL : 0;
@@ -177,7 +205,16 @@ async function normalizarBonusOverall(tx, { eventId, seasonId }) {
       // Linha que só existia por causa de um bônus que agora mudou de lugar
       // some: manter ponto zero no histórico é o mesmo ruído que a criação já
       // evita. Sem o título ela nunca teria sido escrita.
-      if (!points) {
+      //
+      // MAS SÓ VALE PARA O QUE ESTA FUNÇÃO PODERIA TER CRIADO. `awardForResult`
+      // não escreve linha de zero ponto, então uma linha `EVENT` que zerou de
+      // fato nasceu do bônus. Já a IMPORTAÇÃO escreve a participação inteira,
+      // inclusive a que vale zero: o não comparecimento é `didNotShow: true`,
+      // `placing: null`, zero ponto — e é um FATO do campeonato, não um
+      // resquício. Apagá-lo transformaria "não subiu no palco" em "não
+      // participou", e o histórico do atleta perderia a etapa.
+      const nasceuDoBonus = linha.source === 'EVENT';
+      if (!points && nasceuDoBonus) {
         await tx.rankingPoint.delete({ where: { id: linha.id } });
         continue;
       }
@@ -193,6 +230,31 @@ async function normalizarBonusOverall(tx, { eventId, seasonId }) {
         data: { overallBonus, isOverallChampion: ehPortadora, points, superOverallPoints }
       });
     }
+  }
+
+  // O QUE SOBROU COM BÔNUS E NÃO É PORTADOR PERDE O BÔNUS.
+  //
+  // Alcança o título revogado, o campeão trocado e a linha que deixou de ser
+  // elegível. Só toca em quem tem bônus a perder, então repetir a normalização
+  // não escreve nada — é essa propriedade que a torna idempotente.
+  const orfas = await tx.rankingPoint.findMany({
+    where: {
+      seasonId, eventId, overallBonus: { gt: 0 },
+      ...(portadoras.size ? { id: { notIn: [...portadoras] } } : {})
+    },
+    select: { id: true, placementPoints: true, superOverallEligible: true }
+  });
+
+  for (const linha of orfas) {
+    await tx.rankingPoint.update({
+      where: { id: linha.id },
+      data: {
+        overallBonus: 0,
+        isOverallChampion: false,
+        points: linha.placementPoints,
+        superOverallPoints: linha.superOverallEligible ? linha.placementPoints : 0
+      }
+    });
   }
 }
 
@@ -555,6 +617,37 @@ async function teamRanking(seasonId, { categoryId = null, organizationId = null 
  * tentar descobri-lo sozinho. Não é lacuna de implementação: é a regra. Por
  * isso o título é registrado com autoria e data, nunca calculado.
  */
+/**
+ * Aplica ao ledger o efeito de um título declarado ou revogado.
+ *
+ * `awardForResult` cobre o caminho interno: resultado publicado, repontuado do
+ * zero, com a normalização do bônus no fim. Resultado IMPORTADO não passa por
+ * ali — ele já está no ledger como `RankingPoint(source: MUSCLEWAR)`, escrito
+ * pelo importador, e nenhum `Result` existe para reprocessar.
+ *
+ * Esta função fecha exatamente essa lacuna: reprocessa o que é reprocessável e
+ * normaliza o resto. Chamar as duas coisas é seguro porque a normalização é
+ * idempotente por construção — ela CALCULA o estado correto e só escreve
+ * quando o que está gravado difere, em vez de somar.
+ */
+async function aplicarTitulosDoEvento(eventId, seasonId, actor) {
+  const publicados = await prisma.result.findMany({
+    where: { eventId, status: 'PUBLISHED' }, select: { id: true }
+  });
+  for (const resultado of publicados) {
+    await awardForResult(resultado.id, actor, { recompute: true });
+  }
+
+  // Sem temporada não há ranking a mexer: o resultado entra no histórico, mas
+  // não pontua.
+  if (!seasonId) return;
+
+  await prisma.$transaction(async tx => {
+    await normalizarBonusOverall(tx, { eventId, seasonId });
+  });
+  await recompute_(seasonId);
+}
+
 async function declareOverall(eventId, { athleteId, categoryId = null, note = null }, actor) {
   const event = await prisma.event.findUnique({
     where: { id: eventId },
@@ -703,15 +796,10 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
     metadata: { athleteId, categoryId, bonus: BONUS_OVERALL }
   });
 
-  // O bônus só entra no ranking depois que os resultados publicados do evento
-  // forem repontuados: declarar o título é um fato novo sobre resultados que
-  // já existiam.
-  const publicados = await prisma.result.findMany({
-    where: { eventId, status: 'PUBLISHED' }, select: { id: true }
-  });
-  for (const resultado of publicados) {
-    await awardForResult(resultado.id, actor, { recompute: true });
-  }
+  // O bônus só entra no ranking depois que os resultados do evento forem
+  // repontuados: declarar o título é um fato novo sobre resultados que já
+  // existiam. Vale para os dois caminhos — apuração interna e importação.
+  await aplicarTitulosDoEvento(eventId, event.seasonId, actor);
 
   return titulo;
 }
@@ -912,7 +1000,7 @@ async function overallPreview(eventId, { athleteId, categoryId = null }, actor) 
  */
 async function revokeOverall(eventId, titleId, { reason }, actor) {
   const event = await prisma.event.findUnique({
-    where: { id: eventId }, select: { id: true, organizationId: true }
+    where: { id: eventId }, select: { id: true, organizationId: true, seasonId: true }
   });
   if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Evento não encontrado');
   assertCan(actor, 'ranking.manage', event.organizationId);
@@ -938,13 +1026,10 @@ async function revokeOverall(eventId, titleId, { reason }, actor) {
   });
 
   // Repontuar: tirar o título é fato novo sobre resultados que já existiam,
-  // exatamente como declará-lo. A colocação não é tocada — só o bônus sai.
-  const publicados = await prisma.result.findMany({
-    where: { eventId, status: 'PUBLISHED' }, select: { id: true }
-  });
-  for (const resultado of publicados) {
-    await awardForResult(resultado.id, actor, { recompute: true });
-  }
+  // exatamente como declará-lo. A colocação não é tocada — só o bônus sai. E,
+  // como na declaração, o alcance é dos dois caminhos: apuração interna e
+  // importação.
+  await aplicarTitulosDoEvento(eventId, event.seasonId, actor);
 
   return { revoked: true, titleId, athleteId: titulo.athleteId, categoryId: titulo.categoryId };
 }
