@@ -136,6 +136,30 @@ describe('gate de concorrência — correção administrativa sob 20 simultânea
     expect(await totalNoRanking()).toBe(pontosEsperados);
   }, 120_000);
 
+  it('20 restaurações simultâneas: uma vence, e as outras são recusadas', async () => {
+    await api().post(`/api/v1/ranking/points/${ponto.id}/void`).set(operador.auth())
+      .send({ reason: 'invalidado para o teste' });
+
+    const respostas = await Promise.all(Array.from({ length: SIMULTANEAS }, () =>
+      api().post(`/api/v1/ranking/points/${ponto.id}/restore`).set(operador.auth())
+        .send({ reason: 'restaurando' })));
+
+    // A conferência de fora, feita antes de abrir a transação, deixaria as
+    // vinte passarem: todas leem `voidedAt` preenchido no mesmo instante. Só a
+    // releitura SOB A TRAVA distingue a primeira das outras dezenove.
+    //
+    // Restaurar é recalcular a partir de `placingOriginal`, e a primeira
+    // restauração o zera. As dezenove seguintes recalculariam a partir de um
+    // campo já limpo — cada uma reescrevendo a colocação com o que sobrou.
+    expect(distribuicao(respostas)).toEqual({ 200: 1, 409: SIMULTANEAS - 1 });
+
+    const depois = await lancamento();
+    expect(depois.voidedAt).toBeNull();
+    expect(depois.placing).toBe(1);
+    expect(depois.points).toBe(5);
+    expect(await totalNoRanking()).toBe(5);
+  }, 120_000);
+
   it('corrigir contra invalidar: o invalidado não volta a pontuar', async () => {
     const disparos = Array.from({ length: SIMULTANEAS }, (_, i) => (
       i % 2 === 0

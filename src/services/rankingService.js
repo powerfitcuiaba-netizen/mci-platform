@@ -1896,13 +1896,24 @@ async function restoreRankingPoint(rankingPointId, { reason }, actor) {
     }
 
     antes = retrato(atual);
-    // Restaurar recalcula a partir da COLOCAÇÃO guardada, e não de um total
-    // salvo: se a tabela da temporada mudou entre a invalidação e a restauração,
-    // o que volta é a regra vigente aplicada ao fato, não um número congelado.
+    // Restaurar recalcula a partir da COLOCAÇÃO, e não de um total salvo: se a
+    // tabela da temporada mudou entre a invalidação e a restauração, o que
+    // volta é a regra vigente aplicada ao fato, não um número congelado.
+    //
+    // E a colocação que vale é a QUE ESTÁ NA LINHA, não `placingOriginal`.
+    // Invalidar zera o que pontua e não toca em `placing`, então a linha já
+    // guarda o estado de antes da invalidação — que é exatamente o que
+    // restaurar promete devolver.
+    //
+    // Recalcular a partir de `placingOriginal` era um defeito medido: um
+    // lançamento importado como 1º, corrigido para 3º e depois para 2º,
+    // invalidado e restaurado voltava como 1º valendo 5. As duas correções do
+    // operador eram descartadas em silêncio, e o ranking voltava a publicar a
+    // colocação que a súmula já tinha desmentido. `placingOriginal` diz DE
+    // ONDE o lançamento partiu — é proveniência para a auditoria, nunca o
+    // destino da restauração.
     const novo = await projetarLancamento(
-      { ...atual, didNotShow: atual.placingOriginal == null && atual.didNotShow },
-      { placing: atual.placingOriginal ?? atual.placing },
-      tx
+      atual, { placing: atual.placing, didNotShow: atual.didNotShow }, tx
     );
 
     return tx.rankingPoint.update({

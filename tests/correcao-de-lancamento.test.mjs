@@ -50,7 +50,13 @@ const lancamentos = () => comoAtor(admin, tx => tx.rankingPoint.findMany({
 const totalNoRanking = async () => {
   const r = await api().get('/api/v1/ranking').set(admin.auth())
     .query({ organizationId: org, seasonId: season });
-  return r.body.items.find(i => i.athlete.id === atleta.id)?.totalPoints ?? 0;
+  // SOMA, e não `find`. Um atleta com participações em duas categorias tem
+  // uma linha de ranking em cada recorte, e pegar "a primeira que casa" faria
+  // o teste depender da ordem da resposta — exatamente o tipo de acoplamento
+  // que produz falha intermitente sem defeito nenhum por trás.
+  return r.body.items
+    .filter(i => i.athlete.id === atleta.id)
+    .reduce((soma, i) => soma + i.totalPoints, 0);
 };
 
 const somaDoLedger = async () =>
@@ -241,6 +247,36 @@ describe('invalidar e restaurar', () => {
     expect(await totalNoRanking()).toBe(5);
   }, 60_000);
 
+  it('restaurar devolve a colocação CORRIGIDA, não a que foi importada', async () => {
+    await importarEAplicar(csv([linha('88281', 1)]));
+    const [original] = await lancamentos();
+
+    // Importado como 1º; a súmula dizia outra coisa e o operador corrige duas
+    // vezes, chegando em 2º.
+    await corrigir(original.id, { placing: 3, reason: 'sumula dizia 3' });
+    await corrigir(original.id, { placing: 2, reason: 'conferido: era 2' });
+
+    const [corrigido] = await lancamentos();
+    expect(corrigido.placing).toBe(2);
+    expect(corrigido.points).toBe(4);
+    // Proveniência: registra DE ONDE partiu, e não muda a cada correção.
+    expect(corrigido.placingOriginal, 'de onde o lancamento partiu').toBe(1);
+
+    await invalidar(original.id, { reason: 'desclassificado' });
+    await restaurar(original.id, { reason: 'desclassificacao revertida' });
+
+    // MEDIDO COMO DEFEITO ANTES DA CORREÇÃO: voltava como 1º valendo 5, a
+    // colocação da importação. As duas correções do operador eram descartadas
+    // em silêncio e o ranking republicava o que a súmula já tinha desmentido.
+    const [restaurado] = await lancamentos();
+    expect(restaurado.placing, 'volta ao estado de antes da invalidacao').toBe(2);
+    expect(restaurado.points).toBe(4);
+    expect(restaurado.voidedAt).toBeNull();
+    expect(restaurado.placingOriginal, 'proveniencia preservada').toBe(1);
+    expect(await totalNoRanking()).toBe(4);
+    expect(await somaDoLedger()).toBe(4);
+  }, 60_000);
+
   it('invalidar duas vezes não duplica nem corrompe', async () => {
     await importarEAplicar(csv([linha('88281', 1)]));
     const [ponto] = await lancamentos();
@@ -259,6 +295,42 @@ describe('invalidar e restaurar', () => {
     const [ponto] = await lancamentos();
     expect((await invalidar(ponto.id, {})).status).toBeGreaterThanOrEqual(400);
     expect((await lancamentos())[0].points).toBe(5);
+  }, 60_000);
+
+  it('restaurar o que não está invalidado é recusado, e nada muda', async () => {
+    await importarEAplicar(csv([linha('88281', 1)]));
+    const [ponto] = await lancamentos();
+
+    const r = await restaurar(ponto.id, { reason: 'restaurando o que esta valido' });
+    expect(r.status).toBe(409);
+
+    // Restaurar é recalcular a partir de `placingOriginal`. Num lançamento
+    // nunca invalidado esse campo é nulo, e deixar a operação passar
+    // reescreveria a colocação com o que sobrou — uma corrupção silenciosa
+    // disparada por uma operação que não deveria nem começar.
+    const [depois] = await lancamentos();
+    expect(depois.placing).toBe(1);
+    expect(depois.points).toBe(5);
+    expect(depois.voidedAt).toBeNull();
+    expect(await totalNoRanking()).toBe(5);
+  }, 60_000);
+
+  it('corrigir só campos não editáveis não é uma correção', async () => {
+    await importarEAplicar(csv([linha('88281', 1)]));
+    const [ponto] = await lancamentos();
+
+    // Sem `placing` nem `didNotShow`, não sobrou nada corrigível. Responder
+    // 200 aqui gravaria uma entrada de auditoria dizendo que houve correção
+    // onde nada mudou — e um rastro que mente é pior que rastro nenhum.
+    const r = await corrigir(ponto.id, {
+      reason: 'so campos de identidade', athleteId: 'outro-atleta', eventId: 'outro-evento'
+    });
+    expect(r.status).toBeGreaterThanOrEqual(400);
+    expect(r.status).toBeLessThan(500);
+
+    const [depois] = await lancamentos();
+    expect(depois.athleteId).toBe(atleta.id);
+    expect(depois.points).toBe(5);
   }, 60_000);
 
   it('lançamento invalidado não recebe bônus de Overall', async () => {
@@ -287,6 +359,59 @@ describe('invalidar e restaurar', () => {
     expect(depois.overallBonus, 'invalidado nao carrega bonus').toBe(0);
     expect(depois.points).toBe(0);
     expect(await totalNoRanking()).toBe(0);
+  }, 60_000);
+
+  it('com duas participações, o bônus vai para a válida e não para a invalidada', async () => {
+    // Duas participações elegíveis do MESMO atleta no MESMO evento, em
+    // categorias diferentes: 1º numa, 2º na outra. A de 1º é a que a regra
+    // escolheria para carregar o +10 — melhor colocação. Ela é invalidada
+    // ANTES da declaração do título.
+    await importarEAplicar(csv([
+      linha('88281', 1, 1, OPEN),
+      linha('88281', 2, 2, 'Classic Physique - Open')
+    ]));
+    const antes = await lancamentos();
+    expect(antes, 'as duas participacoes entraram no ledger').toHaveLength(2);
+
+    const primeira = antes.find(p => p.placing === 1);
+    const segunda = antes.find(p => p.placing === 2);
+    await invalidar(primeira.id, { reason: 'desclassificado nesta participacao' });
+
+    const ec = (await api().post(`/api/v1/events/${evento.id}/categories`).set(operador.auth())
+      .send({ categoryId: categoriaBB.id })).body;
+    const div = (await api().post(`/api/v1/event-categories/${ec.id}/divisions`).set(operador.auth())
+      .send({ name: 'Open', code: 'OPEN' })).body;
+    const classe = (await api().post(`/api/v1/divisions/${div.id}/classes`).set(operador.auth())
+      .send({ name: 'Open', code: 'OPEN', superOverallEligible: true })).body;
+    await comoAtor(operador, tx => tx.registration.create({
+      data: {
+        eventId: evento.id, athleteId: atleta.id, affiliationId: filiacao.id, status: 'CONFIRMED',
+        items: { create: { status: 'CONFIRMED', competitionClass: { connect: { id: classe.id } } } }
+      }
+    }));
+
+    // Título do EVENTO, sem recorte de categoria: alcança as duas linhas, e é
+    // a escolha da portadora que decide qual recebe.
+    const declaracao = await api().post(`/api/v1/events/${evento.id}/overall`)
+      .set(operador.auth()).send({ athleteId: atleta.id });
+    expect(declaracao.status, JSON.stringify(declaracao.body)).toBeLessThan(400);
+
+    const depois = await lancamentos();
+    const invalidada = depois.find(p => p.id === primeira.id);
+    const valida = depois.find(p => p.id === segunda.id);
+
+    expect(invalidada.overallBonus, 'invalidada nao carrega bonus').toBe(0);
+    expect(invalidada.points).toBe(0);
+
+    // O PONTO DESTE TESTE. Excluir a invalidada da escolha não basta se ela
+    // continuar sendo ELEITA e o bônus for depois descartado na escrita: aí o
+    // título declarado não chega a ninguém, e o atleta perde os 10 pontos que
+    // a organização lhe reconheceu. A válida tem de RECEBER.
+    expect(valida.overallBonus, 'a valida herda o bonus').toBe(10);
+    expect(valida.isOverallChampion).toBe(true);
+    expect(valida.points, '4 da colocacao + 10 do titulo').toBe(14);
+    expect(await totalNoRanking()).toBe(14);
+    expect(await somaDoLedger()).toBe(14);
   }, 60_000);
 });
 
@@ -338,7 +463,21 @@ describe('quem pode, e quem não pode', () => {
       // interno — que conta ao invasor que ele encostou em algo.
       expect(resposta.status, 'sonda cross-tenant nao pode virar 500')
         .toBeLessThan(500);
+      // MEDIDO: 403, e é o 403 do `assertCan`, não um 404 do RLS.
+      //
+      // As duas leituras ATRAVESSAM — o lançamento e a temporada são visíveis
+      // ao operador forasteiro. Não é falha de política: o ranking é dado
+      // PÚBLICO por decisão de produto (o visitante anônimo lê a classificação
+      // inteira), então o RLS não tem por que esconder a linha. Quem nega a
+      // ESCRITA é a autorização, e é ela que responde.
+      //
+      // A asserção fica em 403 de propósito, e não num 404 mais discreto: o
+      // 403 do `assertCan` é a resposta que a plataforma inteira dá a violação
+      // de tenant, e trocá-la só aqui deixaria este endpoint fora da convenção
+      // sem fechar vazamento nenhum — a mesma informação já sai pela leitura
+      // pública do ranking.
       expect([401, 403, 404]).toContain(resposta.status);
+      expect(resposta.status).toBe(403);
     }
     expect((await lancamentos())[0].points, 'cross-tenant nao muda nada').toBe(5);
   }, 60_000);
