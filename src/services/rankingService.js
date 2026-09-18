@@ -21,6 +21,31 @@ const {
 // `RankingPoint` — nunca escrito à mão — de modo que a soma pode ser refeita e
 // conferida a qualquer momento.
 
+// A materialização do ranking e a correção administrativa passaram a caber na
+// mesma transação, e uma temporada inteira pode ter centenas de lançamentos.
+// O padrão de 5s do Prisma foi dimensionado para escrita pontual, não para
+// isso: estourá-lo abortaria a correção DEPOIS de o operador ter confirmado.
+const OPCOES_TRANSACAO = Object.freeze({ timeout: 30_000, maxWait: 15_000 });
+
+// SERIALIZA A TEMPORADA, E NÃO O LANÇAMENTO.
+//
+// A trava precisa cobrir as duas coisas que corriam soltas: a janela entre
+// conferir `voidedAt` e escrever por cima dele, e o recálculo do agregado, que
+// lê a temporada INTEIRA. Travar só a linha corrigida fecharia a primeira e
+// deixaria a segunda aberta — duas correções em lançamentos diferentes da
+// mesma temporada continuariam cruzando seus recálculos.
+//
+// `pg_advisory_xact_lock` porque o PostgreSQL a solta sozinho no fim da
+// transação, commit ou rollback. A trava de sessão exigiria destravar à mão, e
+// com pool de conexões o destravamento poderia cair em outra conexão que não
+// tem a trava — deixando a temporada bloqueada até o processo reiniciar.
+//
+// `$executeRaw` e não `$queryRaw`: a função devolve void, e o Prisma recusa a
+// leitura de um resultado que não existe.
+async function travarTemporada(tx, seasonId) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`ranking:temporada:${seasonId}`}))`;
+}
+
 async function createSeason(data, actor) {
   assertCan(actor, 'ranking.manage', data.organizationId);
 
@@ -447,8 +472,16 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
 // A ordenação usa a hierarquia oficial de desempate (src/utils/rankingScoring.js),
 // e não apenas o total de pontos. Os contadores ficam materializados para que o
 // ranking seja auditável sem reabrir cada lançamento.
-async function recompute_(seasonId) {
-  const pontos = await prisma.rankingPoint.findMany({
+//
+// LEITURA E ESCRITA NA MESMA TRANSAÇÃO. Antes os pontos eram lidos fora de
+// qualquer transação e só a materialização abria uma: entre a leitura e a
+// escrita cabia outro recálculo inteiro, e o que ficava gravado era o do
+// recálculo que lera primeiro e escrevera por último — o ranking publicado
+// passava a mostrar uma colocação que o lançamento já não tinha. Recebendo o
+// cliente transacional de fora, a função também pode ser chamada DENTRO do
+// bloqueio que serializa a correção administrativa, sem soltá-lo no meio.
+async function recomputarEm(tx, seasonId) {
+  const pontos = await tx.rankingPoint.findMany({
     where: { seasonId },
     select: {
       athleteId: true, categoryId: true, points: true, placing: true,
@@ -469,7 +502,7 @@ async function recompute_(seasonId) {
   }
 
   const athleteIds = [...new Set([...acumulado.values()].map(linha => linha.athleteId))];
-  const atletas = await prisma.athlete.findMany({ where: { id: { in: athleteIds } }, select: { id: true, state: true, country: true } });
+  const atletas = await tx.athlete.findMany({ where: { id: { in: athleteIds } }, select: { id: true, state: true, country: true } });
   const porAtleta = new Map(atletas.map(atleta => [atleta.id, atleta]));
 
   const comContadores = [...acumulado.values()].map(linha => ({
@@ -488,37 +521,39 @@ async function recompute_(seasonId) {
 
   const classificadas = [...porCategoria.values()].flatMap(linhas => classificar(linhas));
 
-  await prisma.$transaction(async tx => {
-    await tx.ranking.deleteMany({ where: { seasonId } });
+  await tx.ranking.deleteMany({ where: { seasonId } });
 
-    for (const linha of classificadas) {
-      const atleta = porAtleta.get(linha.athleteId);
-      await tx.ranking.create({
-        data: {
-          seasonId,
-          athleteId: linha.athleteId,
-          categoryId: linha.categoryId,
-          totalPoints: linha.totalPoints,
-          eventCount: linha.fontes.size,
-          overallWins: linha.overallWins,
-          firstPlaceCount: linha.firstPlaceCount,
-          secondPlaceCount: linha.secondPlaceCount,
-          thirdPlaceCount: linha.thirdPlaceCount,
-          fourthPlaceCount: linha.fourthPlaceCount,
-          fifthPlaceCount: linha.fifthPlaceCount,
-          tieUnresolved: linha.tieUnresolved,
-          position: linha.position,
-          state: atleta?.state ?? null,
-          country: atleta?.country ?? null
-        }
-      });
-    }
-  });
+  for (const linha of classificadas) {
+    const atleta = porAtleta.get(linha.athleteId);
+    await tx.ranking.create({
+      data: {
+        seasonId,
+        athleteId: linha.athleteId,
+        categoryId: linha.categoryId,
+        totalPoints: linha.totalPoints,
+        eventCount: linha.fontes.size,
+        overallWins: linha.overallWins,
+        firstPlaceCount: linha.firstPlaceCount,
+        secondPlaceCount: linha.secondPlaceCount,
+        thirdPlaceCount: linha.thirdPlaceCount,
+        fourthPlaceCount: linha.fourthPlaceCount,
+        fifthPlaceCount: linha.fifthPlaceCount,
+        tieUnresolved: linha.tieUnresolved,
+        position: linha.position,
+        state: atleta?.state ?? null,
+        country: atleta?.country ?? null
+      }
+    });
+  }
 
   return {
     rows: classificadas.length,
     tieUnresolved: classificadas.filter(linha => linha.tieUnresolved).length
   };
+}
+
+async function recompute_(seasonId) {
+  return prisma.$transaction(tx => recomputarEm(tx, seasonId), OPCOES_TRANSACAO);
 }
 
 /**
@@ -1615,6 +1650,50 @@ async function athletePoints(athleteId, seasonId, actor) {
 /** Campos que a correção pode tocar. O resto do lançamento é história. */
 const CAMPOS_CORRIGIVEIS = Object.freeze(['placing', 'didNotShow']);
 
+const CAMPOS_DO_LANCAMENTO = Object.freeze({
+  id: true, seasonId: true, athleteId: true, eventId: true, source: true,
+  externalResultId: true, placing: true, placingOriginal: true,
+  placementPoints: true, overallBonus: true, points: true,
+  superOverallPoints: true, superOverallEligible: true,
+  isOverallChampion: true, didNotShow: true,
+  voidedAt: true, voidedById: true, voidReason: true
+});
+
+// TUDO O QUE ESCREVE NO LANÇAMENTO PASSA POR AQUI.
+//
+// O desenho anterior era ler, decidir e escrever com três idas ao banco
+// soltas, e a medição com 20 requisições simultâneas mostrou as duas falhas
+// que isso abre — nenhuma das duas hipotética:
+//
+//   · 20 invalidações do mesmo lançamento: NOVE atravessaram a conferência de
+//     `voidedAt` antes de qualquer uma gravar. O motivo que ficava registrado
+//     era o da última a escrever, e a auditoria passava a dizer "engano do
+//     operador" onde o administrador tinha escrito "atleta desclassificado".
+//
+//   · corrigir contra invalidar: a correção conferia `voidedAt`, a
+//     invalidação commitava na janela, e a correção gravava pontos por cima —
+//     o lançamento voltava a valer 3 com `voidedAt` preenchido. Invalidado e
+//     pontuando ao mesmo tempo.
+//
+// Dentro da trava o estado é RELIDO do banco, e é o estado relido que decide.
+// O que veio de `carregarLancamento` serve à autorização e à auditoria; nunca
+// à decisão. O recálculo acontece antes de soltar a trava, porque ele lê a
+// temporada inteira e soltá-la no meio devolveria a corrida pelo outro lado.
+async function comTemporadaTravada(ponto, executar) {
+  return prisma.$transaction(async tx => {
+    await travarTemporada(tx, ponto.seasonId);
+
+    const atual = await tx.rankingPoint.findUnique({
+      where: { id: ponto.id }, select: CAMPOS_DO_LANCAMENTO
+    });
+    if (!atual) throw new AppError(404, 'RANKING_POINT_NOT_FOUND', 'Lançamento não encontrado');
+
+    const saida = await executar(tx, { ...ponto, ...atual });
+    await recomputarEm(tx, ponto.seasonId);
+    return saida;
+  }, OPCOES_TRANSACAO);
+}
+
 async function carregarLancamento(rankingPointId, actor) {
   // SEM `include` DE RELAÇÃO OBRIGATÓRIA. Medido com um operador de outra
   // organização: o RLS deixava ver a linha do RankingPoint e BLOQUEAVA o
@@ -1628,15 +1707,7 @@ async function carregarLancamento(rankingPointId, actor) {
   // buscar o resto em consultas próprias devolve o 404 discreto que a negação
   // merece.
   const ponto = await prisma.rankingPoint.findUnique({
-    where: { id: rankingPointId },
-    select: {
-      id: true, seasonId: true, athleteId: true, eventId: true, source: true,
-      externalResultId: true, placing: true, placingOriginal: true,
-      placementPoints: true, overallBonus: true, points: true,
-      superOverallPoints: true, superOverallEligible: true,
-      isOverallChampion: true, didNotShow: true,
-      voidedAt: true, voidedById: true, voidReason: true
-    }
+    where: { id: rankingPointId }, select: CAMPOS_DO_LANCAMENTO
   });
   if (!ponto) throw new AppError(404, 'RANKING_POINT_NOT_FOUND', 'Lançamento não encontrado');
 
@@ -1664,11 +1735,11 @@ async function carregarLancamento(rankingPointId, actor) {
  * gravação não podem discordar, e a única forma de garantir isso é não
  * existirem duas contas.
  */
-async function projetarLancamento(ponto, mudanca) {
+async function projetarLancamento(ponto, mudanca, cliente = prisma) {
   const didNotShow = mudanca.didNotShow ?? (mudanca.placing != null ? false : ponto.didNotShow);
   const placing = didNotShow ? null : (mudanca.placing ?? ponto.placing);
 
-  const tabela = await prisma.rankingPointsRule.findMany({
+  const tabela = await cliente.rankingPointsRule.findMany({
     where: { seasonId: ponto.seasonId }, select: { placing: true, points: true }
   });
 
@@ -1727,11 +1798,20 @@ async function editRankingPoint(rankingPointId, dados, actor) {
     throw new AppError(422, 'NOTHING_TO_EDIT', 'Informe a colocação ou o não comparecimento');
   }
 
-  const novo = await projetarLancamento(ponto, mudanca);
-  const antes = retrato(ponto);
+  let antes;
+  const atualizado = await comTemporadaTravada(ponto, async (tx, atual) => {
+    // Relido sob a trava: entre a conferência lá em cima e esta linha, uma
+    // invalidação pode ter commitado. Escrever assim mesmo devolveria pontos
+    // a um lançamento já invalidado.
+    if (atual.voidedAt) {
+      throw new AppError(409, 'RANKING_POINT_VOIDED',
+        'Lançamento invalidado não se corrige: restaure antes de alterar');
+    }
 
-  const atualizado = await prisma.$transaction(async tx => {
-    const linha = await tx.rankingPoint.update({
+    antes = retrato(atual);
+    const novo = await projetarLancamento(atual, mudanca, tx);
+
+    return tx.rankingPoint.update({
       where: { id: rankingPointId },
       data: {
         placing: novo.placing, didNotShow: novo.didNotShow,
@@ -1740,13 +1820,10 @@ async function editRankingPoint(rankingPointId, dados, actor) {
         // A colocação de origem só é gravada na PRIMEIRA alteração: depois
         // disso ela já registra de onde o lançamento partiu, e reescrevê-la
         // apagaria justamente a informação que permite restaurar.
-        placingOriginal: ponto.placingOriginal ?? ponto.placing
+        placingOriginal: atual.placingOriginal ?? atual.placing
       }
     });
-    return linha;
   });
-
-  await recompute_(ponto.seasonId);
 
   await audit.record({
     actor, action: audit.ACTIONS.RANKING_POINT_EDITED,
@@ -1768,20 +1845,29 @@ async function voidRankingPoint(rankingPointId, { reason }, actor) {
     throw new AppError(409, 'RANKING_POINT_ALREADY_VOIDED', 'Lançamento já invalidado');
   }
 
-  const antes = retrato(ponto);
-  const atualizado = await prisma.rankingPoint.update({
-    where: { id: rankingPointId },
-    data: {
-      voidedAt: new Date(), voidedById: actor?.id ?? null, voidReason: reason,
-      // Zera o que PONTUA. `placementPoints` guarda o que aconteceu, e
-      // `placingOriginal` de onde partiu — as duas peças de que a restauração
-      // precisa para não recalcular às cegas.
-      overallBonus: 0, points: 0, superOverallPoints: 0, isOverallChampion: false,
-      placingOriginal: ponto.placingOriginal ?? ponto.placing
+  let antes;
+  const atualizado = await comTemporadaTravada(ponto, async (tx, atual) => {
+    // A conferência que VALE é esta, sob a trava. A de cima só evita abrir
+    // transação à toa; sozinha, ela deixava nove de vinte invalidações
+    // simultâneas passarem, cada uma gravando o seu motivo por cima da
+    // anterior.
+    if (atual.voidedAt) {
+      throw new AppError(409, 'RANKING_POINT_ALREADY_VOIDED', 'Lançamento já invalidado');
     }
-  });
 
-  await recompute_(ponto.seasonId);
+    antes = retrato(atual);
+    return tx.rankingPoint.update({
+      where: { id: rankingPointId },
+      data: {
+        voidedAt: new Date(), voidedById: actor?.id ?? null, voidReason: reason,
+        // Zera o que PONTUA. `placementPoints` guarda o que aconteceu, e
+        // `placingOriginal` de onde partiu — as duas peças de que a restauração
+        // precisa para não recalcular às cegas.
+        overallBonus: 0, points: 0, superOverallPoints: 0, isOverallChampion: false,
+        placingOriginal: atual.placingOriginal ?? atual.placing
+      }
+    });
+  });
 
   await audit.record({
     actor, action: audit.ACTIONS.RANKING_POINT_VOIDED,
@@ -1803,26 +1889,32 @@ async function restoreRankingPoint(rankingPointId, { reason }, actor) {
     throw new AppError(409, 'RANKING_POINT_NOT_VOIDED', 'Lançamento não está invalidado');
   }
 
-  const antes = retrato(ponto);
-  // Restaurar recalcula a partir da COLOCAÇÃO guardada, e não de um total
-  // salvo: se a tabela da temporada mudou entre a invalidação e a restauração,
-  // o que volta é a regra vigente aplicada ao fato, não um número congelado.
-  const novo = await projetarLancamento(
-    { ...ponto, didNotShow: ponto.placingOriginal == null && ponto.didNotShow },
-    { placing: ponto.placingOriginal ?? ponto.placing }
-  );
-
-  const atualizado = await prisma.rankingPoint.update({
-    where: { id: rankingPointId },
-    data: {
-      voidedAt: null, voidedById: null, voidReason: null,
-      placing: novo.placing, didNotShow: novo.didNotShow,
-      placementPoints: novo.placementPoints, overallBonus: novo.overallBonus,
-      points: novo.points, superOverallPoints: novo.superOverallPoints
+  let antes;
+  const atualizado = await comTemporadaTravada(ponto, async (tx, atual) => {
+    if (!atual.voidedAt) {
+      throw new AppError(409, 'RANKING_POINT_NOT_VOIDED', 'Lançamento não está invalidado');
     }
-  });
 
-  await recompute_(ponto.seasonId);
+    antes = retrato(atual);
+    // Restaurar recalcula a partir da COLOCAÇÃO guardada, e não de um total
+    // salvo: se a tabela da temporada mudou entre a invalidação e a restauração,
+    // o que volta é a regra vigente aplicada ao fato, não um número congelado.
+    const novo = await projetarLancamento(
+      { ...atual, didNotShow: atual.placingOriginal == null && atual.didNotShow },
+      { placing: atual.placingOriginal ?? atual.placing },
+      tx
+    );
+
+    return tx.rankingPoint.update({
+      where: { id: rankingPointId },
+      data: {
+        voidedAt: null, voidedById: null, voidReason: null,
+        placing: novo.placing, didNotShow: novo.didNotShow,
+        placementPoints: novo.placementPoints, overallBonus: novo.overallBonus,
+        points: novo.points, superOverallPoints: novo.superOverallPoints
+      }
+    });
+  });
 
   await audit.record({
     actor, action: audit.ACTIONS.RANKING_POINT_RESTORED,
