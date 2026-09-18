@@ -1310,9 +1310,10 @@ model RankingPoint {
   voidedAt             DateTime?
   voidedById           String?
   voidReason           String?
-  /// Colocação com que o lançamento nasceu. Guardada na primeira correção ou
-  /// invalidação, e nunca reescrita depois: é o que permite restaurar sem
-  /// adivinhar de onde os pontos vieram.
+  /// Colocação com que o lançamento NASCEU. Guardada na primeira correção ou
+  /// invalidação e nunca reescrita depois. É proveniência para a auditoria — de
+  /// onde o lançamento partiu —, e não o destino da restauração: restaurar
+  /// recalcula a partir de `placing`, que a invalidação preserva.
   placingOriginal      Int?
   awardedById          String?
   awardedAt            DateTime    @default(now())

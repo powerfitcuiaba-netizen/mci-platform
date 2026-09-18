@@ -230,11 +230,15 @@ router.get('/events/:id/overall/candidates', requireAuth, validate(s.paramsWithI
 router.get('/events/:id/overall/preview', requireAuth, validate(s.paramsWithId, 'params'), validate(s.overallPreviewQuery, 'query'), wrap(c.ranking.overallPreview));
 // CORREÇÃO ADMINISTRATIVA DE LANÇAMENTO PUBLICADO.
 //
-// A autorização é por lançamento, não por rota: o serviço carrega o ponto,
-// descobre a organização pela temporada e chama `assertCan(ranking.manage)`
-// com ELA. Um `perm()` aqui na rota não teria organização para conferir — o
-// id do ponto não a revela — e seria uma promessa vazia.
+// A listagem é por campeonato, e o serviço autoriza pela organização DO
+// EVENTO, que o id do caminho revela.
 router.get('/events/:id/ranking-points', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.ranking.eventRankingPoints));
+
+// Já as quatro portas abaixo autorizam por LANÇAMENTO, e não por rota: o id do
+// ponto não revela organização nenhuma, então o serviço carrega o ponto,
+// descobre a organização pela temporada e chama `assertCan(ranking.manage)`
+// com ELA. Um `perm()` aqui na rota não teria o que conferir, e seria uma
+// promessa vazia.
 router.get('/ranking/points/:pointId/preview', requireAuth, validate(s.paramsComPonto, 'params'), validate(s.rankingPointPreviewQuery, 'query'), wrap(c.ranking.previewRankingPoint));
 router.patch('/ranking/points/:pointId', requireAuth, validate(s.paramsComPonto, 'params'), validate(s.rankingPointEdit), wrap(c.ranking.editRankingPoint));
 router.post('/ranking/points/:pointId/void', requireAuth, validate(s.paramsComPonto, 'params'), validate(s.rankingPointReason), wrap(c.ranking.voidRankingPoint));

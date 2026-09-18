@@ -12,15 +12,17 @@
 --
 -- POR QUE NÃO APAGAR A LINHA: o ponto é o registro de que o atleta competiu.
 -- Apagá-lo faria a participação desaparecer do histórico dele, e a auditoria
--- perderia o "antes". Invalidar zera o que PONTUA e preserva o que ACONTECEU —
--- `placementPoints` continua guardando a colocação original, que é o que
--- permite restaurar sem recalcular às cegas.
+-- perderia o "antes". Invalidar zera o que PONTUA (`points`, `overallBonus`,
+-- `superOverallPoints`) e não toca no que ACONTECEU: `placing` e
+-- `placementPoints` seguem como estavam. É por isso que restaurar não precisa
+-- adivinhar nada — a linha já guarda o estado de antes da invalidação.
 ALTER TABLE "RankingPoint" ADD COLUMN IF NOT EXISTS "voidedAt" TIMESTAMP(3);
 ALTER TABLE "RankingPoint" ADD COLUMN IF NOT EXISTS "voidedById" TEXT;
 ALTER TABLE "RankingPoint" ADD COLUMN IF NOT EXISTS "voidReason" TEXT;
 
--- A colocação original sobrevive à invalidação e à correção. Sem ela, restaurar
--- exigiria adivinhar de onde os pontos vieram.
+-- PROVENIÊNCIA, e não destino da restauração: registra a colocação com que o
+-- lançamento NASCEU, para que a auditoria possa dizer de onde ele partiu depois
+-- de uma ou mais correções. Gravada na primeira alteração e nunca reescrita.
 ALTER TABLE "RankingPoint" ADD COLUMN IF NOT EXISTS "placingOriginal" INTEGER;
 
 -- Só os invalidados. Índice parcial porque a consulta que importa é "o que foi

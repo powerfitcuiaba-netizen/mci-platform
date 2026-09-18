@@ -479,6 +479,10 @@ const overallPreviewQuery = z.object({
 // Revogação. O MOTIVO é obrigatório — revogar título homologado sem dizer por
 // quê deixa o próximo operador sem saber o que já foi analisado, que é o mesmo
 // raciocínio da recusa de solicitação de perfil.
+const overallRevoke = z.object({
+  reason: texto(3, 500)
+});
+
 // CORREÇÃO ADMINISTRATIVA DE LANÇAMENTO.
 //
 // `reason` é obrigatório e tem piso de tamanho: "ok" não é motivo, e seis
@@ -504,10 +508,6 @@ const rankingPointPreviewQuery = z.object({
 });
 
 const rankingPointReason = z.object({ reason: texto(5, 500) });
-
-const overallRevoke = z.object({
-  reason: texto(3, 500)
-});
 
 const teamRankingQuery = z.object({
   seasonId: id.optional(),
