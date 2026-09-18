@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { createRequire } from 'node:module';
 import {
   api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
   vincular, unico, comoAtor, gerarCpf, prisma
@@ -24,8 +23,6 @@ import {
 // A REGRA ESPORTIVA NÃO MUDA AQUI. Só a declaração oficial concede o bônus,
 // só na absoluta, +10 uma vez. O que muda é o alcance da aplicação.
 // ==========================================================================
-
-const { vincularPendentesDoAtleta } = createRequire(import.meta.url)('../src/services/muscleWarService.js');
 
 const CABECALHO = 'Athlete #,Class,First Name,Last Name,Member Number,Placing';
 const OPEN = "Men's Bodybuilding - Open";
