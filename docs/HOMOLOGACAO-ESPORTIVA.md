@@ -330,6 +330,51 @@ recusada, e só uma correção versionada — com motivo e autor — o resolve. 
 Sem apuração interna não há mais o que ratificar nesta parte. As pendências
 reais do MCI estão na Parte II.
 
+### Corrigir uma súmula depois de publicada
+
+O caminho INTERNO sempre soube fazer isso: `results.override` grava um
+`ResultVersion` com snapshot e motivo, e a apuração é refeita. O caminho
+IMPORTADO não sabia. Depois do `/apply`, um 3º que era 2º ficava errado para
+sempre — reimportar o arquivo corrigido esbarra na idempotência, que marca
+tudo como `DUPLICATE`, e a única "saída" seria mexer no ledger por fora, que o
+regulamento de operação proíbe.
+
+Quatro portas fecham essa lacuna, todas exigindo `ranking.manage` na
+organização da temporada e **motivo escrito**:
+
+| Porta | O que faz |
+|---|---|
+| `GET /ranking/points/:id/preview` | Mostra o antes, o depois e a diferença. Não grava. |
+| `PATCH /ranking/points/:id` | Corrige a colocação ou marca não comparecimento. |
+| `POST /ranking/points/:id/void` | Invalida sem apagar. |
+| `POST /ranking/points/:id/restore` | Devolve o estado de antes da invalidação. |
+
+Três regras que a implementação tranca, e cada uma tem teste:
+
+**A pontuação nunca é digitada.** O operador informa a COLOCAÇÃO ou o não
+comparecimento; quem calcula é o motor, pela tabela vigente da temporada.
+Aceitar um total digitado abriria a mesma porta que a importação fechou ao
+recusar a coluna de pontos do arquivo.
+
+**Invalidar não é apagar.** A participação continua no histórico do atleta
+valendo zero, marcada, com o motivo à vista. `placementPoints` guarda o que
+aconteceu. Apagar a linha transformaria "não subiu no palco" em "não
+participou", e o histórico perderia a etapa.
+
+**Só `placing` e `didNotShow` são corrigíveis.** Atleta, evento, temporada e
+origem não se corrigem por edição: trocá-los seria outro lançamento, e não a
+correção deste.
+
+O lançamento invalidado também não carrega o bônus de Overall — nem por ser
+eleito portador, nem por reescrita da normalização. Quando o atleta tem outra
+participação elegível válida, é ela que recebe o +10: o título declarado pela
+organização não pode deixar de chegar a ninguém.
+
+Toda operação deixa em auditoria o motivo, o autor e os DOIS estados, antes e
+depois (`RANKING_POINT_EDITED`, `RANKING_POINT_VOIDED`, `RANKING_POINT_RESTORED`).
+Ver `tests/correcao-de-lancamento.test.mjs` e
+`tests/gate-concorrencia-correcao.test.mjs`.
+
 ---
 
 ## Minha Filiação, Meu Histórico e a revisão do matching (FASE 9)
