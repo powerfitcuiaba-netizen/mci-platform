@@ -234,6 +234,7 @@ router.get('/events/:id/overall/preview', requireAuth, validate(s.paramsWithId, 
 // descobre a organização pela temporada e chama `assertCan(ranking.manage)`
 // com ELA. Um `perm()` aqui na rota não teria organização para conferir — o
 // id do ponto não a revela — e seria uma promessa vazia.
+router.get('/events/:id/ranking-points', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.ranking.eventRankingPoints));
 router.get('/ranking/points/:pointId/preview', requireAuth, validate(s.paramsComPonto, 'params'), validate(s.rankingPointPreviewQuery, 'query'), wrap(c.ranking.previewRankingPoint));
 router.patch('/ranking/points/:pointId', requireAuth, validate(s.paramsComPonto, 'params'), validate(s.rankingPointEdit), wrap(c.ranking.editRankingPoint));
 router.post('/ranking/points/:pointId/void', requireAuth, validate(s.paramsComPonto, 'params'), validate(s.rankingPointReason), wrap(c.ranking.voidRankingPoint));

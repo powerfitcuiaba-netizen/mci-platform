@@ -1650,6 +1650,48 @@ async function athletePoints(athleteId, seasonId, actor) {
 /** Campos que a correção pode tocar. O resto do lançamento é história. */
 const CAMPOS_CORRIGIVEIS = Object.freeze(['placing', 'didNotShow']);
 
+/**
+ * Lançamentos de um campeonato, para a tela de correção.
+ *
+ * A "origem dos pontos" já respondia por ATLETA — serve para explicar um
+ * acumulado. Corrigir é o movimento contrário: o operador tem a súmula do
+ * campeonato na mão e precisa achar a linha errada entre as do evento.
+ *
+ * Exige `ranking.manage`, e não `ranking.read`: a resposta carrega motivo de
+ * invalidação e quem invalidou, que é informação de administração, e a tela
+ * que a consome é a que oferece as ações.
+ */
+async function eventRankingPoints(eventId, actor) {
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { id: true, name: true, slug: true, startDate: true, organizationId: true, seasonId: true }
+  });
+  if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Campeonato não encontrado');
+
+  assertCan(actor, 'ranking.manage', event.organizationId);
+
+  const items = await prisma.rankingPoint.findMany({
+    where: { eventId },
+    select: {
+      id: true, placing: true, placingOriginal: true, didNotShow: true,
+      placementPoints: true, overallBonus: true, points: true,
+      superOverallPoints: true, superOverallEligible: true, isOverallChampion: true,
+      source: true, externalResultId: true,
+      voidedAt: true, voidedById: true, voidReason: true,
+      athlete: { select: { id: true, fullName: true, affiliationNumber: true } },
+      category: { select: { id: true, code: true, name: true } },
+      competitionClass: { select: { id: true, code: true, name: true } },
+      affiliation: { select: { id: true, code: true, name: true } }
+    },
+    // Ordem DECLARADA. Sem `orderBy` a resposta sai na ordem física do
+    // PostgreSQL, e a tela reordenaria sozinha a cada correção — o operador
+    // perderia de vista a linha em que estava trabalhando.
+    orderBy: [{ categoryId: 'asc' }, { placing: 'asc' }, { id: 'asc' }]
+  });
+
+  return { event, items };
+}
+
 const CAMPOS_DO_LANCAMENTO = Object.freeze({
   id: true, seasonId: true, athleteId: true, eventId: true, source: true,
   externalResultId: true, placing: true, placingOriginal: true,
@@ -1946,6 +1988,7 @@ module.exports = {
   createSeason, listSeasons, setPointsRules, pointsForPlacing, awardForResult,
   recompute, recompute_, list, athletePoints, teamRanking,
   declareOverall, listOverall, overallCandidates, overallPreview, revokeOverall,
+  eventRankingPoints,
   previewRankingPoint, editRankingPoint, voidRankingPoint, restoreRankingPoint,
   superOverallRanking, listClasses, upsertClass, companyRanking,
   athleteRankingBy,

@@ -415,6 +415,68 @@ describe('invalidar e restaurar', () => {
   }, 60_000);
 });
 
+describe('lançamentos do campeonato, para a tela de correção', () => {
+  const lista = (id, quem) =>
+    api().get(`/api/v1/events/${id}/ranking-points`).set((quem ?? operador).auth());
+
+  it('lista os lançamentos do evento com o que a correção precisa', async () => {
+    await importarEAplicar(csv([linha('88281', 1)]));
+
+    const r = await lista(evento.id);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(r.body.event.id).toBe(evento.id);
+    expect(r.body.items).toHaveLength(1);
+
+    const [item] = r.body.items;
+    expect(item.athlete.fullName).toBe('ATLETA CORRECAO');
+    expect(item.placing).toBe(1);
+    expect(item.points).toBe(5);
+    expect(item.voidedAt).toBeNull();
+    // Sem esses três a tela não consegue distinguir válido de invalidado nem
+    // mostrar por quê, e o operador ficaria decidindo no escuro.
+    expect(item).toHaveProperty('voidReason');
+    expect(item).toHaveProperty('placingOriginal');
+    expect(item).toHaveProperty('didNotShow');
+  }, 60_000);
+
+  it('o lançamento invalidado continua na lista, marcado e com o motivo', async () => {
+    await importarEAplicar(csv([linha('88281', 1)]));
+    const [ponto] = await lancamentos();
+    await invalidar(ponto.id, { reason: 'atleta desclassificado' });
+
+    const r = await lista(evento.id);
+    // NÃO SOME. A tela precisa da linha para oferecer "Restaurar", e o
+    // histórico do atleta precisa dela para não perder a etapa.
+    expect(r.body.items).toHaveLength(1);
+    expect(r.body.items[0].voidedAt).not.toBeNull();
+    expect(r.body.items[0].voidReason).toBe('atleta desclassificado');
+    expect(r.body.items[0].points).toBe(0);
+  }, 60_000);
+
+  it('quem não gerencia ranking não lista, e anônimo também não', async () => {
+    await importarEAplicar(csv([linha('88281', 1)]));
+
+    const semPermissao = await criarUsuario({ name: 'Sem Permissao' });
+    await vincular(org, semPermissao, 'REGISTRATION_OPERATOR');
+    expect((await lista(evento.id, semPermissao)).status).toBe(403);
+
+    expect((await api().get(`/api/v1/events/${evento.id}/ranking-points`)).status).toBe(401);
+  }, 60_000);
+
+  it('operador de OUTRA organização não lista o campeonato alheio', async () => {
+    await importarEAplicar(csv([linha('88281', 1)]));
+
+    const outroAdmin = await criarUsuario({ role: 'SUPER_ADMIN', name: 'Admin C' });
+    const outraOrg = await criarOrganizacao(outroAdmin, { name: 'Federacao C' });
+    const forasteiro = await criarUsuario({ name: 'Operador C' });
+    await vincular(outraOrg.id, forasteiro, 'RANKING_MANAGER');
+
+    const r = await lista(evento.id, forasteiro);
+    expect(r.status, 'sonda cross-tenant nao pode virar 500').toBeLessThan(500);
+    expect([403, 404]).toContain(r.status);
+  }, 60_000);
+});
+
 describe('quem pode, e quem não pode', () => {
   it('sem ranking.manage, ninguém corrige nem invalida', async () => {
     await importarEAplicar(csv([linha('88281', 1)]));

@@ -1939,3 +1939,94 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
   .homologacao-tabela td:last-child .button { width: 100%; }
   .homologacao-tabela td.num { text-align: right; }
 }
+
+/* Correção administrativa do ranking publicado.
+   ---------------------------------------------------------------------------
+   A linha invalidada continua NA TABELA, de propósito: apagá-la faria a etapa
+   sumir do histórico do atleta. Como ela fica, precisa se distinguir à
+   primeira vista da que ainda pontua — e por mais de uma pista, porque cor
+   sozinha não alcança quem não a enxerga. Aqui são três: fundo, opacidade e o
+   selo "Invalidado" na coluna de situação, que é texto. */
+.linha-invalidada { background: var(--vermelho-fundo); }
+.linha-invalidada td { opacity: .72; }
+.linha-invalidada td:first-child { box-shadow: inset 3px 0 0 var(--vermelho-borda); }
+
+/* Os botões da linha embrulham em vez de espremer a coluna: em telas
+   estreitas, "Corrigir" e "Invalidar" lado a lado empurrariam a tabela para
+   fora da viewport. */
+.acoes-da-linha {
+  text-align: right;
+  white-space: nowrap;
+}
+.acoes-da-linha .button + .button { margin-left: var(--e2); }
+
+/* Caixa de marcação com o rótulo ao lado, e não empilhada.
+   ---------------------------------------------------------------------------
+   Medido em Chromium: sem regra própria o `input[type=checkbox]` herdava a
+   largura de bloco dos campos de formulário e virava um quadrado cinza
+   centralizado ACIMA do texto, sem relação visível com ele. A área clicável é
+   o rótulo inteiro, que é o alvo que um dedo acerta. */
+.escolha {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  cursor: pointer;
+  min-height: 44px;
+}
+.escolha input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--vermelho);
+  cursor: pointer;
+}
+.escolha span { line-height: 1.35; }
+
+/* No telefone a tabela vira cartão, com as MESMAS regras já provadas na
+   homologação. São nove colunas: mantê-las como tabela empurraria a rolagem
+   horizontal para dentro de `.table-wrap` e o operador teria de arrastar de
+   lado para ver a situação do lançamento e o botão de agir sobre ele. Nenhuma
+   coluna é escondida — cada uma vira uma linha do cartão, com o rótulo que já
+   viaja em `data-rotulo`. */
+@media (max-width: 760px) {
+  .lancamentos-tabela thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .lancamentos-tabela,
+  .lancamentos-tabela tbody,
+  .lancamentos-tabela tr,
+  .lancamentos-tabela td { display: block; width: 100%; }
+  .lancamentos-tabela tr {
+    border: 1px solid var(--linha); border-radius: var(--raio-caixa, 12px);
+    padding: 12px 14px; margin-bottom: 10px;
+  }
+  .lancamentos-tabela td {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 14px; padding: 4px 0; border: 0; text-align: left;
+  }
+  .lancamentos-tabela td::before {
+    content: attr(data-rotulo); color: var(--cinza-fraco); font-size: 11px;
+    letter-spacing: 0.04em; text-transform: uppercase; flex: 0 0 auto;
+  }
+  /* A primeira célula é o título do cartão: o nome do atleta, sem rótulo. */
+  .lancamentos-tabela td:first-child {
+    display: block; padding-bottom: 8px; margin-bottom: 4px;
+    border-bottom: 1px solid var(--linha); font-weight: 600;
+  }
+  .lancamentos-tabela td:first-child::before { content: none; }
+  .lancamentos-tabela td.num { text-align: right; }
+
+  /* Botões em largura cheia, e não lado a lado: "Corrigir" e "Invalidar"
+     espremidos num cartão de 390px viram dois alvos pequenos e vizinhos, e
+     invalidar por engano é caro. */
+  .acoes-da-linha {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--e2);
+    justify-content: stretch;
+    padding-top: 10px;
+    white-space: normal;
+  }
+  .acoes-da-linha::before { content: none; }
+  .acoes-da-linha .button { flex: 1 1 100%; }
+  .acoes-da-linha .button + .button { margin-left: 0; }
+}
