@@ -51,8 +51,8 @@ export function AdminPainel({ navegar }) {
                 onClick={() => navegar('admin/palco')} destino="Palco" />
               <Metric label="Resultados publicados" value={dados.publishedResults}
                 onClick={() => navegar('admin/resultados')} destino="Resultados" />
-              <Metric label="Importações MuscleWar" value={dados.muscleWarImports}
-                onClick={() => navegar('admin/musclewar')} destino="MuscleWar" />
+              <Metric label="Importações MuscleWare" value={dados.muscleWarImports}
+                onClick={() => navegar('admin/musclewar')} destino="MuscleWare" />
             </div>
 
             <AtualizadoEm quando={estado.atualizadoEm} />
@@ -63,7 +63,7 @@ export function AdminPainel({ navegar }) {
                 <p style={{ color: 'var(--cinza)', fontSize: 12.5, margin: '6px 0 0' }}>Criar etapas, montar o quadro de categorias e mover estados.</p>
               </button>
               <button type="button" className="panel cartao-clicavel" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => navegar('admin/musclewar')}>
-                <h2 className="display" style={{ fontSize: 20 }}>MuscleWar</h2>
+                <h2 className="display" style={{ fontSize: 20 }}>MuscleWare</h2>
                 <p style={{ color: 'var(--cinza)', fontSize: 12.5, margin: '6px 0 0' }}>
                   {dados.muscleWarImports} importação(ões) registrada(s).
                 </p>
@@ -180,7 +180,7 @@ function ConferirPontuacao({ temporada, onClose }) {
                 </div>
               </div>
 
-              <div className="table-wrap" style={{ maxHeight: 380, overflowY: 'auto' }}>
+              <div className="table-wrap tabela-em-modal">
                 <table className="table">
                   <thead>
                     <tr>
@@ -272,7 +272,7 @@ export function OrigemDosPontos({ atleta, temporada, onClose }) {
         {dados => (dados.items.length
           ? (
             <>
-              <div className="table-wrap" style={{ maxHeight: 340, overflowY: 'auto' }}>
+              <div className="table-wrap tabela-em-modal">
                 <table className="table">
                   <thead>
                     <tr>
@@ -464,9 +464,9 @@ export function AdminMuscleWar({ notificar }) {
     <div className="page">
       <PageHead
         eyebrow="Integração"
-        title="MuscleWar"
+        title="MuscleWare"
         description="Importação de resultados externos com reconhecimento por CPF, confirmação por filiação e idempotência."
-        actions={<button type="button" className="button button-primary" onClick={() => setImportando(true)}><Upload size={15} /> Importar resultados MuscleWar</button>}
+        actions={<button type="button" className="button button-primary" onClick={() => setImportando(true)}><Upload size={15} /> Importar resultados MuscleWare</button>}
       />
 
       <AsyncSection state={estado} linhas={4}>
@@ -506,7 +506,7 @@ export function AdminMuscleWar({ notificar }) {
               </table>
             </div>
           )
-          : <EmptyState title="Nenhuma importação" description="Envie um arquivo do MuscleWar para começar." />
+          : <EmptyState title="Nenhuma importação" description="Envie um arquivo do MuscleWare para começar." />
         )}
       </AsyncSection>
 
@@ -613,7 +613,7 @@ export function NovaImportacao({ notificar, onClose, onCriada }) {
   };
 
   return (
-    <Modal title="Importar resultados MuscleWar" description="O arquivo é lido e conferido; nada é aplicado antes da sua confirmação." onClose={onClose}>
+    <Modal title="Importar resultados MuscleWare" description="O arquivo é lido e conferido; nada é aplicado antes da sua confirmação." onClose={onClose}>
       <form onSubmit={enviar}>
         <Field label="Organização" required>
           <select value={form.organizationId} onChange={evt => escolherOrganizacao(evt.target.value)} required>
@@ -777,7 +777,7 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
               </span>
             </div>
 
-            <div className="table-wrap" style={{ maxHeight: 340, overflowY: 'auto' }}>
+            <div className="table-wrap tabela-em-modal">
               <table className="table">
                 <thead>
                   <tr>
@@ -962,7 +962,7 @@ function VincularAtleta({ item, organizationId, notificar, onClose, onSalvo }) {
           <input value={busca} onChange={evt => setBusca(evt.target.value)} placeholder="Nome ou nome esportivo…" />
         </Field>
 
-        <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--linha)', borderRadius: 4 }}>
+        <div className="lista-em-modal">
           {(resultados.data?.items || []).map(atleta => (
             <label key={atleta.id} className="list-row" style={{ padding: '10px 12px', margin: 0, cursor: 'pointer' }}>
               <input type="radio" name="atleta" value={atleta.id} checked={athleteId === atleta.id} onChange={() => setAthleteId(atleta.id)} style={{ width: 'auto' }} />
@@ -1265,7 +1265,7 @@ function Filiacoes({ notificar }) {
                 </button>
               </div>
             ))
-            : <EmptyState title="Nenhuma filiação" description="A filiação é o vínculo esportivo do atleta e chave de conferência na importação MuscleWar." />
+            : <EmptyState title="Nenhuma filiação" description="A filiação é o vínculo esportivo do atleta e chave de conferência na importação MuscleWare." />
           )}
         </AsyncSection>
       </section>
@@ -1303,7 +1303,7 @@ function NovaFiliacao({ organizacoes, notificar, onClose, onSalvo }) {
         </Field>
         <Field label="Nome" required><input value={form.name} onChange={evt => setForm({ ...form, name: evt.target.value })} required maxLength={140} /></Field>
         <div className="field-row">
-          <Field label="Código" required hint="Usado no matching MuscleWar."><input value={form.code} onChange={evt => setForm({ ...form, code: evt.target.value.toUpperCase() })} required pattern="[A-Z0-9\-]{2,30}" placeholder="FED-MT" /></Field>
+          <Field label="Código" required hint="Usado no matching MuscleWare."><input value={form.code} onChange={evt => setForm({ ...form, code: evt.target.value.toUpperCase() })} required pattern="[A-Z0-9\-]{2,30}" placeholder="FED-MT" /></Field>
           <Field label="UF"><input value={form.state} onChange={evt => setForm({ ...form, state: evt.target.value.toUpperCase().slice(0, 2) })} maxLength={2} /></Field>
         </div>
         <Field label="Tipo">
