@@ -375,6 +375,86 @@ depois (`RANKING_POINT_EDITED`, `RANKING_POINT_VOIDED`, `RANKING_POINT_RESTORED`
 Ver `tests/correcao-de-lancamento.test.mjs` e
 `tests/gate-concorrencia-correcao.test.mjs`.
 
+### Repontuar não revoga uma invalidação
+
+Corrigir a súmula de uma classe já publicada (`results.override`) repontua o
+resultado inteiro. As duas decisões podem alcançar o mesmo lançamento, e a
+precedência segue o que cada uma responde:
+
+| A decisão responde | Quem manda | Efeito da repontuação |
+|---|---|---|
+| "esta participação vale?" (invalidação) | a comissão, pela invalidação | **nenhum** — a linha invalidada sobrevive e segue valendo zero |
+| "qual foi o resultado?" (correção de colocação) | a súmula oficial | a colocação republicada **substitui** a correção administrativa |
+
+A separação não é detalhe de implementação: a súmula não fala sobre doping nem
+sobre expulsão, então republicá-la não pode desfazer uma desclassificação. Já
+sobre colocação ela é a autoridade, e a convergência das duas para a versão
+oficial é o desfecho desejado. O histórico da correção continua na auditoria.
+
+Ver `tests/invalidacao-contra-repontuacao.test.mjs`.
+
+---
+
+## DECISÃO PENDENTE DE HOMOLOGAÇÃO — Overall em duas absolutas no mesmo evento
+
+**Status: BLOQUEADO NO PRODUTO até a organização homologar a regra.**
+
+Um atleta declarado campeão Overall em **duas categorias absolutas distintas do
+mesmo campeonato** — por exemplo Men's Bodybuilding e Classic Physique. Quanto
+vale?
+
+| Leitura | Argumento |
+|---|---|
+| **+10** | o Overall é o título de campeão absoluto do evento, e um evento tem um campeão. O bônus é do título, não da categoria. |
+| **+20** | cada categoria absoluta tem o seu Overall, e cada título homologado vale o seu bônus. |
+
+**As duas são defensáveis, e a plataforma não escolhe.** Escolher aqui seria o
+sistema legislando regra esportiva, que é exatamente o que este documento
+proíbe em todos os outros pontos.
+
+### O que acontecia antes do bloqueio, medido
+
+A segunda declaração era **aceita** (HTTP 201). O evento ficava com dois
+títulos, e o pagamento dependia de acidente: na medição, um atleta 1º em
+Bodybuilding e 1º em Classic Physique terminou com **20 pontos e bônus
+`[0, 10]`** — o segundo título não encontrou linha onde pousar, porque o
+`categoryId` daquele lançamento estava nulo, e pagou **zero em silêncio**. Se a
+importação tivesse resolvido a categoria, teria pago +20.
+
+Ou seja: o total dependia de um detalhe de importação, não de regra. Sorteio
+decidindo campeonato é pior do que qualquer das duas leituras.
+
+### O comportamento atual
+
+A segunda declaração é **recusada com HTTP 409** e a mensagem administrativa:
+
+> Este evento já possui uma declaração Overall para este atleta em outra
+> categoria absoluta. A regra de pontuação para múltiplos títulos Overall neste
+> mesmo evento ainda requer homologação.
+
+Código do erro: `OVERALL_MULTIPLE_CATEGORIES_PENDING_RULE`.
+
+O que **continua liberado**, porque é o caso normal do campeonato:
+
+* um título por categoria para atletas **diferentes**;
+* repetir a **mesma** declaração (idempotente);
+* revogar o primeiro título e declarar na outra categoria — corrigir um engano
+  de categoria segue sendo revogar e declarar de novo.
+
+O bloqueio também alcança a combinação de um título do **evento inteiro**
+(recorte nulo) com um título de categoria para o mesmo atleta: é o mesmo
+acúmulo, por outra porta.
+
+### Como levantar o bloqueio
+
+Quando a organização homologar a regra, a mudança é de uma decisão só, em
+`declareOverall`, e precisa vir acompanhada de: a regra escrita neste
+documento, o teste que a fixa em `tests/overall-em-duas-absolutas.test.mjs`, e
+a definição de como ficam os eventos que já tiverem dois títulos declarados
+antes do bloqueio — se existir algum.
+
+Ver `tests/overall-em-duas-absolutas.test.mjs`.
+
 ---
 
 ## Minha Filiação, Meu Histórico e a revisão do matching (FASE 9)

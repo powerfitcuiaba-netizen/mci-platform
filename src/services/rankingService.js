@@ -399,10 +399,64 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
   );
 
   const atribuidos = await prisma.$transaction(async tx => {
-    if (recompute) await tx.rankingPoint.deleteMany({ where: { seasonId, resultId } });
+    // A REPONTUAÇÃO NÃO REVOGA UMA INVALIDAÇÃO ADMINISTRATIVA.
+    //
+    // Achado de auditoria, e determinístico — não é corrida. O `deleteMany`
+    // apagava TODAS as linhas do resultado e as recriava do zero, inclusive a
+    // que um operador tinha invalidado. Como `results.override` repontua todo
+    // resultado já publicado, o caminho era trivial: desclassificar um atleta,
+    // corrigir a súmula da classe por outro motivo, e a desclassificação sumia.
+    // O atleta voltava a pontuar no ranking publicado, sem aviso, e a entrada
+    // de auditoria da invalidação passava a apontar para uma linha que não
+    // existia mais.
+    //
+    // AS DUAS DECISÕES SÃO SOBRE COISAS DIFERENTES, e é isso que decide a
+    // precedência:
+    //
+    //   · invalidar responde "esta participação vale?" — doping, expulsão,
+    //     decisão da comissão. A súmula republicada não fala sobre isso, e por
+    //     isso não pode desfazê-la. A linha invalidada SOBREVIVE;
+    //   · corrigir a colocação responde "qual foi o resultado?" — e aí a
+    //     súmula é a autoridade. Uma súmula corrigida SUBSTITUI a correção
+    //     administrativa daquela colocação, de propósito: as duas convergem
+    //     para a versão oficial, que é o desfecho desejado. O histórico da
+    //     correção continua na auditoria.
+    //
+    // A linha preservada não vira duplicata: `@@unique([seasonId, athleteId,
+    // resultId])` faz o `create` seguinte levantar P2002, que o `catch` abaixo
+    // já trata como "já pontuado".
+    if (recompute) {
+      await tx.rankingPoint.deleteMany({ where: { seasonId, resultId, voidedAt: null } });
+    }
+
+    // QUEM SOBROU NÃO É RECRIADO — E A CONFERÊNCIA PRECISA SER ANTES.
+    //
+    // Depois do `deleteMany` seletivo, ainda existem linhas deste resultado:
+    // as invalidadas, que acabaram de ser poupadas. Tentar criá-las de novo
+    // levantaria P2002 — e P2002 AQUI é fatal, não recuperável.
+    //
+    // A requisição inteira roda numa transação (é assim que o contexto de RLS
+    // é definido; ver withUserContext). A violação de unicidade ABORTA essa
+    // transação, e todo comando seguinte falha com 25P02 ("current transaction
+    // is aborted"). Medido: o `catch` de P2002 logo abaixo NÃO salva nada
+    // nesse caso — o `create` do próximo atleta morre com 25P02 e a requisição
+    // vira 500. Ele nunca tinha disparado porque o `deleteMany` antigo apagava
+    // tudo, garantindo que não houvesse com o que conflitar.
+    //
+    // Por isso a duplicata é EVITADA, e não capturada. É a mesma lição do gate
+    // de concorrência do /apply, que nasceu exatamente deste erro.
+    const jaLancados = new Set(
+      (await tx.rankingPoint.findMany({
+        where: { seasonId, resultId }, select: { athleteId: true }
+      })).map(ponto => ponto.athleteId)
+    );
 
     let total = 0;
     for (const entry of classificados) {
+      // Lançamento preservado (invalidado) ou já existente: a decisão
+      // administrativa fica de pé e a repontuação não o reescreve.
+      if (jaLancados.has(entry.athleteId)) continue;
+
       const ehCampeaoOverall = campeoesOverall.has(entry.athleteId);
       // `pontuarResultado` já aplica a regra vigente: o bônus exige a absoluta.
       // A normalização abaixo cuida do resto — que ele não se repita entre as
@@ -443,7 +497,11 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
         });
         total += 1;
       } catch (error) {
-        // Já pontuado: a constraint é a garantia de não duplicar.
+        // ÚLTIMA REDE, e não a barreira. A barreira é o `jaLancados` acima:
+        // dentro de uma transação interativa, P2002 já matou a transação e não
+        // há o que engolir. Isto aqui só cobre a inserção concorrente de outra
+        // requisição entre a leitura e a escrita — e mesmo aí a transação está
+        // perdida; o que este ramo evita é mascarar a causa com outro erro.
         if (error.code !== 'P2002') throw error;
       }
     }
@@ -714,6 +772,15 @@ async function aplicarTitulosDoEvento(eventId, seasonId, actor) {
   }, OPCOES_TRANSACAO);
 }
 
+// MENSAGEM ADMINISTRATIVA, LITERAL E DEFINIDA PELO ORGANIZADOR.
+//
+// Ela não descreve um erro técnico: descreve uma DECISÃO QUE FALTA. O
+// operador que a lê precisa entender que não errou, que a plataforma não
+// quebrou, e que o caminho é homologar a regra — não tentar de novo.
+const MENSAGEM_OVERALL_MULTIPLO = 'Este evento já possui uma declaração Overall '
+  + 'para este atleta em outra categoria absoluta. A regra de pontuação para '
+  + 'múltiplos títulos Overall neste mesmo evento ainda requer homologação.';
+
 async function declareOverall(eventId, { athleteId, categoryId = null, note = null }, actor) {
   const event = await prisma.event.findUnique({
     where: { id: eventId },
@@ -797,45 +864,86 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
     );
   }
 
-  // `upsert` não serve aqui: o Prisma não aceita valor nulo dentro de chave
-  // única composta, e o recorte nulo é justamente o Overall do evento inteiro.
-  const existente = await prisma.eventOverallTitle.findFirst({ where: { eventId, categoryId } });
-
-  // TROCAR CAMPEÃO HOMOLOGADO NÃO É EFEITO COLATERAL DE UM POST REPETIDO.
+  // A DECLARAÇÃO INTEIRA SOB UMA TRAVA DO EVENTO.
   //
-  // Antes, declarar outro atleta no mesmo recorte simplesmente substituía o
-  // anterior — em silêncio, sem registro do que havia antes. Um título
-  // esportivo homologado não se troca assim: quem errou revoga, com motivo, e
-  // declara de novo. As duas operações ficam na trilha.
-  if (existente && existente.athleteId !== athleteId) {
-    throw new AppError(
-      409, 'OVERALL_ALREADY_DECLARED',
-      'Esta categoria já possui um Overall homologado. Revogue a homologação atual antes de declarar outro campeão.'
-    );
-  }
-
-  // Repetir a MESMA homologação é idempotente: o operador que clica duas vezes,
-  // ou dois operadores que confirmam o mesmo fato, não produzem dois títulos —
-  // nem dois bônus.
-  // A CORRIDA. Dois operadores na mesma sala, ou duas abas do mesmo operador:
-  // ambos leem "não existe título" e ambos tentam criar. O `findFirst` acima
-  // não impede nada — entre ele e o `create` cabe a outra requisição.
-  //
-  // Quem impede é o índice único no banco, e ele impede DEPOIS: a segunda
-  // escrita levanta P2002. Traduzir isso aqui é o que transforma uma corrida
-  // perdida em resposta com sentido. Sem esta tradução a segunda requisição
-  // respondia 500 — medido na FASE 13, disparando as duas em paralelo.
+  // As duas conferências abaixo leem antes de escrever, e a de recorte
+  // cruzado não tem índice único que a socorra: dois títulos do mesmo atleta
+  // em CATEGORIAS DIFERENTES são, para o banco, duas linhas perfeitamente
+  // válidas. Sem serializar, duas declarações simultâneas atravessam juntas e
+  // gravam exatamente o acúmulo que esta fase existe para impedir.
   let titulo;
   try {
-    titulo = existente
-      ? await prisma.eventOverallTitle.update({
-        where: { id: existente.id },
-        data: { note: note ?? existente.note, declaredById: actor?.id ?? null, declaredAt: new Date() }
-      })
-      : await prisma.eventOverallTitle.create({
-        data: { eventId, athleteId, categoryId, note, declaredById: actor?.id ?? null }
+    titulo = await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`overall:evento:${eventId}`}))`;
+
+      // DOIS TÍTULOS OVERALL PARA O MESMO ATLETA NO MESMO CAMPEONATO:
+      // O SISTEMA NÃO DECIDE.
+      //
+      // A regra de pontuação para esse caso NÃO está homologada. +10 (é
+      // campeão absoluto do evento, uma vez) e +20 (cada título vale o seu
+      // bônus) são leituras defensáveis, e escolher uma aqui seria a
+      // plataforma legislando regra esportiva.
+      //
+      // O QUE ACONTECIA ANTES, MEDIDO: a segunda declaração era aceita (201),
+      // o evento ficava com dois títulos, e o pagamento dependia de acidente.
+      // Na medição, um atleta 1º em Bodybuilding e 1º em Classic Physique
+      // terminou com 20 pontos e bônus [0, 10] — o segundo título não achou
+      // linha para pousar porque o `categoryId` daquele lançamento estava
+      // nulo, e pagou ZERO em silêncio. Se o importador tivesse resolvido a
+      // categoria, teria pago +20. Quer dizer: o total dependia de um detalhe
+      // de importação, não de regra. Sorteio decidindo campeonato é pior que
+      // qualquer das duas regras candidatas.
+      //
+      // Enquanto não houver homologação, a segunda declaração é RECUSADA com
+      // mensagem administrativa — e não com erro genérico, que o operador
+      // leria como defeito da plataforma.
+      //
+      // A comparação é feita em memória, e não por `NOT: { categoryId }`: no
+      // Prisma isso vira `categoryId <> '...'`, que em SQL NÃO casa com nulo,
+      // e deixaria passar exatamente o caso do título do evento inteiro
+      // (recorte nulo) convivendo com um título de categoria.
+      const doAtleta = await tx.eventOverallTitle.findMany({
+        where: { eventId, athleteId }, select: { id: true, categoryId: true }
       });
+      if (doAtleta.some(outro => outro.categoryId !== categoryId)) {
+        throw new AppError(409, 'OVERALL_MULTIPLE_CATEGORIES_PENDING_RULE', MENSAGEM_OVERALL_MULTIPLO);
+      }
+
+      // `upsert` não serve aqui: o Prisma não aceita valor nulo dentro de chave
+      // única composta, e o recorte nulo é justamente o Overall do evento inteiro.
+      const existente = await tx.eventOverallTitle.findFirst({ where: { eventId, categoryId } });
+
+      // TROCAR CAMPEÃO HOMOLOGADO NÃO É EFEITO COLATERAL DE UM POST REPETIDO.
+      //
+      // Antes, declarar outro atleta no mesmo recorte simplesmente substituía o
+      // anterior — em silêncio, sem registro do que havia antes. Um título
+      // esportivo homologado não se troca assim: quem errou revoga, com motivo, e
+      // declara de novo. As duas operações ficam na trilha.
+      if (existente && existente.athleteId !== athleteId) {
+        throw new AppError(
+          409, 'OVERALL_ALREADY_DECLARED',
+          'Esta categoria já possui um Overall homologado. Revogue a homologação atual antes de declarar outro campeão.'
+        );
+      }
+
+      // Repetir a MESMA homologação é idempotente: o operador que clica duas
+      // vezes, ou dois operadores que confirmam o mesmo fato, não produzem dois
+      // títulos — nem dois bônus.
+      return existente
+        ? tx.eventOverallTitle.update({
+          where: { id: existente.id },
+          data: { note: note ?? existente.note, declaredById: actor?.id ?? null, declaredAt: new Date() }
+        })
+        : tx.eventOverallTitle.create({
+          data: { eventId, athleteId, categoryId, note, declaredById: actor?.id ?? null }
+        });
+    }, OPCOES_TRANSACAO);
   } catch (erro) {
+    // O índice único continua sendo a última linha, para a corrida que a trava
+    // não cobrir (outra instância, outro processo). Ele impede DEPOIS: a
+    // segunda escrita levanta P2002, e traduzir isso aqui é o que transforma
+    // uma corrida perdida em resposta com sentido. Sem esta tradução a segunda
+    // requisição respondia 500 — medido na FASE 13.
     if (!ehViolacaoDeUnicidade(erro)) throw erro;
 
     // Perdeu a corrida, e NÃO dá para reler aqui dentro.
