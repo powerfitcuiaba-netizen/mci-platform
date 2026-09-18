@@ -63,7 +63,7 @@ const NAVEGACAO_ADMIN = [
   // Item PRÓPRIO, e não uma aba dentro de Ranking: homologar Overall é o ato
   // esportivo oficial da plataforma, e precisa ser encontrável sem caça.
   { rota: 'admin/overall', rotulo: 'Overall', icone: Trophy, permissao: 'ranking.manage' },
-  { rota: 'admin/musclewar', rotulo: 'MuscleWar', icone: Upload, permissao: 'musclewar.review' },
+  { rota: 'admin/musclewar', rotulo: 'MuscleWare', icone: Upload, permissao: 'musclewar.review' },
   { rota: 'admin/auditoria', rotulo: 'Auditoria', icone: ShieldCheck, permissao: 'audit.read' },
   { rota: 'admin/configuracoes', rotulo: 'Configurações', icone: Settings, permissao: 'users.read' }
 ];

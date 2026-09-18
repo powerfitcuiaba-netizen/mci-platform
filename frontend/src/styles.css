@@ -498,20 +498,46 @@ h1, h2, h3 { margin: 0; }
 @keyframes brilho { to { background-position: -200% 0; } }
 
 /* --- modais ------------------------------------------------------------- */
-.modal-layer { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: var(--e5); overflow: auto; }
+/* O DIÁLOGO CABE NA TELA, E O RODAPÉ NÃO FOGE DELA.
+   Medido com a revisão do Ipiranga (191 linhas): o modal era uma caixa única
+   com `overflow: auto`, então cabeçalho e rodapé rolavam junto com o conteúdo.
+   Em 1366x768 o operador precisava rolar DENTRO do diálogo para reencontrar
+   "Aplicar", e a tabela — presa a 340px fixos — somava altura que a viewport
+   não tinha. Três áreas resolvem: topo e rodapé grudados, miolo rolando. */
+.modal-layer { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: var(--e5); overflow: hidden; }
 .modal-scrim { position: absolute; inset: 0; background: rgba(3,5,8,.72); border: 0; backdrop-filter: blur(3px); animation: surge var(--t-base) ease-out; }
 .modal {
-  position: relative; width: min(100%, 560px);
+  position: relative; width: min(100%, 560px); max-width: 96vw;
   background: var(--superficie-3); border: 1px solid var(--linha-forte);
   border-radius: var(--raio-2); padding: var(--e6);
-  max-height: calc(100vh - var(--e8)); overflow: auto;
+  /* `dvh` acompanha a barra de endereço que aparece e some no celular; `vh`
+     sozinho mede a tela com a barra recolhida e deixa o rodapé embaixo dela. */
+  max-height: min(92vh, 92dvh);
+  /* `hidden` no eixo horizontal é o que impede a tabela larga de empurrar o
+     diálogo para fora da viewport: quem rola na horizontal é `.table-wrap`. */
+  overflow: hidden auto; overscroll-behavior: contain;
   box-shadow: var(--sombra-3); animation: sobe var(--t-calmo) var(--mola);
 }
-.modal-wide { width: min(100%, 900px); }
-.modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--e4); margin-bottom: var(--e5); padding-bottom: var(--e3); border-bottom: 1px solid var(--linha); }
+.modal-wide { width: min(100%, 1100px); }
+/* Grudados nas bordas do próprio diálogo. O deslocamento negativo cancela o
+   padding do modal, senão sobraria uma faixa de conteúdo aparecendo por baixo. */
+.modal-head {
+  position: sticky; top: calc(var(--e6) * -1); z-index: 2;
+  background: var(--superficie-3);
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: var(--e4); margin: calc(var(--e6) * -1) calc(var(--e6) * -1) var(--e5);
+  padding: var(--e6) var(--e6) var(--e3); border-bottom: 1px solid var(--linha);
+}
 .modal-head h2 { font: 400 24px var(--fonte-display); letter-spacing: 1.1px; }
 .modal-head p { margin: var(--e1) 0 0; font-size: 12.5px; color: var(--cinza); }
-.modal-actions { display: flex; justify-content: flex-end; gap: var(--e2); border-top: 1px solid var(--linha); margin-top: var(--e5); padding-top: var(--e4); flex-wrap: wrap; }
+.modal-actions {
+  position: sticky; bottom: calc(var(--e6) * -1); z-index: 2;
+  background: var(--superficie-3);
+  display: flex; justify-content: flex-end; gap: var(--e2);
+  border-top: 1px solid var(--linha);
+  margin: var(--e5) calc(var(--e6) * -1) calc(var(--e6) * -1);
+  padding: var(--e4) var(--e6) var(--e6); flex-wrap: wrap;
+}
 @keyframes sobe  { from { opacity: 0; transform: translateY(8px) scale(.99); } to { opacity: 1; transform: none; } }
 @keyframes surge { from { opacity: 0; } to { opacity: 1; } }
 
@@ -762,6 +788,18 @@ h1, h2, h3 { margin: 0; }
 /* Recorte da revisão. Em 320px o seletor e a contagem empilham: o seletor tem
    min-width: auto por ser item de flex, e sem a quebra ele empurra a largura
    da tabela inteira para fora da tela. */
+/* A TABELA CONSOME O QUE SOBRA, E NÃO UM NÚMERO FIXO.
+   340px fixos somavam altura mesmo quando não havia altura a somar. O `clamp`
+   entrega uma faixa útil em qualquer tela: nunca menos de 180px (abaixo disso
+   a tabela deixa de ser tabela) e nunca mais de 46vh, para que métricas,
+   evento, filtros e rodapé continuem cabendo junto. */
+.tabela-em-modal { max-height: clamp(180px, 46vh, 520px); overflow: auto; }
+/* Lista de resultados de busca dentro de diálogo — mesma razão da tabela: a
+   altura tem de ceder quando a tela é baixa, senão empurra o rodapé. */
+.lista-em-modal {
+  max-height: clamp(140px, 30vh, 320px); overflow: auto;
+  border: 1px solid var(--linha); border-radius: 4px;
+}
 .import-filtros { display: flex; flex-wrap: wrap; align-items: center; gap: var(--e2); margin-bottom: var(--e3); }
 .import-filtros label { font-size: 13px; color: var(--cinza-fraco); }
 .import-filtros select { min-width: 0; max-width: 100%; }
@@ -918,9 +956,20 @@ h1, h2, h3 { margin: 0; }
   .page-head h1 { font-size: 30px; }
   .toast-stack { left: var(--e4); right: var(--e4); bottom: var(--e4); }
   .toast { max-width: none; }
-  .modal { padding: var(--e5); }
-  .modal-actions { justify-content: stretch; }
+  .modal { padding: var(--e4); max-width: none; width: 100%; }
+  .modal-head { top: calc(var(--e4) * -1); margin: calc(var(--e4) * -1) calc(var(--e4) * -1) var(--e4); padding: var(--e4) var(--e4) var(--e3); }
+  .modal-head h2 { font-size: 20px; }
+  .modal-actions {
+    bottom: calc(var(--e4) * -1); justify-content: stretch;
+    margin: var(--e4) calc(var(--e4) * -1) calc(var(--e4) * -1);
+    padding: var(--e3) var(--e4) var(--e4);
+  }
   .modal-actions .button { flex: 1; }
+  .modal-layer { padding: var(--e3); }
+  /* Em tela baixa o recorte da tabela encolhe junto: o rodapé tem prioridade. */
+  .tabela-em-modal { max-height: clamp(140px, 38vh, 320px); }
+  .lista-em-modal { max-height: clamp(120px, 26vh, 240px); }
+  .import-contagem { margin-left: 0; }
   .metric { padding: var(--e3) var(--e4); }
   .metric strong { font-size: 28px; }
   .hero { padding: var(--e5) var(--e4); }

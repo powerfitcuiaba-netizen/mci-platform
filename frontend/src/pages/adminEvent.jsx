@@ -821,7 +821,7 @@ function NovaInscricao({ eventId, notificar, onClose, onSalvo }) {
 
         {reconhecido && (
           <>
-            <Field label="Filiação" hint="Vínculo esportivo do atleta. Também é chave de conferência na importação MuscleWar.">
+            <Field label="Filiação" hint="Vínculo esportivo do atleta. Também é chave de conferência na importação MuscleWare.">
               <select value={affiliationId} onChange={evt => setAffiliationId(evt.target.value)}>
                 <option value="">Sem filiação</option>
                 {(filiacoes.data?.items || []).map(filiacao => <option key={filiacao.id} value={filiacao.id}>{filiacao.name} ({filiacao.code})</option>)}
