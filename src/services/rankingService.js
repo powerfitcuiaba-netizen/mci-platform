@@ -124,7 +124,11 @@ async function pointsForPlacing(seasonId, placing) {
 //      passaria a depender da ordem física das linhas no PostgreSQL, e um
 //      `pg_restore` moveria o bônus de lugar.
 function escolherPortadoraDoBonus(linhas) {
-  const candidatas = linhas.filter(linha => linha.superOverallEligible);
+  // INVALIDADO NÃO CARREGA TÍTULO. A participação continua no histórico, mas
+  // parou de pontuar por decisão administrativa registrada — receber +10
+  // depois disso ressuscitaria o lançamento pela porta dos fundos, sem
+  // ninguém ter restaurado nada.
+  const candidatas = linhas.filter(linha => linha.superOverallEligible && !linha.voidedAt);
   if (!candidatas.length) return null;
 
   return [...candidatas].sort((a, b) => {
@@ -176,7 +180,7 @@ async function normalizarBonusOverall(tx, { eventId, seasonId }) {
       },
       select: {
         id: true, placing: true, superOverallEligible: true, source: true,
-        didNotShow: true,
+        didNotShow: true, voidedAt: true,
         placementPoints: true, overallBonus: true, isOverallChampion: true,
         points: true, superOverallPoints: true
       },
@@ -197,6 +201,19 @@ async function normalizarBonusOverall(tx, { eventId, seasonId }) {
     if (portadora) portadoras.add(portadora.id);
 
     for (const linha of linhas) {
+      // INVALIDADO NÃO É REESCRITO POR ESTA FUNÇÃO.
+      //
+      // `placementPoints` continua guardando o que aconteceu no campeonato —
+      // é o registro histórico, e a restauração depende dele. Mas a linha
+      // invalidada vale ZERO por decisão administrativa registrada, e a conta
+      // abaixo é `placementPoints + bônus`: sem esta guarda, declarar (ou
+      // revogar) um Overall no evento devolvia a colocação à linha invalidada
+      // e ressuscitava o lançamento sem ninguém ter restaurado nada.
+      //
+      // Ela também nunca é portadora: `escolherPortadoraDoBonus` já a exclui.
+      // Pular aqui é o outro lado da mesma regra.
+      if (linha.voidedAt) continue;
+
       const ehPortadora = Boolean(portadora) && linha.id === portadora.id;
       const overallBonus = ehPortadora ? BONUS_OVERALL : 0;
       const points = linha.placementPoints + overallBonus;
@@ -239,7 +256,7 @@ async function normalizarBonusOverall(tx, { eventId, seasonId }) {
   // não escreve nada — é essa propriedade que a torna idempotente.
   const orfas = await tx.rankingPoint.findMany({
     where: {
-      seasonId, eventId, overallBonus: { gt: 0 },
+      seasonId, eventId, overallBonus: { gt: 0 }, voidedAt: null,
       ...(portadoras.size ? { id: { notIn: [...portadoras] } } : {})
     },
     select: { id: true, placementPoints: true, superOverallEligible: true }
@@ -1569,11 +1586,264 @@ async function athletePoints(athleteId, seasonId, actor) {
   });
 }
 
+
+// ==========================================================================
+// CORREÇÃO ADMINISTRATIVA DE LANÇAMENTO PUBLICADO.
+//
+// O caminho interno já tinha a sua: `results.override` grava um
+// `ResultVersion` com snapshot e motivo, e a apuração é refeita do zero. O
+// caminho IMPORTADO não tinha nenhuma — depois do `/apply`, um 3º que era 2º
+// ficava errado para sempre, e a única "saída" seria escrever no ledger por
+// fora, que é exatamente o que as regras da plataforma proíbem.
+//
+// Três decisões que moldam tudo o que vem abaixo:
+//
+//   1. OS PONTOS VÊM DO MOTOR, NUNCA DO CORPO DA REQUISIÇÃO. O operador
+//      informa a COLOCAÇÃO; quem transforma colocação em ponto é a tabela
+//      homologada da temporada. Aceitar um número digitado reabriria a porta
+//      que a importação fechou ao recusar a coluna de pontos do arquivo.
+//
+//   2. INVALIDAR NÃO APAGA. Zera o que PONTUA e preserva o que ACONTECEU: a
+//      linha continua no histórico do atleta, com quem invalidou, quando e por
+//      quê. Apagá-la faria a participação desaparecer — e num campeonato
+//      nacional "não pontuou" e "não competiu" são fatos diferentes.
+//
+//   3. MOTIVO É OBRIGATÓRIO. Seis meses depois, correção sem motivo é
+//      indistinguível de adulteração.
+// ==========================================================================
+
+/** Campos que a correção pode tocar. O resto do lançamento é história. */
+const CAMPOS_CORRIGIVEIS = Object.freeze(['placing', 'didNotShow']);
+
+async function carregarLancamento(rankingPointId, actor) {
+  // SEM `include` DE RELAÇÃO OBRIGATÓRIA. Medido com um operador de outra
+  // organização: o RLS deixava ver a linha do RankingPoint e BLOQUEAVA o
+  // Athlete relacionado — e o Prisma, ao receber nulo numa relação que o
+  // schema declara obrigatória, levanta "Inconsistent query result" e a
+  // requisição virava 500.
+  //
+  // Um 500 numa sonda cross-tenant é duas coisas ruins de uma vez: diz ao
+  // invasor que ele encostou em ALGO, e polui o log de erro com o que é, na
+  // verdade, a política de segurança funcionando. Carregar só escalares e
+  // buscar o resto em consultas próprias devolve o 404 discreto que a negação
+  // merece.
+  const ponto = await prisma.rankingPoint.findUnique({
+    where: { id: rankingPointId },
+    select: {
+      id: true, seasonId: true, athleteId: true, eventId: true, source: true,
+      externalResultId: true, placing: true, placingOriginal: true,
+      placementPoints: true, overallBonus: true, points: true,
+      superOverallPoints: true, superOverallEligible: true,
+      isOverallChampion: true, didNotShow: true,
+      voidedAt: true, voidedById: true, voidReason: true
+    }
+  });
+  if (!ponto) throw new AppError(404, 'RANKING_POINT_NOT_FOUND', 'Lançamento não encontrado');
+
+  const temporada = await prisma.rankingSeason.findUnique({
+    where: { id: ponto.seasonId }, select: { id: true, organizationId: true }
+  });
+  // Temporada invisível é o RLS negando a organização do lançamento. A resposta
+  // é a mesma de "não existe": quem não pode ver não recebe confirmação.
+  if (!temporada) throw new AppError(404, 'RANKING_POINT_NOT_FOUND', 'Lançamento não encontrado');
+
+  assertCan(actor, 'ranking.manage', temporada.organizationId);
+
+  // O atleta só é lido DEPOIS da autorização, e o nulo é tolerado: ele serve à
+  // prévia, não à decisão.
+  const athlete = await prisma.athlete.findUnique({
+    where: { id: ponto.athleteId }, select: { id: true, fullName: true }
+  });
+
+  return { ...ponto, season: temporada, athlete: athlete ?? { id: ponto.athleteId, fullName: null } };
+}
+
+/**
+ * Calcula como o lançamento ficaria, sem gravar nada.
+ * É a mesma função que a correção usa para decidir o novo estado — prévia e
+ * gravação não podem discordar, e a única forma de garantir isso é não
+ * existirem duas contas.
+ */
+async function projetarLancamento(ponto, mudanca) {
+  const didNotShow = mudanca.didNotShow ?? (mudanca.placing != null ? false : ponto.didNotShow);
+  const placing = didNotShow ? null : (mudanca.placing ?? ponto.placing);
+
+  const tabela = await prisma.rankingPointsRule.findMany({
+    where: { seasonId: ponto.seasonId }, select: { placing: true, points: true }
+  });
+
+  // Ausência vale zero por regra homologada, e o motor nem é consultado.
+  if (didNotShow || placing == null) {
+    return {
+      placing: null, didNotShow: true,
+      placementPoints: 0, overallBonus: 0, points: 0, superOverallPoints: 0,
+      isOverallChampion: false
+    };
+  }
+
+  const { placementPoints, overallBonus, points, superOverallPoints } = pontuarResultado(
+    placing, tabela, ponto.isOverallChampion, ponto.superOverallEligible
+  );
+  return {
+    placing, didNotShow: false,
+    placementPoints, overallBonus, points, superOverallPoints,
+    isOverallChampion: ponto.isOverallChampion
+  };
+}
+
+const retrato = ponto => ({
+  placing: ponto.placing, didNotShow: ponto.didNotShow,
+  placementPoints: ponto.placementPoints, overallBonus: ponto.overallBonus,
+  points: ponto.points, voided: Boolean(ponto.voidedAt)
+});
+
+/** Prévia do impacto: o antes, o depois e a diferença. Não grava. */
+async function previewRankingPoint(rankingPointId, mudanca, actor) {
+  const ponto = await carregarLancamento(rankingPointId, actor);
+  const novo = await projetarLancamento(ponto, mudanca);
+  return {
+    atual: retrato(ponto),
+    novo: { ...novo, voided: Boolean(ponto.voidedAt) },
+    diferenca: novo.points - ponto.points,
+    athlete: { id: ponto.athlete.id, fullName: ponto.athlete.fullName }
+  };
+}
+
+async function editRankingPoint(rankingPointId, dados, actor) {
+  const ponto = await carregarLancamento(rankingPointId, actor);
+  if (ponto.voidedAt) {
+    throw new AppError(409, 'RANKING_POINT_VOIDED',
+      'Lançamento invalidado não se corrige: restaure antes de alterar');
+  }
+
+  // ATRIBUIÇÃO EM MASSA MORRE AQUI. Só o que está em CAMPOS_CORRIGIVEIS
+  // atravessa; `eventId`, `athleteId`, `source`, `externalResultId` e `points`
+  // enviados no corpo são simplesmente ignorados, e o teste de invasão confere
+  // que continuam intactos depois da tentativa.
+  const mudanca = Object.fromEntries(
+    CAMPOS_CORRIGIVEIS.filter(campo => dados[campo] !== undefined).map(campo => [campo, dados[campo]])
+  );
+  if (!Object.keys(mudanca).length) {
+    throw new AppError(422, 'NOTHING_TO_EDIT', 'Informe a colocação ou o não comparecimento');
+  }
+
+  const novo = await projetarLancamento(ponto, mudanca);
+  const antes = retrato(ponto);
+
+  const atualizado = await prisma.$transaction(async tx => {
+    const linha = await tx.rankingPoint.update({
+      where: { id: rankingPointId },
+      data: {
+        placing: novo.placing, didNotShow: novo.didNotShow,
+        placementPoints: novo.placementPoints, overallBonus: novo.overallBonus,
+        points: novo.points, superOverallPoints: novo.superOverallPoints,
+        // A colocação de origem só é gravada na PRIMEIRA alteração: depois
+        // disso ela já registra de onde o lançamento partiu, e reescrevê-la
+        // apagaria justamente a informação que permite restaurar.
+        placingOriginal: ponto.placingOriginal ?? ponto.placing
+      }
+    });
+    return linha;
+  });
+
+  await recompute_(ponto.seasonId);
+
+  await audit.record({
+    actor, action: audit.ACTIONS.RANKING_POINT_EDITED,
+    entity: 'RankingPoint', entityId: rankingPointId,
+    organizationId: ponto.season.organizationId,
+    metadata: {
+      reason: dados.reason, athleteId: ponto.athleteId, eventId: ponto.eventId,
+      source: ponto.source, externalResultId: ponto.externalResultId,
+      antes, depois: retrato(atualizado)
+    }
+  });
+
+  return { ...retrato(atualizado), id: rankingPointId, diferenca: atualizado.points - antes.points };
+}
+
+async function voidRankingPoint(rankingPointId, { reason }, actor) {
+  const ponto = await carregarLancamento(rankingPointId, actor);
+  if (ponto.voidedAt) {
+    throw new AppError(409, 'RANKING_POINT_ALREADY_VOIDED', 'Lançamento já invalidado');
+  }
+
+  const antes = retrato(ponto);
+  const atualizado = await prisma.rankingPoint.update({
+    where: { id: rankingPointId },
+    data: {
+      voidedAt: new Date(), voidedById: actor?.id ?? null, voidReason: reason,
+      // Zera o que PONTUA. `placementPoints` guarda o que aconteceu, e
+      // `placingOriginal` de onde partiu — as duas peças de que a restauração
+      // precisa para não recalcular às cegas.
+      overallBonus: 0, points: 0, superOverallPoints: 0, isOverallChampion: false,
+      placingOriginal: ponto.placingOriginal ?? ponto.placing
+    }
+  });
+
+  await recompute_(ponto.seasonId);
+
+  await audit.record({
+    actor, action: audit.ACTIONS.RANKING_POINT_VOIDED,
+    entity: 'RankingPoint', entityId: rankingPointId,
+    organizationId: ponto.season.organizationId,
+    metadata: {
+      reason, athleteId: ponto.athleteId, eventId: ponto.eventId,
+      source: ponto.source, externalResultId: ponto.externalResultId,
+      antes, depois: retrato(atualizado)
+    }
+  });
+
+  return { ...retrato(atualizado), id: rankingPointId };
+}
+
+async function restoreRankingPoint(rankingPointId, { reason }, actor) {
+  const ponto = await carregarLancamento(rankingPointId, actor);
+  if (!ponto.voidedAt) {
+    throw new AppError(409, 'RANKING_POINT_NOT_VOIDED', 'Lançamento não está invalidado');
+  }
+
+  const antes = retrato(ponto);
+  // Restaurar recalcula a partir da COLOCAÇÃO guardada, e não de um total
+  // salvo: se a tabela da temporada mudou entre a invalidação e a restauração,
+  // o que volta é a regra vigente aplicada ao fato, não um número congelado.
+  const novo = await projetarLancamento(
+    { ...ponto, didNotShow: ponto.placingOriginal == null && ponto.didNotShow },
+    { placing: ponto.placingOriginal ?? ponto.placing }
+  );
+
+  const atualizado = await prisma.rankingPoint.update({
+    where: { id: rankingPointId },
+    data: {
+      voidedAt: null, voidedById: null, voidReason: null,
+      placing: novo.placing, didNotShow: novo.didNotShow,
+      placementPoints: novo.placementPoints, overallBonus: novo.overallBonus,
+      points: novo.points, superOverallPoints: novo.superOverallPoints
+    }
+  });
+
+  await recompute_(ponto.seasonId);
+
+  await audit.record({
+    actor, action: audit.ACTIONS.RANKING_POINT_RESTORED,
+    entity: 'RankingPoint', entityId: rankingPointId,
+    organizationId: ponto.season.organizationId,
+    metadata: {
+      reason, athleteId: ponto.athleteId, eventId: ponto.eventId,
+      source: ponto.source, externalResultId: ponto.externalResultId,
+      antes, depois: retrato(atualizado)
+    }
+  });
+
+  return { ...retrato(atualizado), id: rankingPointId };
+}
+
 module.exports = {
   TOP_PUBLICO,
   createSeason, listSeasons, setPointsRules, pointsForPlacing, awardForResult,
   recompute, recompute_, list, athletePoints, teamRanking,
   declareOverall, listOverall, overallCandidates, overallPreview, revokeOverall,
+  previewRankingPoint, editRankingPoint, voidRankingPoint, restoreRankingPoint,
   superOverallRanking, listClasses, upsertClass, companyRanking,
   athleteRankingBy,
   TABELA_OFICIAL_COLOCACAO, BONUS_OVERALL,

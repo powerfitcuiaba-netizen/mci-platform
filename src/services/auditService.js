@@ -25,6 +25,12 @@ const ACTIONS = Object.freeze({
   RESULT_PUBLICATION: 'RESULT_PUBLICATION',
   RESULT_OVERRIDE: 'RESULT_OVERRIDE',
   RANKING_UPDATE: 'RANKING_UPDATE',
+  // Correção administrativa de lançamento já publicado. Três ações separadas
+  // porque as três respondem perguntas diferentes na trilha: o que mudou, o
+  // que deixou de valer, e o que voltou a valer.
+  RANKING_POINT_EDITED: 'RANKING_POINT_EDITED',
+  RANKING_POINT_VOIDED: 'RANKING_POINT_VOIDED',
+  RANKING_POINT_RESTORED: 'RANKING_POINT_RESTORED',
   // Pontuação (fase 11.3). O padrão do projeto é ENTIDADE_VERBO, então os
   // nomes seguem SCORE_*, e não os do enunciado, que usa VERBO no particípio.
   // RANKING_UPDATE já cobre o recálculo do agregado e permanece como está.
