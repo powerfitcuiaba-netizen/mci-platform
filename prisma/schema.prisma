@@ -57,6 +57,10 @@ model Organization {
   sponsors               Sponsor[]
   seasons                RankingSeason[]
   muscleWarImports       MuscleWarImport[]
+  externalAthletes       ExternalAthlete[]
+  externalResults        ExternalResult[]
+  rankingPoints          RankingPoint[]
+  rankings               Ranking[]
   athleteIdentities      AthleteIdentity[]
   classCatalog           ClassCatalog[]
   companies              Company[]
@@ -175,6 +179,7 @@ model User {
   uploadedDocuments      AthleteDocument[]       @relation("DocumentUploader")
   eventDocuments         EventDocument[]         @relation("EventDocumentUploader")
   muscleWarImports       MuscleWarImport[]       @relation("ImportCreatedBy")
+  externalAthletesLinked ExternalAthlete[]       @relation("ExternalAthleteLinkedBy")
   muscleWarApplied       MuscleWarImport[]       @relation("ImportAppliedBy")
   muscleWarInvalidated   MuscleWarImport[]       @relation("ImportInvalidatedBy")
   moderationActions      ContentReport[]         @relation("ReportResolver")
@@ -220,6 +225,7 @@ model Affiliation {
   registrations          Registration[]
   athleteProfileRequests AthleteProfileRequest[]
   rankingPoints          RankingPoint[]
+  externalAthletes       ExternalAthlete[]
 
   @@unique([organizationId, code])
   @@index([organizationId, active])
@@ -311,6 +317,7 @@ model Athlete {
   overallTitles          EventOverallTitle[]
   teamMemberships        AthleteTeamMembership[]
   athleteProfileRequests AthleteProfileRequest[]
+  externalIdentities     ExternalAthlete[]
 
   @@unique([organizationId, athleteNumber])
   @@index([organizationId, fullName])
@@ -1218,14 +1225,15 @@ model RankingSeason {
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
-  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  scoringRuleSet  ScoringRuleSet?     @relation(fields: [scoringRuleSetId], references: [id], onDelete: SetNull)
+  organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scoringRuleSet  ScoringRuleSet?      @relation(fields: [scoringRuleSetId], references: [id], onDelete: SetNull)
   events          Event[]
   pointsRules     RankingPointsRule[]
   points          RankingPoint[]
   rankings        Ranking[]
   externalResults ExternalResult[]
   imports         MuscleWarImport[]
+  publicEntries   PublicRankingEntry[]
 
   @@unique([organizationId, name])
   @@index([organizationId, status])
@@ -1255,7 +1263,24 @@ enum PointSource {
 model RankingPoint {
   id                   String      @id @default(cuid())
   seasonId             String
-  athleteId            String
+  /// A organização dona do lançamento, EXPLÍCITA — mesma razão de
+  /// `ExternalResult.organizationId`: o isolamento desta tabela era derivado
+  /// de `athleteId` ser obrigatório, e o histórico anterior ao cadastro
+  /// desfaz essa dedução.
+  organizationId       String
+  /// O atleta do MCI, quando existir. Nulo enquanto o resultado histórico
+  /// ainda não foi vinculado a um cadastro.
+  athleteId            String?
+  /// A identidade esportiva externa que ganhou o ponto. NULA no caminho
+  /// interno (`source: 'EVENT'`), cujos resultados nascem de julgamento no
+  /// MCI e não têm identidade em fonte externa nenhuma — exigir a coluna ali
+  /// obrigaria a INVENTAR identidade externa, que é o oposto do que esta
+  /// separação existe para fazer.
+  ///
+  /// O invariante de verdade — todo lançamento tem um competidor — é a CHECK
+  /// `RankingPoint_competidor_presente`, na migration: pelo menos uma das
+  /// duas colunas preenchida, sempre.
+  externalAthleteId    String?
   categoryId           String?
   source               PointSource
   eventId              String?
@@ -1321,7 +1346,9 @@ model RankingPoint {
   createdAt            DateTime    @default(now())
 
   season           RankingSeason     @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  athlete          Athlete           @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  athlete          Athlete?          @relation(fields: [athleteId], references: [id], onDelete: SetNull)
+  externalAthlete  ExternalAthlete?  @relation(fields: [externalAthleteId], references: [id], onDelete: SetNull)
   category         Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   event            Event?            @relation(fields: [eventId], references: [id], onDelete: SetNull)
   result           Result?           @relation(fields: [resultId], references: [id], onDelete: SetNull)
@@ -1336,6 +1363,8 @@ model RankingPoint {
   // mesma temporada.
   @@unique([seasonId, athleteId, resultId])
   @@index([seasonId, athleteId])
+  @@index([organizationId])
+  @@index([seasonId, externalAthleteId])
   @@index([seasonId, teamId])
   @@index([seasonId, companyId])
   // Criado em 20260906280000. Declarado aqui porque índice que existe só no
@@ -1382,34 +1411,50 @@ model EventOverallTitle {
 }
 
 model Ranking {
-  id               String   @id @default(cuid())
-  seasonId         String
-  athleteId        String
-  categoryId       String?
-  totalPoints      Int      @default(0)
-  eventCount       Int      @default(0)
+  id                String   @id @default(cuid())
+  seasonId          String
+  organizationId    String
+  athleteId         String?
+  externalAthleteId String?
+  /// O COMPETIDOR, numa coluna só — `athleteId` quando há cadastro, senão a
+  /// identidade externa prefixada. É ela que agrega e que fecha a unicidade:
+  /// com duas colunas nuláveis, o PostgreSQL trata NULOS como distintos e a
+  /// chave deixaria passar duplicata justamente no caso novo.
+  ///
+  /// Materializada por `recomputarEm`, nunca escrita à mão.
+  competitorKey     String
+  /// Nome a exibir enquanto não há cadastro no MCI: vem de
+  /// `ExternalAthlete.displayName`, que é o nome CONFORME A FONTE. Quando
+  /// `athleteId` existe, quem manda é o cadastro, e a leitura usa ele.
+  displayName       String?
+  categoryId        String?
+  totalPoints       Int      @default(0)
+  eventCount        Int      @default(0)
   // Contadores de desempate. Ficam materializados porque a ordenação depende
   // deles: guardar só o total tornaria o ranking impossível de auditar e de
   // reordenar sem reabrir cada ponto.
-  overallWins      Int      @default(0)
-  firstPlaceCount  Int      @default(0)
-  secondPlaceCount Int      @default(0)
-  thirdPlaceCount  Int      @default(0)
-  fourthPlaceCount Int      @default(0)
-  fifthPlaceCount  Int      @default(0)
+  overallWins       Int      @default(0)
+  firstPlaceCount   Int      @default(0)
+  secondPlaceCount  Int      @default(0)
+  thirdPlaceCount   Int      @default(0)
+  fourthPlaceCount  Int      @default(0)
+  fifthPlaceCount   Int      @default(0)
   // Empate que a hierarquia oficial não resolveu: os empatados ficam sem
   // posição, como manda a regra, em vez de receberem uma ordem arbitrária.
-  tieUnresolved    Boolean  @default(false)
-  position         Int?
-  state            String?
-  country          String?
-  updatedAt        DateTime @updatedAt
+  tieUnresolved     Boolean  @default(false)
+  position          Int?
+  state             String?
+  country           String?
+  updatedAt         DateTime @updatedAt
 
-  season   RankingSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  athlete  Athlete       @relation(fields: [athleteId], references: [id], onDelete: Cascade)
-  category Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  season          RankingSeason    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  athlete         Athlete?         @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  externalAthlete ExternalAthlete? @relation(fields: [externalAthleteId], references: [id], onDelete: Cascade)
+  category        Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
-  @@unique([seasonId, athleteId, categoryId])
+  @@unique([seasonId, competitorKey, categoryId])
+  @@index([organizationId])
   @@index([seasonId, totalPoints])
   /// Espelha o ORDER BY da leitura do ranking (posição, total, id), que é o
   /// que permite ao PostgreSQL pular o sort. Sem ele a rota pública fazia
@@ -1442,39 +1487,39 @@ enum ImportStatus {
 }
 
 model MuscleWarImport {
-  id             String           @id @default(cuid())
-  organizationId String
-  seasonId       String?
-  eventId        String?
-  sourceType     ImportSourceType
-  sourceRef      String
-  status         ImportStatus     @default(PENDING)
-  totalRecords   Int              @default(0)
-  matchedCount   Int              @default(0)
-  pendingCount   Int              @default(0)
-  conflictCount  Int              @default(0)
-  duplicateCount Int              @default(0)
-  rejectedCount  Int              @default(0)
-  appliedCount   Int              @default(0)
-  version        Int              @default(1)
-  createdById    String?
-  appliedById    String?
-  appliedAt      DateTime?
+  id               String           @id @default(cuid())
+  organizationId   String
+  seasonId         String?
+  eventId          String?
+  sourceType       ImportSourceType
+  sourceRef        String
+  status           ImportStatus     @default(PENDING)
+  totalRecords     Int              @default(0)
+  matchedCount     Int              @default(0)
+  pendingCount     Int              @default(0)
+  conflictCount    Int              @default(0)
+  duplicateCount   Int              @default(0)
+  rejectedCount    Int              @default(0)
+  appliedCount     Int              @default(0)
+  version          Int              @default(1)
+  createdById      String?
+  appliedById      String?
+  appliedAt        DateTime?
   /// Quando o lote publicado foi desfeito, por quem e por quê. Nulos num lote
   /// que nunca foi invalidado — e um lote que nunca foi APLICADO não chega
   /// aqui, porque esse é excluído de verdade.
   invalidatedAt    DateTime?
   invalidatedById  String?
   invalidateReason String?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
-  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  season       RankingSeason? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
-  event        Event?         @relation(fields: [eventId], references: [id], onDelete: SetNull)
-  createdBy    User?          @relation("ImportCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  appliedBy    User?          @relation("ImportAppliedBy", fields: [appliedById], references: [id], onDelete: SetNull)
-  invalidatedBy User?         @relation("ImportInvalidatedBy", fields: [invalidatedById], references: [id], onDelete: SetNull)
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  season        RankingSeason? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  event         Event?         @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  createdBy     User?          @relation("ImportCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  appliedBy     User?          @relation("ImportAppliedBy", fields: [appliedById], references: [id], onDelete: SetNull)
+  invalidatedBy User?          @relation("ImportInvalidatedBy", fields: [invalidatedById], references: [id], onDelete: SetNull)
 
   items MuscleWarImportItem[]
 
@@ -1570,29 +1615,194 @@ model MuscleWarImportItem {
 // Registro canônico de um resultado externo já aplicado. O par
 // (source, externalId) é único: reimportar o mesmo resultado não gera segunda
 // pontuação — é isto que torna a importação idempotente.
-model ExternalResult {
-  id           String    @id @default(cuid())
-  source       String    @default("MUSCLEWAR")
-  externalId   String
-  seasonId     String?
-  athleteId    String
-  categoryCode String?
-  className    String?
-  placing      Int?
-  points       Int       @default(0)
-  eventName    String?
-  eventDate    DateTime?
-  importItemId String?   @unique
-  appliedAt    DateTime  @default(now())
-  createdAt    DateTime  @default(now())
+/// ============================================================================
+/// IDENTIDADE ESPORTIVA EXTERNA — e por que ela não é um atleta.
+///
+/// O MCI carrega primeiro o HISTÓRICO OFICIAL dos campeonatos antigos; os
+/// atletas se cadastram depois. Um resultado de 2024 existe, pontua e precisa
+/// aparecer no ranking muito antes de haver alguém logado para reivindicá-lo.
+///
+/// Até aqui isso era impossível por construção: `ExternalResult.athleteId` e
+/// `RankingPoint.athleteId` eram NOT NULL, e a única forma de guardar um
+/// resultado era ter um cadastro. A saída óbvia — criar atleta automaticamente
+/// — é a errada: inventa CPF, inventa usuário, e funde carreiras de homônimos
+/// sem ninguém decidir nada.
+///
+/// Esta tabela é a saída certa. Ela guarda QUEM COMPETIU SEGUNDO A FONTE, que
+/// é um fato do campeonato, separado de QUEM É O USUÁRIO DO MCI, que é um fato
+/// do cadastro. `athleteId` aqui é o vínculo entre os dois — nulo até alguém
+/// se cadastrar, preenchido depois, e nunca deduzido por semelhança de nome.
+///
+/// POR QUE O VÍNCULO TARDIO É IDEMPOTENTE DE GRAÇA
+///
+/// Os pontos apontam para a IDENTIDADE EXTERNA, não para o cadastro. Vincular
+/// não cria lançamento nem recalcula pontuação: preenche um ponteiro que
+/// estava nulo. Segunda execução encontra `athleteId IS NULL` falso e altera
+/// zero linhas. Não há como duplicar o que não é criado, nem perder o que não
+/// é apagado.
+///
+/// A CHAVE
+///
+/// `organizationId + affiliationId + affiliationNumber` é a identidade
+/// principal, como manda a homologação — filiação mais matrícula, nunca nome.
+/// Mas nem toda linha de arquivo traz as duas, e `UNIQUE` com coluna nula não
+/// deduplica nada no PostgreSQL: NULOS são distintos entre si, e a chave
+/// deixaria passar exatamente o caso que ela existe para fechar.
+///
+/// Por isso a unicidade real é sobre `identityKey`, que é TOTAL e NOT NULL:
+///   AFF:<affiliationId>:<matrícula>   quando a fonte informa as duas
+///   EXT:<source>:<externalId>         quando não informa
+/// A primeira forma deduplica e é alcançável pelo vínculo tardio. A segunda
+/// dá casa e organização a uma linha sem identidade declarada, e é honesta
+/// sobre o que ela é: sem filiação e matrícula, não há a quem vincular.
+/// ============================================================================
+/// ============================================================================
+/// PROJEÇÃO PÚBLICA DO LEDGER — uma linha por lançamento, só o que é público.
+///
+/// POR QUE ELA EXISTE
+///
+/// `RankingPoint` passou a ter RLS de operador: ninguém de fora da organização
+/// lê o ledger. Só que QUATRO rotas anônimas viviam de lê-lo direto —
+/// `/ranking/super-overall`, `/ranking/by`, `/ranking/teams` e
+/// `/ranking/companies`. Fechar a tabela sem mais nada as deixaria devolvendo
+/// vazio para o visitante.
+///
+/// POR QUE NÃO É UM AGREGADO
+///
+/// Os quatro recortes são diferentes — por categoria, por evento, por classe,
+/// por divisão, por equipe, por empresa — e materializar um agregado por
+/// recorte significaria escrever a soma em vários lugares. Cada lugar desses é
+/// uma chance de a pontuação divergir da regra homologada, que é exatamente o
+/// que o §RANKING proíbe.
+///
+/// Uma LINHA POR LANÇAMENTO mantém um motor só: os mesmos campos, somados pelo
+/// mesmo código que já soma hoje. O que muda é de onde ele lê, e não o que ele
+/// calcula — por isso a equivalência é conferível pelos testes que já existem.
+///
+/// O QUE NÃO ESTÁ AQUI, DE PROPÓSITO
+///
+/// `awardedById`, `voidedById`, `voidReason`, `resultId`, `externalResultId`,
+/// `affiliationId`, `affiliationNumber`, `placingOriginal`, `resultVersion`.
+/// São a trilha administrativa — quem deu, quem desfez, por quê, a partir de
+/// qual resultado. Nada disso é ranking; é auditoria, e fica na tabela
+/// privada.
+///
+/// LANÇAMENTO INVALIDADO CONTINUA AQUI, zerado, como está no ledger. Tirá-lo
+/// mudaria `eventCount`, que conta participações e não pontos — e a regra
+/// homologada é explícita em que participar valendo zero é participar.
+///
+/// `sourceKey` é o que `COUNT(DISTINCT ...)` contava no SQL antigo:
+/// `COALESCE(eventId, externalResultId, 'externo')`. Materializado porque
+/// `externalResultId` não sai da tabela privada.
+/// ============================================================================
+model PublicRankingEntry {
+  id                   String   @id
+  seasonId             String
+  organizationId       String
+  /// O competidor, na mesma forma de `Ranking.competitorKey`.
+  competitorKey        String
+  athleteId            String?
+  externalAthleteId    String?
+  /// Nome conforme a fonte externa, para o competidor ainda sem cadastro.
+  displayName          String?
+  categoryId           String?
+  eventId              String?
+  classId              String?
+  teamId               String?
+  companyId            String?
+  placing              Int?
+  points               Int      @default(0)
+  superOverallPoints   Int      @default(0)
+  superOverallEligible Boolean  @default(false)
+  isOverallChampion    Boolean  @default(false)
+  didNotShow           Boolean  @default(false)
+  voided               Boolean  @default(false)
+  sourceKey            String
+  updatedAt            DateTime @default(now())
 
-  season       RankingSeason?       @relation(fields: [seasonId], references: [id], onDelete: SetNull)
-  athlete      Athlete              @relation(fields: [athleteId], references: [id], onDelete: Cascade)
-  importItem   MuscleWarImportItem? @relation(fields: [importItemId], references: [id], onDelete: SetNull)
-  rankingPoint RankingPoint?
+  season RankingSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@index([seasonId, categoryId])
+  @@index([seasonId, eventId])
+  @@index([seasonId, classId])
+  @@index([seasonId, teamId])
+  @@index([seasonId, companyId])
+  @@index([seasonId, superOverallEligible])
+  @@index([organizationId])
+}
+
+model ExternalAthlete {
+  id                String    @id @default(cuid())
+  organizationId    String
+  source            String    @default("MUSCLEWAR")
+  identityKey       String
+  affiliationId     String?
+  affiliationNumber String?
+  /// O nome COMO A FONTE ESCREVEU. É o que o ranking mostra enquanto não há
+  /// cadastro — e não é chave de coisa nenhuma.
+  displayName       String
+  /// O cadastro do MCI, quando e se aparecer.
+  athleteId         String?
+  linkedAt          DateTime?
+  linkedById        String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  affiliation  Affiliation? @relation(fields: [affiliationId], references: [id], onDelete: SetNull)
+  athlete      Athlete?     @relation(fields: [athleteId], references: [id], onDelete: SetNull)
+  linkedBy     User?        @relation("ExternalAthleteLinkedBy", fields: [linkedById], references: [id], onDelete: SetNull)
+
+  externalResults ExternalResult[]
+  rankingPoints   RankingPoint[]
+  rankings        Ranking[]
+
+  @@unique([organizationId, identityKey])
+  @@index([organizationId, athleteId])
+  @@index([affiliationId, affiliationNumber])
+}
+
+model ExternalResult {
+  id                String    @id @default(cuid())
+  source            String    @default("MUSCLEWAR")
+  externalId        String
+  seasonId          String?
+  /// A organização dona do resultado, EXPLÍCITA.
+  ///
+  /// Antes ela era derivada: `athleteId` era obrigatório, todo atleta tem
+  /// organização, logo toda linha tinha dona. Resultado histórico importado
+  /// antes de o atleta existir quebra essa cadeia — e esta tabela não tem RLS
+  /// herdada de lugar nenhum. A coluna existe para que o isolamento seja
+  /// declarado, não deduzido.
+  organizationId    String
+  /// O atleta do MCI, QUANDO já houver um. Nulo é o estado normal de um
+  /// resultado histórico carregado antes do cadastro.
+  athleteId         String?
+  /// A identidade esportiva externa — sempre presente, porque todo resultado
+  /// desta tabela veio de uma importação e toda importação declara de quem é
+  /// o resultado na fonte.
+  externalAthleteId String
+  categoryCode      String?
+  className         String?
+  placing           Int?
+  points            Int       @default(0)
+  eventName         String?
+  eventDate         DateTime?
+  importItemId      String?   @unique
+  appliedAt         DateTime  @default(now())
+  createdAt         DateTime  @default(now())
+
+  season          RankingSeason?       @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  athlete         Athlete?             @relation(fields: [athleteId], references: [id], onDelete: SetNull)
+  externalAthlete ExternalAthlete      @relation(fields: [externalAthleteId], references: [id], onDelete: Cascade)
+  importItem      MuscleWarImportItem? @relation(fields: [importItemId], references: [id], onDelete: SetNull)
+  rankingPoint    RankingPoint?
 
   @@unique([source, externalId])
   @@index([athleteId])
+  @@index([organizationId])
+  @@index([externalAthleteId])
 }
 
 // ============================================================================
