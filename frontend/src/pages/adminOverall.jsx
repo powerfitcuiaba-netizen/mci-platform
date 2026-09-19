@@ -310,7 +310,7 @@ function DialogoDeRevogacao({ eventId, grupo, notificar, onClose, onPronto }) {
         </button>
         <button
           type="button"
-          className="button button-perigo"
+          className="button button-danger"
           onClick={revogar}
           disabled={enviando || motivo.trim().length < 3}
         >

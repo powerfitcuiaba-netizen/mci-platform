@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bell, ClipboardCheck, History, Home, IdCard, LayoutDashboard, LogOut, Menu, MessageSquare,
-  QrCode, Scale, Search, Settings, ShieldCheck, Trophy, Upload, UserCircle, Users, Users2,
+  PencilLine, QrCode, Scale, Search, Settings, ShieldCheck, Trophy, Upload, UserCircle, Users, Users2,
   Volume2, VolumeX, Zap
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './AuthContext';
@@ -25,6 +25,7 @@ import { AdminAuditoria, AdminConfiguracoes, AdminMuscleWar, AdminPainel, AdminR
 import { MeuPainel, MinhaConta } from './pages/mePages';
 import { MeuHistorico, MinhaFiliacao } from './pages/minhaCarreira';
 import { AdminOverall } from './pages/adminOverall';
+import { AdminLancamentos } from './pages/adminLancamentos';
 import MinhaSolicitacao from './pages/minhaSolicitacao';
 import AdminSolicitacoes from './pages/adminSolicitacoes';
 
@@ -63,6 +64,11 @@ const NAVEGACAO_ADMIN = [
   // Item PRÓPRIO, e não uma aba dentro de Ranking: homologar Overall é o ato
   // esportivo oficial da plataforma, e precisa ser encontrável sem caça.
   { rota: 'admin/overall', rotulo: 'Overall', icone: Trophy, permissao: 'ranking.manage' },
+  // Item PRÓPRIO também, pelo mesmo motivo e por mais um: corrigir resultado
+  // publicado é a operação que um operador procura sob pressão, com a súmula
+  // na mão e o ranking já no ar. Escondê-la dentro de outra tela custaria
+  // exatamente os minutos em que ela é necessária.
+  { rota: 'admin/lancamentos', rotulo: 'Lançamentos', icone: PencilLine, permissao: 'ranking.manage' },
   { rota: 'admin/musclewar', rotulo: 'MuscleWare', icone: Upload, permissao: 'musclewar.review' },
   { rota: 'admin/auditoria', rotulo: 'Auditoria', icone: ShieldCheck, permissao: 'audit.read' },
   { rota: 'admin/configuracoes', rotulo: 'Configurações', icone: Settings, permissao: 'users.read' }
@@ -318,6 +324,7 @@ function Shell() {
         if (segundo === 'resultados') return <AdminResultados notificar={notificar} />;
         if (segundo === 'ranking') return <AdminRanking notificar={notificar} />;
         if (segundo === 'overall') return <AdminOverall notificar={notificar} />;
+        if (segundo === 'lancamentos') return <AdminLancamentos notificar={notificar} />;
         if (segundo === 'musclewar') return <AdminMuscleWar notificar={notificar} />;
         if (segundo === 'auditoria') return <AdminAuditoria />;
         if (segundo === 'configuracoes') return <AdminConfiguracoes notificar={notificar} />;

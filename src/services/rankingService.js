@@ -21,6 +21,31 @@ const {
 // `RankingPoint` — nunca escrito à mão — de modo que a soma pode ser refeita e
 // conferida a qualquer momento.
 
+// A materialização do ranking e a correção administrativa passaram a caber na
+// mesma transação, e uma temporada inteira pode ter centenas de lançamentos.
+// O padrão de 5s do Prisma foi dimensionado para escrita pontual, não para
+// isso: estourá-lo abortaria a correção DEPOIS de o operador ter confirmado.
+const OPCOES_TRANSACAO = Object.freeze({ timeout: 30_000, maxWait: 15_000 });
+
+// SERIALIZA A TEMPORADA, E NÃO O LANÇAMENTO.
+//
+// A trava precisa cobrir as duas coisas que corriam soltas: a janela entre
+// conferir `voidedAt` e escrever por cima dele, e o recálculo do agregado, que
+// lê a temporada INTEIRA. Travar só a linha corrigida fecharia a primeira e
+// deixaria a segunda aberta — duas correções em lançamentos diferentes da
+// mesma temporada continuariam cruzando seus recálculos.
+//
+// `pg_advisory_xact_lock` porque o PostgreSQL a solta sozinho no fim da
+// transação, commit ou rollback. A trava de sessão exigiria destravar à mão, e
+// com pool de conexões o destravamento poderia cair em outra conexão que não
+// tem a trava — deixando a temporada bloqueada até o processo reiniciar.
+//
+// `$executeRaw` e não `$queryRaw`: a função devolve void, e o Prisma recusa a
+// leitura de um resultado que não existe.
+async function travarTemporada(tx, seasonId) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`ranking:temporada:${seasonId}`}))`;
+}
+
 async function createSeason(data, actor) {
   assertCan(actor, 'ranking.manage', data.organizationId);
 
@@ -124,7 +149,11 @@ async function pointsForPlacing(seasonId, placing) {
 //      passaria a depender da ordem física das linhas no PostgreSQL, e um
 //      `pg_restore` moveria o bônus de lugar.
 function escolherPortadoraDoBonus(linhas) {
-  const candidatas = linhas.filter(linha => linha.superOverallEligible);
+  // INVALIDADO NÃO CARREGA TÍTULO. A participação continua no histórico, mas
+  // parou de pontuar por decisão administrativa registrada — receber +10
+  // depois disso ressuscitaria o lançamento pela porta dos fundos, sem
+  // ninguém ter restaurado nada.
+  const candidatas = linhas.filter(linha => linha.superOverallEligible && !linha.voidedAt);
   if (!candidatas.length) return null;
 
   return [...candidatas].sort((a, b) => {
@@ -139,18 +168,44 @@ async function normalizarBonusOverall(tx, { eventId, seasonId }) {
   const titulos = await tx.eventOverallTitle.findMany({
     where: { eventId }, select: { athleteId: true, categoryId: true }
   });
-  if (!titulos.length) return;
+
+  // REVOGAR TAMBÉM É NORMALIZAR.
+  //
+  // Sem títulos a função voltava cedo, e no caminho interno isso funcionava por
+  // acidente: `awardForResult` apaga e reescreve os pontos do evento, então o
+  // bônus sumia junto. Ponto IMPORTADO não é reescrito — ele fica no ledger
+  // como o importador o gravou. Retornar aqui deixava o +10 de um título já
+  // revogado colado na linha, e o ranking continuava mostrando 15 onde a
+  // súmula diz 5.
+  //
+  // A varredura abaixo é a que fecha isso: tudo o que carrega bônus neste
+  // evento e NÃO é portador legítimo volta a valer só a colocação.
+  const portadoras = new Set();
 
   for (const titulo of titulos) {
     // Título com recorte de categoria alcança só as linhas daquela categoria;
     // título do evento inteiro (categoryId nulo) alcança todas.
+    // O TÍTULO É DO EVENTO, NÃO DA ORIGEM DO RESULTADO.
+    //
+    // Antes a consulta filtrava `source: 'EVENT'`, e o efeito era silencioso:
+    // um campeonato cujos resultados entraram por importação MuscleWare
+    // recebia a declaração oficial, gravava o título, registrava a auditoria —
+    // e o +10 não chegava a lugar nenhum. Pior, não havia como corrigir depois:
+    // reimportar o arquivo com a coluna Overall esbarra na idempotência, que
+    // marca tudo como DUPLICATE. A mesma barreira que protege o ranking de
+    // duplicação impedia a correção.
+    //
+    // Quem decide se a linha recebe o bônus continua sendo a REGRA, não a
+    // origem: `escolherPortadoraDoBonus` só olha participações elegíveis à
+    // absoluta, e uma linha fora dela segue com zero.
     const linhas = await tx.rankingPoint.findMany({
       where: {
-        seasonId, eventId, athleteId: titulo.athleteId, source: 'EVENT',
+        seasonId, eventId, athleteId: titulo.athleteId,
         ...(titulo.categoryId ? { categoryId: titulo.categoryId } : {})
       },
       select: {
-        id: true, placing: true, superOverallEligible: true,
+        id: true, placing: true, superOverallEligible: true, source: true,
+        didNotShow: true, voidedAt: true,
         placementPoints: true, overallBonus: true, isOverallChampion: true,
         points: true, superOverallPoints: true
       },
@@ -168,7 +223,22 @@ async function normalizarBonusOverall(tx, { eventId, seasonId }) {
     // título existe, mas não gera bônus em lugar nenhum.
     const portadora = escolherPortadoraDoBonus(linhas);
 
+    if (portadora) portadoras.add(portadora.id);
+
     for (const linha of linhas) {
+      // INVALIDADO NÃO É REESCRITO POR ESTA FUNÇÃO.
+      //
+      // `placementPoints` continua guardando o que aconteceu no campeonato —
+      // é o registro histórico, e a restauração depende dele. Mas a linha
+      // invalidada vale ZERO por decisão administrativa registrada, e a conta
+      // abaixo é `placementPoints + bônus`: sem esta guarda, declarar (ou
+      // revogar) um Overall no evento devolvia a colocação à linha invalidada
+      // e ressuscitava o lançamento sem ninguém ter restaurado nada.
+      //
+      // Ela também nunca é portadora: `escolherPortadoraDoBonus` já a exclui.
+      // Pular aqui é o outro lado da mesma regra.
+      if (linha.voidedAt) continue;
+
       const ehPortadora = Boolean(portadora) && linha.id === portadora.id;
       const overallBonus = ehPortadora ? BONUS_OVERALL : 0;
       const points = linha.placementPoints + overallBonus;
@@ -177,7 +247,16 @@ async function normalizarBonusOverall(tx, { eventId, seasonId }) {
       // Linha que só existia por causa de um bônus que agora mudou de lugar
       // some: manter ponto zero no histórico é o mesmo ruído que a criação já
       // evita. Sem o título ela nunca teria sido escrita.
-      if (!points) {
+      //
+      // MAS SÓ VALE PARA O QUE ESTA FUNÇÃO PODERIA TER CRIADO. `awardForResult`
+      // não escreve linha de zero ponto, então uma linha `EVENT` que zerou de
+      // fato nasceu do bônus. Já a IMPORTAÇÃO escreve a participação inteira,
+      // inclusive a que vale zero: o não comparecimento é `didNotShow: true`,
+      // `placing: null`, zero ponto — e é um FATO do campeonato, não um
+      // resquício. Apagá-lo transformaria "não subiu no palco" em "não
+      // participou", e o histórico do atleta perderia a etapa.
+      const nasceuDoBonus = linha.source === 'EVENT';
+      if (!points && nasceuDoBonus) {
         await tx.rankingPoint.delete({ where: { id: linha.id } });
         continue;
       }
@@ -193,6 +272,31 @@ async function normalizarBonusOverall(tx, { eventId, seasonId }) {
         data: { overallBonus, isOverallChampion: ehPortadora, points, superOverallPoints }
       });
     }
+  }
+
+  // O QUE SOBROU COM BÔNUS E NÃO É PORTADOR PERDE O BÔNUS.
+  //
+  // Alcança o título revogado, o campeão trocado e a linha que deixou de ser
+  // elegível. Só toca em quem tem bônus a perder, então repetir a normalização
+  // não escreve nada — é essa propriedade que a torna idempotente.
+  const orfas = await tx.rankingPoint.findMany({
+    where: {
+      seasonId, eventId, overallBonus: { gt: 0 }, voidedAt: null,
+      ...(portadoras.size ? { id: { notIn: [...portadoras] } } : {})
+    },
+    select: { id: true, placementPoints: true, superOverallEligible: true }
+  });
+
+  for (const linha of orfas) {
+    await tx.rankingPoint.update({
+      where: { id: linha.id },
+      data: {
+        overallBonus: 0,
+        isOverallChampion: false,
+        points: linha.placementPoints,
+        superOverallPoints: linha.superOverallEligible ? linha.placementPoints : 0
+      }
+    });
   }
 }
 
@@ -295,10 +399,64 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
   );
 
   const atribuidos = await prisma.$transaction(async tx => {
-    if (recompute) await tx.rankingPoint.deleteMany({ where: { seasonId, resultId } });
+    // A REPONTUAÇÃO NÃO REVOGA UMA INVALIDAÇÃO ADMINISTRATIVA.
+    //
+    // Achado de auditoria, e determinístico — não é corrida. O `deleteMany`
+    // apagava TODAS as linhas do resultado e as recriava do zero, inclusive a
+    // que um operador tinha invalidado. Como `results.override` repontua todo
+    // resultado já publicado, o caminho era trivial: desclassificar um atleta,
+    // corrigir a súmula da classe por outro motivo, e a desclassificação sumia.
+    // O atleta voltava a pontuar no ranking publicado, sem aviso, e a entrada
+    // de auditoria da invalidação passava a apontar para uma linha que não
+    // existia mais.
+    //
+    // AS DUAS DECISÕES SÃO SOBRE COISAS DIFERENTES, e é isso que decide a
+    // precedência:
+    //
+    //   · invalidar responde "esta participação vale?" — doping, expulsão,
+    //     decisão da comissão. A súmula republicada não fala sobre isso, e por
+    //     isso não pode desfazê-la. A linha invalidada SOBREVIVE;
+    //   · corrigir a colocação responde "qual foi o resultado?" — e aí a
+    //     súmula é a autoridade. Uma súmula corrigida SUBSTITUI a correção
+    //     administrativa daquela colocação, de propósito: as duas convergem
+    //     para a versão oficial, que é o desfecho desejado. O histórico da
+    //     correção continua na auditoria.
+    //
+    // A linha preservada não vira duplicata: `@@unique([seasonId, athleteId,
+    // resultId])` faz o `create` seguinte levantar P2002, que o `catch` abaixo
+    // já trata como "já pontuado".
+    if (recompute) {
+      await tx.rankingPoint.deleteMany({ where: { seasonId, resultId, voidedAt: null } });
+    }
+
+    // QUEM SOBROU NÃO É RECRIADO — E A CONFERÊNCIA PRECISA SER ANTES.
+    //
+    // Depois do `deleteMany` seletivo, ainda existem linhas deste resultado:
+    // as invalidadas, que acabaram de ser poupadas. Tentar criá-las de novo
+    // levantaria P2002 — e P2002 AQUI é fatal, não recuperável.
+    //
+    // A requisição inteira roda numa transação (é assim que o contexto de RLS
+    // é definido; ver withUserContext). A violação de unicidade ABORTA essa
+    // transação, e todo comando seguinte falha com 25P02 ("current transaction
+    // is aborted"). Medido: o `catch` de P2002 logo abaixo NÃO salva nada
+    // nesse caso — o `create` do próximo atleta morre com 25P02 e a requisição
+    // vira 500. Ele nunca tinha disparado porque o `deleteMany` antigo apagava
+    // tudo, garantindo que não houvesse com o que conflitar.
+    //
+    // Por isso a duplicata é EVITADA, e não capturada. É a mesma lição do gate
+    // de concorrência do /apply, que nasceu exatamente deste erro.
+    const jaLancados = new Set(
+      (await tx.rankingPoint.findMany({
+        where: { seasonId, resultId }, select: { athleteId: true }
+      })).map(ponto => ponto.athleteId)
+    );
 
     let total = 0;
     for (const entry of classificados) {
+      // Lançamento preservado (invalidado) ou já existente: a decisão
+      // administrativa fica de pé e a repontuação não o reescreve.
+      if (jaLancados.has(entry.athleteId)) continue;
+
       const ehCampeaoOverall = campeoesOverall.has(entry.athleteId);
       // `pontuarResultado` já aplica a regra vigente: o bônus exige a absoluta.
       // A normalização abaixo cuida do resto — que ele não se repita entre as
@@ -339,7 +497,11 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
         });
         total += 1;
       } catch (error) {
-        // Já pontuado: a constraint é a garantia de não duplicar.
+        // ÚLTIMA REDE, e não a barreira. A barreira é o `jaLancados` acima:
+        // dentro de uma transação interativa, P2002 já matou a transação e não
+        // há o que engolir. Isto aqui só cobre a inserção concorrente de outra
+        // requisição entre a leitura e a escrita — e mesmo aí a transação está
+        // perdida; o que este ramo evita é mascarar a causa com outro erro.
         if (error.code !== 'P2002') throw error;
       }
     }
@@ -368,8 +530,16 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
 // A ordenação usa a hierarquia oficial de desempate (src/utils/rankingScoring.js),
 // e não apenas o total de pontos. Os contadores ficam materializados para que o
 // ranking seja auditável sem reabrir cada lançamento.
-async function recompute_(seasonId) {
-  const pontos = await prisma.rankingPoint.findMany({
+//
+// LEITURA E ESCRITA NA MESMA TRANSAÇÃO. Antes os pontos eram lidos fora de
+// qualquer transação e só a materialização abria uma: entre a leitura e a
+// escrita cabia outro recálculo inteiro, e o que ficava gravado era o do
+// recálculo que lera primeiro e escrevera por último — o ranking publicado
+// passava a mostrar uma colocação que o lançamento já não tinha. Recebendo o
+// cliente transacional de fora, a função também pode ser chamada DENTRO do
+// bloqueio que serializa a correção administrativa, sem soltá-lo no meio.
+async function recomputarEm(tx, seasonId) {
+  const pontos = await tx.rankingPoint.findMany({
     where: { seasonId },
     select: {
       athleteId: true, categoryId: true, points: true, placing: true,
@@ -390,7 +560,7 @@ async function recompute_(seasonId) {
   }
 
   const athleteIds = [...new Set([...acumulado.values()].map(linha => linha.athleteId))];
-  const atletas = await prisma.athlete.findMany({ where: { id: { in: athleteIds } }, select: { id: true, state: true, country: true } });
+  const atletas = await tx.athlete.findMany({ where: { id: { in: athleteIds } }, select: { id: true, state: true, country: true } });
   const porAtleta = new Map(atletas.map(atleta => [atleta.id, atleta]));
 
   const comContadores = [...acumulado.values()].map(linha => ({
@@ -409,37 +579,39 @@ async function recompute_(seasonId) {
 
   const classificadas = [...porCategoria.values()].flatMap(linhas => classificar(linhas));
 
-  await prisma.$transaction(async tx => {
-    await tx.ranking.deleteMany({ where: { seasonId } });
+  await tx.ranking.deleteMany({ where: { seasonId } });
 
-    for (const linha of classificadas) {
-      const atleta = porAtleta.get(linha.athleteId);
-      await tx.ranking.create({
-        data: {
-          seasonId,
-          athleteId: linha.athleteId,
-          categoryId: linha.categoryId,
-          totalPoints: linha.totalPoints,
-          eventCount: linha.fontes.size,
-          overallWins: linha.overallWins,
-          firstPlaceCount: linha.firstPlaceCount,
-          secondPlaceCount: linha.secondPlaceCount,
-          thirdPlaceCount: linha.thirdPlaceCount,
-          fourthPlaceCount: linha.fourthPlaceCount,
-          fifthPlaceCount: linha.fifthPlaceCount,
-          tieUnresolved: linha.tieUnresolved,
-          position: linha.position,
-          state: atleta?.state ?? null,
-          country: atleta?.country ?? null
-        }
-      });
-    }
-  });
+  for (const linha of classificadas) {
+    const atleta = porAtleta.get(linha.athleteId);
+    await tx.ranking.create({
+      data: {
+        seasonId,
+        athleteId: linha.athleteId,
+        categoryId: linha.categoryId,
+        totalPoints: linha.totalPoints,
+        eventCount: linha.fontes.size,
+        overallWins: linha.overallWins,
+        firstPlaceCount: linha.firstPlaceCount,
+        secondPlaceCount: linha.secondPlaceCount,
+        thirdPlaceCount: linha.thirdPlaceCount,
+        fourthPlaceCount: linha.fourthPlaceCount,
+        fifthPlaceCount: linha.fifthPlaceCount,
+        tieUnresolved: linha.tieUnresolved,
+        position: linha.position,
+        state: atleta?.state ?? null,
+        country: atleta?.country ?? null
+      }
+    });
+  }
 
   return {
     rows: classificadas.length,
     tieUnresolved: classificadas.filter(linha => linha.tieUnresolved).length
   };
+}
+
+async function recompute_(seasonId) {
+  return prisma.$transaction(tx => recomputarEm(tx, seasonId), OPCOES_TRANSACAO);
 }
 
 /**
@@ -555,6 +727,60 @@ async function teamRanking(seasonId, { categoryId = null, organizationId = null 
  * tentar descobri-lo sozinho. Não é lacuna de implementação: é a regra. Por
  * isso o título é registrado com autoria e data, nunca calculado.
  */
+/**
+ * Aplica ao ledger o efeito de um título declarado ou revogado.
+ *
+ * `awardForResult` cobre o caminho interno: resultado publicado, repontuado do
+ * zero, com a normalização do bônus no fim. Resultado IMPORTADO não passa por
+ * ali — ele já está no ledger como `RankingPoint(source: MUSCLEWAR)`, escrito
+ * pelo importador, e nenhum `Result` existe para reprocessar.
+ *
+ * Esta função fecha exatamente essa lacuna: reprocessa o que é reprocessável e
+ * normaliza o resto. Chamar as duas coisas é seguro porque a normalização é
+ * idempotente por construção — ela CALCULA o estado correto e só escreve
+ * quando o que está gravado difere, em vez de somar.
+ */
+async function aplicarTitulosDoEvento(eventId, seasonId, actor) {
+  const publicados = await prisma.result.findMany({
+    where: { eventId, status: 'PUBLISHED' }, select: { id: true }
+  });
+  for (const resultado of publicados) {
+    await awardForResult(resultado.id, actor, { recompute: true });
+  }
+
+  // Sem temporada não há ranking a mexer: o resultado entra no histórico, mas
+  // não pontua.
+  if (!seasonId) return;
+
+  // SOB A MESMA TRAVA DA CORREÇÃO ADMINISTRATIVA, e pelo mesmo motivo.
+  //
+  // A normalização lê as linhas do recorte, decide, e só então escreve. Entre
+  // a leitura e a escrita cabe uma invalidação — e aí o +10 pousaria numa
+  // linha que a organização acabou de tirar do ranking. O recálculo entra na
+  // mesma transação porque lê a temporada inteira.
+  //
+  // REGISTRO HONESTO: escrevi o teste de 20 simultâneas (dez declarações
+  // contra dez invalidações do mesmo lançamento) esperando ver a corrida, e
+  // ela NÃO apareceu — o bloqueio de linha do PostgreSQL serializou as
+  // escritas no caso medido. Não reproduzir não é o mesmo que não existir: a
+  // janela entre a leitura e a escrita está no código, e depende de tempo.
+  // A trava fecha a janela por construção, em vez de por sorte de escalonamento.
+  await prisma.$transaction(async tx => {
+    await travarTemporada(tx, seasonId);
+    await normalizarBonusOverall(tx, { eventId, seasonId });
+    await recomputarEm(tx, seasonId);
+  }, OPCOES_TRANSACAO);
+}
+
+// MENSAGEM ADMINISTRATIVA, LITERAL E DEFINIDA PELO ORGANIZADOR.
+//
+// Ela não descreve um erro técnico: descreve uma DECISÃO QUE FALTA. O
+// operador que a lê precisa entender que não errou, que a plataforma não
+// quebrou, e que o caminho é homologar a regra — não tentar de novo.
+const MENSAGEM_OVERALL_MULTIPLO = 'Este evento já possui uma declaração Overall '
+  + 'para este atleta em outra categoria absoluta. A regra de pontuação para '
+  + 'múltiplos títulos Overall neste mesmo evento ainda requer homologação.';
+
 async function declareOverall(eventId, { athleteId, categoryId = null, note = null }, actor) {
   const event = await prisma.event.findUnique({
     where: { id: eventId },
@@ -638,45 +864,86 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
     );
   }
 
-  // `upsert` não serve aqui: o Prisma não aceita valor nulo dentro de chave
-  // única composta, e o recorte nulo é justamente o Overall do evento inteiro.
-  const existente = await prisma.eventOverallTitle.findFirst({ where: { eventId, categoryId } });
-
-  // TROCAR CAMPEÃO HOMOLOGADO NÃO É EFEITO COLATERAL DE UM POST REPETIDO.
+  // A DECLARAÇÃO INTEIRA SOB UMA TRAVA DO EVENTO.
   //
-  // Antes, declarar outro atleta no mesmo recorte simplesmente substituía o
-  // anterior — em silêncio, sem registro do que havia antes. Um título
-  // esportivo homologado não se troca assim: quem errou revoga, com motivo, e
-  // declara de novo. As duas operações ficam na trilha.
-  if (existente && existente.athleteId !== athleteId) {
-    throw new AppError(
-      409, 'OVERALL_ALREADY_DECLARED',
-      'Esta categoria já possui um Overall homologado. Revogue a homologação atual antes de declarar outro campeão.'
-    );
-  }
-
-  // Repetir a MESMA homologação é idempotente: o operador que clica duas vezes,
-  // ou dois operadores que confirmam o mesmo fato, não produzem dois títulos —
-  // nem dois bônus.
-  // A CORRIDA. Dois operadores na mesma sala, ou duas abas do mesmo operador:
-  // ambos leem "não existe título" e ambos tentam criar. O `findFirst` acima
-  // não impede nada — entre ele e o `create` cabe a outra requisição.
-  //
-  // Quem impede é o índice único no banco, e ele impede DEPOIS: a segunda
-  // escrita levanta P2002. Traduzir isso aqui é o que transforma uma corrida
-  // perdida em resposta com sentido. Sem esta tradução a segunda requisição
-  // respondia 500 — medido na FASE 13, disparando as duas em paralelo.
+  // As duas conferências abaixo leem antes de escrever, e a de recorte
+  // cruzado não tem índice único que a socorra: dois títulos do mesmo atleta
+  // em CATEGORIAS DIFERENTES são, para o banco, duas linhas perfeitamente
+  // válidas. Sem serializar, duas declarações simultâneas atravessam juntas e
+  // gravam exatamente o acúmulo que esta fase existe para impedir.
   let titulo;
   try {
-    titulo = existente
-      ? await prisma.eventOverallTitle.update({
-        where: { id: existente.id },
-        data: { note: note ?? existente.note, declaredById: actor?.id ?? null, declaredAt: new Date() }
-      })
-      : await prisma.eventOverallTitle.create({
-        data: { eventId, athleteId, categoryId, note, declaredById: actor?.id ?? null }
+    titulo = await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`overall:evento:${eventId}`}))`;
+
+      // DOIS TÍTULOS OVERALL PARA O MESMO ATLETA NO MESMO CAMPEONATO:
+      // O SISTEMA NÃO DECIDE.
+      //
+      // A regra de pontuação para esse caso NÃO está homologada. +10 (é
+      // campeão absoluto do evento, uma vez) e +20 (cada título vale o seu
+      // bônus) são leituras defensáveis, e escolher uma aqui seria a
+      // plataforma legislando regra esportiva.
+      //
+      // O QUE ACONTECIA ANTES, MEDIDO: a segunda declaração era aceita (201),
+      // o evento ficava com dois títulos, e o pagamento dependia de acidente.
+      // Na medição, um atleta 1º em Bodybuilding e 1º em Classic Physique
+      // terminou com 20 pontos e bônus [0, 10] — o segundo título não achou
+      // linha para pousar porque o `categoryId` daquele lançamento estava
+      // nulo, e pagou ZERO em silêncio. Se o importador tivesse resolvido a
+      // categoria, teria pago +20. Quer dizer: o total dependia de um detalhe
+      // de importação, não de regra. Sorteio decidindo campeonato é pior que
+      // qualquer das duas regras candidatas.
+      //
+      // Enquanto não houver homologação, a segunda declaração é RECUSADA com
+      // mensagem administrativa — e não com erro genérico, que o operador
+      // leria como defeito da plataforma.
+      //
+      // A comparação é feita em memória, e não por `NOT: { categoryId }`: no
+      // Prisma isso vira `categoryId <> '...'`, que em SQL NÃO casa com nulo,
+      // e deixaria passar exatamente o caso do título do evento inteiro
+      // (recorte nulo) convivendo com um título de categoria.
+      const doAtleta = await tx.eventOverallTitle.findMany({
+        where: { eventId, athleteId }, select: { id: true, categoryId: true }
       });
+      if (doAtleta.some(outro => outro.categoryId !== categoryId)) {
+        throw new AppError(409, 'OVERALL_MULTIPLE_CATEGORIES_PENDING_RULE', MENSAGEM_OVERALL_MULTIPLO);
+      }
+
+      // `upsert` não serve aqui: o Prisma não aceita valor nulo dentro de chave
+      // única composta, e o recorte nulo é justamente o Overall do evento inteiro.
+      const existente = await tx.eventOverallTitle.findFirst({ where: { eventId, categoryId } });
+
+      // TROCAR CAMPEÃO HOMOLOGADO NÃO É EFEITO COLATERAL DE UM POST REPETIDO.
+      //
+      // Antes, declarar outro atleta no mesmo recorte simplesmente substituía o
+      // anterior — em silêncio, sem registro do que havia antes. Um título
+      // esportivo homologado não se troca assim: quem errou revoga, com motivo, e
+      // declara de novo. As duas operações ficam na trilha.
+      if (existente && existente.athleteId !== athleteId) {
+        throw new AppError(
+          409, 'OVERALL_ALREADY_DECLARED',
+          'Esta categoria já possui um Overall homologado. Revogue a homologação atual antes de declarar outro campeão.'
+        );
+      }
+
+      // Repetir a MESMA homologação é idempotente: o operador que clica duas
+      // vezes, ou dois operadores que confirmam o mesmo fato, não produzem dois
+      // títulos — nem dois bônus.
+      return existente
+        ? tx.eventOverallTitle.update({
+          where: { id: existente.id },
+          data: { note: note ?? existente.note, declaredById: actor?.id ?? null, declaredAt: new Date() }
+        })
+        : tx.eventOverallTitle.create({
+          data: { eventId, athleteId, categoryId, note, declaredById: actor?.id ?? null }
+        });
+    }, OPCOES_TRANSACAO);
   } catch (erro) {
+    // O índice único continua sendo a última linha, para a corrida que a trava
+    // não cobrir (outra instância, outro processo). Ele impede DEPOIS: a
+    // segunda escrita levanta P2002, e traduzir isso aqui é o que transforma
+    // uma corrida perdida em resposta com sentido. Sem esta tradução a segunda
+    // requisição respondia 500 — medido na FASE 13.
     if (!ehViolacaoDeUnicidade(erro)) throw erro;
 
     // Perdeu a corrida, e NÃO dá para reler aqui dentro.
@@ -703,15 +970,10 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
     metadata: { athleteId, categoryId, bonus: BONUS_OVERALL }
   });
 
-  // O bônus só entra no ranking depois que os resultados publicados do evento
-  // forem repontuados: declarar o título é um fato novo sobre resultados que
-  // já existiam.
-  const publicados = await prisma.result.findMany({
-    where: { eventId, status: 'PUBLISHED' }, select: { id: true }
-  });
-  for (const resultado of publicados) {
-    await awardForResult(resultado.id, actor, { recompute: true });
-  }
+  // O bônus só entra no ranking depois que os resultados do evento forem
+  // repontuados: declarar o título é um fato novo sobre resultados que já
+  // existiam. Vale para os dois caminhos — apuração interna e importação.
+  await aplicarTitulosDoEvento(eventId, event.seasonId, actor);
 
   return titulo;
 }
@@ -912,7 +1174,7 @@ async function overallPreview(eventId, { athleteId, categoryId = null }, actor) 
  */
 async function revokeOverall(eventId, titleId, { reason }, actor) {
   const event = await prisma.event.findUnique({
-    where: { id: eventId }, select: { id: true, organizationId: true }
+    where: { id: eventId }, select: { id: true, organizationId: true, seasonId: true }
   });
   if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Evento não encontrado');
   assertCan(actor, 'ranking.manage', event.organizationId);
@@ -938,13 +1200,10 @@ async function revokeOverall(eventId, titleId, { reason }, actor) {
   });
 
   // Repontuar: tirar o título é fato novo sobre resultados que já existiam,
-  // exatamente como declará-lo. A colocação não é tocada — só o bônus sai.
-  const publicados = await prisma.result.findMany({
-    where: { eventId, status: 'PUBLISHED' }, select: { id: true }
-  });
-  for (const resultado of publicados) {
-    await awardForResult(resultado.id, actor, { recompute: true });
-  }
+  // exatamente como declará-lo. A colocação não é tocada — só o bônus sai. E,
+  // como na declaração, o alcance é dos dois caminhos: apuração interna e
+  // importação.
+  await aplicarTitulosDoEvento(eventId, event.seasonId, actor);
 
   return { revoked: true, titleId, athleteId: titulo.athleteId, categoryId: titulo.categoryId };
 }
@@ -1484,11 +1743,375 @@ async function athletePoints(athleteId, seasonId, actor) {
   });
 }
 
+
+// ==========================================================================
+// CORREÇÃO ADMINISTRATIVA DE LANÇAMENTO PUBLICADO.
+//
+// O caminho interno já tinha a sua: `results.override` grava um
+// `ResultVersion` com snapshot e motivo, e a apuração é refeita do zero. O
+// caminho IMPORTADO não tinha nenhuma — depois do `/apply`, um 3º que era 2º
+// ficava errado para sempre, e a única "saída" seria escrever no ledger por
+// fora, que é exatamente o que as regras da plataforma proíbem.
+//
+// Três decisões que moldam tudo o que vem abaixo:
+//
+//   1. OS PONTOS VÊM DO MOTOR, NUNCA DO CORPO DA REQUISIÇÃO. O operador
+//      informa a COLOCAÇÃO; quem transforma colocação em ponto é a tabela
+//      homologada da temporada. Aceitar um número digitado reabriria a porta
+//      que a importação fechou ao recusar a coluna de pontos do arquivo.
+//
+//   2. INVALIDAR NÃO APAGA. Zera o que PONTUA e preserva o que ACONTECEU: a
+//      linha continua no histórico do atleta, com quem invalidou, quando e por
+//      quê. Apagá-la faria a participação desaparecer — e num campeonato
+//      nacional "não pontuou" e "não competiu" são fatos diferentes.
+//
+//   3. MOTIVO É OBRIGATÓRIO. Seis meses depois, correção sem motivo é
+//      indistinguível de adulteração.
+// ==========================================================================
+
+/** Campos que a correção pode tocar. O resto do lançamento é história. */
+const CAMPOS_CORRIGIVEIS = Object.freeze(['placing', 'didNotShow']);
+
+/**
+ * Lançamentos de um campeonato, para a tela de correção.
+ *
+ * A "origem dos pontos" já respondia por ATLETA — serve para explicar um
+ * acumulado. Corrigir é o movimento contrário: o operador tem a súmula do
+ * campeonato na mão e precisa achar a linha errada entre as do evento.
+ *
+ * Exige `ranking.manage`, e não `ranking.read`: a resposta carrega motivo de
+ * invalidação e quem invalidou, que é informação de administração, e a tela
+ * que a consome é a que oferece as ações.
+ */
+async function eventRankingPoints(eventId, actor) {
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { id: true, name: true, slug: true, startDate: true, organizationId: true, seasonId: true }
+  });
+  if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Campeonato não encontrado');
+
+  assertCan(actor, 'ranking.manage', event.organizationId);
+
+  const items = await prisma.rankingPoint.findMany({
+    where: { eventId },
+    select: {
+      id: true, placing: true, placingOriginal: true, didNotShow: true,
+      placementPoints: true, overallBonus: true, points: true,
+      superOverallPoints: true, superOverallEligible: true, isOverallChampion: true,
+      source: true, externalResultId: true,
+      voidedAt: true, voidedById: true, voidReason: true,
+      athlete: { select: { id: true, fullName: true, affiliationNumber: true } },
+      category: { select: { id: true, code: true, name: true } },
+      competitionClass: { select: { id: true, code: true, name: true } },
+      affiliation: { select: { id: true, code: true, name: true } }
+    },
+    // Ordem DECLARADA. Sem `orderBy` a resposta sai na ordem física do
+    // PostgreSQL, e a tela reordenaria sozinha a cada correção — o operador
+    // perderia de vista a linha em que estava trabalhando.
+    orderBy: [{ categoryId: 'asc' }, { placing: 'asc' }, { id: 'asc' }]
+  });
+
+  return { event, items };
+}
+
+const CAMPOS_DO_LANCAMENTO = Object.freeze({
+  id: true, seasonId: true, athleteId: true, eventId: true, source: true,
+  externalResultId: true, placing: true, placingOriginal: true,
+  placementPoints: true, overallBonus: true, points: true,
+  superOverallPoints: true, superOverallEligible: true,
+  isOverallChampion: true, didNotShow: true,
+  voidedAt: true, voidedById: true, voidReason: true
+});
+
+// TUDO O QUE ESCREVE NO LANÇAMENTO PASSA POR AQUI.
+//
+// O desenho anterior era ler, decidir e escrever com três idas ao banco
+// soltas, e a medição com 20 requisições simultâneas mostrou as duas falhas
+// que isso abre — nenhuma das duas hipotética:
+//
+//   · 20 invalidações do mesmo lançamento: NOVE atravessaram a conferência de
+//     `voidedAt` antes de qualquer uma gravar. O motivo que ficava registrado
+//     era o da última a escrever, e a auditoria passava a dizer "engano do
+//     operador" onde o administrador tinha escrito "atleta desclassificado".
+//
+//   · corrigir contra invalidar: a correção conferia `voidedAt`, a
+//     invalidação commitava na janela, e a correção gravava pontos por cima —
+//     o lançamento voltava a valer 3 com `voidedAt` preenchido. Invalidado e
+//     pontuando ao mesmo tempo.
+//
+// Dentro da trava o estado é RELIDO do banco, e é o estado relido que decide.
+// O que veio de `carregarLancamento` serve à autorização e à auditoria; nunca
+// à decisão. O recálculo acontece antes de soltar a trava, porque ele lê a
+// temporada inteira e soltá-la no meio devolveria a corrida pelo outro lado.
+async function comTemporadaTravada(ponto, executar) {
+  return prisma.$transaction(async tx => {
+    await travarTemporada(tx, ponto.seasonId);
+
+    const atual = await tx.rankingPoint.findUnique({
+      where: { id: ponto.id }, select: CAMPOS_DO_LANCAMENTO
+    });
+    if (!atual) throw new AppError(404, 'RANKING_POINT_NOT_FOUND', 'Lançamento não encontrado');
+
+    const saida = await executar(tx, { ...ponto, ...atual });
+    await recomputarEm(tx, ponto.seasonId);
+    return saida;
+  }, OPCOES_TRANSACAO);
+}
+
+async function carregarLancamento(rankingPointId, actor) {
+  // SEM `include` DE RELAÇÃO OBRIGATÓRIA. Medido com um operador de outra
+  // organização: o RLS deixava ver a linha do RankingPoint e BLOQUEAVA o
+  // Athlete relacionado — e o Prisma, ao receber nulo numa relação que o
+  // schema declara obrigatória, levanta "Inconsistent query result" e a
+  // requisição virava 500.
+  //
+  // Um 500 numa sonda cross-tenant é duas coisas ruins de uma vez: diz ao
+  // invasor que ele encostou em ALGO, e polui o log de erro com o que é, na
+  // verdade, a política de segurança funcionando. Carregar só escalares e
+  // buscar o resto em consultas próprias devolve o 404 discreto que a negação
+  // merece.
+  const ponto = await prisma.rankingPoint.findUnique({
+    where: { id: rankingPointId }, select: CAMPOS_DO_LANCAMENTO
+  });
+  if (!ponto) throw new AppError(404, 'RANKING_POINT_NOT_FOUND', 'Lançamento não encontrado');
+
+  const temporada = await prisma.rankingSeason.findUnique({
+    where: { id: ponto.seasonId }, select: { id: true, organizationId: true }
+  });
+  // Temporada invisível é o RLS negando a organização do lançamento. A resposta
+  // é a mesma de "não existe": quem não pode ver não recebe confirmação.
+  if (!temporada) throw new AppError(404, 'RANKING_POINT_NOT_FOUND', 'Lançamento não encontrado');
+
+  assertCan(actor, 'ranking.manage', temporada.organizationId);
+
+  // O atleta só é lido DEPOIS da autorização, e o nulo é tolerado: ele serve à
+  // prévia, não à decisão.
+  const athlete = await prisma.athlete.findUnique({
+    where: { id: ponto.athleteId }, select: { id: true, fullName: true }
+  });
+
+  return { ...ponto, season: temporada, athlete: athlete ?? { id: ponto.athleteId, fullName: null } };
+}
+
+/**
+ * Calcula como o lançamento ficaria, sem gravar nada.
+ * É a mesma função que a correção usa para decidir o novo estado — prévia e
+ * gravação não podem discordar, e a única forma de garantir isso é não
+ * existirem duas contas.
+ */
+async function projetarLancamento(ponto, mudanca, cliente = prisma) {
+  const didNotShow = mudanca.didNotShow ?? (mudanca.placing != null ? false : ponto.didNotShow);
+  const placing = didNotShow ? null : (mudanca.placing ?? ponto.placing);
+
+  const tabela = await cliente.rankingPointsRule.findMany({
+    where: { seasonId: ponto.seasonId }, select: { placing: true, points: true }
+  });
+
+  // Ausência vale zero por regra homologada, e o motor nem é consultado.
+  if (didNotShow || placing == null) {
+    return {
+      placing: null, didNotShow: true,
+      placementPoints: 0, overallBonus: 0, points: 0, superOverallPoints: 0,
+      isOverallChampion: false
+    };
+  }
+
+  const { placementPoints, overallBonus, points, superOverallPoints } = pontuarResultado(
+    placing, tabela, ponto.isOverallChampion, ponto.superOverallEligible
+  );
+  return {
+    placing, didNotShow: false,
+    placementPoints, overallBonus, points, superOverallPoints,
+    isOverallChampion: ponto.isOverallChampion
+  };
+}
+
+const retrato = ponto => ({
+  placing: ponto.placing, didNotShow: ponto.didNotShow,
+  placementPoints: ponto.placementPoints, overallBonus: ponto.overallBonus,
+  points: ponto.points, voided: Boolean(ponto.voidedAt)
+});
+
+/** Prévia do impacto: o antes, o depois e a diferença. Não grava. */
+async function previewRankingPoint(rankingPointId, mudanca, actor) {
+  const ponto = await carregarLancamento(rankingPointId, actor);
+  const novo = await projetarLancamento(ponto, mudanca);
+  return {
+    atual: retrato(ponto),
+    novo: { ...novo, voided: Boolean(ponto.voidedAt) },
+    diferenca: novo.points - ponto.points,
+    athlete: { id: ponto.athlete.id, fullName: ponto.athlete.fullName }
+  };
+}
+
+async function editRankingPoint(rankingPointId, dados, actor) {
+  const ponto = await carregarLancamento(rankingPointId, actor);
+  if (ponto.voidedAt) {
+    throw new AppError(409, 'RANKING_POINT_VOIDED',
+      'Lançamento invalidado não se corrige: restaure antes de alterar');
+  }
+
+  // ATRIBUIÇÃO EM MASSA MORRE AQUI. Só o que está em CAMPOS_CORRIGIVEIS
+  // atravessa; `eventId`, `athleteId`, `source`, `externalResultId` e `points`
+  // enviados no corpo são simplesmente ignorados, e o teste de invasão confere
+  // que continuam intactos depois da tentativa.
+  const mudanca = Object.fromEntries(
+    CAMPOS_CORRIGIVEIS.filter(campo => dados[campo] !== undefined).map(campo => [campo, dados[campo]])
+  );
+  if (!Object.keys(mudanca).length) {
+    throw new AppError(422, 'NOTHING_TO_EDIT', 'Informe a colocação ou o não comparecimento');
+  }
+
+  let antes;
+  const atualizado = await comTemporadaTravada(ponto, async (tx, atual) => {
+    // Relido sob a trava: entre a conferência lá em cima e esta linha, uma
+    // invalidação pode ter commitado. Escrever assim mesmo devolveria pontos
+    // a um lançamento já invalidado.
+    if (atual.voidedAt) {
+      throw new AppError(409, 'RANKING_POINT_VOIDED',
+        'Lançamento invalidado não se corrige: restaure antes de alterar');
+    }
+
+    antes = retrato(atual);
+    const novo = await projetarLancamento(atual, mudanca, tx);
+
+    return tx.rankingPoint.update({
+      where: { id: rankingPointId },
+      data: {
+        placing: novo.placing, didNotShow: novo.didNotShow,
+        placementPoints: novo.placementPoints, overallBonus: novo.overallBonus,
+        points: novo.points, superOverallPoints: novo.superOverallPoints,
+        // A colocação de origem só é gravada na PRIMEIRA alteração: depois
+        // disso ela já registra de onde o lançamento partiu, e reescrevê-la
+        // apagaria justamente a informação que permite restaurar.
+        placingOriginal: atual.placingOriginal ?? atual.placing
+      }
+    });
+  });
+
+  await audit.record({
+    actor, action: audit.ACTIONS.RANKING_POINT_EDITED,
+    entity: 'RankingPoint', entityId: rankingPointId,
+    organizationId: ponto.season.organizationId,
+    metadata: {
+      reason: dados.reason, athleteId: ponto.athleteId, eventId: ponto.eventId,
+      source: ponto.source, externalResultId: ponto.externalResultId,
+      antes, depois: retrato(atualizado)
+    }
+  });
+
+  return { ...retrato(atualizado), id: rankingPointId, diferenca: atualizado.points - antes.points };
+}
+
+async function voidRankingPoint(rankingPointId, { reason }, actor) {
+  const ponto = await carregarLancamento(rankingPointId, actor);
+  if (ponto.voidedAt) {
+    throw new AppError(409, 'RANKING_POINT_ALREADY_VOIDED', 'Lançamento já invalidado');
+  }
+
+  let antes;
+  const atualizado = await comTemporadaTravada(ponto, async (tx, atual) => {
+    // A conferência que VALE é esta, sob a trava. A de cima só evita abrir
+    // transação à toa; sozinha, ela deixava nove de vinte invalidações
+    // simultâneas passarem, cada uma gravando o seu motivo por cima da
+    // anterior.
+    if (atual.voidedAt) {
+      throw new AppError(409, 'RANKING_POINT_ALREADY_VOIDED', 'Lançamento já invalidado');
+    }
+
+    antes = retrato(atual);
+    return tx.rankingPoint.update({
+      where: { id: rankingPointId },
+      data: {
+        voidedAt: new Date(), voidedById: actor?.id ?? null, voidReason: reason,
+        // Zera o que PONTUA. `placementPoints` guarda o que aconteceu, e
+        // `placingOriginal` de onde partiu — as duas peças de que a restauração
+        // precisa para não recalcular às cegas.
+        overallBonus: 0, points: 0, superOverallPoints: 0, isOverallChampion: false,
+        placingOriginal: atual.placingOriginal ?? atual.placing
+      }
+    });
+  });
+
+  await audit.record({
+    actor, action: audit.ACTIONS.RANKING_POINT_VOIDED,
+    entity: 'RankingPoint', entityId: rankingPointId,
+    organizationId: ponto.season.organizationId,
+    metadata: {
+      reason, athleteId: ponto.athleteId, eventId: ponto.eventId,
+      source: ponto.source, externalResultId: ponto.externalResultId,
+      antes, depois: retrato(atualizado)
+    }
+  });
+
+  return { ...retrato(atualizado), id: rankingPointId };
+}
+
+async function restoreRankingPoint(rankingPointId, { reason }, actor) {
+  const ponto = await carregarLancamento(rankingPointId, actor);
+  if (!ponto.voidedAt) {
+    throw new AppError(409, 'RANKING_POINT_NOT_VOIDED', 'Lançamento não está invalidado');
+  }
+
+  let antes;
+  const atualizado = await comTemporadaTravada(ponto, async (tx, atual) => {
+    if (!atual.voidedAt) {
+      throw new AppError(409, 'RANKING_POINT_NOT_VOIDED', 'Lançamento não está invalidado');
+    }
+
+    antes = retrato(atual);
+    // Restaurar recalcula a partir da COLOCAÇÃO, e não de um total salvo: se a
+    // tabela da temporada mudou entre a invalidação e a restauração, o que
+    // volta é a regra vigente aplicada ao fato, não um número congelado.
+    //
+    // E a colocação que vale é a QUE ESTÁ NA LINHA, não `placingOriginal`.
+    // Invalidar zera o que pontua e não toca em `placing`, então a linha já
+    // guarda o estado de antes da invalidação — que é exatamente o que
+    // restaurar promete devolver.
+    //
+    // Recalcular a partir de `placingOriginal` era um defeito medido: um
+    // lançamento importado como 1º, corrigido para 3º e depois para 2º,
+    // invalidado e restaurado voltava como 1º valendo 5. As duas correções do
+    // operador eram descartadas em silêncio, e o ranking voltava a publicar a
+    // colocação que a súmula já tinha desmentido. `placingOriginal` diz DE
+    // ONDE o lançamento partiu — é proveniência para a auditoria, nunca o
+    // destino da restauração.
+    const novo = await projetarLancamento(
+      atual, { placing: atual.placing, didNotShow: atual.didNotShow }, tx
+    );
+
+    return tx.rankingPoint.update({
+      where: { id: rankingPointId },
+      data: {
+        voidedAt: null, voidedById: null, voidReason: null,
+        placing: novo.placing, didNotShow: novo.didNotShow,
+        placementPoints: novo.placementPoints, overallBonus: novo.overallBonus,
+        points: novo.points, superOverallPoints: novo.superOverallPoints
+      }
+    });
+  });
+
+  await audit.record({
+    actor, action: audit.ACTIONS.RANKING_POINT_RESTORED,
+    entity: 'RankingPoint', entityId: rankingPointId,
+    organizationId: ponto.season.organizationId,
+    metadata: {
+      reason, athleteId: ponto.athleteId, eventId: ponto.eventId,
+      source: ponto.source, externalResultId: ponto.externalResultId,
+      antes, depois: retrato(atualizado)
+    }
+  });
+
+  return { ...retrato(atualizado), id: rankingPointId };
+}
+
 module.exports = {
   TOP_PUBLICO,
   createSeason, listSeasons, setPointsRules, pointsForPlacing, awardForResult,
   recompute, recompute_, list, athletePoints, teamRanking,
   declareOverall, listOverall, overallCandidates, overallPreview, revokeOverall,
+  eventRankingPoints,
+  previewRankingPoint, editRankingPoint, voidRankingPoint, restoreRankingPoint,
   superOverallRanking, listClasses, upsertClass, companyRanking,
   athleteRankingBy,
   TABELA_OFICIAL_COLOCACAO, BONUS_OVERALL,

@@ -302,6 +302,14 @@ export const api = {
     teams: params => get('/ranking/teams', params),
     companies: params => get('/ranking/companies', params),
     athletePoints: (id, params) => get(`/athletes/${id}/ranking-points`, params),
+    // Correção administrativa de lançamento publicado. A listagem é por
+    // CAMPEONATO porque é assim que o operador trabalha: com a súmula do
+    // evento na mão, procurando a linha errada.
+    eventPoints: eventId => get(`/events/${eventId}/ranking-points`),
+    previewPoint: (pointId, params) => get(`/ranking/points/${pointId}/preview`, params),
+    editPoint: (pointId, dados) => patch(`/ranking/points/${pointId}`, dados),
+    voidPoint: (pointId, dados) => post(`/ranking/points/${pointId}/void`, dados),
+    restorePoint: (pointId, dados) => post(`/ranking/points/${pointId}/restore`, dados),
     seasons: params => get('/seasons', params),
     createSeason: dados => post('/seasons', dados),
     setPointsRules: (id, dados) => put(`/seasons/${id}/points-rules`, dados),

@@ -271,7 +271,25 @@ describe('o calendário não pede migration nenhuma', () => {
       '20260916120000_indice_do_ranking_por_posicao',
       // NS deixou de ser recusa e virou participação de zero ponto; a classe
       // composta da origem passou a ser lida como categoria + divisão + classe.
-      '20260916130000_ns_e_classe_decomposta'
+      '20260916130000_ns_e_classe_decomposta',
+      // Invalidação administrativa de lançamento publicado. ADITIVA e nada
+      // além disso: quatro colunas ANULÁVEIS em "RankingPoint" (voidedAt,
+      // voidedById, voidReason, placingOriginal) e um índice PARCIAL sobre
+      // voidedAt. Sem DROP, sem TRUNCATE, sem UPDATE de linha existente, sem
+      // constraint nova e sem RLS tocada.
+      //
+      // Entrou pela revisão que esta lista existe para exigir, e NÃO junto com
+      // carga de dados: o caminho interno já corrigia resultado publicado por
+      // `ResultVersion`, mas o lançamento IMPORTADO não tinha como ser
+      // corrigido nem invalidado sem apagar a participação do histórico. As
+      // colunas são o registro de quem invalidou, por quê, e de onde a
+      // colocação partiu — as duas peças de que a restauração precisa para
+      // devolver o estado anterior em vez de recalcular às cegas.
+      //
+      // Anuláveis porque todo lançamento que já existe em produção nasceu
+      // válido: nulo em voidedAt É o estado válido, e nenhuma linha precisou
+      // ser preenchida para trás.
+      '20260918030000_lancamento_invalidado'
     ]);
   });
 });

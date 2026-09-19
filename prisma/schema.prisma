@@ -1305,6 +1305,16 @@ model RankingPoint {
   // Versão do resultado que originou o ponto: permite conferir que o ranking
   // reflete a versão válida, e não uma anterior.
   resultVersion        Int?
+  /// Invalidação administrativa: o lançamento deixa de pontuar mas continua no
+  /// histórico. Nulo = vigente, que é o estado de todo lançamento normal.
+  voidedAt             DateTime?
+  voidedById           String?
+  voidReason           String?
+  /// Colocação com que o lançamento NASCEU. Guardada na primeira correção ou
+  /// invalidação e nunca reescrita depois. É proveniência para a auditoria — de
+  /// onde o lançamento partiu —, e não o destino da restauração: restaurar
+  /// recalcula a partir de `placing`, que a invalidação preserva.
+  placingOriginal      Int?
   awardedById          String?
   awardedAt            DateTime    @default(now())
   createdAt            DateTime    @default(now())

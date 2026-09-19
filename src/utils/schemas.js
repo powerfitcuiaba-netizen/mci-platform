@@ -43,6 +43,7 @@ const paramsWithId = z.object({ id });
 // declarada: com `paramsWithId`, `titleId` chegava ao serviço como `undefined`
 // — e o Prisma respondia 500 numa rota de regra de negócio.
 const paramsComTitulo = z.object({ id, titleId: id });
+const paramsComPonto = z.object({ pointId: id });
 
 // ---------------------------------------------------------------- autenticação
 const authRegister = z.object({
@@ -482,6 +483,32 @@ const overallRevoke = z.object({
   reason: texto(3, 500)
 });
 
+// CORREÇÃO ADMINISTRATIVA DE LANÇAMENTO.
+//
+// `reason` é obrigatório e tem piso de tamanho: "ok" não é motivo, e seis
+// meses depois a diferença entre correção e adulteração está exatamente aí.
+//
+// O que NÃO aparece aqui é tão importante quanto o que aparece: não há
+// `points`, `eventId`, `athleteId`, `source` nem `externalResultId`. Os pontos
+// vêm do motor a partir da colocação; a identidade do lançamento é história e
+// não se edita. O que o corpo trouxer além disto é descartado pelo esquema
+// antes de chegar ao serviço.
+const rankingPointEdit = z.object({
+  placing: z.coerce.number().int().min(1).max(999).optional(),
+  didNotShow: booleano.optional(),
+  reason: texto(5, 500)
+}).refine(data => data.placing !== undefined || data.didNotShow !== undefined, {
+  message: 'Informe a colocação ou o não comparecimento', path: ['placing']
+});
+
+// A prévia não grava, então não exige motivo — exige só o que se quer simular.
+const rankingPointPreviewQuery = z.object({
+  placing: z.coerce.number().int().min(1).max(999).optional(),
+  didNotShow: booleano.optional()
+});
+
+const rankingPointReason = z.object({ reason: texto(5, 500) });
+
 const teamRankingQuery = z.object({
   seasonId: id.optional(),
   categoryId: id.optional(),
@@ -771,11 +798,12 @@ module.exports = {
   batchCreate, batchStatusUpdate, stageOrderSet,
   resultReceive, resultPublish, resultOverride,
   meuHistoricoQuery,
-  paramsComTitulo,
+  paramsComTitulo, paramsComPonto,
   seasonCreate, pointsRuleSet, rankingQuery, rankingCutQuery, overallDeclare,
   overallPreviewQuery, overallRevoke, teamRankingQuery,
   classCatalogUpsert, superOverallQuery,
   muscleWarImportCreate, muscleWarLink, muscleWarPreviewQuery,
+  rankingPointEdit, rankingPointPreviewQuery, rankingPointReason,
   teamCreate, companyCreate, coachCreate, gymCreate, brandCreate, sponsorCreate, sponsorshipCreate,
   partnershipCreate, partnershipStatus,
   profileCreate, profileUpdateSocial, postCreate, commentCreate, shareCreate, storyCaption, feedQuery,

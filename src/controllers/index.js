@@ -234,6 +234,11 @@ module.exports = {
     // pertencimento.
     overallCandidates: async (req, res) => res.json(await ranking.overallCandidates(req.params.id, req.user)),
     overallPreview: async (req, res) => res.json(await ranking.overallPreview(req.params.id, req.query, req.user)),
+    eventRankingPoints: async (req, res) => res.json(await ranking.eventRankingPoints(req.params.id, req.user)),
+    previewRankingPoint: async (req, res) => res.json(await ranking.previewRankingPoint(req.params.pointId, req.query, req.user)),
+    editRankingPoint: async (req, res) => res.json(await ranking.editRankingPoint(req.params.pointId, req.body, req.user)),
+    voidRankingPoint: async (req, res) => res.json(await ranking.voidRankingPoint(req.params.pointId, req.body, req.user)),
+    restoreRankingPoint: async (req, res) => res.json(await ranking.restoreRankingPoint(req.params.pointId, req.body, req.user)),
     revokeOverall: async (req, res) => res.json(await ranking.revokeOverall(req.params.id, req.params.titleId, req.body, req.user)),
     listOverall: async (req, res) => res.json({ items: await ranking.listOverall(req.params.id) }),
     superOverall: async (req, res) => declararCorte(req, res, await ranking.superOverallRanking(req.query.seasonId, {
