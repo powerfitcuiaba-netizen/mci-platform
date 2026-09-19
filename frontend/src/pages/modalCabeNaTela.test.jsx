@@ -34,10 +34,30 @@ const regra = seletor => {
   return css.slice(i, css.indexOf('}', i));
 };
 
+// `regra` acha o seletor só quando ele abre a linha exatamente como escrito.
+// Para os recortes com combinador (`.tabela-em-modal .table td:nth-child(3)`)
+// vale a pena procurar pelo seletor escapado, fora de qualquer @media.
+const corpoDe = seletor => {
+  const escapado = seletor.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const achado = new RegExp(`(?:^|\\})\\s*${escapado}\\s*\\{([^{}]*)\\}`, 'm').exec(css);
+  return achado ? achado[1] : null;
+};
+
+// Recorta o conteúdo de um `@media (...)`, com um nível de aninhamento.
+const dentroDaMedia = condicao => {
+  const escapado = condicao.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const achado = new RegExp(`@media\\s*${escapado}\\s*\\{((?:[^{}]*\\{[^{}]*\\})*)`, 'm').exec(css);
+  return achado ? achado[1] : null;
+};
+
 describe('o diálogo cabe na viewport', () => {
   it('o modal tem teto de altura e de largura em unidades de viewport', () => {
     const modal = regra('.modal');
-    expect(modal, 'sem max-height o diálogo cresce com o conteúdo').toMatch(/max-height:\s*min\(92vh,\s*92dvh\)/);
+    // 88vh, e não mais 92vh: com 92 o diálogo chegava a 8px da borda da tela
+    // em cima e embaixo, e a moldura que o distingue da página desaparecia.
+    // `dvh` acompanha a barra de endereço do celular que aparece e some; `vh`
+    // sozinho mede a tela com a barra recolhida e joga o rodapé para baixo dela.
+    expect(modal, 'sem max-height o diálogo cresce com o conteúdo').toMatch(/max-height:\s*min\(88vh,\s*88dvh\)/);
     expect(modal, 'sem max-width o diálogo passa da largura da tela').toMatch(/max-width:\s*96vw/);
   });
 
@@ -67,9 +87,91 @@ describe('o diálogo cabe na viewport', () => {
     expect(pagina, 'altura fixa inline voltou ao diálogo').not.toMatch(/maxHeight:\s*\d+/);
   });
 
-  it('os cards de métricas reorganizam em vez de estourar a largura', () => {
+  it('a camada do diálogo prende a rolagem', () => {
+    expect(regra('.modal-layer')).toMatch(/overflow:\s*hidden/);
+  });
+
+  it('o diálogo largo desconta 48px da viewport e para em 1180px', () => {
+    // `min(100%, 1100px)` com `max-width: 96vw` fazia o diálogo encostar quase
+    // nas bordas em telas médias: em 1280 sobravam 26px de cada lado, e a
+    // revisão parecia uma página, não um diálogo.
+    const achado = /width:\s*min\(\s*(\d+)px\s*,\s*calc\(\s*100vw\s*-\s*(\d+)px\s*\)\s*\)/
+      .exec(regra('.modal-wide'));
+    expect(achado, '.modal-wide não declara min(Xpx, calc(100vw - Ypx))').not.toBeNull();
+    expect(Number(achado[1])).toBeLessThanOrEqual(1180);
+    expect(Number(achado[2]), 'moldura de 24px de cada lado').toBeGreaterThanOrEqual(48);
+  });
+});
+
+// ==========================================================================
+// O SEGUNDO DEFEITO, QUE A MEDIÇÃO DE CAIXA SOZINHA NÃO PEGAVA.
+//
+// O modal cabia — e a tabela, não. Ela era mais larga que a área útil do
+// diálogo, e a coluna de AÇÃO ("Vincular") ficava fora em TODA viewport,
+// alcançável só arrastando a tabela de lado. Medido no mesmo Chromium:
+//
+//   1920x1080 .. área útil 1128px .. tabela 1254px  → 126px de ação escondida
+//
+// A prova de pixel deste contrato está em `scripts/qa/modal-na-viewport.mjs`,
+// que reprova as quatro viewports de 1280 para cima se ele for desfeito.
+// ==========================================================================
+describe('as onze colunas cabem, e quem rola de lado é a tabela', () => {
+  it('.table-wrap é o contêiner que rola na horizontal', () => {
+    expect(regra('.table-wrap')).toMatch(/overflow-x:\s*auto/);
+  });
+
+  it('a tabela do diálogo tem régua mínima, e ela não passa da área útil', () => {
+    const achado = /min-width:\s*(\d+)px/.exec(corpoDe('.tabela-em-modal .table'));
+    expect(achado, 'sem régua o navegador espreme as 11 colunas até o texto virar três linhas').not.toBeNull();
+    expect(Number(achado[1])).toBeGreaterThanOrEqual(1000);
+    // Passar disto devolve o defeito: a ação da linha sai do diálogo no desktop.
+    expect(Number(achado[1])).toBeLessThanOrEqual(1180 - 48);
+  });
+
+  it('o cabeçalho dentro do diálogo pode quebrar em duas linhas', () => {
+    // "Pts arquivo" numa linha só reservava 104px de largura que as 191 linhas
+    // pagavam. O cabeçalho aparece uma vez; as linhas, 191.
+    expect(corpoDe('.tabela-em-modal .table th')).toMatch(/white-space:\s*normal/);
+  });
+
+  it('nome, classe e situação têm piso E teto de largura', () => {
+    // O teto é o que impede um dado mais comprido que o do teste de esticar a
+    // coluna e empurrar a ação da linha para fora do diálogo.
+    for (const coluna of [3, 7, 10]) {
+      const corpo = corpoDe(`.tabela-em-modal .table td:nth-child(${coluna})`);
+      expect(corpo, `coluna ${coluna} sem regra de largura`).not.toBeNull();
+      expect(corpo).toMatch(/min-width:\s*\d+px/);
+      expect(corpo).toMatch(/max-width:\s*\d+px/);
+    }
+  });
+
+  it('nenhuma célula do diálogo usa -webkit-line-clamp', () => {
+    // Tentativa descartada: `display: -webkit-box` briga com o layout de
+    // tabela, a altura da linha continua vindo da célula mais alta, e a
+    // terceira linha aparecia pela metade — cortada no meio da palavra, sem
+    // reticências. Dar largura resolve sem esconder nada.
+    for (const trecho of css.match(/\.tabela-em-modal[^{}]*\{[^{}]*\}/g) || []) {
+      expect(trecho).not.toMatch(/-webkit-line-clamp/);
+    }
+  });
+});
+
+describe('o resumo de sete métricas muda de forma por viewport, e só por ela', () => {
+  it('no desktop as sete ficam em UMA linha', () => {
     const cards = regra('.import-summary');
-    expect(cards).toMatch(/grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(/);
+    expect(cards).toMatch(/grid-template-columns:\s*repeat\(\s*7\s*,/);
+    // `auto-fit` com piso de 132px produzia de 4 a 7 colunas conforme a
+    // largura, então a mesma tela mudava de forma sem motivo e o operador
+    // reaprendia onde cada número ficava. Sete declaradas dão leitura estável.
+    expect(cards).not.toMatch(/auto-fit|auto-fill/);
+  });
+
+  it('no tablet são 4 + 3', () => {
+    expect(dentroDaMedia('(max-width: 1100px)')).toMatch(/\.import-summary\s*\{[^{}]*repeat\(\s*4\s*,/);
+  });
+
+  it('no celular são 2 colunas', () => {
+    expect(dentroDaMedia('(max-width: 560px)')).toMatch(/\.import-summary\s*\{[^{}]*repeat\(\s*2\s*,/);
   });
 });
 
