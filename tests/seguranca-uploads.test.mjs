@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { readdirSync, statSync } from 'node:fs';
+import { readdirSync, statSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import {
   api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
@@ -47,9 +47,50 @@ function arquivosGuardados(diretorio = PASTA_DE_UPLOAD) {
   return total;
 }
 
+// O RESÍDUO DE EXECUÇÕES ANTERIORES PRECISA SAIR ANTES DE CONTAR.
+//
+// `arquivosGuardados` é recursivo e SÍNCRONO: ele bloqueia o event loop
+// enquanto percorre a árvore. Isso é aceitável sobre o punhado de arquivos que
+// esta suíte cria — e deixa de ser sobre o que ela ENCONTRA, porque nada nunca
+// apagava esta pasta. Ela cresce a cada execução da suíte inteira.
+//
+// MEDIDO, com a sonda de event loop ligada na execução em que o defeito
+// reproduziu:
+//
+//   uploads-test/ .......... 8.172 arquivos em 7.443 diretórios (63 MB)
+//   walk com cache quente ...    100 ms
+//   walk com cache frio ..... 35.091 ms   <-- estourou o timeout de 30s
+//   requisição HTTP .........    185 ms   <-- o produto nunca foi o problema
+//
+// São ~15.600 syscalls de `stat` por varredura. Com o cache de filesystem
+// frio — logo após a reciclagem do contêiner, que foi o caso — cada uma custa
+// milissegundos, e só a PRIMEIRA varredura do arquivo paga: as seguintes
+// voltavam a 84 ms. Era exatamente esse o padrão da falha intermitente, que
+// piorava conforme a pasta crescia.
+//
+// Limpar aqui mantém a varredura proporcional ao que a suíte de fato produz.
+// Nenhuma asserção de segurança muda: cada teste continua comparando o ANTES
+// com o DEPOIS dele mesmo, que é o que prova que o nome do arquivo não decide
+// onde ele mora.
+function limparResiduoDeUploads() {
+  // A pasta vem de STORAGE_DIR, que é configurável. Apagar recursivamente um
+  // caminho vindo de variável de ambiente sem conferir seria trocar um teste
+  // lento por um apagador de disco: uma configuração errada poderia apontar
+  // para a raiz do repositório, ou para fora dele.
+  const raiz = path.resolve('.');
+  const dentroDoRepositorio = PASTA_DE_UPLOAD.startsWith(raiz + path.sep);
+  const ehPastaDeTeste = /uploads[-_]?test/i.test(path.basename(PASTA_DE_UPLOAD));
+  if (!dentroDoRepositorio || !ehPastaDeTeste) return;
+
+  rmSync(PASTA_DE_UPLOAD, { recursive: true, force: true });
+}
+
 let operador, deFora, orgId, atleta;
 
-beforeAll(() => garantirCatalogo());
+beforeAll(() => {
+  limparResiduoDeUploads();
+  return garantirCatalogo();
+});
 
 beforeEach(async () => {
   await limparBanco();
@@ -83,14 +124,10 @@ describe('o nome do arquivo não governa nada', () => {
     '.htaccess'
   ]) {
     it(`"${nome}" não escapa da pasta de uploads`, async () => {
-      const t0 = Date.now();
       const antes = arquivosGuardados();
-      const t1 = Date.now();
 
       const resposta = await enviarDocumento(operador,
         { conteudo: PNG, opcoes: { filename: nome, contentType: 'image/png' } });
-      const t2 = Date.now();
-      console.error(`SONDA nome=${JSON.stringify(nome)} walk=${t1 - t0}ms requisicao=${t2 - t1}ms status=${resposta.status}`);
 
       // O envio pode ser aceito — o conteúdo É um PNG. O que não pode é o nome
       // decidir onde ele mora.
