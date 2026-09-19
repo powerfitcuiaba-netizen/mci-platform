@@ -50,6 +50,22 @@ export const pesoEmKg = gramas => (gramas == null ? '—' : `${(gramas / 1000).t
 
 export const somenteDigitos = valor => String(valor ?? '').replace(/\D/g, '');
 
+// OCULTAR NÃO É FORMATAR, e os dois nomes parecidos já custaram caro: o export
+// da revisão saiu com o CPF INTEIRO porque chamou `mascararCpf`, que aplica a
+// máscara de digitação (123.456.789-09) e não esconde nada. A asserção do
+// teste ainda passou, porque procurava a sequência crua de onze dígitos e os
+// pontos a quebraram — falso negativo perfeito.
+//
+// Esta é a mesma regra do servidor (`src/utils/cpf.js`): as três primeiras e
+// as duas últimas casas somem. Sobra o suficiente para conferir de quem é a
+// linha, e não o suficiente para reconstruir o documento.
+export function ocultarCpf(valor) {
+  const digitos = somenteDigitos(valor);
+  if (digitos.length !== 11) return '';
+  return `***.${digitos.slice(3, 6)}.${digitos.slice(6, 9)}-**`;
+}
+
+/** Máscara de DIGITAÇÃO. Não esconde: para esconder, use `ocultarCpf`. */
 export function mascararCpf(valor) {
   const digitos = somenteDigitos(valor).slice(0, 11);
   return digitos

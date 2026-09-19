@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, Building2, CalendarDays, Link2, Plus, Search, Trash2, Upload, Users } from 'lucide-react';
+import { AlertTriangle, Building2, CalendarDays, Download, Link2, Plus, Search, Trash2, Upload, Users } from 'lucide-react';
 import api, { refreshData } from '../services/api';
 import { useDebounce, useFetch, useListaPaginada } from '../lib/hooks';
 import { useAuth } from '../AuthContext';
@@ -7,7 +7,7 @@ import { permissoesDe, podeCom } from '../lib/permissoes';
 import { AsyncSection, AtualizadoEm, Avatar, Badge, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead, Paginacao } from '../components/ui';
 // Só a classe de cartão clicável é usada aqui — é CSS, não precisa do motor
 // em JS. Importar o que não se usa é ruído que o lint acusa e o leitor não.
-import { CRITERIO_DE_MATCH, ESTADO_MATCH, formatarDataHora, papel, estadoDoUsuario, tipoDeFiliacao, estadoDaImportacao } from '../lib/format';
+import { CRITERIO_DE_MATCH, ESTADO_MATCH, formatarDataHora, ocultarCpf, papel, estadoDoUsuario, tipoDeFiliacao, estadoDaImportacao } from '../lib/format';
 
 // Painel administrativo, ranking, importação MuscleWar, auditoria e
 // configurações da plataforma.
@@ -832,6 +832,57 @@ const FILTROS_DA_REVISAO = [
 // que é quem sabe o total.
 const POR_PAGINA_NA_REVISAO = 50;
 
+// ==========================================================================
+// EXPORTAR O QUE A REVISÃO TEM EM MÃOS.
+//
+// O recorte é o da tela: a página atual, com os filtros que o operador
+// aplicou. Não é "baixar a importação inteira" — isso seria outra coisa, com
+// outro custo e outra pergunta de autorização, e o servidor não tem porta para
+// isso. Exportar o que está à vista não abre frente nenhuma: o dado já está no
+// navegador porque a tela o desenhou.
+//
+// O CPF SAI MASCARADO, e é a única coisa que o arquivo mostra diferente da
+// tela. A razão é a assimetria: a tela exige sessão autenticada com permissão
+// de revisão; a planilha, depois de baixada, viaja por e-mail e mensagem sem
+// controle nenhum. A máscara preserva o que o CPF serve para fazer aqui —
+// conferir de quem é a linha — sem levar o documento inteiro junto.
+// ==========================================================================
+const COLUNAS_DA_EXPORTACAO = [
+  ['#', item => item.rowNumber],
+  ['CPF', item => (item.cpf ? ocultarCpf(item.cpf) : '')],
+  ['Atleta', item => item.athlete?.fullName || item.athleteName || ''],
+  ['Filiação', item => item.affiliationCode || ''],
+  ['Matrícula', item => item.memberNumber || ''],
+  ['Categoria', item => item.categoryCode || ''],
+  ['Classe', item => item.className || ''],
+  ['Colocação', item => (item.placing ?? '')],
+  ['Pontos do arquivo', item => (item.points ?? '')],
+  ['Situação', item => (ESTADO_MATCH[item.matchStatus]?.rotulo || item.matchStatus)],
+  ['Motivo', item => item.reason || '']
+];
+
+// Aspas duplicadas e campo entre aspas: é o mínimo para que um nome com
+// vírgula não vire duas colunas na planilha de quem abrir.
+const campoCsv = valor => `"${String(valor ?? '').replace(/"/g, '""')}"`;
+
+function exportarRevisao(dados, sufixo) {
+  const linhas = [
+    COLUNAS_DA_EXPORTACAO.map(([titulo]) => campoCsv(titulo)).join(','),
+    ...dados.items.map(item => COLUNAS_DA_EXPORTACAO.map(([, ler]) => campoCsv(ler(item))).join(','))
+  ];
+
+  // BOM na frente: sem ele o Excel em português abre "Físico" como "FÃ­sico".
+  const conteudo = new Blob(['\uFEFF' + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const endereco = URL.createObjectURL(conteudo);
+  const ancora = document.createElement('a');
+  ancora.href = endereco;
+  ancora.download = `revisao-${(dados.import.sourceRef || 'importacao').replace(/\.[^.]+$/, '')}${sufixo}.csv`;
+  document.body.appendChild(ancora);
+  ancora.click();
+  document.body.removeChild(ancora);
+  URL.revokeObjectURL(endereco);
+}
+
 export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
   const [situacao, setSituacao] = useState('');
   const [categoria, setCategoria] = useState('');
@@ -957,6 +1008,16 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
               {/* "Mostrando X de Y" não é enfeite: uma lista cortada em
                   silêncio parece completa, e o operador conclui que não há
                   mais nada a revisar. */}
+              <button
+                type="button"
+                className="button button-secondary button-sm"
+                title="Exportar as linhas desta página, com os filtros aplicados"
+                onClick={() => exportarRevisao(dados, situacao || categoria || termo.trim() ? '-filtrado' : '')}
+                disabled={!dados.items.length}
+              >
+                <Download size={14} /> Exportar
+              </button>
+
               <span className="import-contagem">
                 {dados.page?.total
                   ? `Mostrando ${(dados.page.offset ?? 0) + 1}–${(dados.page.offset ?? 0) + dados.items.length} de ${dados.page.total}`

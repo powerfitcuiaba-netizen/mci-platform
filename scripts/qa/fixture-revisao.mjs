@@ -125,6 +125,7 @@ ${metrica('Aplicados', 0)}
 <div class="import-busca"><input type="search" placeholder="Buscar atleta, matrícula, classe..."></div>
 <label for="f">Situação</label><select id="f"><option>Todas</option></select>
 <label for="fc">Categoria</label><select id="fc"><option>Todas</option></select>
+<button type="button" class="button button-secondary button-sm" title="Exportar as linhas desta página">Exportar</button>
 <span class="import-contagem">Mostrando 1–${POR_PAGINA} de ${TOTAL} registros</span></div>
 
 <div class="table-wrap tabela-em-modal"><table class="table">

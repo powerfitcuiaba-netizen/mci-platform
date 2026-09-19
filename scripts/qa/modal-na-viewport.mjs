@@ -73,6 +73,8 @@ for (const [w, h, tipo] of VIEWPORTS) {
     const celulas = [...document.querySelector('.tabela-em-modal tbody tr').querySelectorAll('td')];
     const paginacao = document.querySelector('.import-paginacao');
     const busca = document.querySelector('.import-busca');
+    const exportar = [...document.querySelectorAll('.import-filtros button')]
+      .find(b => /exportar/i.test(b.textContent));
     const r = e => e.getBoundingClientRect();
 
     // O cabeçalho só prova que grudou DEPOIS de rolar. Medir antes da rolagem
@@ -122,6 +124,8 @@ for (const [w, h, tipo] of VIEWPORTS) {
         paginacaoVisivel: Boolean(paginacao) && r(paginacao).height > 0
           && r(paginacao).bottom <= Math.min(innerHeight, r(acoes).top) + 1,
         buscaVisivel: Boolean(busca) && r(busca).width > 0,
+        exportarVisivel: Boolean(exportar) && r(exportar).width > 0
+          && r(exportar).bottom <= innerHeight + 1,
         // A AÇÃO DA LINHA TEM DE SER ALCANÇÁVEL — medida com a tabela rolada
         // até a direita, e não no estado inicial. A primeira versão desta
         // conferência exigia vê-la sem rolar, e reprovava as viewports
@@ -162,7 +166,7 @@ for (const [w, h, tipo] of VIEWPORTS) {
 
   const ok = cabe && rodapeVisivel && cabecalhoVisivel && botaoVisivel && semOverflowX
     && cardsCabem && todasColunas && m.cabecalhoGrudou && naoEncosta && linhaInteiraCabe
-    && m.paginacaoVisivel && m.buscaVisivel && m.acaoDaLinhaVisivel;
+    && m.paginacaoVisivel && m.buscaVisivel && m.acaoDaLinhaVisivel && m.exportarVisivel;
   if (!ok) reprovou = true;
 
   linhas.push(
@@ -173,6 +177,7 @@ for (const [w, h, tipo] of VIEWPORTS) {
     ` | th_grudou=${m.cabecalhoGrudou?'sim':'NAO'}` +
     ` | cards ${m.cartoes}x${m.cartaoAltura}px | colunas ${m.colunasDesenhadas}/${m.colunas}` +
     ` | linhas ${m.linhasVisiveis} | pag=${m.paginacaoVisivel?'sim':'NAO'} busca=${m.buscaVisivel?'sim':'NAO'}` +
+    ` acao=${m.acaoDaLinhaVisivel?'sim':'NAO'} exportar=${m.exportarVisivel?'sim':'NAO'}` +
     ` | overflowX_global=${m.overflowGlobalX?'SIM':'nao'}`);
 
   await pagina.screenshot({ path: `${PASTA}/tela-${w}x${h}.png` });
