@@ -71,15 +71,33 @@ for (const [w, h, tipo] of VIEWPORTS) {
     const cartoes = [...document.querySelectorAll('.import-summary .metric')];
     const th = document.querySelector('.tabela-em-modal thead th');
     const celulas = [...document.querySelector('.tabela-em-modal tbody tr').querySelectorAll('td')];
+    const paginacao = document.querySelector('.import-paginacao');
+    const busca = document.querySelector('.import-busca');
     const r = e => e.getBoundingClientRect();
 
     // O cabeçalho só prova que grudou DEPOIS de rolar. Medir antes da rolagem
     // e chamar de "sticky" seria conferir a propriedade, não o efeito.
+    // A ORDEM DAS DUAS MEDIÇÕES IMPORTA, e descobri isso pelo resultado
+    // intermitente: rolar o DIÁLOGO desloca o cabeçalho grudado da tabela em
+    // relação à viewport, então medir "o th ficou parado?" depois de mexer no
+    // diálogo comparava duas posições de layouts diferentes e acusava falha
+    // onde não havia. Primeiro o cabeçalho, com o diálogo parado; só então a
+    // rolagem do diálogo para conferir a paginação.
     const topoAntes = Math.round(r(th).top);
     tabela.scrollTop = 400;
     return new Promise(pronto => requestAnimationFrame(() => setTimeout(() => {
       const topoDepois = Math.round(r(th).top);
       tabela.scrollTop = 0;
+      // Até a direita: é onde mora a coluna de ação.
+      tabela.scrollLeft = tabela.scrollWidth;
+
+      // O DIÁLOGO ROLADO ATÉ O FIM: o requisito da paginação é ser
+      // ALCANÇÁVEL, não estar sempre à vista. No celular o conteúdo não cabe
+      // de jeito nenhum, e exigir que caiba seria exigir que alguma coluna
+      // sumisse. No desktop ela aparece sem rolar, e é o desconto de altura da
+      // tabela que garante isso.
+      modal.scrollTop = modal.scrollHeight;
+
       pronto({
         vw: innerWidth, vh: innerHeight,
         modal: { w: Math.round(r(modal).width), h: Math.round(r(modal).height),
@@ -97,6 +115,31 @@ for (const [w, h, tipo] of VIEWPORTS) {
         cabecalhoGrudou: Math.abs(topoAntes - topoDepois) <= 1,
         colunas: celulas.length,
         colunasDesenhadas: celulas.filter(td => r(td).width > 0 && r(td).height > 0).length,
+        // CABER NA VIEWPORT NÃO É ESTAR VISÍVEL. O rodapé é `sticky` e cobre o
+        // que passa por baixo dele: a primeira versão desta conferência dava
+        // verde com a faixa de paginação escondida atrás do rodapé, e a
+        // captura de tela é que denunciou. A régua certa é o topo do rodapé.
+        paginacaoVisivel: Boolean(paginacao) && r(paginacao).height > 0
+          && r(paginacao).bottom <= Math.min(innerHeight, r(acoes).top) + 1,
+        buscaVisivel: Boolean(busca) && r(busca).width > 0,
+        // A AÇÃO DA LINHA TEM DE SER ALCANÇÁVEL — medida com a tabela rolada
+        // até a direita, e não no estado inicial. A primeira versão desta
+        // conferência exigia vê-la sem rolar, e reprovava as viewports
+        // estreitas onde a própria especificação MANDA a tabela rolar de lado.
+        // Exigir o contrário ali seria exigir que alguma coluna sumisse.
+        //
+        // Nas viewports onde a linha inteira cabe (de 1280 para cima), quem
+        // garante a visibilidade sem arrasto é `linhaInteiraCabe`, que continua
+        // conferido à parte.
+        acaoDaLinhaVisivel: (() => {
+          const acao = document.querySelector('.tabela-em-modal tbody .icon-button');
+          if (!acao) return false;
+          const caixa = r(acao);
+          const janela = r(tabela);
+          return caixa.width > 0 && caixa.right <= janela.right + 1;
+        })(),
+        linhasVisiveis: [...document.querySelectorAll('.tabela-em-modal tbody tr')]
+          .filter(tr => r(tr).top >= r(tabela).top - 1 && r(tr).bottom <= r(tabela).bottom + 1).length,
         overflowGlobalX: document.documentElement.scrollWidth > innerWidth + 1
       });
     }, 60)));
@@ -118,7 +161,8 @@ for (const [w, h, tipo] of VIEWPORTS) {
   const linhaInteiraCabe = w < LARGURA_SEM_ARRASTO || !m.tabelaRolaHorizontal;
 
   const ok = cabe && rodapeVisivel && cabecalhoVisivel && botaoVisivel && semOverflowX
-    && cardsCabem && todasColunas && m.cabecalhoGrudou && naoEncosta && linhaInteiraCabe;
+    && cardsCabem && todasColunas && m.cabecalhoGrudou && naoEncosta && linhaInteiraCabe
+    && m.paginacaoVisivel && m.buscaVisivel && m.acaoDaLinhaVisivel;
   if (!ok) reprovou = true;
 
   linhas.push(
@@ -128,6 +172,7 @@ for (const [w, h, tipo] of VIEWPORTS) {
     ` | tabela ${String(m.tabelaAltura).padStart(3)}px rolaV=${m.tabelaRolaSozinha?'sim':'nao'} rolaH=${m.tabelaRolaHorizontal?'sim':'nao'}` +
     ` | th_grudou=${m.cabecalhoGrudou?'sim':'NAO'}` +
     ` | cards ${m.cartoes}x${m.cartaoAltura}px | colunas ${m.colunasDesenhadas}/${m.colunas}` +
+    ` | linhas ${m.linhasVisiveis} | pag=${m.paginacaoVisivel?'sim':'NAO'} busca=${m.buscaVisivel?'sim':'NAO'}` +
     ` | overflowX_global=${m.overflowGlobalX?'SIM':'nao'}`);
 
   await pagina.screenshot({ path: `${PASTA}/tela-${w}x${h}.png` });

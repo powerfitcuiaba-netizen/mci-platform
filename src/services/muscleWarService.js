@@ -751,7 +751,7 @@ function contar(status) {
 const ITENS_POR_PAGINA = 200;
 const TETO_DE_ITENS = 1000;
 
-async function preview(importId, actor, { limit, offset = 0, matchStatus = null } = {}) {
+async function preview(importId, actor, { limit, offset = 0, matchStatus = null, q = null, categoryCode = null } = {}) {
   const porPagina = Math.min(Math.max(1, Number(limit) || ITENS_POR_PAGINA), TETO_DE_ITENS);
   const aPartirDe = Math.max(0, Number(offset) || 0);
 
@@ -771,7 +771,34 @@ async function preview(importId, actor, { limit, offset = 0, matchStatus = null 
 
   assertCan(actor, 'musclewar.review', lote.organizationId);
 
-  const recorte = { importId, ...(matchStatus ? { matchStatus } : {}) };
+  // BUSCA E RECORTE POR CATEGORIA VÃO AO BANCO, e não ao navegador. Filtrar na
+  // página baixada acharia só dentro dos 50 visíveis — e diria "nenhum
+  // resultado" com o atleta procurado na página 3, que é pior do que não ter
+  // busca nenhuma.
+  //
+  // O CPF FICA DE FORA DA BUSCA, DE PROPÓSITO. Ele aparece mascarado na tabela
+  // e procurar por ele significaria mandar um CPF inteiro na query string, que
+  // é onde log de servidor e histórico de navegador guardam o que passa. As
+  // chaves que resolvem a mesma necessidade — nome, matrícula, classe e
+  // categoria — não carregam esse custo.
+  const termo = typeof q === 'string' ? q.trim() : '';
+  const busca = termo
+    ? {
+      OR: [
+        { athleteName: { contains: termo, mode: 'insensitive' } },
+        { memberNumber: { contains: termo, mode: 'insensitive' } },
+        { className: { contains: termo, mode: 'insensitive' } },
+        { categoryCode: { contains: termo, mode: 'insensitive' } }
+      ]
+    }
+    : {};
+
+  const recorte = {
+    importId,
+    ...(matchStatus ? { matchStatus } : {}),
+    ...(categoryCode ? { categoryCode } : {}),
+    ...busca
+  };
 
   const items = await prisma.muscleWarImportItem.findMany({
     where: recorte,
@@ -811,7 +838,18 @@ async function preview(importId, actor, { limit, offset = 0, matchStatus = null 
     totalDeItens += linha._count._all;
   }
 
-  const noRecorte = matchStatus ? (totais[matchStatus] ?? 0) : totalDeItens;
+  // QUANTAS LINHAS O RECORTE ATUAL TEM. Era derivado dos totais agrupados por
+  // situação, o que só valia quando a situação era o único filtro. Com busca e
+  // categoria no recorte, essa conta passaria a mentir: diria "191" com três
+  // linhas casando o termo, e a paginação ofereceria oito páginas vazias.
+  const noRecorte = await prisma.muscleWarImportItem.count({ where: recorte });
+
+  // As categorias QUE ESTE LOTE TEM, para o filtro da tela. Vêm do banco e não
+  // do catálogo inteiro: oferecer uma categoria que não existe no arquivo é
+  // oferecer um filtro que só devolve vazio.
+  const categoriasDoLote = await prisma.muscleWarImportItem.groupBy({
+    by: ['categoryCode'], where: { importId }, _count: { _all: true }
+  });
 
   return {
     import: lote,
@@ -833,10 +871,16 @@ async function preview(importId, actor, { limit, offset = 0, matchStatus = null 
       limit: porPagina,
       offset: aPartirDe,
       matchStatus: matchStatus ?? null,
+      q: termo || null,
+      categoryCode: categoryCode ?? null,
       returned: items.length,
       total: noRecorte,
       hasMore: aPartirDe + items.length < noRecorte
     },
+    categories: categoriasDoLote
+      .filter(linha => linha.categoryCode)
+      .map(linha => ({ code: linha.categoryCode, count: linha._count._all }))
+      .sort((a, b) => a.code.localeCompare(b.code)),
     items
   };
 }
@@ -1464,6 +1508,149 @@ async function reject(importId, { reason }, actor) {
   return atualizado;
 }
 
+// ===========================================================================
+// EXCLUIR UM LOTE SÃO DUAS OPERAÇÕES DIFERENTES.
+//
+// Chamá-las pelo mesmo nome é o que faz alguém apagar resultado publicado
+// achando que está limpando rascunho. A rota é uma só porque, da tela, o gesto
+// é um só — mas o que acontece depende inteiramente de o lote ter publicado
+// alguma coisa:
+//
+//   NADA PUBLICADO   o lote é rascunho. Some inteiro, com os itens (cascata do
+//                    schema). O ranking sequer soube que ele existiu, e o
+//                    arquivo pode ser reimportado em seguida, porque não
+//                    sobrou identificador externo ocupado.
+//
+//   JÁ PUBLICADO     DELETE físico seria perda de histórico esportivo: some a
+//                    participação do atleta, some a proveniência do ponto, e o
+//                    ranking fica com um buraco que ninguém explica depois.
+//                    Então o lote PERMANECE, marcado, e os lançamentos que ele
+//                    gerou são invalidados pelo mecanismo homologado — linha
+//                    preservada, valendo zero, com o motivo à vista.
+//
+// O ExternalResult NÃO é removido na invalidação. Ele é a chave de
+// idempotência: apagá-lo faria a reimportação do mesmo arquivo pontuar de
+// novo, que é exatamente o acidente que invalidar existe para evitar.
+// ===========================================================================
+
+/** Os lançamentos que ESTE lote publicou, pela cadeia item -> externo -> ponto. */
+async function lancamentosDoLote(importId) {
+  const itens = await prisma.muscleWarImportItem.findMany({
+    where: { importId }, select: { id: true }
+  });
+  if (!itens.length) return [];
+
+  const externos = await prisma.externalResult.findMany({
+    where: { importItemId: { in: itens.map(item => item.id) } }, select: { id: true }
+  });
+  if (!externos.length) return [];
+
+  return prisma.rankingPoint.findMany({
+    where: { externalResultId: { in: externos.map(externo => externo.id) } },
+    select: { id: true, voidedAt: true }
+  });
+}
+
+async function deleteImport(importId, { reason = null } = {}, actor) {
+  const lote = await prisma.muscleWarImport.findUnique({
+    where: { id: importId },
+    select: {
+      id: true, organizationId: true, seasonId: true, eventId: true, sourceRef: true,
+      status: true, totalRecords: true, appliedCount: true, invalidatedAt: true
+    }
+  });
+  // Lote invisível é o RLS negando a organização. A resposta é a mesma de "não
+  // existe": quem não pode ver não recebe confirmação de que existe.
+  if (!lote) throw new AppError(404, 'IMPORT_NOT_FOUND', 'Importação não encontrada');
+
+  assertCan(actor, 'musclewar.apply', lote.organizationId);
+
+  if (lote.status === 'INVALIDATED') {
+    throw new AppError(409, 'IMPORT_ALREADY_INVALIDATED', 'Importação já invalidada');
+  }
+
+  const lancamentos = await lancamentosDoLote(importId);
+  const aInvalidar = lancamentos.filter(ponto => !ponto.voidedAt);
+
+  // O que decide o caminho é o LEDGER, não só o rótulo de status: um lote
+  // marcado APPLIED cujos pontos já foram todos invalidados avulsos não tem
+  // mais nada a desfazer, e um lote com ponto vivo não pode sumir por mais
+  // que o status diga outra coisa.
+  const publicou = lancamentos.length > 0 || lote.status === 'APPLIED';
+
+  if (!publicou) {
+    // Exclusão de verdade. A corrida é resolvida pelo próprio banco: quem
+    // chegar depois encontra a linha já removida e recebe 404, em vez de
+    // apagar duas vezes.
+    try {
+      await prisma.muscleWarImport.delete({ where: { id: importId } });
+    } catch (erro) {
+      if (erro?.code === 'P2025') throw new AppError(404, 'IMPORT_NOT_FOUND', 'Importação não encontrada');
+      throw erro;
+    }
+
+    await audit.record({
+      actor, action: audit.ACTIONS.MUSCLEWARE_IMPORT_DELETED,
+      entity: 'MuscleWarImport', entityId: importId,
+      organizationId: lote.organizationId,
+      metadata: {
+        operation: 'DELETED', reason: reason ?? null,
+        sourceRef: lote.sourceRef, eventId: lote.eventId, seasonId: lote.seasonId,
+        totalRecords: lote.totalRecords, appliedCount: lote.appliedCount,
+        statusAnterior: lote.status, statusPosterior: null
+      }
+    });
+
+    return { id: importId, operation: 'DELETED', voidedPoints: 0 };
+  }
+
+  // Daqui para baixo é invalidação, e ela mexe no ranking: exige o motivo por
+  // escrito e a permissão de quem responde pelo ledger.
+  if (!reason || !String(reason).trim()) {
+    throw new AppError(422, 'INVALIDATE_REASON_REQUIRED',
+      'Informe o motivo da invalidação: esta importação publicou resultados no ranking');
+  }
+  assertCan(actor, 'ranking.manage', lote.organizationId);
+
+  // TROCA ATÔMICA DE ESTADO COMO PONTO DE SERIALIZAÇÃO.
+  //
+  // `updateMany` condicionado ao status anterior é um compare-and-set: de
+  // vinte chamadas simultâneas, exatamente uma recebe count 1 e segue; as
+  // outras recebem zero e viram 409. Sem isso, as vinte invalidariam, cada uma
+  // gravando o seu motivo por cima da anterior e somando vinte auditorias de
+  // lote para uma operação só.
+  const tomou = await prisma.muscleWarImport.updateMany({
+    where: { id: importId, status: lote.status, invalidatedAt: null },
+    data: {
+      status: 'INVALIDATED', invalidatedAt: new Date(),
+      invalidatedById: actor?.id ?? null, invalidateReason: String(reason).trim()
+    }
+  });
+  if (tomou.count !== 1) {
+    throw new AppError(409, 'IMPORT_ALREADY_INVALIDATED', 'Importação já invalidada');
+  }
+
+  const motivo = `Importação invalidada: ${String(reason).trim()}`;
+  const { voided } = await ranking.voidRankingPoints(
+    aInvalidar.map(ponto => ponto.id), { reason: motivo }, actor, lote.organizationId
+  );
+
+  await audit.record({
+    actor, action: audit.ACTIONS.MUSCLEWARE_IMPORT_INVALIDATED,
+    entity: 'MuscleWarImport', entityId: importId,
+    organizationId: lote.organizationId,
+    metadata: {
+      operation: 'INVALIDATED', reason: String(reason).trim(),
+      sourceRef: lote.sourceRef, eventId: lote.eventId, seasonId: lote.seasonId,
+      totalRecords: lote.totalRecords, appliedCount: lote.appliedCount,
+      statusAnterior: lote.status, statusPosterior: 'INVALIDATED',
+      pontosInvalidados: voided
+    }
+  });
+
+  return { id: importId, operation: 'INVALIDATED', voidedPoints: voided };
+}
+
 async function listImports(filtros, actor) {
   const { organizationFilter } = require('../utils/tenant');
   const escopo = organizationFilter(actor, filtros.organizationId);
@@ -1482,4 +1669,5 @@ async function listImports(filtros, actor) {
 }
 
 module.exports = {
-  vincularPendentesDoAtleta, createImport, preview, linkItem, apply, reject, listImports, analisarLinha, SOURCE, MAXIMO_DE_LINHAS };
+  vincularPendentesDoAtleta, createImport, preview, linkItem, apply, reject, deleteImport,
+  listImports, analisarLinha, SOURCE, MAXIMO_DE_LINHAS };

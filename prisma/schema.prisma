@@ -176,6 +176,7 @@ model User {
   eventDocuments         EventDocument[]         @relation("EventDocumentUploader")
   muscleWarImports       MuscleWarImport[]       @relation("ImportCreatedBy")
   muscleWarApplied       MuscleWarImport[]       @relation("ImportAppliedBy")
+  muscleWarInvalidated   MuscleWarImport[]       @relation("ImportInvalidatedBy")
   moderationActions      ContentReport[]         @relation("ReportResolver")
   proHistoryEntries      AthleteProHistory[]     @relation("ProHistoryAuthor")
   rankingPointsAwarded   RankingPoint[]          @relation("RankingPointAwardedBy")
@@ -1432,6 +1433,12 @@ enum ImportStatus {
   PREVIEWED
   APPLIED
   REJECTED
+  /// Lote que JÁ havia sido aplicado e foi desfeito por decisão
+  /// administrativa. Não se confunde com REJECTED: rejeitar é recusar ANTES
+  /// de publicar; invalidar é desfazer DEPOIS, preservando no histórico tanto
+  /// o lote quanto os lançamentos que ele gerou — estes marcados como
+  /// invalidados, valendo zero, e não removidos.
+  INVALIDATED
 }
 
 model MuscleWarImport {
@@ -1453,6 +1460,12 @@ model MuscleWarImport {
   createdById    String?
   appliedById    String?
   appliedAt      DateTime?
+  /// Quando o lote publicado foi desfeito, por quem e por quê. Nulos num lote
+  /// que nunca foi invalidado — e um lote que nunca foi APLICADO não chega
+  /// aqui, porque esse é excluído de verdade.
+  invalidatedAt    DateTime?
+  invalidatedById  String?
+  invalidateReason String?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
@@ -1461,11 +1474,13 @@ model MuscleWarImport {
   event        Event?         @relation(fields: [eventId], references: [id], onDelete: SetNull)
   createdBy    User?          @relation("ImportCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   appliedBy    User?          @relation("ImportAppliedBy", fields: [appliedById], references: [id], onDelete: SetNull)
+  invalidatedBy User?         @relation("ImportInvalidatedBy", fields: [invalidatedById], references: [id], onDelete: SetNull)
 
   items MuscleWarImportItem[]
 
   @@index([organizationId, status])
   @@index([createdAt])
+  @@index([invalidatedAt])
 }
 
 enum MatchStatus {

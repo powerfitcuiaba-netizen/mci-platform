@@ -182,19 +182,20 @@ describe('a revisão diz que a lista está cortada', () => {
     page
   });
 
-  it('mostra quantas linhas vieram e quantas existem', async () => {
+  it('mostra QUAL faixa veio e quantas existem', async () => {
     api.muscleWar.preview.mockResolvedValue(comPagina(
       [item({ id: 'i1', rowNumber: 1 })],
-      { limit: 200, offset: 0, matchStatus: null, returned: 1, total: 10000, hasMore: true },
+      { limit: 50, offset: 0, matchStatus: null, returned: 1, total: 10000, hasMore: true },
       { totalRecords: 10000, recognized: 9000, pending: 1000, valid: 9000 }
     ));
 
     render(<RevisarImportacao importId="imp1" notificar={() => {}} onClose={() => {}} onMudou={() => {}} />);
 
-    const contagem = await screen.findByText(/Mostrando 1 de 10000/i);
-    expect(contagem).toBeTruthy();
+    // A faixa, e não só a contagem: com páginas, "1 de 10000" não diria ONDE
+    // o operador está.
+    expect(await screen.findByText(/Mostrando 1–1 de 10000/i)).toBeTruthy();
     // E oferece o caminho para ver o resto.
-    expect(await screen.findByRole('button', { name: /Carregar mais/i })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /Próxima/i })).toBeTruthy();
   });
 
   it('os totais mostrados são os do LOTE, não os da página', async () => {
@@ -212,28 +213,49 @@ describe('a revisão diz que a lista está cortada', () => {
     expect(await screen.findByText(/Aplicar agora vai trazer apenas os 8500/i)).toBeTruthy();
   });
 
-  it('lista inteira na primeira página não oferece "carregar mais"', async () => {
+  it('lote que cabe numa página não mostra paginação', async () => {
     api.muscleWar.preview.mockResolvedValue(comPagina(
       [item({ id: 'i1', rowNumber: 1 })],
-      { limit: 200, offset: 0, matchStatus: null, returned: 1, total: 1, hasMore: false },
+      { limit: 50, offset: 0, matchStatus: null, returned: 1, total: 1, hasMore: false },
       { totalRecords: 1, recognized: 1, valid: 1 }
     ));
 
     render(<RevisarImportacao importId="imp1" notificar={() => {}} onClose={() => {}} onMudou={() => {}} />);
-    await screen.findByText(/Mostrando 1 de 1/i);
-    expect(screen.queryByRole('button', { name: /Carregar mais/i })).toBeNull();
+    await screen.findByText(/Mostrando 1–1 de 1/i);
+    expect(screen.queryByRole('button', { name: /Próxima/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Anterior/i })).toBeNull();
+  });
+
+  it('virar a página pede o OFFSET seguinte ao servidor', async () => {
+    api.muscleWar.preview.mockResolvedValue(comPagina(
+      [item({ id: 'i1', rowNumber: 1 })],
+      { limit: 50, offset: 0, matchStatus: null, returned: 1, total: 10000, hasMore: true },
+      { totalRecords: 10000, recognized: 9000, valid: 9000 }
+    ));
+
+    const { default: usuario } = await import('@testing-library/user-event');
+    render(<RevisarImportacao importId="imp1" notificar={() => {}} onClose={() => {}} onMudou={() => {}} />);
+    await screen.findByText(/Mostrando 1–1 de 10000/i);
+
+    await usuario.click(screen.getByRole('button', { name: /Próxima/i }));
+
+    // Acumular no navegador devolveria o problema que a paginação resolveu: a
+    // altura do diálogo voltaria a crescer com o lote.
+    await vi.waitFor(() => {
+      expect(api.muscleWar.preview.mock.calls.at(-1)[1]).toMatchObject({ offset: 50, limit: 50 });
+    });
   });
 
   it('o filtro por situação é pedido ao SERVIDOR', async () => {
     api.muscleWar.preview.mockResolvedValue(comPagina(
       [item({ id: 'i1', rowNumber: 1 })],
-      { limit: 200, offset: 0, matchStatus: null, returned: 1, total: 10000, hasMore: true },
+      { limit: 50, offset: 0, matchStatus: null, returned: 1, total: 10000, hasMore: true },
       { totalRecords: 10000, pending: 1000, valid: 9000 }
     ));
 
     const { default: usuario } = await import('@testing-library/user-event');
     render(<RevisarImportacao importId="imp1" notificar={() => {}} onClose={() => {}} onMudou={() => {}} />);
-    await screen.findByText(/Mostrando 1 de 10000/i);
+    await screen.findByText(/Mostrando 1–1 de 10000/i);
 
     await usuario.selectOptions(screen.getByLabelText(/Situação/i), 'MATCH_PENDING');
 

@@ -268,6 +268,11 @@ router.get('/musclewar/imports/:id', requireAuth, validate(s.paramsWithId, 'para
 router.post('/musclewar/items/:itemId/link', requireAuth, validate(s.muscleWarLink), wrap(c.muscleWar.link));
 router.post('/musclewar/imports/:id/apply', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.muscleWar.apply, PRAZO_DA_IMPORTACAO));
 router.post('/musclewar/imports/:id/reject', requireAuth, validate(s.paramsWithId, 'params'), validate(s.rejectImport), wrap(c.muscleWar.reject));
+// A autorização NÃO fica aqui em `perm(...)`: quem decide é o serviço, porque
+// a permissão exigida depende do que o lote publicou — invalidar mexe no
+// ledger e pede `ranking.manage` além de `musclewar.apply`. Resolver isso no
+// middleware exigiria ler o lote duas vezes, e a segunda leitura é a que vale.
+router.delete('/musclewar/imports/:id', requireAuth, validate(s.paramsWithId, 'params'), validate(s.deleteImport), wrap(c.muscleWar.remove));
 
 // ================================== EQUIPES, ACADEMIAS, COACHES, MARCAS, PATROCÍNIO
 // Empresas competidoras: cadastram-se e entram com suas equipes.

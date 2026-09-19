@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { AlertTriangle, Building2, CalendarDays, Plus, Upload, Users } from 'lucide-react';
+import { AlertTriangle, Building2, CalendarDays, Link2, Plus, Search, Trash2, Upload, Users } from 'lucide-react';
 import api, { refreshData } from '../services/api';
-import { useFetch, useListaPaginada } from '../lib/hooks';
+import { useDebounce, useFetch, useListaPaginada } from '../lib/hooks';
+import { useAuth } from '../AuthContext';
+import { permissoesDe, podeCom } from '../lib/permissoes';
 import { AsyncSection, AtualizadoEm, Avatar, Badge, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead, Paginacao } from '../components/ui';
 // Só a classe de cartão clicável é usada aqui — é CSS, não precisa do motor
 // em JS. Importar o que não se usa é ruído que o lint acusa e o leitor não.
@@ -455,10 +457,114 @@ function TabelaDePontos({ temporada, notificar, onClose, onSalvo }) {
 }
 
 // ============================================================== MUSCLEWAR
+// ==========================================================================
+// EXCLUIR E INVALIDAR SÃO A MESMA PORTA E OPERAÇÕES DIFERENTES.
+//
+// O servidor decide qual das duas acontece — pelo que o lote publicou, não
+// pelo rótulo do status. A tela precisa DIZER qual vai acontecer ANTES do
+// clique, senão o operador aperta "Excluir" num lote publicado imaginando que
+// está limpando rascunho, e o que ele faz é desfazer resultado no ranking.
+// ==========================================================================
+
+/** Um lote que publicou alguma coisa não se exclui: se invalida. */
+const loteFoiPublicado = lote => lote.status === 'APPLIED' || (lote.appliedCount ?? 0) > 0;
+
+const acaoDoLote = lote => (loteFoiPublicado(lote)
+  ? { rotulo: 'Invalidar', titulo: 'Invalidar importação publicada', verbo: 'invalidada' }
+  : { rotulo: 'Excluir', titulo: 'Excluir importação', verbo: 'excluída' });
+
+export function ExcluirImportacao({ lote, notificar, onClose, onConcluido }) {
+  const publicado = loteFoiPublicado(lote);
+  const [motivo, setMotivo] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState(null);
+
+  // O motivo é exigido pelo servidor quando há resultado publicado. A tela
+  // exige junto para não gastar uma ida ao servidor só para receber o 422.
+  const faltaMotivo = publicado && motivo.trim().length < 3;
+
+  const confirmar = async () => {
+    setEnviando(true);
+    setErro(null);
+    try {
+      const { operation } = await api.muscleWar.remove(lote.id, motivo.trim() ? { reason: motivo.trim() } : {});
+      notificar(operation === 'INVALIDATED'
+        ? 'Importação invalidada com sucesso.'
+        : 'Importação excluída com sucesso.', 'ok');
+      onConcluido();
+    } catch (falha) {
+      // Mensagem do domínio, nunca o erro técnico cru.
+      setErro(falha.message || 'Não foi possível concluir a operação.');
+      setEnviando(false);
+    }
+  };
+
+  return (
+    <Modal title={publicado ? 'Invalidar importação?' : 'Excluir importação?'} onClose={onClose}>
+      <p style={{ color: 'var(--cinza)', fontSize: 13, marginTop: 0 }}>
+        Você está prestes a {publicado ? 'invalidar' : 'excluir'} esta importação.
+      </p>
+
+      {/* O QUE, EXATAMENTE. Confirmar uma exclusão sem ver o arquivo, o evento
+          e o tamanho do lote é confirmar no escuro. */}
+      <dl className="resumo-da-exclusao">
+        <div><dt>Arquivo</dt><dd>{lote.sourceRef}</dd></div>
+        <div><dt>Evento</dt><dd>{lote.event?.name || 'sem evento'}</dd></div>
+        <div><dt>Temporada</dt><dd>{lote.season?.name || 'sem temporada'}</dd></div>
+        <div><dt>Registros</dt><dd>{lote.totalRecords}</dd></div>
+        <div><dt>Aplicados</dt><dd>{lote.appliedCount ?? 0}</dd></div>
+        <div><dt>Situação</dt><dd>{estadoDaImportacao(lote.status).rotulo}</dd></div>
+        <div><dt>Enviada em</dt><dd>{formatarDataHora(lote.createdAt)}</dd></div>
+      </dl>
+
+      <div className={`alert ${publicado ? 'alert-alerta' : 'alert-info'}`} style={{ marginBottom: 14 }}>
+        <AlertTriangle size={16} />
+        <div>
+          {publicado
+            ? (
+              <p style={{ margin: 0 }}>
+                Esta importação possui resultados vinculados ao ranking. A exclusão será
+                tratada como <strong>invalidação</strong> e ficará registrada na auditoria:
+                os lançamentos continuam no histórico, marcados e valendo zero.
+              </p>
+            )
+            : <p style={{ margin: 0 }}>Esta importação ainda não publicou resultados.</p>}
+        </div>
+      </div>
+
+      <Field label={publicado ? 'Motivo da invalidação' : 'Motivo (opcional)'}>
+        <input
+          type="text"
+          value={motivo}
+          maxLength={300}
+          onChange={evento => setMotivo(evento.target.value)}
+          placeholder="erro na súmula, arquivo incorreto, evento incorreto..."
+        />
+      </Field>
+
+      {erro && <div className="alert alert-perigo" style={{ marginBottom: 12 }}><div><p style={{ margin: 0 }}>{erro}</p></div></div>}
+
+      <div className="modal-actions">
+        <button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button>
+        <button type="button" className="button button-danger" onClick={confirmar} disabled={enviando || faltaMotivo}>
+          <Trash2 size={15} /> {publicado ? 'Invalidar importação' : 'Excluir importação'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 export function AdminMuscleWar({ notificar }) {
   const [importando, setImportando] = useState(false);
   const [detalhe, setDetalhe] = useState(null);
+  const [paraExcluir, setParaExcluir] = useState(null);
   const estado = useFetch(() => api.muscleWar.list({ limit: 50 }), []);
+
+  // Esconder a ação de quem não pode executá-la não é o controle de acesso —
+  // esse é do servidor, que responde 403. É para não oferecer um botão que só
+  // falharia depois do clique.
+  const { user } = useAuth();
+  const podeExcluir = podeCom(permissoesDe(user))('musclewar.apply');
 
   return (
     <div className="page">
@@ -498,7 +604,26 @@ export function AdminMuscleWar({ notificar }) {
                         <small style={{ display: 'block', color: 'var(--cinza-fraco)' }}>{lote.createdBy?.name}</small>
                       </td>
                       <td style={{ textAlign: 'right' }}>
-                        <button type="button" className="button button-secondary button-sm" onClick={() => setDetalhe(lote.id)}>Revisar</button>
+                        <div className="acoes-da-linha">
+                          <button type="button" className="button button-secondary button-sm" onClick={() => setDetalhe(lote.id)}>Revisar</button>
+                          {/* A AÇÃO DESTRUTIVA MUDA DE NOME CONFORME O ESTADO,
+                              porque ela muda de natureza. Rascunho se EXCLUI;
+                              lote publicado se INVALIDA, e chamar as duas de
+                              "excluir" é o que faz alguém apagar resultado
+                              achando que está limpando rascunho.
+                              Um lote já invalidado não oferece ação nenhuma:
+                              não há o que desfazer duas vezes. */}
+                          {podeExcluir && lote.status !== 'INVALIDATED' && (
+                            <button
+                              type="button"
+                              className="button button-danger button-sm"
+                              title={acaoDoLote(lote).titulo}
+                              onClick={() => setParaExcluir(lote)}
+                            >
+                              <Trash2 size={14} /> {acaoDoLote(lote).rotulo}
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -512,6 +637,14 @@ export function AdminMuscleWar({ notificar }) {
 
       {importando && <NovaImportacao notificar={notificar} onClose={() => setImportando(false)} onCriada={id => { setImportando(false); estado.reload(); setDetalhe(id); }} />}
       {detalhe && <RevisarImportacao importId={detalhe} notificar={notificar} onClose={() => setDetalhe(null)} onMudou={() => estado.reload()} />}
+      {paraExcluir && (
+        <ExcluirImportacao
+          lote={paraExcluir}
+          notificar={notificar}
+          onClose={() => setParaExcluir(null)}
+          onConcluido={() => { setParaExcluir(null); estado.reload(); }}
+        />
+      )}
     </div>
   );
 }
@@ -691,24 +824,47 @@ const FILTROS_DA_REVISAO = [
   ['APPLIED', 'Aplicadas']
 ];
 
-const POR_PAGINA_NA_REVISAO = 200;
+// 50 POR PÁGINA, E NÃO 200.
+//
+// Duzentas linhas não cabem na altura de um diálogo — e o preço não é só
+// visual: são duzentas linhas montadas no DOM para o operador ler cinco. Com
+// 50 e páginas de verdade, a altura vira constante e o recorte é do servidor,
+// que é quem sabe o total.
+const POR_PAGINA_NA_REVISAO = 50;
 
 export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
   const [situacao, setSituacao] = useState('');
-  const [mostrando, setMostrando] = useState(POR_PAGINA_NA_REVISAO);
+  const [categoria, setCategoria] = useState('');
+  const [busca, setBusca] = useState('');
+  const [pagina, setPagina] = useState(0);
 
-  // O lote inteiro não vem mais de uma vez: a resposta de uma importação de
-  // 10.000 linhas passava de 12 MB. "Carregar mais" aumenta o recorte pedido
-  // ao servidor — e não acumula páginas no navegador, para que voltar atrás
-  // no filtro não deixe lixo na tela.
+  // A BUSCA VAI AO SERVIDOR, com atraso. Filtrar a página já baixada acharia
+  // só dentro das 50 visíveis e diria "nada encontrado" com o atleta na página
+  // 3 — pior do que não ter busca. O atraso existe para não disparar uma
+  // consulta por tecla digitada.
+  const termo = useDebounce(busca, 350);
+
+  // O lote inteiro não vem de uma vez: a resposta de uma importação de 10.000
+  // linhas passava de 12 MB. O recorte é do servidor, e trocar de página não
+  // acumula nada no navegador.
   const estado = useFetch(
-    () => api.muscleWar.preview(importId, { limit: mostrando, ...(situacao ? { matchStatus: situacao } : {}) }),
-    [importId, situacao, mostrando]
+    () => api.muscleWar.preview(importId, {
+      limit: POR_PAGINA_NA_REVISAO,
+      offset: pagina * POR_PAGINA_NA_REVISAO,
+      ...(situacao ? { matchStatus: situacao } : {}),
+      ...(categoria ? { categoryCode: categoria } : {}),
+      ...(termo.trim() ? { q: termo.trim() } : {})
+    }),
+    [importId, situacao, categoria, termo, pagina]
   );
   const [vinculando, setVinculando] = useState(null);
   const [aplicando, setAplicando] = useState(false);
 
-  const trocarFiltro = valor => { setSituacao(valor); setMostrando(POR_PAGINA_NA_REVISAO); };
+  // Qualquer mudança de recorte volta para a primeira página: manter a página
+  // 4 depois de filtrar mostraria uma tela vazia de um resultado que existe.
+  const trocarFiltro = valor => { setSituacao(valor); setPagina(0); };
+  const trocarCategoria = valor => { setCategoria(valor); setPagina(0); };
+  const trocarBusca = valor => { setBusca(valor); setPagina(0); };
 
   const aplicar = async () => {
     try {
@@ -762,18 +918,50 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
             )}
 
             <div className="import-filtros">
+              {/* A BUSCA NÃO ACEITA CPF, e isso é decisão, não esquecimento:
+                  procurar por CPF mandaria o documento inteiro na query
+                  string, que é onde log de servidor e histórico de navegador
+                  guardam o que passa. Nome, matrícula e classe resolvem a
+                  mesma necessidade sem esse custo. */}
+              <div className="import-busca">
+                <Search size={14} aria-hidden="true" />
+                <input
+                  type="search"
+                  aria-label="Buscar na importação"
+                  placeholder="Buscar atleta, matrícula, classe..."
+                  value={busca}
+                  onChange={evento => trocarBusca(evento.target.value)}
+                />
+              </div>
+
               <label htmlFor="filtro-situacao">Situação</label>
               <select id="filtro-situacao" value={situacao} onChange={evento => trocarFiltro(evento.target.value)}>
                 {FILTROS_DA_REVISAO.map(([valor, rotulo]) => (
                   <option key={valor || 'todas'} value={valor}>{rotulo}</option>
                 ))}
               </select>
+
+              {/* As categorias são as DESTE lote. Oferecer o catálogo inteiro
+                  seria oferecer filtros que só devolvem vazio. */}
+              {(dados.categories || []).length > 0 && (
+                <>
+                  <label htmlFor="filtro-categoria">Categoria</label>
+                  <select id="filtro-categoria" value={categoria} onChange={evento => trocarCategoria(evento.target.value)}>
+                    <option value="">Todas</option>
+                    {dados.categories.map(item => (
+                      <option key={item.code} value={item.code}>{item.code} ({item.count})</option>
+                    ))}
+                  </select>
+                </>
+              )}
               {/* "Mostrando X de Y" não é enfeite: uma lista cortada em
                   silêncio parece completa, e o operador conclui que não há
                   mais nada a revisar. */}
               <span className="import-contagem">
-                Mostrando {dados.items.length} de {dados.page?.total ?? dados.items.length}
-                {situacao ? ' no filtro' : ' registros'}
+                {dados.page?.total
+                  ? `Mostrando ${(dados.page.offset ?? 0) + 1}–${(dados.page.offset ?? 0) + dados.items.length} de ${dados.page.total}`
+                  : 'Nenhum registro no filtro'}
+                {(situacao || categoria || termo.trim()) ? ' no filtro' : ' registros'}
               </span>
             </div>
 
@@ -872,9 +1060,28 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                             </small>
                           )}
                         </td>
-                        <td style={{ textAlign: 'right' }}>
+                        <td>
+                          {/* AÇÃO EM ÍCONE, e não em palavra: com onze colunas
+                              disputando a largura, "Vincular" escrito custava
+                              97px que saíam do nome do atleta e da classe — as
+                              duas colunas que o operador realmente lê para
+                              decidir. O ícone custa 32.
+
+                              `title` para quem usa mouse e `aria-label` para
+                              quem usa leitor de tela: um ícone sozinho não diz
+                              o que faz para nenhum dos dois. */}
                           {['MATCH_PENDING', 'CONFLICT'].includes(item.matchStatus) && dados.import.status !== 'APPLIED' && (
-                            <button type="button" className="button button-secondary button-sm" onClick={() => setVinculando(item)}>Vincular</button>
+                            <div className="acoes-da-linha">
+                              <button
+                                type="button"
+                                className="icon-button icon-button-sm"
+                                title="Vincular ao atleta"
+                                aria-label={`Vincular ao atleta a linha ${item.rowNumber}`}
+                                onClick={() => setVinculando(item)}
+                              >
+                                <Link2 size={14} />
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -884,12 +1091,24 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
               </table>
             </div>
 
-            {dados.page?.hasMore && (
-              <div className="import-mais">
-                <button type="button" className="button button-secondary button-sm"
-                  onClick={() => setMostrando(atual => atual + POR_PAGINA_NA_REVISAO)}>
-                  Carregar mais {POR_PAGINA_NA_REVISAO}
-                </button>
+            {/* PÁGINAS, e não "carregar mais". Acumular recorte dentro de um
+                diálogo devolve o problema que a paginação resolveu: a altura
+                cresce de novo e o rodapé volta a fugir da tela. */}
+            {(dados.page?.total ?? 0) > POR_PAGINA_NA_REVISAO && (
+              <div className="import-paginacao">
+                <button
+                  type="button" className="button button-secondary button-sm"
+                  onClick={() => setPagina(atual => Math.max(0, atual - 1))}
+                  disabled={pagina === 0}
+                >Anterior</button>
+                <span>
+                  Página {pagina + 1} de {Math.max(1, Math.ceil((dados.page.total ?? 0) / POR_PAGINA_NA_REVISAO))}
+                </span>
+                <button
+                  type="button" className="button button-secondary button-sm"
+                  onClick={() => setPagina(atual => atual + 1)}
+                  disabled={!dados.page?.hasMore}
+                >Próxima</button>
               </div>
             )}
 

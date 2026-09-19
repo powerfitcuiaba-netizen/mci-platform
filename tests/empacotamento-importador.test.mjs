@@ -289,7 +289,19 @@ describe('o calendário não pede migration nenhuma', () => {
       // Anuláveis porque todo lançamento que já existe em produção nasceu
       // válido: nulo em voidedAt É o estado válido, e nenhuma linha precisou
       // ser preenchida para trás.
-      '20260918030000_lancamento_invalidado'
+      '20260918030000_lancamento_invalidado',
+      // Invalidar um lote de importação já aplicado. ADITIVA: um valor novo no
+      // enum `ImportStatus` (INVALIDATED), três colunas ANULÁVEIS em
+      // "MuscleWarImport" (quando, por quem, por quê), a chave estrangeira do
+      // autor com ON DELETE SET NULL e um índice. Sem DROP, sem TRUNCATE, sem
+      // UPDATE em linha existente, sem política de RLS tocada.
+      //
+      // INVALIDATED não substitui REJECTED, e a distinção é o motivo de a
+      // migration existir: rejeitar é recusar ANTES de publicar; invalidar é
+      // desfazer DEPOIS, e o lote precisa continuar no histórico dizendo qual
+      // das duas coisas aconteceu. Um lote antigo segue válido com os três
+      // campos nulos.
+      '20260919160000_importacao_invalidada'
     ]);
   });
 });

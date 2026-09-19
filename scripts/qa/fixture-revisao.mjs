@@ -56,12 +56,13 @@ const MODELOS = [
 ];
 
 const TOTAL = 191;
+const POR_PAGINA = 50;
 
 const escapar = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 function linhas() {
   const saida = [];
-  for (let i = 0; i < TOTAL; i += 1) {
+  for (let i = 0; i < POR_PAGINA; i += 1) {
     const m = MODELOS[i % MODELOS.length];
     const ordem = String(i).padStart(2, '0').slice(-2);
     saida.push(
@@ -76,8 +77,13 @@ function linhas() {
       + `<td><span class="badge badge-${m.selo[0]}">${m.selo[1]}</span>`
       + '<small style="display:block;color:var(--cinza-fraco);margin-top:3px">'
       + `${escapar(m.motivo)}</small></td>`
-      + '<td style="text-align:right">'
-      + '<button type="button" class="button button-secondary button-sm">Vincular</button></td>'
+      + '<td><div class="acoes-da-linha">'
+      + '<button type="button" class="icon-button icon-button-sm" title="Vincular ao atleta" '
+      + `aria-label="Vincular ao atleta a linha ${i + 1}">`
+      + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+      + 'stroke-width="2"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/>'
+      + '<line x1="8" y1="12" x2="16" y2="12"/></svg>'
+      + '</button></div></td>'
       + '</tr>'
     );
   }
@@ -115,9 +121,11 @@ ${metrica('Rejeitados', TOTAL)}
 ${metrica('Aplicados', 0)}
 </div>
 
-<div class="import-filtros"><label for="f">Situação</label>
-<select id="f"><option>Todas</option></select>
-<span class="import-contagem">Mostrando ${TOTAL} de ${TOTAL} registros</span></div>
+<div class="import-filtros">
+<div class="import-busca"><input type="search" placeholder="Buscar atleta, matrícula, classe..."></div>
+<label for="f">Situação</label><select id="f"><option>Todas</option></select>
+<label for="fc">Categoria</label><select id="fc"><option>Todas</option></select>
+<span class="import-contagem">Mostrando 1–${POR_PAGINA} de ${TOTAL} registros</span></div>
 
 <div class="table-wrap tabela-em-modal"><table class="table">
 <thead><tr><th>#</th><th>CPF</th><th>Atleta</th><th>Filiação</th><th>Matrícula</th>
@@ -126,6 +134,11 @@ ${metrica('Aplicados', 0)}
 <tbody>
 ${linhas()}
 </tbody></table></div>
+
+<div class="import-paginacao">
+<button type="button" class="button button-secondary button-sm" disabled>Anterior</button>
+<span>Página 1 de 4</span>
+<button type="button" class="button button-secondary button-sm">Próxima</button></div>
 
 <div class="modal-actions">
 <button type="button" class="button button-secondary">Cancelar</button>

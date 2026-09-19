@@ -48,6 +48,12 @@ const ACTIONS = Object.freeze({
   MUSCLEWAR_IMPORT: 'MUSCLEWAR_IMPORT',
   MUSCLEWAR_REVIEW: 'MUSCLEWAR_REVIEW',
   MUSCLEWAR_APPLY: 'MUSCLEWAR_APPLY',
+  // Excluir um lote e invalidar um lote são operações diferentes, e a
+  // auditoria não pode chamá-las pelo mesmo nome: uma apaga rascunho, a outra
+  // desfaz resultado publicado. Quem audita precisa distinguir as duas sem
+  // abrir o metadata.
+  MUSCLEWARE_IMPORT_DELETED: 'MUSCLEWARE_IMPORT_DELETED',
+  MUSCLEWARE_IMPORT_INVALIDATED: 'MUSCLEWARE_IMPORT_INVALIDATED',
   PRO_STATUS_CHANGE: 'PRO_STATUS_CHANGE',
   ROLE_CHANGE: 'ROLE_CHANGE',
   PERMISSION_CHANGE: 'PERMISSION_CHANGE',

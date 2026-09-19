@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { permissoesDe } from './lib/permissoes';
 import {
   Bell, ClipboardCheck, History, Home, IdCard, LayoutDashboard, LogOut, Menu, MessageSquare,
   PencilLine, QrCode, Scale, Search, Settings, ShieldCheck, Trophy, Upload, UserCircle, Users, Users2,
@@ -73,41 +74,6 @@ const NAVEGACAO_ADMIN = [
   { rota: 'admin/auditoria', rotulo: 'Auditoria', icone: ShieldCheck, permissao: 'audit.read' },
   { rota: 'admin/configuracoes', rotulo: 'Configurações', icone: Settings, permissao: 'users.read' }
 ];
-
-// Espelho da matriz do servidor, restrito ao que decide menu. Não substitui a
-// autorização: serve para não oferecer um caminho que terminaria em 403.
-const PERMISSOES_POR_PAPEL = {
-  SUPER_ADMIN: ['*'],
-  ADMIN: ['*'],
-  EVENT_DIRECTOR: ['analytics.read', 'events.update', 'athletes.manage', 'registrations.read', 'checkin.operate', 'weighin.operate', 'credentials.read', 'stage.read', 'results.read_unpublished', 'ranking.manage', 'musclewar.review', 'users.read'],
-  EVENT_COORDINATOR: ['analytics.read', 'events.update', 'registrations.read', 'checkin.operate', 'weighin.operate', 'credentials.read', 'stage.read', 'results.read_unpublished'],
-  JUDGE_COORDINATOR: ['stage.read', 'results.read_unpublished'],
-  JUDGE: ['stage.read', 'registrations.read'],
-  STAFF: ['registrations.read', 'stage.read', 'checkin.read'],
-  REGISTRATION_OPERATOR: ['registrations.read'],
-  CHECKIN_OPERATOR: ['registrations.read', 'checkin.operate'],
-  WEIGHIN_OPERATOR: ['registrations.read', 'weighin.operate'],
-  RESULTS_OPERATOR: ['results.read_unpublished', 'stage.read'],
-  RANKING_MANAGER: ['ranking.manage', 'results.read_unpublished', 'musclewar.review'],
-  SOCIAL_ADMIN: [],
-  MODERATOR: [],
-  ATHLETE: [],
-  COACH: ['registrations.read'],
-  GYM: [], TEAM: [], BRAND: [], SPONSOR: [], MEDIA: []
-};
-
-function permissoesDe(user) {
-  if (!user) return new Set();
-  const papeis = [user.role, ...(user.organizations || []).map(vinculo => vinculo.role)];
-  const conjunto = new Set();
-
-  for (const papel of papeis) {
-    const lista = PERMISSOES_POR_PAPEL[papel] || [];
-    if (lista.includes('*')) return new Set(['*']);
-    for (const permissao of lista) conjunto.add(permissao);
-  }
-  return conjunto;
-}
 
 // Qual item do menu deve acender. Vence o mais específico que casa com a rota:
 // sem isso, `admin` casava com `admin/pesagem` pelo prefixo e o índice ficava

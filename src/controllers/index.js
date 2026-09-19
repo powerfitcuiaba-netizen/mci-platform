@@ -258,7 +258,8 @@ module.exports = {
     preview: async (req, res) => res.json(await muscleWar.preview(req.params.id, req.user, req.query)),
     link: async (req, res) => res.json(await muscleWar.linkItem(req.params.itemId, req.body, req.user)),
     apply: async (req, res) => res.json(await muscleWar.apply(req.params.id, req.user)),
-    reject: async (req, res) => res.json(await muscleWar.reject(req.params.id, req.body, req.user))
+    reject: async (req, res) => res.json(await muscleWar.reject(req.params.id, req.body, req.user)),
+    remove: async (req, res) => res.json(await muscleWar.deleteImport(req.params.id, req.body || {}, req.user))
   },
 
   partners: {
