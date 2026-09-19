@@ -78,8 +78,12 @@ function linhas() {
       + '<small style="display:block;color:var(--cinza-fraco);margin-top:3px">'
       + `${escapar(m.motivo)}</small></td>`
       + '<td><div class="acoes-da-linha">'
-      + '<button type="button" class="button button-secondary button-sm">Vincular</button>'
-      + '</div></td>'
+      + '<button type="button" class="icon-button icon-button-sm" title="Vincular ao atleta" '
+      + `aria-label="Vincular ao atleta a linha ${i + 1}">`
+      + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+      + 'stroke-width="2"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/>'
+      + '<line x1="8" y1="12" x2="16" y2="12"/></svg>'
+      + '</button></div></td>'
       + '</tr>'
     );
   }

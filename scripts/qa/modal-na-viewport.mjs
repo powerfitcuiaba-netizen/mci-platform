@@ -88,6 +88,8 @@ for (const [w, h, tipo] of VIEWPORTS) {
     return new Promise(pronto => requestAnimationFrame(() => setTimeout(() => {
       const topoDepois = Math.round(r(th).top);
       tabela.scrollTop = 0;
+      // Até a direita: é onde mora a coluna de ação.
+      tabela.scrollLeft = tabela.scrollWidth;
 
       // O DIÁLOGO ROLADO ATÉ O FIM: o requisito da paginação é ser
       // ALCANÇÁVEL, não estar sempre à vista. No celular o conteúdo não cabe
@@ -120,6 +122,22 @@ for (const [w, h, tipo] of VIEWPORTS) {
         paginacaoVisivel: Boolean(paginacao) && r(paginacao).height > 0
           && r(paginacao).bottom <= Math.min(innerHeight, r(acoes).top) + 1,
         buscaVisivel: Boolean(busca) && r(busca).width > 0,
+        // A AÇÃO DA LINHA TEM DE SER ALCANÇÁVEL — medida com a tabela rolada
+        // até a direita, e não no estado inicial. A primeira versão desta
+        // conferência exigia vê-la sem rolar, e reprovava as viewports
+        // estreitas onde a própria especificação MANDA a tabela rolar de lado.
+        // Exigir o contrário ali seria exigir que alguma coluna sumisse.
+        //
+        // Nas viewports onde a linha inteira cabe (de 1280 para cima), quem
+        // garante a visibilidade sem arrasto é `linhaInteiraCabe`, que continua
+        // conferido à parte.
+        acaoDaLinhaVisivel: (() => {
+          const acao = document.querySelector('.tabela-em-modal tbody .icon-button');
+          if (!acao) return false;
+          const caixa = r(acao);
+          const janela = r(tabela);
+          return caixa.width > 0 && caixa.right <= janela.right + 1;
+        })(),
         linhasVisiveis: [...document.querySelectorAll('.tabela-em-modal tbody tr')]
           .filter(tr => r(tr).top >= r(tabela).top - 1 && r(tr).bottom <= r(tabela).bottom + 1).length,
         overflowGlobalX: document.documentElement.scrollWidth > innerWidth + 1
@@ -144,7 +162,7 @@ for (const [w, h, tipo] of VIEWPORTS) {
 
   const ok = cabe && rodapeVisivel && cabecalhoVisivel && botaoVisivel && semOverflowX
     && cardsCabem && todasColunas && m.cabecalhoGrudou && naoEncosta && linhaInteiraCabe
-    && m.paginacaoVisivel && m.buscaVisivel;
+    && m.paginacaoVisivel && m.buscaVisivel && m.acaoDaLinhaVisivel;
   if (!ok) reprovou = true;
 
   linhas.push(

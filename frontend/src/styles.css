@@ -877,6 +877,11 @@ h1, h2, h3 { margin: 0; }
 }
 .acoes-da-linha .button { white-space: nowrap; }
 
+/* A versão compacta do botão de ícone, para dentro de linha de tabela. O
+   padrão de 36px é de barra de navegação; numa linha de 46px ele domina a
+   célula e empurra a altura de todas as outras. */
+.icon-button-sm { width: 32px; height: 32px; }
+
 /* O RESUMO DO QUE SE VAI APAGAR.
    Confirmar uma exclusão sem ver arquivo, evento e tamanho do lote é
    confirmar no escuro — então o diálogo mostra os dois lados de cada dado,

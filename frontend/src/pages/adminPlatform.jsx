@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, Building2, CalendarDays, Plus, Search, Trash2, Upload, Users } from 'lucide-react';
+import { AlertTriangle, Building2, CalendarDays, Link2, Plus, Search, Trash2, Upload, Users } from 'lucide-react';
 import api, { refreshData } from '../services/api';
 import { useDebounce, useFetch, useListaPaginada } from '../lib/hooks';
 import { useAuth } from '../AuthContext';
@@ -1060,9 +1060,28 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                             </small>
                           )}
                         </td>
-                        <td style={{ textAlign: 'right' }}>
+                        <td>
+                          {/* AÇÃO EM ÍCONE, e não em palavra: com onze colunas
+                              disputando a largura, "Vincular" escrito custava
+                              97px que saíam do nome do atleta e da classe — as
+                              duas colunas que o operador realmente lê para
+                              decidir. O ícone custa 32.
+
+                              `title` para quem usa mouse e `aria-label` para
+                              quem usa leitor de tela: um ícone sozinho não diz
+                              o que faz para nenhum dos dois. */}
                           {['MATCH_PENDING', 'CONFLICT'].includes(item.matchStatus) && dados.import.status !== 'APPLIED' && (
-                            <button type="button" className="button button-secondary button-sm" onClick={() => setVinculando(item)}>Vincular</button>
+                            <div className="acoes-da-linha">
+                              <button
+                                type="button"
+                                className="icon-button icon-button-sm"
+                                title="Vincular ao atleta"
+                                aria-label={`Vincular ao atleta a linha ${item.rowNumber}`}
+                                onClick={() => setVinculando(item)}
+                              >
+                                <Link2 size={14} />
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>
