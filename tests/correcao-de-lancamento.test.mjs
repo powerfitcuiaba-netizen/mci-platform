@@ -368,7 +368,7 @@ describe('invalidar e restaurar', () => {
     // ANTES da declaração do título.
     await importarEAplicar(csv([
       linha('88281', 1, 1, OPEN),
-      linha('88281', 2, 2, 'Classic Physique - Open')
+      linha('88281', 2, 2, "Men's Classic Physique - Open Class A")
     ]));
     const antes = await lancamentos();
     expect(antes, 'as duas participacoes entraram no ledger').toHaveLength(2);

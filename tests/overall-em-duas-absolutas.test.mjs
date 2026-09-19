@@ -191,7 +191,7 @@ beforeEach(async () => {
   // Duas participações reais do mesmo atleta, em duas categorias, ambas 1º.
   await importarEAplicar(csv([
     `1,Men's Bodybuilding - Open,Atleta,Sobrenome,88281,1`,
-    `2,Classic Physique - Open,Atleta,Sobrenome,88281,1`
+    `2,Men's Classic Physique - Open Class A,Atleta,Sobrenome,88281,1`
   ]));
 });
 
