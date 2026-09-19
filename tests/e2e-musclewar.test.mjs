@@ -17,6 +17,20 @@ const CPF_A = gerarCpf(101010101);
 const CPF_B = gerarCpf(202020202);
 const CPF_DESCONHECIDO = gerarCpf(303030303);
 
+// ============================================================================
+// O LEDGER PASSOU A TER RLS DE OPERADOR.
+//
+// `prisma` sem contexto é ANÔNIMO, e anônimo não lê `RankingPoint` nem
+// `ExternalResult` — antes desta fase essas tabelas não tinham política
+// nenhuma, e a conferência direta funcionava por ausência de barreira.
+//
+// Ler pelo gerente NÃO afrouxa a conferência: é ela falando com a identidade
+// que o produto exige para enxergar o ledger. Que o anônimo continua sem ver
+// nada é asserção PRÓPRIA, em tests/rls-do-ledger.test.mjs — não se prova
+// proteção no mesmo lugar em que se confere funcionalidade.
+// ============================================================================
+const noLedger = consulta => comoAtor(gerente, consulta);
+
 const csv = linhas => ['external_result_id,cpf,atleta,filiacao,categoria,classe,colocacao,pontos,evento', ...linhas].join('\n');
 
 async function importar(conteudo, extras = {}) {
@@ -104,7 +118,21 @@ describe('importação MuscleWar', () => {
       duplicates: 0,
       rejected: 2,
       applied: 0,
-      valid: 1
+      // MUDANÇA DE REGRA DESTA FASE, e não asserção afrouxada para passar.
+      //
+      // `valid` era `MATCHED`. O MCI carrega o histórico oficial ANTES de
+      // existir cadastro de atleta: pendente de vínculo deixou de significar
+      // "não dá para aplicar" e passou a significar "entra no histórico e
+      // espera o dono". Com a conta antiga, um arquivo inteiro de um
+      // campeonato antigo dava "Aplicar 0 resultado(s)" — o número estava
+      // certo para uma regra que não é mais a do produto.
+      //
+      // O que continua FORA é o que sempre esteve: conflito, duplicata e
+      // rejeitado. Aqui: 1 reconhecida + 1 pendente = 2 aplicáveis, e as 2
+      // em conflito e as 2 rejeitadas seguem fora.
+      applicable: 2,
+      pendingLink: 1,
+      valid: 2
     });
 
     const porId = Object.fromEntries(resposta.body.items.map(item => [item.externalResultId, item]));
@@ -123,8 +151,8 @@ describe('importação MuscleWar', () => {
     expect(porId['MW-5'].reason).toMatch(/CPF inválido/);
 
     // Nada foi aplicado na pré-visualização.
-    expect(await prisma.externalResult.count()).toBe(0);
-    expect(await prisma.rankingPoint.count()).toBe(0);
+    expect(await noLedger(tx => tx.externalResult.count())).toBe(0);
+    expect(await noLedger(tx => tx.rankingPoint.count())).toBe(0);
   });
 
   it('nunca cria atleta a partir de CPF desconhecido', async () => {
@@ -133,31 +161,65 @@ describe('importação MuscleWar', () => {
     expect(await prisma.athlete.count()).toBe(antes);
   });
 
-  it('aplica só o reconhecido e leva a pontuação ao ranking com origem rastreável', async () => {
+  // ==========================================================================
+  // ESTE TESTE MUDOU DE REGRA, e o nome dele mudou junto.
+  //
+  // Chamava-se "aplica só o reconhecido". Essa era a regra de um sistema que
+  // já tinha cadastro de atletas. O MCI é novo e não tem: o histórico oficial
+  // dos campeonatos antigos entra PRIMEIRO, e os atletas se cadastram depois.
+  //
+  // O que ele tranca agora é o contrário do que trancava: o pendente TAMBÉM
+  // entra, pontua, e fica sem dono até alguém se cadastrar. E — o ponto que
+  // não pode mudar nunca — NENHUM atleta é criado para isso acontecer.
+  // ==========================================================================
+  it('aplica o reconhecido E o pendente, sem criar atleta nenhum', async () => {
+    const atletasAntes = await prisma.athlete.count();
     const lote = await importar(csv([
       `MW-20,${CPF_A},Atleta Reconhecida,FED-MT,BIKINI,OPEN,1,,Etapa MuscleWar`,
       `MW-21,${CPF_DESCONHECIDO},Fulana,FED-MT,BIKINI,OPEN,2,80,Etapa MuscleWar`
     ]));
     expect(lote.body.summary.recognized).toBe(1);
+    expect(lote.body.summary.pending).toBe(1);
+    expect(lote.body.summary.applicable).toBe(2);
 
     const aplicacao = await api().post(`/api/v1/musclewar/imports/${lote.body.import.id}/apply`).set(gerente.auth());
     expect(aplicacao.status, JSON.stringify(aplicacao.body)).toBe(200);
-    expect(aplicacao.body.applied).toBe(1);
+    expect(aplicacao.body.applied).toBe(2);
+
+    // NENHUM ATLETA CRIADO. É a asserção que não pode ceder: a saída fácil
+    // para "resultado sem cadastro" seria fabricar cadastro, com CPF inventado
+    // e carreiras de homônimos fundidas.
+    expect(await prisma.athlete.count()).toBe(atletasAntes);
+
+    const pontos = await noLedger(tx => tx.rankingPoint.findMany({
+      include: { externalResult: true }, orderBy: { placing: 'asc' }
+    }));
+    expect(pontos).toHaveLength(2);
+    expect(pontos.every(ponto => ponto.source === 'MUSCLEWAR')).toBe(true);
 
     // Sem pontuação na origem, vale a tabela da temporada para a colocação.
-    const pontos = await prisma.rankingPoint.findMany({ include: { externalResult: true } });
-    expect(pontos).toHaveLength(1);
-    expect(pontos[0].source).toBe('MUSCLEWAR');
     expect(pontos[0].points).toBe(100);
     expect(pontos[0].externalResult.externalId).toBe('MW-20');
+    // A reconhecida tem dono; a pendente não tem, e tem identidade externa.
+    expect(pontos[0].athleteId).not.toBeNull();
+    expect(pontos[1].externalResult.externalId).toBe('MW-21');
+    expect(pontos[1].athleteId).toBeNull();
+    expect(pontos[1].externalAthleteId).not.toBeNull();
+
+    // As duas têm organização PRÓPRIA — a tenancy deixou de ser deduzida do
+    // atleta, que agora pode não existir.
+    expect(pontos.every(ponto => ponto.organizationId === organizationId)).toBe(true);
 
     const ranking = await api().get('/api/v1/ranking').query({ seasonId });
     expect(ranking.body.items[0].totalPoints).toBe(100);
+    // O competidor sem cadastro APARECE no ranking, com o nome da fonte.
+    const semCadastro = ranking.body.items.find(linha => linha.athlete?.id == null);
+    expect(semCadastro, 'o pendente precisa aparecer no ranking').toBeTruthy();
+    expect(semCadastro.athlete.fullName).toBe('Fulana');
+    expect(semCadastro.athlete.pendingLink).toBe(true);
 
-    // A linha pendente continua pendente e disponível para revisão.
     const revisao = await api().get(`/api/v1/musclewar/imports/${lote.body.import.id}`).set(gerente.auth());
-    expect(revisao.body.summary.pending).toBe(1);
-    expect(revisao.body.summary.applied).toBe(1);
+    expect(revisao.body.summary.applied).toBe(2);
   });
 
   it('reimportar o mesmo resultado não duplica pontuação', async () => {
@@ -175,8 +237,8 @@ describe('importação MuscleWar', () => {
     expect(aplicacaoRecusada.status).toBe(422);
     expect(aplicacaoRecusada.body.error.code).toBe('NOTHING_TO_APPLY');
 
-    expect(await prisma.rankingPoint.count()).toBe(1);
-    expect(await prisma.externalResult.count()).toBe(1);
+    expect(await noLedger(tx => tx.rankingPoint.count())).toBe(1);
+    expect(await noLedger(tx => tx.externalResult.count())).toBe(1);
 
     const ranking = await api().get('/api/v1/ranking').query({ seasonId });
     expect(ranking.body.items[0].totalPoints).toBe(100);
@@ -190,7 +252,7 @@ describe('importação MuscleWar', () => {
     expect(lote.body.summary.duplicates).toBe(1);
 
     await api().post(`/api/v1/musclewar/imports/${lote.body.import.id}/apply`).set(gerente.auth());
-    expect(await prisma.rankingPoint.count()).toBe(1);
+    expect(await noLedger(tx => tx.rankingPoint.count())).toBe(1);
   });
 
   it('vinculação manual resolve a pendência e libera a aplicação', async () => {
@@ -211,7 +273,7 @@ describe('importação MuscleWar', () => {
     const aplicacao = await api().post(`/api/v1/musclewar/imports/${lote.body.import.id}/apply`).set(gerente.auth());
     expect(aplicacao.body.applied).toBe(1);
 
-    const ponto = await prisma.rankingPoint.findFirst();
+    const ponto = await noLedger(tx => tx.rankingPoint.findFirst());
     expect(ponto.athleteId).toBe(atleta.athleteId);
   });
 
@@ -225,32 +287,55 @@ describe('importação MuscleWar', () => {
   // aproveitar as linhas boas, cadastrava depois o atleta que faltava, e não
   // tinha como voltar: o resultado se perdia em silêncio.
   // ==========================================================================
-  it('pendência é resolvida mesmo com o lote já aplicado, e o ponto entra', async () => {
+  // O CENÁRIO MUDOU DE FORMA, e o defeito que ele guarda mudou junto.
+  //
+  // Antes: a linha pendente NÃO entrava no apply, e o defeito era ela ficar
+  // presa para sempre depois que o lote era aplicado.
+  //
+  // Agora ela entra — vira resultado histórico SEM DONO. O defeito que este
+  // teste guarda passou a ser outro, e pior: vincular o dono depois poderia
+  // criar um SEGUNDO lançamento, e o mesmo resultado pontuaria duas vezes.
+  // Por isso o que se mede aqui é que o total de lançamentos NÃO MUDA.
+  it('resultado aplicado sem dono ganha dono depois, sem virar ponto novo', async () => {
     const lote = await importar(csv([
       `MW-70,${CPF_A},Atleta Reconhecida,FED-MT,BIKINI,OPEN,1,100,Etapa`,
       `MW-71,${CPF_DESCONHECIDO},Fulana,FED-MT,BIKINI,OPEN,2,80,Etapa`
     ]));
     const importId = lote.body.import.id;
 
-    // Aplica com a pendência em aberto: é o que o operador faz para não
-    // segurar as linhas que já estão boas.
     const primeira = await api().post(`/api/v1/musclewar/imports/${importId}/apply`).set(gerente.auth());
-    expect(primeira.body.applied).toBe(1);
-    expect(await prisma.rankingPoint.count()).toBe(1);
+    expect(primeira.body.applied).toBe(2);
+    expect(await noLedger(tx => tx.rankingPoint.count())).toBe(2);
 
-    const pendente = (await api().get(`/api/v1/musclewar/imports/${importId}`).set(gerente.auth()))
+    // A linha sem dono está APLICADA — não "pendente de aplicação". A
+    // pendência que resta é de VÍNCULO, que é outra coisa.
+    const semDono = (await api().get(`/api/v1/musclewar/imports/${importId}`).set(gerente.auth()))
       .body.items.find(item => item.externalResultId === 'MW-71');
-    expect(pendente.matchStatus).toBe('MATCH_PENDING');
+    expect(semDono.matchStatus).toBe('APPLIED');
+    expect(semDono.athleteId).toBeNull();
+
+    const pontosAntes = await noLedger(tx => tx.rankingPoint.findMany({ orderBy: { placing: 'asc' } }));
+    const totalAntes = pontosAntes.reduce((soma, ponto) => soma + ponto.points, 0);
 
     const atleta = await comoAtor(gerente, tx => tx.athleteIdentity.findFirst({ where: { cpf: CPF_A } }));
-
-    const vinculo = await api().post(`/api/v1/musclewar/items/${pendente.id}/link`).set(gerente.auth())
+    const vinculo = await api().post(`/api/v1/musclewar/items/${semDono.id}/link`).set(gerente.auth())
       .send({ athleteId: atleta.athleteId });
     expect(vinculo.status, JSON.stringify(vinculo.body)).toBe(200);
 
+    // NENHUM LANÇAMENTO NOVO, e nenhum ponto a mais nem a menos.
+    const pontosDepois = await noLedger(tx => tx.rankingPoint.findMany({ orderBy: { placing: 'asc' } }));
+    expect(pontosDepois).toHaveLength(2);
+    expect(pontosDepois.reduce((soma, ponto) => soma + ponto.points, 0)).toBe(totalAntes);
+    // O mesmo lançamento, com o mesmo id: ele mudou de dono, não foi refeito.
+    expect(pontosDepois.map(ponto => ponto.id).sort())
+      .toEqual(pontosAntes.map(ponto => ponto.id).sort());
+    expect(pontosDepois.every(ponto => ponto.athleteId != null)).toBe(true);
+
+    // E o apply não tem mais nada para fazer: não sobrou candidato.
     const segunda = await api().post(`/api/v1/musclewar/imports/${importId}/apply`).set(gerente.auth());
-    expect(segunda.body.applied).toBe(1);
-    expect(await prisma.rankingPoint.count()).toBe(2);
+    expect(segunda.status).toBe(422);
+    expect(segunda.body.error.code).toBe('NOTHING_TO_APPLY');
+    expect(await noLedger(tx => tx.rankingPoint.count())).toBe(2);
   });
 
   it('reaplicar sem nada novo não pontua de novo', async () => {
@@ -258,13 +343,13 @@ describe('importação MuscleWar', () => {
     const importId = lote.body.import.id;
 
     await api().post(`/api/v1/musclewar/imports/${importId}/apply`).set(gerente.auth());
-    expect(await prisma.rankingPoint.count()).toBe(1);
+    expect(await noLedger(tx => tx.rankingPoint.count())).toBe(1);
 
     const repetida = await api().post(`/api/v1/musclewar/imports/${importId}/apply`).set(gerente.auth());
 
     expect(repetida.status).toBe(422);
     expect(repetida.body.error.code).toBe('NOTHING_TO_APPLY');
-    expect(await prisma.rankingPoint.count()).toBe(1);
+    expect(await noLedger(tx => tx.rankingPoint.count())).toBe(1);
   });
 
   it('lote rejeitado não aceita vinculação', async () => {

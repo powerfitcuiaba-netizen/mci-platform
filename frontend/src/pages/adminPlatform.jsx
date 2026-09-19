@@ -958,12 +958,38 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
               <Metric label="Aplicados" value={dados.summary.applied} />
             </div>
 
-            {(dados.summary.pending > 0 || dados.summary.conflicts > 0) && (
+            {/* O QUE VAI ACONTECER, DITO ANTES DO CLIQUE.
+                O MCI carrega o histórico oficial dos campeonatos antigos ANTES
+                de os atletas se cadastrarem — então o normal, e não a exceção,
+                é a maior parte do arquivo entrar sem dono. Chamar isso de
+                "registro que exige revisão" assustaria o operador com o caso
+                comum; não dizer nada o faria descobrir depois. */}
+            {dados.summary.pendingLink > 0 && (
+              <div className="alert alert-info" style={{ marginBottom: 14 }}>
+                <AlertTriangle size={16} />
+                <div>
+                  <strong>{dados.summary.pendingLink} resultado(s) ficarão pendentes de vínculo</strong>
+                  <p>
+                    {dados.summary.applicable} resultado(s) entram no histórico e no ranking agora.
+                    Os atletas ainda não cadastrados permanecerão pendentes de vínculo, e o
+                    histórico será ligado ao perfil deles quando se cadastrarem.
+                    <strong> Nenhum atleta é criado automaticamente.</strong>
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* CONFLITO E REJEIÇÃO SÃO OUTRA COISA, e continuam sendo aviso de
+                verdade: estes NÃO entram, e é por decisão da análise. */}
+            {(dados.summary.conflicts > 0 || dados.summary.rejected > 0) && (
               <div className="alert alert-alerta" style={{ marginBottom: 14 }}>
                 <AlertTriangle size={16} />
                 <div>
-                  <strong>Há registros que exigem revisão</strong>
-                  <p>Aplicar agora vai trazer apenas os {dados.summary.valid} reconhecidos. Nenhum atleta é criado automaticamente.</p>
+                  <strong>Há registros que não entram</strong>
+                  <p>
+                    {dados.summary.conflicts} em conflito e {dados.summary.rejected} rejeitado(s)
+                    ficam de fora e precisam de revisão. Isso não impede aplicar o resto.
+                  </p>
                 </div>
               </div>
             )}
@@ -1176,8 +1202,8 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
             <div className="modal-actions">
               <button type="button" className="button button-secondary" onClick={onClose}>Fechar</button>
               {dados.import.status !== 'REJECTED' && (
-                <button type="button" className="button button-primary" onClick={() => setAplicando(true)} disabled={!dados.summary.valid}>
-                  Aplicar {dados.summary.valid} resultado(s)
+                <button type="button" className="button button-primary" onClick={() => setAplicando(true)} disabled={!dados.summary.applicable}>
+                  Aplicar {dados.summary.applicable} resultado(s)
                 </button>
               )}
             </div>
@@ -1187,7 +1213,9 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                 title="Aplicar importação"
                 // O DESTINO NO INSTANTE DA DECISÃO, e não só na tela anterior.
                 // Este é o último ponto em que dá para voltar atrás.
-                message={`Publicar ${dados.summary.valid} resultado(s) em: ${dados.import.event
+                message={`Publicar ${dados.summary.applicable} resultado(s)`
+                  + `${dados.summary.pendingLink ? ` — ${dados.summary.pendingLink} sem atleta cadastrado, que ficarão pendentes de vínculo` : ''}`
+                  + ` em: ${dados.import.event
                   ? `${dados.import.event.name} — ${detalheDoEvento(dados.import.event)}`
                   : 'SEM EVENTO — os resultados ficarão sem etapa no histórico'}. Resultados já importados não pontuam de novo.`}
                 confirmLabel="Aplicar"
