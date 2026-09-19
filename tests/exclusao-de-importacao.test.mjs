@@ -599,3 +599,67 @@ describe('invalidar um lote não encosta nos lançamentos de outro', () => {
     expect(vivo.points, 'o lote vizinho continua pontuando').toBe(4);
   }, 120_000);
 });
+
+describe('invalidação avulsa e invalidação de lote na MESMA linha, ao mesmo tempo', () => {
+  it('a linha é invalidada UMA vez só, e a auditoria registra uma', async () => {
+    // O MUTANTE QUE ESTE TESTE EXISTE PARA MATAR remove a RE-LEITURA sob a
+    // trava da temporada em `voidRankingPoints`, fazendo a função trabalhar
+    // sobre a lista lida ANTES de travar.
+    //
+    // Sequencialmente o defeito não aparece: o filtro de `aInvalidar` já
+    // descarta o que estava invalidado quando a lista foi montada. Ele só
+    // aparece quando alguém invalida a linha DEPOIS dessa leitura e ANTES de o
+    // lote conseguir a trava — e então o lote invalida de novo por cima,
+    // sobrescrevendo o motivo e gravando uma segunda auditoria para um fato
+    // que aconteceu uma vez.
+    //
+    // Cinco rodadas porque é corrida: o intercalamento não é garantido em
+    // nenhuma delas, mas o defeito, quando existe, é visível em qualquer uma.
+    for (let rodada = 0; rodada < 5; rodada += 1) {
+      await limparBanco();
+
+      admin = await criarUsuario({ role: 'SUPER_ADMIN', name: `Admin R${rodada}` });
+      org = (await criarOrganizacao(admin, { name: `Federacao R${rodada}` })).id;
+      operador = await criarUsuario({ name: `Operador R${rodada}` });
+      for (const papel of ['RANKING_MANAGER', 'REGISTRATION_OPERATOR', 'EVENT_DIRECTOR']) {
+        await vincular(org, operador, papel);
+      }
+      filiacao = (await api().post('/api/v1/affiliations').set(admin.auth())
+        .send({ organizationId: org, name: 'NPC', code: 'NPC' })).body;
+      season = (await api().post('/api/v1/seasons').set(admin.auth())
+        .send({ organizationId: org, name: 'Temporada', year: 2026 })).body.id;
+      await api().put(`/api/v1/seasons/${season}/points-rules`).set(admin.auth()).send({
+        rules: [{ placing: 1, points: 5 }, { placing: 2, points: 4 }, { placing: 3, points: 3 },
+          { placing: 4, points: 2 }, { placing: 5, points: 1 }]
+      });
+      evento = (await api().post('/api/v1/events').set(operador.auth()).send({
+        organizationId: org, name: 'Etapa', slug: unico('ev'),
+        startDate: '2026-09-12T12:00:00.000Z', city: 'Cuiaba', state: 'MT', seasonId: season
+      })).body;
+
+      await criarAtleta('ATLETA PUB', '88281', 1900 + rodada);
+      const lote = (await criarLote(csv([linha(1, '88281', 1)]))).body.import;
+      expect((await aplicar(lote.id)).body.applied).toBe(1);
+      const [ponto] = await pontos();
+
+      await Promise.all([
+        api().post(`/api/v1/ranking/points/${ponto.id}/void`)
+          .set(operador.auth()).send({ reason: 'desclassificado na súmula' }),
+        excluir(lote.id, { reason: 'arquivo incorreto' })
+      ]);
+
+      const gravados = await pontos();
+      expect(gravados, `rodada ${rodada}: a linha não pode se multiplicar`).toHaveLength(1);
+      expect(gravados[0].voidedAt, `rodada ${rodada}`).not.toBeNull();
+      expect(gravados[0].points, `rodada ${rodada}`).toBe(0);
+
+      // A invariante que mata o mutante: UM fato, UMA auditoria. Invalidar
+      // duas vezes a mesma linha grava duas — e a segunda descreve uma
+      // transição que nunca existiu, de válida para inválida, quando a linha
+      // já estava inválida.
+      const auditadas = await auditoria('RANKING_POINT_VOIDED');
+      expect(auditadas.length,
+        `rodada ${rodada}: ${auditadas.length} auditorias para uma invalidação`).toBe(1);
+    }
+  }, 240_000);
+});
