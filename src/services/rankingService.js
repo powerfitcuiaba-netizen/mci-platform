@@ -2047,6 +2047,88 @@ async function voidRankingPoint(rankingPointId, { reason }, actor) {
   return { ...retrato(atualizado), id: rankingPointId };
 }
 
+/**
+ * Invalida DE UMA VEZ todos os lançamentos de uma lista, sob uma única trava
+ * de temporada, com um recálculo só no fim.
+ *
+ * POR QUE NÃO CHAMAR `voidRankingPoint` EM LAÇO
+ * ---------------------------------------------------------------------------
+ * Ele abre a própria transação e recalcula a temporada a cada chamada. Num
+ * lote de 191 linhas isso seriam 191 transações e 191 recálculos, com a
+ * temporada destravada entre uma e outra — ou seja, uma janela por lançamento
+ * em que outra operação entra no meio e vê o ranking pela metade.
+ *
+ * Aqui é a MESMA mecânica do caminho avulso — `travarTemporada`, os mesmos
+ * campos zerados, `placingOriginal` preservado, `recomputarEm` no fim —, só
+ * que aplicada ao conjunto inteiro dentro de uma transação. A auditoria
+ * continua sendo uma linha RANKING_POINT_VOIDED POR LANÇAMENTO: quem audita
+ * uma linha do ranking procura por ali, e não saberia procurar por um registro
+ * de lote.
+ *
+ * Lançamentos já invalidados são PULADOS, não recusados: num lote, a metade
+ * que ainda vale precisa ser invalidada mesmo que a outra metade já tenha sido
+ * invalidada avulsa antes.
+ */
+async function voidRankingPoints(rankingPointIds, { reason }, actor, organizationId) {
+  if (!rankingPointIds.length) return { voided: 0, pontos: [] };
+
+  const alvos = await prisma.rankingPoint.findMany({
+    where: { id: { in: rankingPointIds } }, select: CAMPOS_DO_LANCAMENTO
+  });
+  if (!alvos.length) return { voided: 0, pontos: [] };
+
+  // Um lote vive numa temporada só; travar a de cada lançamento seria travar a
+  // mesma várias vezes. O conjunto existe porque um lote antigo pode ter
+  // lançamentos migrados, e nesse caso cada temporada é travada uma vez.
+  const temporadas = [...new Set(alvos.map(ponto => ponto.seasonId))];
+
+  const registrados = [];
+
+  await prisma.$transaction(async tx => {
+    for (const seasonId of temporadas) await travarTemporada(tx, seasonId);
+
+    // RE-LEITURA SOB A TRAVA. A lista de cima foi montada fora dela, e entre
+    // uma coisa e outra alguém pode ter invalidado a linha por outro caminho.
+    const atuais = await tx.rankingPoint.findMany({
+      where: { id: { in: alvos.map(ponto => ponto.id) } }, select: CAMPOS_DO_LANCAMENTO
+    });
+
+    for (const atual of atuais) {
+      if (atual.voidedAt) continue;
+
+      const atualizado = await tx.rankingPoint.update({
+        where: { id: atual.id },
+        data: {
+          voidedAt: new Date(), voidedById: actor?.id ?? null, voidReason: reason,
+          overallBonus: 0, points: 0, superOverallPoints: 0, isOverallChampion: false,
+          placingOriginal: atual.placingOriginal ?? atual.placing
+        }
+      });
+      registrados.push({ antes: retrato(atual), depois: retrato(atualizado), ponto: atual });
+    }
+
+    for (const seasonId of temporadas) await recomputarEm(tx, seasonId);
+  }, OPCOES_TRANSACAO);
+
+  // A auditoria fica FORA da transação, como no caminho avulso: ela não pode
+  // ser desfeita por um rollback do ledger, e gravá-la dentro faria uma
+  // transação longa ficar ainda mais longa.
+  for (const { antes, depois, ponto } of registrados) {
+    await audit.record({
+      actor, action: audit.ACTIONS.RANKING_POINT_VOIDED,
+      entity: 'RankingPoint', entityId: ponto.id,
+      organizationId,
+      metadata: {
+        reason, athleteId: ponto.athleteId, eventId: ponto.eventId,
+        source: ponto.source, externalResultId: ponto.externalResultId,
+        antes, depois
+      }
+    });
+  }
+
+  return { voided: registrados.length, pontos: registrados.map(r => r.ponto.id) };
+}
+
 async function restoreRankingPoint(rankingPointId, { reason }, actor) {
   const ponto = await carregarLancamento(rankingPointId, actor);
   if (!ponto.voidedAt) {
@@ -2111,7 +2193,7 @@ module.exports = {
   recompute, recompute_, list, athletePoints, teamRanking,
   declareOverall, listOverall, overallCandidates, overallPreview, revokeOverall,
   eventRankingPoints,
-  previewRankingPoint, editRankingPoint, voidRankingPoint, restoreRankingPoint,
+  previewRankingPoint, editRankingPoint, voidRankingPoint, voidRankingPoints, restoreRankingPoint,
   superOverallRanking, listClasses, upsertClass, companyRanking,
   athleteRankingBy,
   TABELA_OFICIAL_COLOCACAO, BONUS_OVERALL,

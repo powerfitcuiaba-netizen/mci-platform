@@ -512,7 +512,7 @@ h1, h2, h3 { margin: 0; }
   border-radius: var(--raio-2); padding: var(--e6);
   /* `dvh` acompanha a barra de endereço que aparece e some no celular; `vh`
      sozinho mede a tela com a barra recolhida e deixa o rodapé embaixo dela. */
-  max-height: min(88vh, 88dvh);
+  max-height: min(80vh, 80dvh);
   /* `hidden` no eixo horizontal é o que impede a tabela larga de empurrar o
      diálogo para fora da viewport: quem rola na horizontal é `.table-wrap`. */
   overflow: hidden auto; overscroll-behavior: contain;
@@ -525,7 +525,12 @@ h1, h2, h3 { margin: 0; }
    parecia uma página, não um diálogo. Os 48px descontados garantem a moldura
    nos dois lados em qualquer viewport, e o teto de 1180px impede que a tabela
    se estique até virar uma faixa difícil de varrer com os olhos. */
-.modal-wide { width: min(1180px, calc(100vw - 48px)); }
+.modal-wide { width: min(1280px, 90vw); }
+/* Quanto o diálogo gasta com tudo o que NÃO é a tabela. Cada faixa de tela
+   redefine só este número; a conta da altura mora num lugar só, mais abaixo.
+   Declarado aqui, antes de qualquer @media, porque as faixas têm a mesma
+   especificidade e quem vence entre iguais é a última do arquivo. */
+.modal-wide { --custo-do-resto: 450px; }
 /* Grudados nas bordas do próprio diálogo. O deslocamento negativo cancela o
    padding do modal, senão sobraria uma faixa de conteúdo aparecendo por baixo. */
 .modal-head {
@@ -809,6 +814,9 @@ h1, h2, h3 { margin: 0; }
 /* Tablet: 4 + 3, que é o que cabe sem espremer o número. */
 @media (max-width: 1100px) {
   .import-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  /* Quatro colunas significam DUAS linhas de métrica, e a segunda custa
+     ~60px que saíam da tabela. */
+  .modal-wide { --custo-do-resto: 560px; }
 }
 
 /* LINHAS MAIS BAIXAS DENTRO DO DIÁLOGO.
@@ -833,7 +841,10 @@ h1, h2, h3 { margin: 0; }
 /* A régua é a largura ÚTIL do diálogo (1180 menos o respiro interno), para
    que no desktop tudo caiba sem arrastar de lado — inclusive a ação da linha.
    Abaixo disso o contêiner rola na horizontal, e nenhuma coluna some. */
-.tabela-em-modal .table { min-width: 1108px; }
+/* A régua caiu de 1108 para 1090: em 1280 o diálogo tem 90vw, e a área útil
+   fica em 1100px. Nove pixels sobrando punham a coluna de AÇÃO atrás de um
+   arrasto lateral justamente na viewport mais comum de notebook. */
+.tabela-em-modal .table { min-width: 1090px; }
 
 /* O que é número ou código não quebra: quebrar "***.***.**00-**" em duas
    linhas gasta altura e não acrescenta leitura. O CABEÇALHO, ao contrário,
@@ -850,10 +861,104 @@ h1, h2, h3 { margin: 0; }
 /* O teto existe para o dia em que o dado for mais comprido que o do teste:
    sem ele, um nome ou um motivo longo estica a coluna e empurra a AÇÃO da
    linha para fora do diálogo — que foi exatamente o defeito corrigido aqui. */
-.tabela-em-modal .table td:nth-child(3) { min-width: 138px; max-width: 190px; }
-.tabela-em-modal .table td:nth-child(7) { min-width: 146px; max-width: 190px; }
+.tabela-em-modal .table td:nth-child(3) { min-width: 132px; max-width: 190px; }
+.tabela-em-modal .table td:nth-child(7) { min-width: 140px; max-width: 190px; }
 /* A coluna de situação carrega selo mais o motivo, que é texto corrido. */
-.tabela-em-modal .table td:nth-child(10) { min-width: 148px; max-width: 208px; }
+.tabela-em-modal .table td:nth-child(10) { min-width: 142px; max-width: 208px; }
+
+/* AS DUAS AÇÕES DA LINHA, LADO A LADO E SEM QUEBRA DESORGANIZADA.
+   ---------------------------------------------------------------------------
+   `flex-end` mantém o par colado à direita, como a coluna de ação da tabela
+   espera. `flex-wrap` existe para o celular: quando não couber, a segunda
+   ação desce alinhada com a primeira, em vez de espremer as duas. */
+.acoes-da-linha {
+  display: flex; gap: var(--e2); justify-content: flex-end;
+  align-items: center; flex-wrap: wrap;
+}
+.acoes-da-linha .button { white-space: nowrap; }
+
+/* O RESUMO DO QUE SE VAI APAGAR.
+   Confirmar uma exclusão sem ver arquivo, evento e tamanho do lote é
+   confirmar no escuro — então o diálogo mostra os dois lados de cada dado,
+   rótulo e valor, em par. */
+.resumo-da-exclusao {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--e2) var(--e4); margin: 0 0 var(--e4);
+  padding: var(--e3); border: 1px solid var(--linha); border-radius: var(--raio-2);
+  background: var(--superficie);
+}
+.resumo-da-exclusao > div { min-width: 0; }
+.resumo-da-exclusao dt {
+  font-size: 9.5px; letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--cinza-fraco); margin-bottom: 2px;
+}
+.resumo-da-exclusao dd {
+  margin: 0; font-size: 13px; color: var(--branco);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 480px) {
+  .resumo-da-exclusao { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* BUSCA DENTRO DA BARRA DE FILTROS.
+   A lupa fica dentro do campo, e não ao lado: ao lado ela viraria mais um item
+   de flex disputando largura com os dois seletores. */
+.import-busca {
+  display: flex; align-items: center; gap: var(--e2);
+  flex: 1 1 220px; min-width: 160px;
+  padding: 0 var(--e3); border: 1px solid var(--linha);
+  border-radius: var(--raio-2); background: var(--superficie);
+  color: var(--cinza-fraco);
+}
+.import-busca input {
+  flex: 1; min-width: 0; border: 0; background: none; outline: none;
+  color: var(--branco); font-size: 12.5px; padding: var(--e2) 0;
+}
+.import-busca input::placeholder { color: var(--cinza-fraco); }
+.import-busca:focus-within { border-color: var(--ciano-puro); }
+
+/* PÁGINAS DE VERDADE, no rodapé da tabela e antes das ações do diálogo. */
+.import-paginacao {
+  display: flex; align-items: center; justify-content: center;
+  gap: var(--e3); margin-top: var(--e3);
+  font-size: 12px; color: var(--cinza);
+}
+
+/* TELA BAIXA: O DIÁLOGO CEDE ONDE NÃO DÓI.
+   ---------------------------------------------------------------------------
+   Medido em 1280x720, com o teto de 80vh: o diálogo tem 576px e o que NÃO é
+   tabela consome 420 deles — cabeçalho 84, alerta do evento 60, métricas 60,
+   filtros 33, paginação 34, rodapé 81, mais o respiro entre os blocos. Sobram
+   156px de tabela, que é UMA linha.
+
+   Aqui o que encolhe é a moldura, nunca o dado: título menor, rodapé mais
+   baixo, alerta mais apertado e menos respiro entre blocos. Nenhuma coluna
+   some, nenhuma fonte fica ilegível, nenhum `scale`. */
+/* `min-width` entra por especificidade, não por estilo: a regra abaixo usa
+   seletor de dois níveis e venceria a do celular mesmo vindo antes dela — e no
+   celular as sete métricas viram quatro linhas, então o desconto é outro. */
+@media (max-height: 940px) and (min-width: 901px) {
+  .modal-wide .modal-head { padding: var(--e4) var(--e6) var(--e2); margin-bottom: var(--e3); }
+  .modal-wide .modal-head h2 { font-size: 19px; }
+  .modal-wide .modal-head p { display: none; }
+  .modal-wide .modal-actions { padding: var(--e3) var(--e6); margin-top: var(--e3); }
+  .modal-wide .alert { padding: var(--e2) var(--e3); margin-bottom: var(--e3) !important; }
+  .modal-wide .import-summary { margin-bottom: var(--e3); }
+  .modal-wide .import-summary .metric strong { font-size: 18px; }
+  .modal-wide .import-summary .metric { padding: var(--e1) var(--e2); }
+  .modal-wide .import-filtros { margin-bottom: var(--e2); }
+  .modal-wide .import-paginacao { margin-top: var(--e2); }
+  /* Com a moldura menor, o resto custa menos e sobra mais para a tabela. */
+  .modal-wide { --custo-do-resto: 360px; }
+}
+
+/* A FAIXA ONDE AS DUAS COISAS ACONTECEM AO MESMO TEMPO: tela baixa (a moldura
+   compacta, economizando ~90px) E largura de notebook pequeno (as métricas em
+   duas linhas, custando ~60px). Sem esta regra, a faixa herdava só um dos dois
+   ajustes e a paginação voltava para trás do rodapé em 1024x768. */
+@media (max-height: 940px) and (min-width: 901px) and (max-width: 1100px) {
+  .modal-wide { --custo-do-resto: 420px; }
+}
 
 /* Recorte da revisão. Em 320px o seletor e a contagem empilham: o seletor tem
    min-width: auto por ser item de flex, e sem a quebra ele empurra a largura
@@ -863,7 +968,28 @@ h1, h2, h3 { margin: 0; }
    entrega uma faixa útil em qualquer tela: nunca menos de 180px (abaixo disso
    a tabela deixa de ser tabela) e nunca mais de 46vh, para que métricas,
    evento, filtros e rodapé continuem cabendo junto. */
-.tabela-em-modal { max-height: clamp(180px, 46vh, 520px); overflow: auto; }
+/* A ALTURA DA TABELA É O QUE SOBRA, E NÃO UMA FRAÇÃO DA TELA.
+   ---------------------------------------------------------------------------
+   Era `clamp(180px, 46vh, 520px)`, e o erro estava no `46vh`: o RESTO do
+   diálogo — cabeçalho, alerta do evento, métricas, filtros, paginação e
+   rodapé — não cresce com a viewport, é praticamente constante. Uma fração da
+   tela, portanto, ora sobra ora falta. Medido em 1280x720 com o teto de 80vh:
+   o diálogo cabia em 576px, o resto ocupava ~420, e a tabela pedia 331 — a
+   faixa de paginação saía por baixo do rodapé em cinco das oito viewports.
+
+   O custo do resto vive numa VARIÁVEL, e não repetido em cada media query.
+   Três regras concorrentes com a mesma especificidade já se anularam uma vez
+   aqui: a do celular perdia para a do notebook porque ambas usavam seletor de
+   dois níveis, e quem vencia era a última do arquivo — não a mais específica
+   para aquela tela. Com a variável, cada faixa declara só QUANTO custa, e a
+   conta é feita num lugar só.
+
+   Os números saíram de medir o excesso real do diálogo em cada viewport, não
+   de estimativa. */
+.tabela-em-modal {
+  max-height: clamp(150px, calc(80vh - var(--custo-do-resto, 450px)), 520px);
+  overflow: auto;
+}
 /* Lista de resultados de busca dentro de diálogo — mesma razão da tabela: a
    altura tem de ceder quando a tela é baixa, senão empurra o rodapé. */
 .lista-em-modal {
@@ -1037,7 +1163,8 @@ h1, h2, h3 { margin: 0; }
   .modal-actions .button { flex: 1; }
   .modal-layer { padding: var(--e3); }
   /* Em tela baixa o recorte da tabela encolhe junto: o rodapé tem prioridade. */
-  .tabela-em-modal { max-height: clamp(140px, 38vh, 320px); }
+  /* Sete métricas em quatro linhas de duas: o resto custa o dobro. */
+  .modal-wide { --custo-do-resto: 620px; }
   .lista-em-modal { max-height: clamp(120px, 26vh, 240px); }
   .import-contagem { margin-left: 0; }
   .metric { padding: var(--e3) var(--e4); }

@@ -322,7 +322,10 @@ export const api = {
     preview: (id, params) => get(`/musclewar/imports/${id}`, params),
     link: (itemId, dados) => post(`/musclewar/items/${itemId}/link`, dados),
     apply: id => post(`/musclewar/imports/${id}/apply`),
-    reject: (id, dados) => post(`/musclewar/imports/${id}/reject`, dados)
+    reject: (id, dados) => post(`/musclewar/imports/${id}/reject`, dados),
+    // DELETE com corpo: o motivo viaja no corpo porque pode ter 300
+    // caracteres, e query string não é lugar para texto livre do operador.
+    remove: (id, dados) => remove(`/musclewar/imports/${id}`, dados)
   },
 
   partners: {

@@ -155,7 +155,10 @@ export const ESTADO_DA_IMPORTACAO = {
   PENDING: { rotulo: 'Pendente', tom: 'alerta' },
   PREVIEWED: { rotulo: 'Pré-visualizado', tom: 'info' },
   APPLIED: { rotulo: 'Aplicado', tom: 'ok' },
-  REJECTED: { rotulo: 'Rejeitado', tom: 'perigo' }
+  REJECTED: { rotulo: 'Rejeitado', tom: 'perigo' },
+  // Rejeitar é recusar ANTES de publicar; invalidar é desfazer DEPOIS. Dois
+  // rótulos diferentes porque são dois fatos diferentes no histórico.
+  INVALIDATED: { rotulo: 'Invalidada', tom: 'perigo' }
 };
 export const estadoDaImportacao = codigo => rotulo(ESTADO_DA_IMPORTACAO, codigo);
 

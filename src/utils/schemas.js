@@ -579,7 +579,11 @@ const muscleWarLink = z.object({ athleteId: id });
 const muscleWarPreviewQuery = z.object({
   limit: z.coerce.number().int().min(1).max(1000).optional(),
   offset: z.coerce.number().int().min(0).optional(),
-  matchStatus: z.enum(['MATCHED', 'MATCH_PENDING', 'CONFLICT', 'DUPLICATE', 'IMPORT_REJECTED', 'APPLIED']).optional()
+  matchStatus: z.enum(['MATCHED', 'MATCH_PENDING', 'CONFLICT', 'DUPLICATE', 'IMPORT_REJECTED', 'APPLIED']).optional(),
+  // Busca por nome, matrícula, classe ou código de categoria. CPF fica de fora
+  // de propósito — ver a justificativa no serviço.
+  q: z.string().trim().max(120).optional(),
+  categoryCode: z.string().trim().max(60).optional()
 });
 
 // -------------------------------------------------------- equipes e parceiros
@@ -782,10 +786,15 @@ const communityMemberAdd = z.object({ profileId: id, role: z.enum(['MEMBER', 'AD
 const handleUpdate = z.object({ handle: z.string().trim().toLowerCase().regex(/^[a-z0-9_.]{3,30}$/, 'Handle inválido') });
 
 const rejectImport = z.object({ reason: opcional(texto(3, 300)) });
+// O motivo é opcional AQUI porque o schema não sabe se o lote publicou algo.
+// Quem exige é o serviço, que sabe: rascunho dispensa motivo, invalidação de
+// resultado publicado não. Tornar obrigatório no schema bloquearia a exclusão
+// legítima de um lote que nunca saiu do rascunho.
+const deleteImport = z.object({ reason: opcional(texto(3, 300)) });
 
 module.exports = {
   paginacao, buscaPublica, paramsWithId, scopedListQuery, checkInQuery, sponsorshipQuery, partnershipQuery,
-  importQuery, reportQuery, rankingPointsQuery, communityMemberAdd, handleUpdate, rejectImport,
+  importQuery, reportQuery, rankingPointsQuery, communityMemberAdd, handleUpdate, rejectImport, deleteImport,
   authRegister, cadastroCompleto, authLogin, profileUpdate, passwordChange,
   athleteRequestCreate, athleteRequestReject, athleteRequestQuery,
   organizationCreate, organizationMemberCreate, organizationSelfRegistration,

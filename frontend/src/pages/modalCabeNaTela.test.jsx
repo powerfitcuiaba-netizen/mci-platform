@@ -53,11 +53,12 @@ const dentroDaMedia = condicao => {
 describe('o diálogo cabe na viewport', () => {
   it('o modal tem teto de altura e de largura em unidades de viewport', () => {
     const modal = regra('.modal');
-    // 88vh, e não mais 92vh: com 92 o diálogo chegava a 8px da borda da tela
-    // em cima e embaixo, e a moldura que o distingue da página desaparecia.
+    // 80vh: o teto homologado para a revisão. Veio de 92 para 88 e de 88 para
+    // 80 pelo mesmo motivo a cada vez — a moldura que distingue o diálogo da
+    // página, e o rodapé que tem de caber sem rolagem.
     // `dvh` acompanha a barra de endereço do celular que aparece e some; `vh`
     // sozinho mede a tela com a barra recolhida e joga o rodapé para baixo dela.
-    expect(modal, 'sem max-height o diálogo cresce com o conteúdo').toMatch(/max-height:\s*min\(88vh,\s*88dvh\)/);
+    expect(modal, 'sem max-height o diálogo cresce com o conteúdo').toMatch(/max-height:\s*min\(80vh,\s*80dvh\)/);
     expect(modal, 'sem max-width o diálogo passa da largura da tela').toMatch(/max-width:\s*96vw/);
   });
 
@@ -91,15 +92,16 @@ describe('o diálogo cabe na viewport', () => {
     expect(regra('.modal-layer')).toMatch(/overflow:\s*hidden/);
   });
 
-  it('o diálogo largo desconta 48px da viewport e para em 1180px', () => {
+  it('o diálogo largo para em 1280px e nunca passa de 90vw', () => {
     // `min(100%, 1100px)` com `max-width: 96vw` fazia o diálogo encostar quase
     // nas bordas em telas médias: em 1280 sobravam 26px de cada lado, e a
-    // revisão parecia uma página, não um diálogo.
-    const achado = /width:\s*min\(\s*(\d+)px\s*,\s*calc\(\s*100vw\s*-\s*(\d+)px\s*\)\s*\)/
-      .exec(regra('.modal-wide'));
-    expect(achado, '.modal-wide não declara min(Xpx, calc(100vw - Ypx))').not.toBeNull();
-    expect(Number(achado[1])).toBeLessThanOrEqual(1180);
-    expect(Number(achado[2]), 'moldura de 24px de cada lado').toBeGreaterThanOrEqual(48);
+    // revisão parecia uma página, não um diálogo. `90vw` reserva 5% de cada
+    // lado em QUALQUER largura, que é o que garante a moldura no notebook
+    // estreito sem encolher o diálogo no monitor grande.
+    const achado = /width:\s*min\(\s*(\d+)px\s*,\s*(\d+)vw\s*\)/.exec(regra('.modal-wide'));
+    expect(achado, '.modal-wide não declara min(Xpx, Yvw)').not.toBeNull();
+    expect(Number(achado[1]), 'teto de 1280px').toBeLessThanOrEqual(1280);
+    expect(Number(achado[2]), 'nunca ocupar a tela inteira').toBeLessThanOrEqual(90);
   });
 });
 
