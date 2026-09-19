@@ -816,7 +816,7 @@ h1, h2, h3 { margin: 0; }
   .import-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   /* Quatro colunas significam DUAS linhas de métrica, e a segunda custa
      ~60px que saíam da tabela. */
-  .modal-wide { --custo-do-resto: 560px; }
+  .modal-wide { --custo-do-resto: 566px; }
 }
 
 /* LINHAS MAIS BAIXAS DENTRO DO DIÁLOGO.
@@ -943,18 +943,37 @@ h1, h2, h3 { margin: 0; }
    seletor de dois níveis e venceria a do celular mesmo vindo antes dela — e no
    celular as sete métricas viram quatro linhas, então o desconto é outro. */
 @media (max-height: 940px) and (min-width: 901px) {
-  .modal-wide .modal-head { padding: var(--e4) var(--e6) var(--e2); margin-bottom: var(--e3); }
-  .modal-wide .modal-head h2 { font-size: 19px; }
+  .modal-wide .modal-head { padding: var(--e3) var(--e6) var(--e1); margin-bottom: var(--e2); }
+  .modal-wide .modal-head h2 { font-size: 18px; }
   .modal-wide .modal-head p { display: none; }
-  .modal-wide .modal-actions { padding: var(--e3) var(--e6); margin-top: var(--e3); }
-  .modal-wide .alert { padding: var(--e2) var(--e3); margin-bottom: var(--e3) !important; }
-  .modal-wide .import-summary { margin-bottom: var(--e3); }
-  .modal-wide .import-summary .metric strong { font-size: 18px; }
-  .modal-wide .import-summary .metric { padding: var(--e1) var(--e2); }
-  .modal-wide .import-filtros { margin-bottom: var(--e2); }
-  .modal-wide .import-paginacao { margin-top: var(--e2); }
-  /* Com a moldura menor, o resto custa menos e sobra mais para a tabela. */
-  .modal-wide { --custo-do-resto: 360px; }
+  .modal-wide .modal-actions { padding: var(--e2) var(--e6); margin-top: var(--e2); }
+  /* O alerta do evento vira UMA linha: o nome e o detalhe lado a lado, em vez
+     de empilhados. Continua dizendo para onde a publicação vai — que é a razão
+     de ele existir —, gastando metade da altura. */
+  .modal-wide .alert { padding: var(--e1) var(--e3); margin-bottom: var(--e2) !important; }
+  .modal-wide .alert > div { display: flex; align-items: baseline; gap: var(--e2); flex-wrap: wrap; }
+  .modal-wide .alert p { margin: 0; }
+  .modal-wide .import-summary { margin-bottom: var(--e2); gap: var(--e1); }
+  .modal-wide .import-summary .metric strong { font-size: 17px; }
+  .modal-wide .import-summary .metric span { font-size: 8.5px; }
+  .modal-wide .import-summary .metric { padding: 2px var(--e2); }
+  .modal-wide .import-filtros { margin-bottom: var(--e1); }
+  .modal-wide .import-busca input { padding: 5px 0; }
+  /* A faixa de páginas fica colada na tabela: ela pertence à tabela, e o
+     respiro que havia ali era o que empurrava o conjunto para fora. */
+  .modal-wide .import-paginacao { margin-top: var(--e1); }
+  .modal-wide .import-paginacao .button { padding: 4px var(--e3); }
+  .modal-wide .modal-head h2 { line-height: 1.15; }
+  /* A LINHA DA TABELA TAMBÉM CEDE, e é aqui que a conta fecha: cada pixel de
+     linha vale por quatro, porque são quatro linhas visíveis. Dois pixels de
+     respiro a menos por célula, e o texto continua no mesmo corpo. */
+  .modal-wide .tabela-em-modal .table td { padding: 6px var(--e2); }
+
+  /* Com a moldura menor, o resto custa menos e sobra mais para a tabela. O
+     número saiu de medir, não de estimar: em 1280x720 a moldura custava 360 e
+     sobravam 216px de tabela — 2 linhas de 65px. O teto de 80vh é intocável,
+     então o que cede é a moldura. */
+  .modal-wide { --custo-do-resto: 292px; }
 }
 
 /* A FAIXA ONDE AS DUAS COISAS ACONTECEM AO MESMO TEMPO: tela baixa (a moldura
@@ -962,7 +981,7 @@ h1, h2, h3 { margin: 0; }
    duas linhas, custando ~60px). Sem esta regra, a faixa herdava só um dos dois
    ajustes e a paginação voltava para trás do rodapé em 1024x768. */
 @media (max-height: 940px) and (min-width: 901px) and (max-width: 1100px) {
-  .modal-wide { --custo-do-resto: 420px; }
+  .modal-wide { --custo-do-resto: 345px; }
 }
 
 /* Recorte da revisão. Em 320px o seletor e a contagem empilham: o seletor tem
