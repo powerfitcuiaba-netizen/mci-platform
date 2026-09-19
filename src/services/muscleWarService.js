@@ -429,6 +429,55 @@ async function analisarLinha(registro, organizationId, seasonId, catalogoDeClass
     }
   }
 
+  // O ARQUIVO DECLAROU UMA CLASSE E O SISTEMA NÃO SOUBE DE QUE CATEGORIA ELA É.
+  //
+  // Esta guarda existia só para o código PRESENTE e fora do catálogo. Quando o
+  // adaptador não conseguia mapear o texto da classe, `categoryCode` nascia
+  // NULO — e nulo pulava a conferência inteira, porque ela era `if
+  // (registro.categoryCode)`. A linha seguia como se estivesse em ordem.
+  //
+  // O estrago era silencioso e em cascata: a linha atravessava a revisão sem
+  // marca, entrava no ledger com `categoryId` em branco, e meses depois a
+  // declaração de Overall daquela categoria não encontrava linha onde pousar
+  // e pagava ZERO — sem erro, sem aviso, sem ninguém para notar.
+  //
+  // O mapa de categorias é EXPLÍCITO e homologado justamente para não
+  // adivinhar: "Classic Physique" não vira "Men's Classic Physique" por
+  // semelhança. Então o que falta aqui não é aproximação — é dizer ao operador
+  // que a linha não pode entrar assim.
+  //
+  // Medido no arquivo real do Ipiranga: 191 de 191 linhas resolvem a
+  // categoria. Esta guarda não muda nada lá; ela existe para o dia em que uma
+  // categoria nova, uma grafia diferente ou uma falha de catálogo aparecerem.
+  //
+  // E ela NÃO PODE depender de haver classe declarada. A primeira versão era
+  // `!categoryCode && className`, e o mutation testing mostrou por que isso
+  // era pouco: um arquivo SEM a coluna Class faz nascerem nulos os dois
+  // campos, a guarda não disparava, e a linha era aplicada com `categoryId`
+  // em branco — o mesmo defeito silencioso, por outra porta. Medido antes da
+  // correção: MATCHED, apply 200, um RankingPoint valendo 5 pontos sem
+  // categoria nenhuma.
+  //
+  // Arquivo sem Class E sem identificador externo morre antes, na guarda de
+  // idempotência; esta aqui é a que pega o arquivo que trouxe identificador
+  // e não trouxe como recortar o resultado.
+  if (!registro.categoryCode) {
+    // Os dois casos pedem correções DIFERENTES do operador — num, a classe
+    // está escrita fora da forma oficial; no outro, o arquivo não trouxe nem
+    // classe nem categoria. Um motivo só para os dois mandaria metade dos
+    // operadores procurar a coluna errada.
+    const motivo = registro.className
+      ? `Categoria não identificada a partir da classe "${registro.className}". `
+        + 'Corrija a classe no arquivo de origem para a forma oficial, ou cadastre a '
+        + 'categoria no MCI antes de aplicar.'
+      : 'O arquivo não informou classe nem categoria para esta linha, e sem '
+        + 'categoria o resultado não tem recorte onde entrar no ranking. '
+        + 'Inclua a coluna de classe (Class) ou a de categoria (category_code) '
+        + 'na origem antes de aplicar.';
+
+    return { matchStatus: 'CONFLICT', reason: motivo, athleteId: athlete.id };
+  }
+
   // Categoria informada precisa existir no catálogo; sem isso o ponto entraria
   // sem recorte e o ranking por categoria ficaria incoerente.
   if (registro.categoryCode) {

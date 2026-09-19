@@ -504,7 +504,7 @@ h1, h2, h3 { margin: 0; }
    Em 1366x768 o operador precisava rolar DENTRO do diálogo para reencontrar
    "Aplicar", e a tabela — presa a 340px fixos — somava altura que a viewport
    não tinha. Três áreas resolvem: topo e rodapé grudados, miolo rolando. */
-.modal-layer { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: var(--e5); overflow: hidden; }
+.modal-layer { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: var(--e6); overflow: hidden; }
 .modal-scrim { position: absolute; inset: 0; background: rgba(3,5,8,.72); border: 0; backdrop-filter: blur(3px); animation: surge var(--t-base) ease-out; }
 .modal {
   position: relative; width: min(100%, 560px); max-width: 96vw;
@@ -512,13 +512,20 @@ h1, h2, h3 { margin: 0; }
   border-radius: var(--raio-2); padding: var(--e6);
   /* `dvh` acompanha a barra de endereço que aparece e some no celular; `vh`
      sozinho mede a tela com a barra recolhida e deixa o rodapé embaixo dela. */
-  max-height: min(92vh, 92dvh);
+  max-height: min(88vh, 88dvh);
   /* `hidden` no eixo horizontal é o que impede a tabela larga de empurrar o
      diálogo para fora da viewport: quem rola na horizontal é `.table-wrap`. */
   overflow: hidden auto; overscroll-behavior: contain;
   box-shadow: var(--sombra-3); animation: sobe var(--t-calmo) var(--mola);
 }
-.modal-wide { width: min(100%, 1100px); }
+/* LARGURA CONTROLADA, E NÃO "o máximo que couber".
+   ---------------------------------------------------------------------------
+   `min(100%, 1100px)` com `max-width: 96vw` fazia o diálogo encostar quase nas
+   bordas em telas médias: em 1280 sobravam 26px de cada lado, e a revisão
+   parecia uma página, não um diálogo. Os 48px descontados garantem a moldura
+   nos dois lados em qualquer viewport, e o teto de 1180px impede que a tabela
+   se estique até virar uma faixa difícil de varrer com os olhos. */
+.modal-wide { width: min(1180px, calc(100vw - 48px)); }
 /* Grudados nas bordas do próprio diálogo. O deslocamento negativo cancela o
    padding do modal, senão sobraria uma faixa de conteúdo aparecendo por baixo. */
 .modal-head {
@@ -781,9 +788,72 @@ h1, h2, h3 { margin: 0; }
   text-align: center; padding: 0 2px; box-shadow: none;
 }
 
-.import-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: var(--e3); margin-bottom: var(--e4); }
-.import-summary .metric { padding: var(--e3) var(--e4); }
-.import-summary .metric strong { font-size: 28px; }
+/* AS SETE MÉTRICAS EM UMA LINHA, e compactas.
+   ---------------------------------------------------------------------------
+   `auto-fit` com piso de 132px produzia de 4 a 7 colunas conforme a largura,
+   então a mesma tela mudava de forma sem motivo. Sete colunas declaradas dão
+   leitura estável: o operador aprende onde cada número fica.
+   O card encolheu porque ele é resumo, não protagonista — a tabela é. */
+.import-summary {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--e2); margin-bottom: var(--e4);
+}
+.import-summary .metric { padding: var(--e2) var(--e3); }
+.import-summary .metric strong { font-size: 22px; line-height: 1.1; }
+.import-summary .metric span { font-size: 9px; letter-spacing: 1px; }
+/* O realce lateral e o levantar no hover são de card grande; aqui só
+   acrescentariam ruído a sete blocos lado a lado. */
+.import-summary .metric::before { content: none; }
+.import-summary .metric:hover { transform: none; }
+
+/* Tablet: 4 + 3, que é o que cabe sem espremer o número. */
+@media (max-width: 1100px) {
+  .import-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+/* LINHAS MAIS BAIXAS DENTRO DO DIÁLOGO.
+   A altura fixa de 48px por linha é do padrão de tabela em página inteira.
+   Dentro do modal ela custa caro: com 191 registros, cada pixel de linha é
+   um registro a menos visível sem rolar. */
+.tabela-em-modal .table td { height: auto; padding: var(--e2); }
+/* `white-space: normal` desfaz o `nowrap` do cabeçalho padrão SÓ aqui: em
+   página inteira sobra largura, dentro do diálogo não. "Pts arquivo" em uma
+   linha reservava 104px para uma coluna de números curtos. */
+.tabela-em-modal .table th { padding: var(--e2); white-space: normal; }
+
+/* ESPREMER ONZE COLUNAS NÃO É CABER.
+   ---------------------------------------------------------------------------
+   Sem largura mínima, o navegador dava conta das 11 colunas encolhendo cada
+   uma até o texto quebrar: "Men's Bodybuilding - Open Middleweight" virava
+   três linhas, o nome do atleta outras três, e cada registro passava a ocupar
+   a altura de três. Com 191 registros, apareciam cinco.
+   A régua de 980px é o que as colunas precisam para respirar. Quando a
+   viewport não a comporta, quem rola de lado é ESTE contêiner — nunca a
+   página, e nenhuma coluna é escondida. */
+/* A régua é a largura ÚTIL do diálogo (1180 menos o respiro interno), para
+   que no desktop tudo caiba sem arrastar de lado — inclusive a ação da linha.
+   Abaixo disso o contêiner rola na horizontal, e nenhuma coluna some. */
+.tabela-em-modal .table { min-width: 1108px; }
+
+/* O que é número ou código não quebra: quebrar "***.***.**00-**" em duas
+   linhas gasta altura e não acrescenta leitura. O CABEÇALHO, ao contrário,
+   pode quebrar à vontade — ele aparece uma vez só, e "Pts arquivo" em uma
+   linha custava 112px de largura que as 191 linhas pagavam. */
+.tabela-em-modal .table td.num { white-space: nowrap; }
+
+/* Nome e classe recebem LARGURA, em vez de corte.
+   A primeira tentativa foi `-webkit-line-clamp: 2` na própria célula, e o
+   resultado ficou pior que o problema: `display: -webkit-box` briga com o
+   layout de tabela, a altura da linha continua vindo da célula mais alta, e a
+   terceira linha aparecia pela metade — texto cortado no meio da palavra, sem
+   reticências. Dar espaço resolve sem esconder nada. */
+/* O teto existe para o dia em que o dado for mais comprido que o do teste:
+   sem ele, um nome ou um motivo longo estica a coluna e empurra a AÇÃO da
+   linha para fora do diálogo — que foi exatamente o defeito corrigido aqui. */
+.tabela-em-modal .table td:nth-child(3) { min-width: 138px; max-width: 190px; }
+.tabela-em-modal .table td:nth-child(7) { min-width: 146px; max-width: 190px; }
+/* A coluna de situação carrega selo mais o motivo, que é texto corrido. */
+.tabela-em-modal .table td:nth-child(10) { min-width: 148px; max-width: 208px; }
 
 /* Recorte da revisão. Em 320px o seletor e a contagem empilham: o seletor tem
    min-width: auto por ser item de flex, e sem a quebra ele empurra a largura
@@ -974,7 +1044,7 @@ h1, h2, h3 { margin: 0; }
   .metric strong { font-size: 28px; }
   .hero { padding: var(--e5) var(--e4); }
   .comment.is-reply { padding-left: var(--e6); }
-  .import-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .import-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--e2); }
 }
 
 /* Indicador de operação em curso dentro de botão. */
