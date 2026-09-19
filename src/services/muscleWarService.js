@@ -429,6 +429,36 @@ async function analisarLinha(registro, organizationId, seasonId, catalogoDeClass
     }
   }
 
+  // O ARQUIVO DECLAROU UMA CLASSE E O SISTEMA NÃO SOUBE DE QUE CATEGORIA ELA É.
+  //
+  // Esta guarda existia só para o código PRESENTE e fora do catálogo. Quando o
+  // adaptador não conseguia mapear o texto da classe, `categoryCode` nascia
+  // NULO — e nulo pulava a conferência inteira, porque ela era `if
+  // (registro.categoryCode)`. A linha seguia como se estivesse em ordem.
+  //
+  // O estrago era silencioso e em cascata: a linha atravessava a revisão sem
+  // marca, entrava no ledger com `categoryId` em branco, e meses depois a
+  // declaração de Overall daquela categoria não encontrava linha onde pousar
+  // e pagava ZERO — sem erro, sem aviso, sem ninguém para notar.
+  //
+  // O mapa de categorias é EXPLÍCITO e homologado justamente para não
+  // adivinhar: "Classic Physique" não vira "Men's Classic Physique" por
+  // semelhança. Então o que falta aqui não é aproximação — é dizer ao operador
+  // que a linha não pode entrar assim.
+  //
+  // Medido no arquivo real do Ipiranga: 191 de 191 linhas resolvem a
+  // categoria. Esta guarda não muda nada lá; ela existe para o dia em que uma
+  // categoria nova, uma grafia diferente ou uma falha de catálogo aparecerem.
+  if (!registro.categoryCode && registro.className) {
+    return {
+      matchStatus: 'CONFLICT',
+      reason: `Categoria não identificada a partir da classe "${registro.className}". `
+        + 'Corrija a classe no arquivo de origem para a forma oficial, ou cadastre a '
+        + 'categoria no MCI antes de aplicar.',
+      athleteId: athlete.id
+    };
+  }
+
   // Categoria informada precisa existir no catálogo; sem isso o ponto entraria
   // sem recorte e o ranking por categoria ficaria incoerente.
   if (registro.categoryCode) {
