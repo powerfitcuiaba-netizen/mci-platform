@@ -69,13 +69,17 @@ const importar = (extras = {}) => api().post('/api/v1/musclewar/imports').set(ge
 
 const aplicar = importId => api().post(`/api/v1/musclewar/imports/${importId}/apply`).set(gerente.auth()).send({});
 
-const ledgerDe = async matricula => {
-  const atleta = await prisma.athlete.findFirst({ where: { affiliationNumber: matricula }, select: { id: true } });
-  return prisma.rankingPoint.findMany({
+// O ledger passou a ter RLS de operador: `prisma` sem contexto é ANÔNIMO, e
+// anônimo não o lê mais. Ler pelo gerente não afrouxa a conferência — é ela
+// falando com a identidade que o produto exige. Que o anônimo NÃO lê é
+// asserção própria, em tests/rls-do-ledger.test.mjs.
+const ledgerDe = async matricula => comoAtor(gerente, async tx => {
+  const atleta = await tx.athlete.findFirst({ where: { affiliationNumber: matricula }, select: { id: true } });
+  return tx.rankingPoint.findMany({
     where: { athleteId: atleta.id },
     select: { points: true, placementPoints: true, placing: true, isOverallChampion: true, externalResultId: true, didNotShow: true }
   });
-};
+});
 
 beforeAll(() => garantirCatalogo());
 
@@ -133,7 +137,7 @@ describe('prévia do arquivo oficial', () => {
 
   it('a prévia não grava ponto nenhum', async () => {
     await importar();
-    expect(await prisma.rankingPoint.count()).toBe(0);
+    expect(await comoAtor(gerente, tx => tx.rankingPoint.count())).toBe(0);
   });
 
   it('cada linha registra POR QUE casou', async () => {
@@ -189,11 +193,15 @@ describe('aplicação e ledger', () => {
     await aplicar(body.import.id);
     await api().post(`/api/v1/seasons/${seasonId}/ranking/recalculate`).set(gerente.auth()).send({});
 
-    for (const linha of await prisma.ranking.findMany({ select: { athleteId: true, totalPoints: true, categoryId: true } })) {
-      const pontos = await prisma.rankingPoint.findMany({
+    // `Ranking` é a superfície PUBLICADA e continua legível sem contexto; o
+    // ledger não. Ler os dois com a mesma conexão anônima somaria zero contra
+    // um agregado cheio — e a diferença pareceria defeito de cálculo.
+    const agregados = await prisma.ranking.findMany({ select: { athleteId: true, totalPoints: true, categoryId: true } });
+    for (const linha of agregados) {
+      const pontos = await comoAtor(gerente, tx => tx.rankingPoint.findMany({
         where: { athleteId: linha.athleteId, ...(linha.categoryId ? { categoryId: linha.categoryId } : {}) },
         select: { points: true }
-      });
+      }));
       expect(linha.totalPoints).toBe(pontos.reduce((acc, p) => acc + p.points, 0));
     }
   });
@@ -233,9 +241,9 @@ describe('idempotência — aplicar de novo não pode somar de novo', () => {
     // mantém o ledger rastreável até o arquivo sem copiar texto de origem
     // para dentro do ponto.
     const atleta = await prisma.athlete.findFirst({ where: { affiliationNumber: '88281' }, select: { id: true } });
-    const origens = await prisma.externalResult.findMany({
+    const origens = await comoAtor(gerente, tx => tx.externalResult.findMany({
       where: { athleteId: atleta.id }, select: { externalId: true }
-    });
+    }));
     const chaves = origens.map(o => o.externalId);
 
     expect(new Set(chaves).size).toBe(6);
@@ -327,9 +335,9 @@ describe('a categoria deixa de chegar nula', () => {
     const { body } = await importar();
     await aplicar(body.import.id);
 
-    const pontos = await prisma.rankingPoint.findMany({
+    const pontos = await comoAtor(gerente, tx => tx.rankingPoint.findMany({
       select: { categoryId: true, category: { select: { code: true } } }
-    });
+    }));
     expect(pontos.length).toBeGreaterThan(0);
     for (const p of pontos) expect(p.categoryId).not.toBeNull();
 

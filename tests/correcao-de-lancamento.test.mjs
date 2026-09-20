@@ -525,21 +525,25 @@ describe('quem pode, e quem não pode', () => {
       // interno — que conta ao invasor que ele encostou em algo.
       expect(resposta.status, 'sonda cross-tenant nao pode virar 500')
         .toBeLessThan(500);
-      // MEDIDO: 403, e é o 403 do `assertCan`, não um 404 do RLS.
+      // MEDIDO: 404 — e a mudança de 403 para 404 é ENDURECIMENTO, não
+      // regressão. O comentário anterior dizia, com razão para a época:
       //
-      // As duas leituras ATRAVESSAM — o lançamento e a temporada são visíveis
-      // ao operador forasteiro. Não é falha de política: o ranking é dado
-      // PÚBLICO por decisão de produto (o visitante anônimo lê a classificação
-      // inteira), então o RLS não tem por que esconder a linha. Quem nega a
-      // ESCRITA é a autorização, e é ela que responde.
+      //   "as duas leituras ATRAVESSAM — o lançamento é visível ao operador
+      //    forasteiro. O ranking é dado PÚBLICO, então o RLS não tem por que
+      //    esconder a linha. Quem nega a ESCRITA é a autorização."
       //
-      // A asserção fica em 403 de propósito, e não num 404 mais discreto: o
-      // 403 do `assertCan` é a resposta que a plataforma inteira dá a violação
-      // de tenant, e trocá-la só aqui deixaria este endpoint fora da convenção
-      // sem fechar vazamento nenhum — a mesma informação já sai pela leitura
-      // pública do ranking.
+      // A premissa disso era que `RankingPoint` não tinha política nenhuma.
+      // Ela deixou de valer: o ledger passou a ter RLS de operador, e o que é
+      // público agora é a PROJEÇÃO (`PublicRankingEntry`), não a tabela onde
+      // mora a trilha administrativa.
+      //
+      // Consequência: o forasteiro não enxerga mais a linha, e a negação
+      // acontece ANTES de `assertCan` ter o que autorizar. Ele recebe 404
+      // porque, para ele, o lançamento não existe — que é estritamente menos
+      // informação do que o 403 dava. A convenção de 403 para violação de
+      // tenant continua valendo onde o RLS deixa a linha passar.
       expect([401, 403, 404]).toContain(resposta.status);
-      expect(resposta.status).toBe(403);
+      expect(resposta.status).toBe(404);
     }
     expect((await lancamentos())[0].points, 'cross-tenant nao muda nada').toBe(5);
   }, 60_000);

@@ -188,14 +188,26 @@ describe('a consulta pública tem teto, e o teto vale', () => {
           -- As colunas placing e points VÃO ENTRE ASPAS. PLACING é palavra reservada do
           -- PostgreSQL (vem de OVERLAY(... PLACING ...)), e sem aspas o parser
           -- reprova a lista inteira com "syntax error at or near".
-          (id, "seasonId", "athleteId", "source", "placing",
+          -- organizationId passou a ser OBRIGATORIO e e ele que a politica de
+          -- RLS confere: sem a coluna, o INSERT e recusado por "new row
+          -- violates row-level security policy". A tenancy do ledger deixou de
+          -- ser deduzida do atleta, que agora pode nao existir.
+          -- (sem crase neste bloco: ele vive DENTRO de um template literal, e
+          --  uma crase aqui fecha o literal antes da hora.)
+          (id, "seasonId", "organizationId", "athleteId", "source", "placing",
            "placementPoints", "overallBonus", "superOverallEligible", "points", "superOverallPoints")
-        SELECT 'qa-so-ponto-' || lpad(g::text, 4, '0'), $1,
+        SELECT 'qa-so-ponto-' || lpad(g::text, 4, '0'), $1, $2,
                'qa-so-atleta-' || lpad(g::text, 4, '0'), 'EVENT', NULL,
                ${QUANTOS + 10} - g, 0, true, ${QUANTOS + 10} - g, ${QUANTOS + 10} - g
         FROM generate_series(1, ${QUANTOS}) AS g
-      `, seasonId);
+      `, seasonId, orgId);
     });
+
+    // A CONSULTA PÚBLICA LÊ A PROJEÇÃO, e não o ledger — `RankingPoint` tem
+    // RLS de operador e esta rota é anônima. Semear por SQL cru enche o ledger
+    // e deixa a projeção vazia; é o recálculo que a publica, como em produção.
+    const ranking = await import('../src/services/rankingService.js');
+    await comoAtor(diretor, () => ranking.recompute_(seasonId));
   }
 
   it('lê o teto, e não a temporada inteira, mesmo com centenas pontuando', async () => {
@@ -264,16 +276,23 @@ describe('pré-seleção: o bloco de empate não é partido no corte', () => {
       // g de 1 a 3: totais 30, 29, 28. g de 4 a 10: todas com 20.
       await tx.$executeRawUnsafe(`
         INSERT INTO "RankingPoint"
-          (id, "seasonId", "athleteId", "source", "placing",
+          -- organizationId e obrigatorio e e ele que a politica de RLS
+          -- confere: sem a coluna o INSERT e recusado. (sem crase neste
+          -- bloco: ele vive dentro de um template literal.)
+          (id, "seasonId", "organizationId", "athleteId", "source", "placing",
            "placementPoints", "overallBonus", "superOverallEligible", "points", "superOverallPoints")
-        SELECT 'qa-emp-ponto-' || lpad(g::text, 3, '0'), $1,
+        SELECT 'qa-emp-ponto-' || lpad(g::text, 3, '0'), $1, $2,
                'qa-emp-atleta-' || lpad(g::text, 3, '0'), 'EVENT', NULL,
                CASE WHEN g <= 3 THEN 31 - g ELSE 20 END, 0, true,
                CASE WHEN g <= 3 THEN 31 - g ELSE 20 END,
                CASE WHEN g <= 3 THEN 31 - g ELSE 20 END
         FROM generate_series(1, 10) AS g
-      `, seasonId);
+      `, seasonId, orgId);
     });
+
+    // A pre-selecao le a PROJECAO publica, e nao o ledger. Semear por SQL cru
+    // enche o ledger e deixa a projecao vazia; e o recalculo que a publica.
+    await comoAtor(diretor, () => rankingService.recompute_(seasonId));
   }
 
   it('o corte dentro do empate traz o bloco inteiro, não limite + 1', async () => {
@@ -301,14 +320,20 @@ describe('pré-seleção: o bloco de empate não é partido no corte', () => {
       `, orgId);
       await tx.$executeRawUnsafe(`
         INSERT INTO "RankingPoint"
-          (id, "seasonId", "athleteId", "source", "placing",
+          -- organizationId e obrigatorio e e ele que a politica de RLS
+          -- confere. (sem crase neste bloco: ele vive dentro de um
+          -- template literal.)
+          (id, "seasonId", "organizationId", "athleteId", "source", "placing",
            "placementPoints", "overallBonus", "superOverallEligible", "points", "superOverallPoints")
-        SELECT 'qa-lmp-ponto-' || lpad(g::text, 3, '0'), $1,
+        SELECT 'qa-lmp-ponto-' || lpad(g::text, 3, '0'), $1, $2,
                'qa-lmp-atleta-' || lpad(g::text, 3, '0'), 'EVENT', NULL,
                40 - g, 0, true, 40 - g, 40 - g
         FROM generate_series(1, 10) AS g
-      `, seasonId);
+      `, seasonId, orgId);
     });
+
+    // A pre-selecao le a PROJECAO publica; e o recalculo que a publica.
+    await comoAtor(diretor, () => rankingService.recompute_(seasonId));
 
     const { linhas, lidas } = await comoAtor(diretor, () => rankingService.agregarSuperOverall({
       seasonId, categoryId: undefined, limite: 5

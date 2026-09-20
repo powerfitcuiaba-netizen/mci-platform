@@ -91,6 +91,10 @@ describe('o resultado histórico existe sem atleta cadastrado', () => {
 
   it('aplica com ZERO atletas cadastrados, e continua com zero depois', async () => {
     expect(await prisma.athlete.count(), 'o cenário começa sem cadastro nenhum').toBe(0);
+    // A LINHA DE BASE, e não o zero absoluto: `criarUsuario` nasce com papel
+    // ATHLETE por padrão, então o próprio gerente do cenário já conta. Medir
+    // contra zero acusaria o arreio de teste, e não o produto.
+    const usuariosAntes = await prisma.user.count({ where: { role: 'ATHLETE' } });
 
     const lote = await importar(ARQUIVO);
     expect(lote.status, JSON.stringify(lote.body)).toBe(201);
@@ -116,7 +120,7 @@ describe('o resultado histórico existe sem atleta cadastrado', () => {
     // NENHUM ATLETA CRIADO. É a asserção que não pode ceder em hipótese
     // alguma: é ela que separa "carregar histórico" de "fabricar gente".
     expect(await prisma.athlete.count()).toBe(0);
-    expect(await prisma.user.count({ where: { role: 'ATHLETE' } })).toBe(0);
+    expect(await prisma.user.count({ where: { role: 'ATHLETE' } })).toBe(usuariosAntes);
 
     const identidades = await noLedger(tx => tx.externalAthlete.findMany({ orderBy: { identityKey: 'asc' } }));
     const externos = await noLedger(tx => tx.externalResult.findMany());

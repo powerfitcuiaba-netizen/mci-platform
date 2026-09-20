@@ -105,6 +105,10 @@ beforeEach(async () => {
 describe('uma etapa inteira entra no histórico com a base de atletas vazia', () => {
   it('191 linhas viram 191 resultados históricos e ZERO atletas', async () => {
     expect(await prisma.athlete.count()).toBe(0);
+    // Linha de base, e não zero absoluto: `criarUsuario` nasce com papel
+    // ATHLETE por padrão, então o gerente do cenário já conta. Medir contra
+    // zero acusaria o arreio, e não o produto.
+    const usuariosAntes = await prisma.user.count({ where: { role: 'ATHLETE' } });
 
     const lote = await api().post('/api/v1/musclewar/imports').set(gerente.auth()).send({
       organizationId, seasonId, sourceType: 'CSV',
@@ -139,7 +143,7 @@ describe('uma etapa inteira entra no histórico com a base de atletas vazia', ()
 
     // ZERO ATLETAS CRIADOS. A asserção que não pode ceder.
     expect(await prisma.athlete.count()).toBe(0);
-    expect(await prisma.user.count({ where: { role: 'ATHLETE' } })).toBe(0);
+    expect(await prisma.user.count({ where: { role: 'ATHLETE' } })).toBe(usuariosAntes);
 
     const contagens = await noLedger(async tx => ({
       identidades: await tx.externalAthlete.count(),

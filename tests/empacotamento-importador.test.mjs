@@ -301,7 +301,26 @@ describe('o calendário não pede migration nenhuma', () => {
       // desfazer DEPOIS, e o lote precisa continuar no histórico dizendo qual
       // das duas coisas aconteceu. Um lote antigo segue válido com os três
       // campos nulos.
-      '20260919160000_importacao_invalidada'
+      '20260919160000_importacao_invalidada',
+      // ADICIONADA na fase do histórico anterior ao cadastro. Ela é
+      // estrutural e não cosmética, e por isso precisa de justificativa aqui:
+      //
+      // `ExternalResult.athleteId` e `RankingPoint.athleteId` eram NOT NULL.
+      // Isso tornava IMPOSSÍVEL carregar o histórico oficial de um campeonato
+      // antigo antes de os atletas se cadastrarem — e a única saída sem
+      // migration seria criar atleta automaticamente, com CPF inventado e
+      // carreiras de homônimos fundidas.
+      //
+      // A migration cria `ExternalAthlete` (a identidade esportiva externa,
+      // separada da identidade de usuário do MCI), dá `organizationId` PRÓPRIO
+      // às três tabelas do ledger — porque a tenancy delas era deduzida do
+      // atleta, e o atleta passou a poder não existir —, cria a projeção
+      // pública `PublicRankingEntry` e liga RLS com FORCE nas cinco.
+      //
+      // Nenhum dado é apagado: sem DROP de tabela, sem TRUNCATE, sem DELETE.
+      // Cada backfill termina num bloco que conta órfãs e ABORTA a migration
+      // se achar alguma, em vez de ligar RLS sobre linha sem dono.
+      '20260920000000_identidade_externa_e_rls_do_ledger'
     ]);
   });
 });

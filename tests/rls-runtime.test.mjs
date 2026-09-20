@@ -43,7 +43,7 @@ beforeEach(async () => {
 });
 
 describe('FORCE ROW LEVEL SECURITY — o dono da tabela também é filtrado', () => {
-  it('as 22 tabelas protegidas estão com FORCE ligado', async () => {
+  it('as 27 tabelas protegidas estão com FORCE ligado', async () => {
     const linhas = await prisma.$queryRaw`
       SELECT c.relname::text AS tabela, c.relforcerowsecurity AS forcado
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -57,7 +57,21 @@ describe('FORCE ROW LEVEL SECURITY — o dono da tabela também é filtrado', ()
     // atleta. Ela guarda CPF entre o pedido e a análise, então nasceu com RLS
     // FORÇADA e política estreita: enxergam a linha apenas o dono do pedido e
     // os operadores da organização.
-    expect(linhas.length).toBe(22);
+    //
+    // E de 22 para 27 com o LEDGER E SUA PROJEÇÃO: `ExternalAthlete`,
+    // `ExternalResult`, `RankingPoint`, `Ranking` e `PublicRankingEntry`.
+    //
+    // Essas cinco não estavam desprotegidas antes — estavam protegidas por
+    // DEDUÇÃO: `athleteId` era NOT NULL, toda linha pertencia a um atleta, e
+    // todo atleta a uma organização. O isolamento era consequência de uma
+    // coluna obrigatória, não de uma regra escrita.
+    //
+    // O histórico oficial carregado ANTES do cadastro desfaz essa dedução:
+    // `athleteId` passou a ser nulável, e uma linha sem atleta não teria
+    // caminho nenhum até um tenant. Por isso as três ganharam
+    // `organizationId` próprio e as cinco ganharam política — a proteção
+    // deixou de ser deduzida e passou a ser declarada.
+    expect(linhas.length).toBe(27);
     const semForce = linhas.filter(linha => !linha.forcado).map(linha => linha.tabela);
     expect(semForce, 'tabela com RLS mas sem FORCE volta a isentar o dono').toEqual([]);
   });

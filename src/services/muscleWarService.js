@@ -1172,6 +1172,7 @@ async function vincularPendentesDoAtleta(athlete, actor) {
   let vinculados = 0;
   let conflitos = 0;
   const lotesTocados = new Map();
+  const lotesParaAplicar = new Set();
 
   for (const item of pendentes) {
     const codigoDaLinha = String(item.affiliationCode || '').toUpperCase();
@@ -1224,6 +1225,9 @@ async function vincularPendentesDoAtleta(athlete, actor) {
 
     vinculados += 1;
     lotesTocados.set(item.importId, item.import);
+    // Linha que estava esperando aplicação: esta sim precisa que o lote seja
+    // reaplicado para virar ponto. A que já estava `APPLIED` não.
+    if (item.matchStatus === 'MATCH_PENDING') lotesParaAplicar.add(item.importId);
 
     await audit.record({
       actor,
@@ -1265,9 +1269,21 @@ async function vincularPendentesDoAtleta(athlete, actor) {
   // de novo, e a unicidade de (source, externalId) fecha a porta de qualquer
   // jeito.
   let lotesAplicados = 0;
-  if (vinculados) {
+  // SÓ REAPLICA O QUE AINDA NÃO FOI APLICADO.
+  //
+  // Antes desta fase, toda linha vinculada estava esperando aplicação, e
+  // reaplicar o lote era o que materializava o ponto dela. Agora o resultado
+  // histórico já entra no ledger sem dono: a linha vinculada costuma estar
+  // `APPLIED`, e o ponto dela já existe — quem lhe dá dono é `adotarLedger`,
+  // não uma reaplicação.
+  //
+  // Reaplicar assim mesmo não duplicaria nada (a unicidade de
+  // `(source, externalId)` fecha a porta), mas produziria um 422
+  // `NOTHING_TO_APPLY` a cada aprovação de cadastro, capturado e jogado no log
+  // como se fosse falha. Ruído que faz quem lê o log parar de ler o log.
+  if (lotesParaAplicar.size) {
     for (const lote of lotesTocados.values()) {
-      if (lote.status !== 'APPLIED') continue;
+      if (lote.status !== 'APPLIED' || !lotesParaAplicar.has(lote.id)) continue;
       try {
         await aplicarLote(await prisma.muscleWarImport.findUnique({ where: { id: lote.id } }), actor);
         lotesAplicados += 1;
