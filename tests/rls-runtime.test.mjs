@@ -308,16 +308,63 @@ describe('a requisição real carrega o contexto até o PostgreSQL', () => {
 });
 
 describe('auditoria de bypass', () => {
+  // UM ARQUIVO PRECISA PODER DIZER "BYPASSRLS", E É O QUE PROCURA POR ELE.
+  //
+  // `src/config/rlsGuard.js` existe para RECUSAR a partida quando a conexão
+  // contorna o RLS. Para isso ele consulta `pg_roles.rolbypassrls` e escreve
+  // o diagnóstico com essa palavra. A varredura literal acusava esse arquivo —
+  // e estava lendo a barreira como se fosse o buraco.
+  //
+  // A exceção é a MENOR possível, e vem com uma asserção a mais em troca:
+  //
+  //   · o termo liberado é UM, `BYPASSRLS`, e só nesse UM arquivo;
+  //   · `SET ROLE`, `DISABLE ROW LEVEL SECURITY`, `NO FORCE ROW LEVEL` e
+  //     `row_security = off` continuam proibidos em TODO `src/`, o arquivo da
+  //     barreira incluído;
+  //   · e a barreira passa a ter de provar que não EXECUTA nada: nenhum
+  //     `$executeRaw`, nenhuma instrução que não seja SELECT. Ela lê catálogo
+  //     e decide; não altera estado.
+  const DESLIGAR_RLS = 'DISABLE ROW LEVEL SECURITY|SET ROLE|NO FORCE ROW LEVEL|row_security *= *off';
+  const BARREIRA = 'src/config/rlsGuard.js';
+
   it('nenhum código de aplicação desliga, força papel ou contorna o RLS', async () => {
     const { execSync } = await import('node:child_process');
-    const padrao = 'DISABLE ROW LEVEL SECURITY|SET ROLE|NO FORCE ROW LEVEL|row_security *= *off|BYPASSRLS';
+    const padrao = `${DESLIGAR_RLS}|BYPASSRLS`;
 
     const encontrado = execSync(
-      `grep -rnE '${padrao}' src/ || true`,
+      `grep -rnE '${padrao}' src/ --exclude=${BARREIRA.split('/').pop()} || true`,
       { encoding: 'utf8', cwd: process.cwd() }
     ).trim();
 
     expect(encontrado, `bypass de RLS encontrado em src/:\n${encontrado}`).toBe('');
+  });
+
+  it('a própria barreira não desliga RLS nem troca de papel', async () => {
+    const { execSync } = await import('node:child_process');
+
+    const proibido = execSync(
+      `grep -nE '${DESLIGAR_RLS}' ${BARREIRA} || true`,
+      { encoding: 'utf8', cwd: process.cwd() }
+    ).trim();
+
+    expect(proibido, `a barreira contém instrução de bypass:\n${proibido}`).toBe('');
+  });
+
+  it('a barreira apenas LÊ: nenhum comando que altere estado', async () => {
+    const { readFileSync } = await import('node:fs');
+    const fonte = readFileSync(BARREIRA, 'utf8');
+
+    // `$executeRaw` é o único caminho do Prisma para SQL que não é consulta.
+    // Sem ele, a barreira não tem como alterar nada — e é essa impossibilidade,
+    // e não a boa intenção do arquivo, que justifica a exceção acima.
+    expect(fonte, 'a barreira não pode executar SQL que altere estado')
+      .not.toContain('$executeRaw');
+
+    // E o SQL que ela roda é SELECT. Qualquer verbo de escrita aqui seria uma
+    // mudança de natureza do arquivo, e a exceção deixaria de valer.
+    for (const verbo of ['INSERT ', 'UPDATE ', 'DELETE ', 'ALTER ', 'DROP ', 'GRANT ', 'CREATE ']) {
+      expect(fonte.toUpperCase(), `a barreira usa ${verbo.trim()}`).not.toContain(verbo);
+    }
   });
 
   it('o ator do RLS é definido em um único lugar do código', async () => {

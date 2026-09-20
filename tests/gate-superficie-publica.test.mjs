@@ -353,11 +353,80 @@ describe('§6 estado da temporada e da organização', () => {
 
 // ---------------------------------------------------------------------- §9
 describe('§9 a superfície pública não depende de privilégio', () => {
-  it('nenhum papel da aplicação tem BYPASSRLS', async () => {
-    const privilegiados = await prisma.$queryRaw`
-      SELECT rolname::text AS papel FROM pg_roles
-      WHERE rolbypassrls AND rolname IN ('mci_app', 'mci_owner', 'mci')`;
-    expect(privilegiados, 'papel da aplicação com BYPASSRLS derruba o RLS inteiro').toEqual([]);
+  // A PRIMEIRA VERSÃO DESTE TESTE PROCURAVA NOMES, E A CI A REPROVOU.
+  //
+  // Ela pedia `rolname IN ('mci_app', 'mci_owner', 'mci')` e exigia lista
+  // vazia. Passava aqui e falhava na CI — porque 'mci' é o papel comum da
+  // aplicação NESTE ambiente e é o SUPERUSUÁRIO DE BOOTSTRAP do contêiner
+  // `postgres:16` na CI (`POSTGRES_USER: mci`), e superusuário carrega
+  // `rolbypassrls`. A asserção acusava o arreio da CI e chamava de defeito do
+  // produto.
+  //
+  // O erro não foi a lista estar incompleta: foi perguntar por NOME. Nome não
+  // identifica papel — dois ambientes dão o mesmo nome a coisas diferentes, e
+  // é exatamente o que aconteceu. A pergunta certa é sobre a CONEXÃO: o papel
+  // por onde a aplicação está falando agora contorna RLS?
+  //
+  // Existe UM papel com BYPASSRLS neste sistema, de propósito: `mci_backup`.
+  // Sob FORCE ROW LEVEL SECURITY nem o dono do schema consegue rodar
+  // `pg_dump`, então o papel de backup precisa do atributo. Ele é
+  // somente-leitura e não pertence ao caminho da aplicação — e é por isso que
+  // uma varredura global de `pg_roles` seria a medição errada: ela reprovaria
+  // um provisionamento correto.
+  it('o papel por onde a aplicação fala NÃO contorna RLS', async () => {
+    const [conexao] = await prisma.$queryRaw`
+      SELECT current_user::text                     AS papel,
+             current_setting('is_superuser') = 'on' AS superusuario,
+             EXISTS (
+               SELECT 1 FROM pg_roles r
+               WHERE r.rolbypassrls
+                 AND pg_has_role(current_user, r.oid, 'MEMBER')
+             )                                      AS "contornaRls"`;
+
+    expect(conexao.superusuario,
+      `a conexão fala pelo papel '${conexao.papel}', que é SUPERUSUÁRIO`).toBe(false);
+
+    // 'MEMBER' e não 'USAGE': BYPASSRLS é ATRIBUTO, e atributo não se herda
+    // por pertencimento — mas pertencer dá direito a `SET ROLE`, que alcança
+    // o privilégio sem trocar de conexão. É esse alcance que precisa ser zero.
+    expect(conexao.contornaRls,
+      `a conexão fala pelo papel '${conexao.papel}', que alcança BYPASSRLS`).toBe(false);
+  });
+
+  it('a barreira de partida RECUSA uma conexão com BYPASSRLS', async () => {
+    // Este ambiente não tem CREATEROLE, então não dá para criar um papel com
+    // BYPASSRLS e medir o desvio de verdade. O que SE MEDE aqui é a decisão da
+    // barreira diante desse estado — que é o que separa "a aplicação sobe e
+    // serve tudo em silêncio" de "a aplicação não sobe".
+    //
+    // O cliente falso devolve exatamente as duas consultas que `inspecionar`
+    // faz, na ordem em que as faz.
+    const { inspecionar, assertRlsEfetivo } = await import('../src/config/rlsGuard.js');
+
+    let chamada = 0;
+    const comBypass = {
+      $queryRaw: async () => (chamada += 1) === 1
+        ? [{ superusuario: false, contornaRls: true, papel: 'papel_com_bypass' }]
+        : []
+    };
+
+    const estado = await inspecionar(comBypass);
+    expect(estado.ok, 'BYPASSRLS tem de reprovar a barreira').toBe(false);
+    expect(estado.problemas.join(' ')).toContain('BYPASSRLS');
+    expect(estado.problemas.join(' ')).toContain('papel_com_bypass');
+
+    chamada = 0;
+    await expect(assertRlsEfetivo(comBypass)).rejects.toThrow(/BYPASSRLS/);
+
+    // E o caso limpo continua passando — uma barreira que reprova sempre não
+    // protege nada, só impede de trabalhar.
+    let limpa = 0;
+    const semBypass = {
+      $queryRaw: async () => (limpa += 1) === 1
+        ? [{ superusuario: false, contornaRls: false, papel: 'papel_comum' }]
+        : []
+    };
+    expect((await inspecionar(semBypass)).ok).toBe(true);
   });
 
   it('nenhuma função SECURITY DEFINER foi criada para contornar política', async () => {
