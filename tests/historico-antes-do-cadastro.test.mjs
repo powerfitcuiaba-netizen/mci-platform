@@ -324,3 +324,128 @@ describe('aplicar é idempotente mesmo sem atleta nenhum', () => {
     expect(ranking.body.items.every(l => l.athlete.fullName === 'MARIA DA SILVA')).toBe(true);
   });
 });
+
+// ============================================================================
+// AS TRÊS GUARDAS QUE A MUTAÇÃO ENCONTROU SEM COBERTURA.
+//
+// Rodada de mutação nas proteções desta fase: 5 de 8 mutantes morreram. Estes
+// três sobreviveram — o código estava certo, mas NADA o obrigava a estar. Um
+// mutante vivo não é um teste que falhou: é a descoberta de que a proteção
+// vale o que vale um comentário, porque ninguém a exercita.
+//
+// Os três são do mesmo tipo: caminhos em que o sistema poderia dar a carreira
+// de uma pessoa a outra, em silêncio, e nenhuma revisão posterior desfaria —
+// o ponto já estaria somando no ranking de quem não competiu.
+// ============================================================================
+describe('as guardas que impedem creditar resultado à pessoa errada', () => {
+  it('SUGESTÃO POR NOME NÃO VIRA VÍNCULO, nem na hora de aplicar', async () => {
+    // MUTANTE 1: trocar `item.athleteId` por
+    // `item.athleteId ?? item.suggestedAthleteId` na criação do lançamento.
+    //
+    // A sugestão por nome existe para AVISAR o operador, e mora numa coluna
+    // diferente de `athleteId` justamente para que nenhum caminho de aplicação
+    // as confunda. Duas atletas chamadas "Ana Silva" existem; fundir as duas
+    // num cadastro só apaga uma carreira.
+    const outra = await criarAtleta(gerente, organizationId, {
+      fullName: 'MARIA DA SILVA',
+      cpf: CPF_DE_QUEM_SE_CADASTRA,
+      affiliationId: filiacao.id,
+      affiliationNumber: 'NPC-OUTRA-PESSOA'
+    });
+
+    // Linha SEM chave nenhuma — sem CPF, sem filiação, sem matrícula — e com o
+    // mesmo nome. É o único caso em que a sugestão por nome é produzida.
+    const lote = await importar(csv(['HX-S,MARIA DA SILVA,,,BIKINI,OPEN,1,Etapa Histórica']));
+    const item = lote.body.items[0];
+    expect(item.matchStatus).toBe('MATCH_PENDING');
+    expect(item.suggestedAthleteId, 'o cenário precisa produzir a sugestão').toBe(outra.id);
+    expect(item.athleteId ?? null, 'sugestão não é vínculo').toBeNull();
+
+    await api().post(`/api/v1/musclewar/imports/${lote.body.import.id}/apply`).set(gerente.auth());
+
+    const [ponto] = await noLedger(tx => tx.rankingPoint.findMany());
+    // O LANÇAMENTO NASCE SEM DONO. Se a sugestão vazasse para cá, a outra
+    // Maria — que não competiu esta etapa — levaria os 5 pontos.
+    expect(ponto.athleteId, 'a sugestão por nome não pode virar dono do ponto').toBeNull();
+    expect(ponto.externalAthleteId).not.toBeNull();
+
+    const [externo] = await noLedger(tx => tx.externalResult.findMany());
+    expect(externo.athleteId).toBeNull();
+  });
+
+  it('MATRÍCULA COM DOIS DONOS não entrega o histórico a nenhum dos dois', async () => {
+    // MUTANTE 6: remover `homonimosDeMatricula === 0` do vínculo automático.
+    //
+    // Havia teste da guarda no caminho do ITEM, mas nenhum no caminho do
+    // LEDGER — e é o ledger que carrega os pontos. Com o mutante, a primeira
+    // das duas a se cadastrar levava o resultado da outra.
+    const lote = await importar(csv(['HX-D,PESSOA AMBIGUA,FED-MT,NPC-DUPLA,BIKINI,OPEN,1,Etapa Histórica']));
+    await api().post(`/api/v1/musclewar/imports/${lote.body.import.id}/apply`).set(gerente.auth());
+
+    // As duas se cadastram DEPOIS, com a MESMA matrícula na MESMA filiação.
+    // A matrícula deixa de identificar, e escolher uma delas é arbitrário.
+    const primeira = await criarAtleta(gerente, organizationId, {
+      fullName: 'PESSOA AMBIGUA UM', cpf: gerarCpf(818181818),
+      affiliationId: filiacao.id, affiliationNumber: 'NPC-DUPLA'
+    });
+    await criarAtleta(gerente, organizationId, {
+      fullName: 'PESSOA AMBIGUA DOIS', cpf: gerarCpf(828282829),
+      affiliationId: filiacao.id, affiliationNumber: 'NPC-DUPLA'
+    });
+
+    const muscleWar = await import('../src/services/muscleWarService.js');
+    const resultado = await comoAtor(gerente, () => muscleWar.vincularPendentesDoAtleta(
+      { ...primeira, organizationId, affiliationId: filiacao.id, affiliationNumber: 'NPC-DUPLA' },
+      { id: gerente.id }
+    ));
+
+    expect(resultado.lancamentosVinculados, 'impasse de cadastro não se resolve no chute').toBe(0);
+
+    const [ponto] = await noLedger(tx => tx.rankingPoint.findMany());
+    expect(ponto.athleteId, 'o histórico espera decisão humana').toBeNull();
+
+    const [identidade] = await noLedger(tx => tx.externalAthlete.findMany());
+    expect(identidade.athleteId).toBeNull();
+  });
+
+  it('RESULTADO QUE JÁ TEM DONO não se revincula pela porta da revisão', async () => {
+    // MUTANTE 7: trocar `APPLIED && athleteId == null` por `APPLIED`.
+    //
+    // A porta da revisão existe para dar dono a quem não tem. Trocar o dono de
+    // um resultado JÁ PUBLICADO é outra operação, com outra pergunta de
+    // autorização — e sem a condição de nulo, qualquer revisor moveria
+    // resultado publicado de uma atleta para outra sem deixar rastro de
+    // correção.
+    const dona = await criarAtleta(gerente, organizationId, {
+      fullName: 'DONA LEGITIMA', cpf: gerarCpf(919191919),
+      affiliationId: filiacao.id, affiliationNumber: 'NPC-2001'
+    });
+
+    const lote = await importar(csv(['HX-P,DONA LEGITIMA,FED-MT,NPC-2001,BIKINI,OPEN,1,Etapa Histórica']));
+    const item = lote.body.items[0];
+    expect(item.matchStatus, 'a linha precisa ser reconhecida').toBe('MATCHED');
+
+    await api().post(`/api/v1/musclewar/imports/${lote.body.import.id}/apply`).set(gerente.auth());
+
+    const antes = await noLedger(tx => tx.rankingPoint.findMany());
+    expect(antes).toHaveLength(1);
+    expect(antes[0].athleteId).toBe(dona.id);
+
+    const intrusa = await criarAtleta(gerente, organizationId, {
+      fullName: 'OUTRA PESSOA', cpf: gerarCpf(929292929),
+      affiliationId: filiacao.id, affiliationNumber: 'NPC-2002'
+    });
+
+    const tentativa = await api().post(`/api/v1/musclewar/items/${item.id}/link`)
+      .set(gerente.auth()).send({ athleteId: intrusa.id });
+
+    expect(tentativa.status, JSON.stringify(tentativa.body)).toBe(422);
+    expect(tentativa.body.error.code).toBe('ITEM_NOT_PENDING');
+
+    // E o ponto continua de quem competiu.
+    const depois = await noLedger(tx => tx.rankingPoint.findMany());
+    expect(depois).toHaveLength(1);
+    expect(depois[0].athleteId).toBe(dona.id);
+    expect(depois[0].points).toBe(5);
+  });
+});
