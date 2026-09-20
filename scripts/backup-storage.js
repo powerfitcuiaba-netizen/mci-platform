@@ -44,7 +44,23 @@ const storage = require('../src/services/storageService');
 const NAO_SAO_ARQUIVO = new Set([
   // Chave determinística da conversa direta entre dois perfis. É identidade,
   // não caminho de objeto.
-  'Conversation.directKey'
+  'Conversation.directKey',
+
+  // AS TRÊS DA FASE DO HISTÓRICO ANTERIOR AO CADASTRO. Nenhuma aponta para o
+  // armazenamento: são chaves de IDENTIDADE e de AGRUPAMENTO, e um backup que
+  // as tratasse como caminho sairia procurando objeto que não existe.
+  //
+  // `ExternalAthlete.identityKey` — quem competiu segundo a fonte:
+  //   'AFF:<filiação>:<matrícula>' ou 'EXT:<origem>:<id externo>'.
+  // `Ranking.competitorKey` e `PublicRankingEntry.competitorKey` — o
+  //   competidor, seja o cadastro do MCI ou a identidade externa ainda sem
+  //   dono; é por ela que o ranking agrega.
+  // `PublicRankingEntry.sourceKey` — a participação distinta que
+  //   `COUNT(DISTINCT ...)` conta.
+  'ExternalAthlete.identityKey',
+  'Ranking.competitorKey',
+  'PublicRankingEntry.competitorKey',
+  'PublicRankingEntry.sourceKey'
 ]);
 
 function mapearCampos() {
