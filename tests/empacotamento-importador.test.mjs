@@ -320,7 +320,19 @@ describe('o calendário não pede migration nenhuma', () => {
       // Nenhum dado é apagado: sem DROP de tabela, sem TRUNCATE, sem DELETE.
       // Cada backfill termina num bloco que conta órfãs e ABORTA a migration
       // se achar alguma, em vez de ligar RLS sobre linha sem dono.
-      '20260920000000_identidade_externa_e_rls_do_ledger'
+      '20260920000000_identidade_externa_e_rls_do_ledger',
+      // ADICIONADA para consertar um defeito da anterior, e o registro disso
+      // importa mais do que o conserto: ao fechar o ledger para não-operadores,
+      // a migration acima fechou também o ATLETA — e `GET /me/history` lê
+      // `RankingPoint` com a sessão dele. A tela da carreira passou a devolver
+      // vazio.
+      //
+      // Esta reabre a leitura para o DONO da linha, pelo mesmo padrão que
+      // `AthleteProfileRequest` já usa. Só SELECT; escrita segue de operador.
+      // `athleteId` nulo NÃO passa — e há teste dedicado a isso, porque o
+      // resultado histórico sem dono não pode virar visível a qualquer
+      // pessoa autenticada.
+      '20260920120000_o_dono_le_o_proprio_historico'
     ]);
   });
 });

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
   api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, gerarCpf, unico, comoAtor
+  vincular, criarAtleta, gerarCpf, unico, comoAtor
 } from './helpers.mjs';
 
 // ============================================================================
@@ -150,6 +150,55 @@ describe('quem não é operador da organização não alcança o ledger', () => 
       pontos: await prisma.rankingPoint.count()
     };
     expect(visto).toEqual({ identidades: 0, externos: 0, pontos: 0 });
+  });
+
+  it('o DONO lê o próprio histórico, e só o dele', async () => {
+    // A leitura mais legítima que existe: a pessoa consultando o que ela mesma
+    // competiu. A primeira versão da política a barrava — o atleta não é
+    // operador —, e `GET /me/history` devolvia vazio.
+    // Pelo ADMIN: `RANKING_MANAGER` gere ranking, não cadastro de atleta — e
+    // essa separação de papéis é justamente uma das coisas que o produto
+    // protege.
+    const dona = await criarAtleta(admin, orgA.id, {
+      fullName: 'MARIA DA SILVA', cpf: gerarCpf(515151515),
+      affiliationId: filiacaoA.id, affiliationNumber: 'NPC-1001'
+    });
+    const usuarioDela = await criarUsuario({ role: 'ATHLETE', name: 'Maria' });
+    await comoAtor(admin, tx => tx.athlete.update({
+      where: { id: dona.id }, data: { userId: usuarioDela.id }
+    }));
+
+    // O cadastro aparece DEPOIS do histórico: é o fluxo desta fase inteira.
+    const muscleWar = await import('../src/services/muscleWarService.js');
+    await comoAtor(gerenteA, () => muscleWar.vincularPendentesDoAtleta(
+      { ...dona, organizationId: orgA.id, affiliationId: filiacaoA.id, affiliationNumber: 'NPC-1001' },
+      { id: gerenteA.id }
+    ));
+
+    const seus = await comoAtor(usuarioDela, tx => tx.rankingPoint.findMany());
+    expect(seus, 'o dono precisa enxergar o próprio lançamento').toHaveLength(1);
+    expect(seus[0].athleteId).toBe(dona.id);
+  });
+
+  it('SEM DONO NÃO É DE TODO MUNDO — athleteId nulo não vaza', async () => {
+    // O RISCO DESTA POLÍTICA, escrito como teste.
+    //
+    // `athleteId` pode ser NULO: o resultado histórico carregado antes do
+    // cadastro não tem dono. Uma comparação descuidada com nulo tornaria essas
+    // linhas visíveis a QUALQUER pessoa autenticada — o oposto exato do que
+    // esta fase construiu. `mci_atleta_do_usuario` recusa nulo antes de
+    // qualquer outra coisa, e é isto que confere.
+    const semVinculo = await criarUsuario({ role: 'ATHLETE', name: 'Curiosa' });
+
+    const semDono = await comoAtor(gerenteA, tx => tx.rankingPoint.count({ where: { athleteId: null } }));
+    expect(semDono, 'o cenário precisa ter lançamento sem dono').toBe(2);
+
+    // Autenticada, sem ser dona de nada e sem ser operadora: não vê NADA.
+    const vistoPorEla = await comoAtor(semVinculo, async tx => ({
+      pontos: await tx.rankingPoint.count(),
+      externos: await tx.externalResult.count()
+    }));
+    expect(vistoPorEla).toEqual({ pontos: 0, externos: 0 });
   });
 
   it('o operador da própria organização LÊ — senão a proteção seria só quebra', async () => {
