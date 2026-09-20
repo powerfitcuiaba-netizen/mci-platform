@@ -249,6 +249,19 @@ describe('§5 cross-tenant: A não alcança B', () => {
     expect(corpo, 'linha da federação B apareceu no ranking de A').not.toContain('BB');
   });
 
+  it('e o ranking de B não traz NENHUMA linha de A — o isolamento vale nos dois sentidos', async () => {
+    // A SIMETRIA NÃO É ENFEITE. Sem ela, o teste anterior passaria trivialmente
+    // caso a temporada de B não tivesse nada publicado: "o ranking de A não
+    // contém B" é verdade de graça quando B está vazia. Medir o outro sentido
+    // prova que as duas federações têm dado público de verdade e que mesmo
+    // assim nenhuma alcança a outra.
+    const r = await api().get('/api/v1/ranking').query({ seasonId: seasonB });
+    expect(r.status).toBe(200);
+    const corpo = JSON.stringify(r.body);
+    expect(corpo, 'a temporada de B precisa ter dado público próprio').toContain('ATLETA PRIMEIRA BB');
+    expect(corpo, 'linha da federação A apareceu no ranking de B').not.toContain('AA');
+  });
+
   it('o operador de A não lê o ledger de B, nem com o id na mão', async () => {
     const idsDeB = await comoAtor(gerenteB, async tx => ({
       ponto: (await tx.rankingPoint.findFirst()).id,
