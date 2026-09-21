@@ -8,11 +8,13 @@ import { AsyncSection, AtualizadoEm, Avatar, Badge, ConfirmDialog, EmptyState, F
 // Só a classe de cartão clicável é usada aqui — é CSS, não precisa do motor
 // em JS. Importar o que não se usa é ruído que o lint acusa e o leitor não.
 import { criterioDeMatch, estadoDeMatch, formatarDataHora, ocultarCpf, papel, estadoDoUsuario, tipoDeFiliacao, estadoDaImportacao } from '../lib/format';
+import { useIdioma } from '../lib/idioma';
 
 // Painel administrativo, ranking, importação MuscleWar, auditoria e
 // configurações da plataforma.
 
 export function AdminPainel({ navegar }) {
+  const { t } = useIdioma();
   // 30s: o painel é tela de acompanhamento, não de operação crítica. A
   // recarga é silenciosa, não consulta com a aba escondida e atualiza na hora
   // em que a aba volta para a frente. Escrita feita aqui dentro já atualiza na
@@ -22,7 +24,7 @@ export function AdminPainel({ navegar }) {
 
   return (
     <div className="page">
-      <PageHead eyebrow="Administração" title="Painel" description="Números reais da operação. Nenhuma métrica desta tela é estimada." />
+      <PageHead eyebrow="Administração" title={t('plataforma.painel')} description={t('plataforma.painelDescricao')} />
 
       <AsyncSection state={estado} linhas={4}>
         {dados => (
@@ -39,21 +41,21 @@ export function AdminPainel({ navegar }) {
             )}
 
             <div className="grid grid-4">
-              <Metric label="Eventos ativos" value={dados.events.active} hint={`${dados.events.total} no total`} destaque
+              <Metric label={t('plataforma.eventosAtivos')} value={dados.events.active} hint={`${dados.events.total} no total`} destaque
                 onClick={() => navegar('admin/eventos')} destino="Eventos" />
-              <Metric label="Atletas" value={dados.athletes.total} hint={`${dados.athletes.pro} PRO`}
+              <Metric label={t('publico.atletas')} value={dados.athletes.total} hint={`${dados.athletes.pro} PRO`}
                 onClick={() => navegar('atletas')} destino="Atletas" />
               <Metric label="Inscrições" value={dados.registrations}
                 onClick={() => navegar('admin/inscricoes')} destino="Inscrições" />
-              <Metric label="Check-ins" value={dados.checkIns}
+              <Metric label={t('plataforma.checkIns')} value={dados.checkIns}
                 onClick={() => navegar('admin/checkin')} destino="Check-in" />
               <Metric label="Pesagens" value={dados.weighIns}
                 onClick={() => navegar('admin/pesagem')} destino="Pesagem" />
-              <Metric label="Baterias" value={dados.batches}
+              <Metric label={t('plataforma.baterias')} value={dados.batches}
                 onClick={() => navegar('admin/palco')} destino="Palco" />
               <Metric label="Resultados publicados" value={dados.publishedResults}
                 onClick={() => navegar('admin/resultados')} destino="Resultados" />
-              <Metric label="Importações MuscleWare" value={dados.muscleWarImports}
+              <Metric label={t('plataforma.importacoes')} value={dados.muscleWarImports}
                 onClick={() => navegar('admin/musclewar')} destino="MuscleWare" />
             </div>
 
@@ -61,18 +63,18 @@ export function AdminPainel({ navegar }) {
 
             <div className="grid grid-3" style={{ marginTop: 18 }}>
               <button type="button" className="panel cartao-clicavel" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => navegar('admin/eventos')}>
-                <h2 className="display" style={{ fontSize: 20 }}>Eventos</h2>
-                <p style={{ color: 'var(--cinza)', fontSize: 12.5, margin: '6px 0 0' }}>Criar etapas, montar o quadro de categorias e mover estados.</p>
+                <h2 className="display" style={{ fontSize: 20 }}>{t('evento.eventos')}</h2>
+                <p style={{ color: 'var(--cinza)', fontSize: 12.5, margin: '6px 0 0' }}>{t('plataforma.criarEtapas')}</p>
               </button>
               <button type="button" className="panel cartao-clicavel" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => navegar('admin/musclewar')}>
-                <h2 className="display" style={{ fontSize: 20 }}>MuscleWare</h2>
+                <h2 className="display" style={{ fontSize: 20 }}>{t('plataforma.muscleWare')}</h2>
                 <p style={{ color: 'var(--cinza)', fontSize: 12.5, margin: '6px 0 0' }}>
                   {dados.muscleWarImports} importação(ões) registrada(s).
                 </p>
               </button>
               <button type="button" className="panel cartao-clicavel" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => navegar('admin/auditoria')}>
-                <h2 className="display" style={{ fontSize: 20 }}>Auditoria</h2>
-                <p style={{ color: 'var(--cinza)', fontSize: 12.5, margin: '6px 0 0' }}>Trilha das ações críticas da plataforma.</p>
+                <h2 className="display" style={{ fontSize: 20 }}>{t('plataforma.auditoria')}</h2>
+                <p style={{ color: 'var(--cinza)', fontSize: 12.5, margin: '6px 0 0' }}>{t('plataforma.trilhaDasAcoes')}</p>
               </button>
             </div>
           </>
@@ -84,6 +86,7 @@ export function AdminPainel({ navegar }) {
 
 // ================================================================ RANKING
 export function AdminRanking({ notificar }) {
+  const { t } = useIdioma();
   const [criando, setCriando] = useState(false);
   const [pontuando, setPontuando] = useState(null);
   const [conferindo, setConferindo] = useState(null);
@@ -103,9 +106,9 @@ export function AdminRanking({ notificar }) {
     <div className="page">
       <PageHead
         eyebrow="Administração"
-        title="Ranking e temporadas"
-        description="A tabela de pontos por colocação é dado do regulamento, não constante do sistema."
-        actions={<button type="button" className="button button-primary" onClick={() => setCriando(true)}><Plus size={15} /> Nova temporada</button>}
+        title={t('plataforma.rankingETemporadas')}
+        description={t('plataforma.tabelaEDoRegulamento')}
+        actions={<button type="button" className="button button-primary" onClick={() => setCriando(true)}><Plus size={15} />{t('plataforma.novaTemporada')}</button>}
       />
 
       <AsyncSection state={estado} linhas={3}>
@@ -120,21 +123,21 @@ export function AdminRanking({ notificar }) {
                   </small>
                 </div>
                 <div className="actions">
-                  <Badge tom={temporada.status === 'OPEN' ? 'ok' : 'neutro'}>{temporada.status === 'OPEN' ? 'Aberta' : 'Encerrada'}</Badge>
-                  <button type="button" className="button button-secondary button-sm" onClick={() => setPontuando(temporada)}>Tabela de pontos</button>
-                  <button type="button" className="button button-secondary button-sm" onClick={() => setConferindo(temporada)}>Conferir pontuação</button>
-                  <button type="button" className="button button-secondary button-sm" onClick={() => recalcular(temporada)}>Recalcular</button>
+                  <Badge tom={temporada.status === 'OPEN' ? 'ok' : 'neutro'}>{temporada.status === 'OPEN' ? t('plataforma.aberta') : t('plataforma.encerrada')}</Badge>
+                  <button type="button" className="button button-secondary button-sm" onClick={() => setPontuando(temporada)}>{t('plataforma.tabelaDePontos')}</button>
+                  <button type="button" className="button button-secondary button-sm" onClick={() => setConferindo(temporada)}>{t('plataforma.conferirPontuacao')}</button>
+                  <button type="button" className="button button-secondary button-sm" onClick={() => recalcular(temporada)}>{t('plataforma.recalcular')}</button>
                 </div>
               </div>
               {temporada._count.pointsRules === 0 && (
                 <div className="alert alert-alerta">
                   <AlertTriangle size={15} />
-                  <div><strong>Sem tabela de pontos</strong><p>Nenhum resultado desta temporada vai pontuar até que a tabela seja cadastrada.</p></div>
+                  <div><strong>{t('plataforma.semTabela')}</strong><p>{t('plataforma.semTabelaTexto')}</p></div>
                 </div>
               )}
             </section>
           ))
-          : <EmptyState title="Nenhuma temporada" description="Crie a temporada para que os resultados publicados pontuem no ranking." />
+          : <EmptyState title={t('plataforma.nenhumaTemporada')} description={t('plataforma.nenhumaTemporadaDescricao')} />
         )}
       </AsyncSection>
 
@@ -155,6 +158,7 @@ export function AdminRanking({ notificar }) {
 // ler um número achando que é o outro — e deixa visível quem pontuou no
 // campeonato sem alimentar o anual.
 function ConferirPontuacao({ temporada, onClose }) {
+  const { t } = useIdioma();
   const campeonato = useFetch(() => api.ranking.list({ seasonId: temporada.id }), [temporada.id]);
   const anual = useFetch(() => api.ranking.superOverall({ seasonId: temporada.id }), [temporada.id]);
   const [detalhando, setDetalhando] = useState(null);
@@ -163,7 +167,7 @@ function ConferirPontuacao({ temporada, onClose }) {
 
   return (
     <Modal
-      title="Conferir pontuação"
+      title={t('plataforma.conferirPontuacao')}
       description={`${temporada.name} · o ranking do campeonato e o classificatório do Super Overall são métricas diferentes.`}
       wide
       onClose={onClose}
@@ -174,7 +178,7 @@ function ConferirPontuacao({ temporada, onClose }) {
             <>
               <div className="alert alert-info" style={{ marginBottom: 14 }}>
                 <div>
-                  <strong>Duas métricas, não uma</strong>
+                  <strong>{t('plataforma.duasMetricas')}</strong>
                   <p>
                     Todas as classes pontuam no campeonato. Somente as classes elegíveis —
                     pela regra homologada, a OPEN — alimentam o Super Overall anual.
@@ -187,10 +191,10 @@ function ConferirPontuacao({ temporada, onClose }) {
                   <thead>
                     <tr>
                       <th className="num">#</th>
-                      <th>Atleta</th>
-                      <th className="num">Pontos do Campeonato</th>
-                      <th className="num">Elegíveis ao Super Overall</th>
-                      <th className="num">Overall</th>
+                      <th>{t('overall.atleta')}</th>
+                      <th className="num">{t('plataforma.pontosDoCampeonato')}</th>
+                      <th className="num">{t('plataforma.elegiveisAoSuperOverall')}</th>
+                      <th className="num">{t('carreira.colunaOverall')}</th>
                       <th className="num">1º</th>
                       <th className="num">2º</th>
                       <th className="num">3º</th>
@@ -209,11 +213,11 @@ function ConferirPontuacao({ temporada, onClose }) {
                               type="button"
                               className="link-button"
                               onClick={() => setDetalhando(linha.athlete)}
-                              title="Ver a origem de cada ponto"
+                              title={t('plataforma.verOrigem')}
                             >
                               {linha.athlete?.fullName || '—'}
                             </button>
-                            {linha.tieUnresolved && <Badge tom="alerta">empate não resolvido</Badge>}
+                            {linha.tieUnresolved && <Badge tom="alerta">{t('plataforma.empateNaoResolvido')}</Badge>}
                           </td>
                           <td className="num"><strong>{linha.totalPoints}</strong></td>
                           <td className="num">
@@ -239,7 +243,7 @@ function ConferirPontuacao({ temporada, onClose }) {
               </p>
             </>
           )
-          : <EmptyState title="Nenhuma pontuação" description="Publique resultados para que a temporada pontue." />
+          : <EmptyState title={t('plataforma.nenhumaPontuacao')} description={t('plataforma.nenhumaPontuacaoDescricao')} />
         )}
       </AsyncSection>
 
@@ -258,6 +262,7 @@ function ConferirPontuacao({ temporada, onClose }) {
 // Exportado sob nome interno para que o teste renderize o modal diretamente,
 // sem ter de atravessar a tela de ranking inteira para chegar até ele.
 export function OrigemDosPontos({ atleta, temporada, onClose }) {
+  const { t } = useIdioma();
   const estado = useFetch(
     () => api.ranking.athletePoints(atleta.id, { seasonId: temporada.id }),
     [atleta.id, temporada.id]
@@ -278,16 +283,16 @@ export function OrigemDosPontos({ atleta, temporada, onClose }) {
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>Evento</th>
-                      <th>Filiação</th>
-                      <th>Categoria</th>
-                      <th>Classe</th>
-                      <th className="num">Col.</th>
-                      <th className="num">Pts colocação</th>
-                      <th className="num">Bônus Overall</th>
-                      <th className="num">Campeonato</th>
-                      <th className="num">Super Overall</th>
-                      <th>Origem</th>
+                      <th>{t('evento.colunaEvento')}</th>
+                      <th>{t('evento.filiacao')}</th>
+                      <th>{t('evento.categoria')}</th>
+                      <th>{t('evento.classe')}</th>
+                      <th className="num">{t('overall.colocacaoCurta')}</th>
+                      <th className="num">{t('plataforma.ptsColocacao')}</th>
+                      <th className="num">{t('overall.bonusOverall')}</th>
+                      <th className="num">{t('publico.abaCampeonato')}</th>
+                      <th className="num">{t('publico.abaSuperOverall')}</th>
+                      <th>{t('plataforma.origem')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -310,9 +315,7 @@ export function OrigemDosPontos({ atleta, temporada, onClose }) {
                         <td>
                           {ponto.competitionClass?.code || ponto.competitionClass?.name || '—'}
                           {!ponto.superOverallEligible && (
-                            <small style={{ display: 'block', color: 'var(--cinza-fraco)', fontSize: 10 }}>
-                              não elegível
-                            </small>
+                            <small style={{ display: 'block', color: 'var(--cinza-fraco)', fontSize: 10 }}>{t('plataforma.naoElegivel')}</small>
                           )}
                         </td>
                         <td className="num">{ponto.placing ?? '—'}</td>
@@ -338,7 +341,7 @@ export function OrigemDosPontos({ atleta, temporada, onClose }) {
                   </tbody>
                   <tfoot>
                     <tr>
-                      <td colSpan={7} style={{ textAlign: 'right' }}><strong>Totais</strong></td>
+                      <td colSpan={7} style={{ textAlign: 'right' }}><strong>{t('plataforma.totais')}</strong></td>
                       <td className="num">
                         <strong>{dados.items.reduce((soma, p) => soma + p.points, 0)}</strong>
                       </td>
@@ -358,7 +361,7 @@ export function OrigemDosPontos({ atleta, temporada, onClose }) {
               </p>
             </>
           )
-          : <EmptyState title="Sem pontos nesta temporada" description="Nenhum resultado publicado ou importado gerou pontuação." />
+          : <EmptyState title={t('plataforma.semPontosNaTemporada')} description={t('plataforma.semPontosDescricao')} />
         )}
       </AsyncSection>
     </Modal>
@@ -366,6 +369,7 @@ export function OrigemDosPontos({ atleta, temporada, onClose }) {
 }
 
 function NovaTemporada({ notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const organizacoes = useFetch(() => api.organizations.list(), []);
   const [form, setForm] = useState({ organizationId: '', name: '', year: new Date().getFullYear() });
   const [salvando, setSalvando] = useState(false);
@@ -375,7 +379,7 @@ function NovaTemporada({ notificar, onClose, onSalvo }) {
     setSalvando(true);
     try {
       await api.ranking.createSeason({ organizationId: form.organizationId, name: form.name, year: Number(form.year) });
-      notificar('Temporada criada.');
+      notificar(t('plataforma.temporadaCriada'));
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -384,23 +388,24 @@ function NovaTemporada({ notificar, onClose, onSalvo }) {
   };
 
   return (
-    <Modal title="Nova temporada" onClose={onClose}>
+    <Modal title={t('plataforma.novaTemporada')} onClose={onClose}>
       <form onSubmit={salvar}>
-        <Field label="Organização" required>
+        <Field label={t('evento.organizacao')} required>
           <select value={form.organizationId} onChange={evt => setForm({ ...form, organizationId: evt.target.value })} required>
-            <option value="">Selecione…</option>
+            <option value="">{t('evento.selecione')}</option>
             {(organizacoes.data?.items || []).map(organizacao => <option key={organizacao.id} value={organizacao.id}>{organizacao.name}</option>)}
           </select>
         </Field>
-        <Field label="Nome" required><input value={form.name} onChange={evt => setForm({ ...form, name: evt.target.value })} required maxLength={90} placeholder="Ex: Temporada 2026" /></Field>
-        <Field label="Ano" required><input type="number" min="2000" max="2100" value={form.year} onChange={evt => setForm({ ...form, year: evt.target.value })} required /></Field>
-        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Criar temporada" />
+        <Field label="Nome" required><input value={form.name} onChange={evt => setForm({ ...form, name: evt.target.value })} required maxLength={90} placeholder={t('plataforma.exemploTemporada')} /></Field>
+        <Field label={t('plataforma.ano')} required><input type="number" min="2000" max="2100" value={form.year} onChange={evt => setForm({ ...form, year: evt.target.value })} required /></Field>
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('plataforma.criarTemporada')} />
       </form>
     </Modal>
   );
 }
 
 function TabelaDePontos({ temporada, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   // A tabela vigente da temporada, e NUNCA valores sugeridos aqui. O formulário
   // trazia 100/80/60/50/40/30 pré-preenchidos — números que não são de
   // regulamento nenhum: bastava abrir e salvar para substituir a tabela
@@ -416,7 +421,7 @@ function TabelaDePontos({ temporada, notificar, onClose, onSalvo }) {
     setSalvando(true);
     try {
       await api.ranking.setPointsRules(temporada.id, { rules: regras.map(regra => ({ placing: Number(regra.placing), points: Number(regra.points) })) });
-      notificar('Tabela de pontos salva.');
+      notificar(t('plataforma.tabelaSalva'));
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -425,14 +430,14 @@ function TabelaDePontos({ temporada, notificar, onClose, onSalvo }) {
   };
 
   return (
-    <Modal title={`Tabela de pontos — ${temporada.name}`} description="Quantos pontos cada colocação vale nesta temporada. O sistema não presume nenhuma pontuação." onClose={onClose}>
+    <Modal title={`Tabela de pontos — ${temporada.name}`} description={t('plataforma.quantosPontos')} onClose={onClose}>
       <form onSubmit={salvar}>
         {!regras.length && (
           <div className="alert alert-alerta" style={{ marginBottom: 12 }}>
             <AlertTriangle size={15} />
             <div>
-              <strong>Esta temporada não tem tabela de pontos</strong>
-              <p>Nada pontua até que ela seja cadastrada. Informe a tabela do regulamento.</p>
+              <strong>{t('plataforma.semTabelaTitulo')}</strong>
+              <p>{t('plataforma.informeATabela')}</p>
             </div>
           </div>
         )}
@@ -450,7 +455,7 @@ function TabelaDePontos({ temporada, notificar, onClose, onSalvo }) {
           <button type="button" className="button button-secondary button-sm" onClick={() => setRegras([...regras, { placing: regras.length + 1, points: 0 }])}>+ Colocação</button>
           {regras.length > 1 && <button type="button" className="button button-secondary button-sm" onClick={() => setRegras(regras.slice(0, -1))}>− Última</button>}
         </div>
-        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Salvar tabela" />
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('plataforma.salvarTabela')} />
       </form>
     </Modal>
   );
@@ -469,11 +474,14 @@ function TabelaDePontos({ temporada, notificar, onClose, onSalvo }) {
 /** Um lote que publicou alguma coisa não se exclui: se invalida. */
 const loteFoiPublicado = lote => lote.status === 'APPLIED' || (lote.appliedCount ?? 0) > 0;
 
+// CHAVES, e não rótulos: esta função é de módulo e não conhece o idioma em
+// vigor. Quem desenha o botão traduz.
 const acaoDoLote = lote => (loteFoiPublicado(lote)
-  ? { rotulo: 'Invalidar', titulo: 'Invalidar importação publicada', verbo: 'invalidada' }
-  : { rotulo: 'Excluir', titulo: 'Excluir importação', verbo: 'excluída' });
+  ? { rotulo: 'acao.invalidar', titulo: 'plataforma.invalidarImportacaoPublicada' }
+  : { rotulo: 'acao.excluir', titulo: 'plataforma.excluirImportacao' });
 
 export function ExcluirImportacao({ lote, notificar, onClose, onConcluido }) {
+  const { t } = useIdioma();
   const publicado = loteFoiPublicado(lote);
   const [motivo, setMotivo] = useState('');
   const [enviando, setEnviando] = useState(false);
@@ -489,18 +497,18 @@ export function ExcluirImportacao({ lote, notificar, onClose, onConcluido }) {
     try {
       const { operation } = await api.muscleWar.remove(lote.id, motivo.trim() ? { reason: motivo.trim() } : {});
       notificar(operation === 'INVALIDATED'
-        ? 'Importação invalidada com sucesso.'
-        : 'Importação excluída com sucesso.', 'ok');
+        ? t('plataforma.importacaoInvalidada')
+        : t('plataforma.importacaoExcluida'), 'ok');
       onConcluido();
     } catch (falha) {
       // Mensagem do domínio, nunca o erro técnico cru.
-      setErro(falha.message || 'Não foi possível concluir a operação.');
+      setErro(falha.message || t('plataforma.falhaNaOperacao'));
       setEnviando(false);
     }
   };
 
   return (
-    <Modal title={publicado ? 'Invalidar importação?' : 'Excluir importação?'} onClose={onClose}>
+    <Modal title={publicado ? t('plataforma.invalidarImportacaoPergunta') : t('plataforma.excluirImportacaoPergunta')} onClose={onClose}>
       <p style={{ color: 'var(--cinza)', fontSize: 13, marginTop: 0 }}>
         Você está prestes a {publicado ? 'invalidar' : 'excluir'} esta importação.
       </p>
@@ -508,13 +516,13 @@ export function ExcluirImportacao({ lote, notificar, onClose, onConcluido }) {
       {/* O QUE, EXATAMENTE. Confirmar uma exclusão sem ver o arquivo, o evento
           e o tamanho do lote é confirmar no escuro. */}
       <dl className="resumo-da-exclusao">
-        <div><dt>Arquivo</dt><dd>{lote.sourceRef}</dd></div>
-        <div><dt>Evento</dt><dd>{lote.event?.name || 'sem evento'}</dd></div>
-        <div><dt>Temporada</dt><dd>{lote.season?.name || 'sem temporada'}</dd></div>
-        <div><dt>Registros</dt><dd>{lote.totalRecords}</dd></div>
-        <div><dt>Aplicados</dt><dd>{lote.appliedCount ?? 0}</dd></div>
-        <div><dt>Situação</dt><dd>{estadoDaImportacao(lote.status).rotulo}</dd></div>
-        <div><dt>Enviada em</dt><dd>{formatarDataHora(lote.createdAt)}</dd></div>
+        <div><dt>{t('plataforma.arquivo')}</dt><dd>{lote.sourceRef}</dd></div>
+        <div><dt>{t('evento.colunaEvento')}</dt><dd>{lote.event?.name || 'sem evento'}</dd></div>
+        <div><dt>{t('evento.temporada')}</dt><dd>{lote.season?.name || 'sem temporada'}</dd></div>
+        <div><dt>{t('plataforma.registros')}</dt><dd>{lote.totalRecords}</dd></div>
+        <div><dt>{t('plataforma.aplicados')}</dt><dd>{lote.appliedCount ?? 0}</dd></div>
+        <div><dt>{t('evento.situacao')}</dt><dd>{estadoDaImportacao(lote.status).rotulo}</dd></div>
+        <div><dt>{t('plataforma.enviadaEm')}</dt><dd>{formatarDataHora(lote.createdAt)}</dd></div>
       </dl>
 
       <div className={`alert ${publicado ? 'alert-alerta' : 'alert-info'}`} style={{ marginBottom: 14 }}>
@@ -524,30 +532,30 @@ export function ExcluirImportacao({ lote, notificar, onClose, onConcluido }) {
             ? (
               <p style={{ margin: 0 }}>
                 Esta importação possui resultados vinculados ao ranking. A exclusão será
-                tratada como <strong>invalidação</strong> e ficará registrada na auditoria:
+                tratada como <strong>{t('plataforma.invalidacao')}</strong> e ficará registrada na auditoria:
                 os lançamentos continuam no histórico, marcados e valendo zero.
               </p>
             )
-            : <p style={{ margin: 0 }}>Esta importação ainda não publicou resultados.</p>}
+            : <p style={{ margin: 0 }}>{t('plataforma.semResultadosPublicados')}</p>}
         </div>
       </div>
 
-      <Field label={publicado ? 'Motivo da invalidação' : 'Motivo (opcional)'}>
+      <Field label={publicado ? t('plataforma.motivoDaInvalidacao') : t('plataforma.motivoOpcional')}>
         <input
           type="text"
           value={motivo}
           maxLength={300}
           onChange={evento => setMotivo(evento.target.value)}
-          placeholder="erro na súmula, arquivo incorreto, evento incorreto..."
+          placeholder={t('plataforma.exemploMotivo')}
         />
       </Field>
 
       {erro && <div className="alert alert-perigo" style={{ marginBottom: 12 }}><div><p style={{ margin: 0 }}>{erro}</p></div></div>}
 
       <div className="modal-actions">
-        <button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button>
+        <button type="button" className="button button-secondary" onClick={onClose}>{t('acao.cancelar')}</button>
         <button type="button" className="button button-danger" onClick={confirmar} disabled={enviando || faltaMotivo}>
-          <Trash2 size={15} /> {publicado ? 'Invalidar importação' : 'Excluir importação'}
+          <Trash2 size={15} /> {publicado ? t('plataforma.invalidarImportacao') : t('plataforma.excluirImportacao')}
         </button>
       </div>
     </Modal>
@@ -555,6 +563,7 @@ export function ExcluirImportacao({ lote, notificar, onClose, onConcluido }) {
 }
 
 export function AdminMuscleWar({ notificar }) {
+  const { t } = useIdioma();
   const [importando, setImportando] = useState(false);
   const [detalhe, setDetalhe] = useState(null);
   const [paraExcluir, setParaExcluir] = useState(null);
@@ -569,10 +578,10 @@ export function AdminMuscleWar({ notificar }) {
   return (
     <div className="page">
       <PageHead
-        eyebrow="Integração"
-        title="MuscleWare"
-        description="Importação de resultados externos com reconhecimento por CPF, confirmação por filiação e idempotência."
-        actions={<button type="button" className="button button-primary" onClick={() => setImportando(true)}><Upload size={15} /> Importar resultados MuscleWare</button>}
+        eyebrow={t('plataforma.integracao')}
+        title={t('plataforma.muscleWare')}
+        description={t('plataforma.muscleWareDescricao')}
+        actions={<button type="button" className="button button-primary" onClick={() => setImportando(true)}><Upload size={15} />{t('plataforma.importarResultados')}</button>}
       />
 
       <AsyncSection state={estado} linhas={4}>
@@ -581,7 +590,7 @@ export function AdminMuscleWar({ notificar }) {
             <div className="table-wrap">
               <table className="table">
                 <thead>
-                  <tr><th>Origem</th><th>Situação</th><th className="num">Registros</th><th className="num">Reconhecidos</th><th className="num">Pendentes</th><th className="num">Conflitos</th><th>Quando</th><th /></tr>
+                  <tr><th>{t('plataforma.origem')}</th><th>{t('evento.situacao')}</th><th className="num">{t('plataforma.registros')}</th><th className="num">{t('plataforma.reconhecidos')}</th><th className="num">{t('plataforma.pendentes')}</th><th className="num">{t('plataforma.conflitos')}</th><th>{t('plataforma.quando')}</th><th /></tr>
                 </thead>
                 <tbody>
                   {dados.items.map(lote => (
@@ -605,7 +614,7 @@ export function AdminMuscleWar({ notificar }) {
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <div className="acoes-da-linha">
-                          <button type="button" className="button button-secondary button-sm" onClick={() => setDetalhe(lote.id)}>Revisar</button>
+                          <button type="button" className="button button-secondary button-sm" onClick={() => setDetalhe(lote.id)}>{t('plataforma.revisar')}</button>
                           {/* A AÇÃO DESTRUTIVA MUDA DE NOME CONFORME O ESTADO,
                               porque ela muda de natureza. Rascunho se EXCLUI;
                               lote publicado se INVALIDA, e chamar as duas de
@@ -617,10 +626,10 @@ export function AdminMuscleWar({ notificar }) {
                             <button
                               type="button"
                               className="button button-danger button-sm"
-                              title={acaoDoLote(lote).titulo}
+                              title={t(acaoDoLote(lote).titulo)}
                               onClick={() => setParaExcluir(lote)}
                             >
-                              <Trash2 size={14} /> {acaoDoLote(lote).rotulo}
+                              <Trash2 size={14} /> {t(acaoDoLote(lote).rotulo)}
                             </button>
                           )}
                         </div>
@@ -631,7 +640,7 @@ export function AdminMuscleWar({ notificar }) {
               </table>
             </div>
           )
-          : <EmptyState title="Nenhuma importação" description="Envie um arquivo do MuscleWare para começar." />
+          : <EmptyState title={t('plataforma.nenhumaImportacao')} description={t('plataforma.nenhumaImportacaoDescricao')} />
         )}
       </AsyncSection>
 
@@ -674,6 +683,7 @@ function descreverEvento(evento) {
 }
 
 export function NovaImportacao({ notificar, onClose, onCriada }) {
+  const { t } = useIdioma();
   const organizacoes = useFetch(() => api.organizations.list(), []);
   const temporadas = useFetch(() => api.ranking.seasons(), []);
   const [form, setForm] = useState({
@@ -737,7 +747,7 @@ export function NovaImportacao({ notificar, onClose, onCriada }) {
         ...(form.externalIdPrefix.trim() ? { externalIdPrefix: form.externalIdPrefix.trim() } : {}),
         ...(form.defaultAffiliationCode.trim() ? { defaultAffiliationCode: form.defaultAffiliationCode.trim() } : {})
       });
-      notificar('Pré-visualização gerada. Nada foi aplicado ainda.');
+      notificar(t('plataforma.previaGerada'));
       onCriada(previa.import.id);
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -746,16 +756,16 @@ export function NovaImportacao({ notificar, onClose, onCriada }) {
   };
 
   return (
-    <Modal title="Importar resultados MuscleWare" description="O arquivo é lido e conferido; nada é aplicado antes da sua confirmação." onClose={onClose}>
+    <Modal title={t('plataforma.importarResultados')} description={t('plataforma.arquivoEConferido')} onClose={onClose}>
       <form onSubmit={enviar}>
-        <Field label="Organização" required>
+        <Field label={t('evento.organizacao')} required>
           <select value={form.organizationId} onChange={evt => escolherOrganizacao(evt.target.value)} required>
-            <option value="">Selecione…</option>
+            <option value="">{t('evento.selecione')}</option>
             {(organizacoes.data?.items || []).map(organizacao => <option key={organizacao.id} value={organizacao.id}>{organizacao.name}</option>)}
           </select>
         </Field>
         <Field
-          label="Evento"
+          label={t('evento.colunaEvento')}
           hint="É o evento onde os resultados serão publicados. Escolher aqui é o que permite responder depois de qual etapa veio cada ponto do ranking. Sem evento, o resultado entra no histórico sem etapa."
         >
           <select
@@ -763,36 +773,36 @@ export function NovaImportacao({ notificar, onClose, onCriada }) {
             disabled={!form.organizationId}
             onChange={evt => setForm({ ...form, eventId: evt.target.value })}
           >
-            <option value="">{form.organizationId ? 'Sem evento' : 'Escolha a organização primeiro'}</option>
+            <option value="">{form.organizationId ? t('plataforma.semEvento') : t('plataforma.escolhaOrganizacao')}</option>
             {(eventos.data?.items || []).map(evento => (
               <option key={evento.id} value={evento.id}>{descreverEvento(evento)}</option>
             ))}
           </select>
         </Field>
-        <Field label="Temporada" hint="Sem temporada, o resultado entra no histórico mas não pontua no ranking.">
+        <Field label={t('evento.temporada')} hint={t('plataforma.semTemporadaHint')}>
           <select value={form.seasonId} onChange={evt => setForm({ ...form, seasonId: evt.target.value })}>
-            <option value="">Sem temporada</option>
+            <option value="">{t('evento.semTemporada')}</option>
             {(temporadas.data?.items || []).map(temporada => <option key={temporada.id} value={temporada.id}>{temporada.name} ({temporada.year})</option>)}
           </select>
         </Field>
-        <Field label="Arquivo" required hint="CSV ou JSON. Reconhece nome inteiro ou First Name + Last Name, e Member Number como matrícula. Total Score não é lido como pontuação: a colocação é que pontua.">
+        <Field label={t('plataforma.arquivo')} required hint="CSV ou JSON. Reconhece nome inteiro ou First Name + Last Name, e Member Number como matrícula. Total Score não é lido como pontuação: a colocação é que pontua.">
           <input type="file" accept=".csv,.json,text/csv,application/json" onChange={lerArquivo} required />
         </Field>
         <Field
-          label="Filiação de toda a etapa"
+          label={t('plataforma.filiacaoDaEtapa')}
           hint="Para arquivos sem coluna de filiação. O reconhecimento por matrícula exige as duas juntas — matrícula sozinha não identifica ninguém. Linha que já traz a sua própria filiação não é sobrescrita."
         >
           <input
-            type="text" value={form.defaultAffiliationCode} maxLength={40} placeholder="Ex.: NPC"
+            type="text" value={form.defaultAffiliationCode} maxLength={40} placeholder={t('plataforma.exemploNpc')}
             onChange={evt => setForm({ ...form, defaultAffiliationCode: evt.target.value })}
           />
         </Field>
         <Field
-          label="Prefixo do identificador"
+          label={t('plataforma.prefixoDoIdentificador')}
           hint="Só para arquivos que não trazem identificador de resultado. A chave fica prefixo + matrícula + classe, e é ela que impede que importar duas vezes some os pontos duas vezes. Em branco, um arquivo sem identificador é recusado em vez de importado."
         >
           <input
-            type="text" value={form.externalIdPrefix} maxLength={40} placeholder="Ex.: IPIRANGA"
+            type="text" value={form.externalIdPrefix} maxLength={40} placeholder={t('plataforma.exemploIpiranga')}
             onChange={evt => setForm({ ...form, externalIdPrefix: evt.target.value })}
           />
         </Field>
@@ -801,7 +811,7 @@ export function NovaImportacao({ notificar, onClose, onCriada }) {
             <div><strong>{form.sourceRef}</strong><p>{form.sourceType} · {form.content.length.toLocaleString('pt-BR')} caracteres lidos.</p></div>
           </div>
         )}
-        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Pré-visualizar" disabled={!form.content} />
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('plataforma.previsualizar')} disabled={!form.content} />
       </form>
     </Modal>
   );
@@ -814,14 +824,16 @@ export function NovaImportacao({ notificar, onClose, onCriada }) {
 // Com dez mil linhas, achar as cem pendentes rolando a tabela não é difícil:
 // é inviável. O filtro vai ao servidor — filtrar no navegador exigiria ter
 // baixado as dez mil, que é justamente o que a paginação deixou de fazer.
+// A lista guarda CÓDIGO e CHAVE — não o rótulo. Ela mora fora de componente,
+// onde não existe idioma em vigor; quem traduz é quem desenha o filtro.
 const FILTROS_DA_REVISAO = [
-  ['', 'Todas'],
-  ['MATCH_PENDING', 'Pendentes'],
-  ['CONFLICT', 'Conflitos'],
-  ['MATCHED', 'Reconhecidas'],
-  ['DUPLICATE', 'Duplicadas'],
-  ['IMPORT_REJECTED', 'Rejeitadas'],
-  ['APPLIED', 'Aplicadas']
+  ['', 'plataforma.todas'],
+  ['MATCH_PENDING', 'plataforma.pendentes'],
+  ['CONFLICT', 'plataforma.conflitos'],
+  ['MATCHED', 'plataforma.reconhecidas'],
+  ['DUPLICATE', 'plataforma.duplicadas'],
+  ['IMPORT_REJECTED', 'plataforma.rejeitadas'],
+  ['APPLIED', 'plataforma.aplicadas']
 ];
 
 // 50 POR PÁGINA, E NÃO 200.
@@ -847,27 +859,32 @@ const POR_PAGINA_NA_REVISAO = 50;
 // controle nenhum. A máscara preserva o que o CPF serve para fazer aqui —
 // conferir de quem é a linha — sem levar o documento inteiro junto.
 // ==========================================================================
+// O CABEÇALHO DA PLANILHA ACOMPANHA O IDIOMA DA TELA, e por isso a lista
+// guarda a CHAVE: quem exporta lê a planilha na língua em que estava
+// operando. As colunas em si — ordem e conteúdo — não mudam, então um arquivo
+// exportado em espanhol e outro em português continuam tendo as mesmas
+// colunas na mesma ordem.
 const COLUNAS_DA_EXPORTACAO = [
-  ['#', item => item.rowNumber],
-  ['CPF', item => (item.cpf ? ocultarCpf(item.cpf) : '')],
-  ['Atleta', item => item.athlete?.fullName || item.athleteName || ''],
-  ['Filiação', item => item.affiliationCode || ''],
-  ['Matrícula', item => item.memberNumber || ''],
-  ['Categoria', item => item.categoryCode || ''],
-  ['Classe', item => item.className || ''],
-  ['Colocação', item => (item.placing ?? '')],
-  ['Pontos do arquivo', item => (item.points ?? '')],
-  ['Situação', item => estadoDeMatch(item.matchStatus).rotulo],
-  ['Motivo', item => item.reason || '']
+  ['plataforma.colunaNumero', item => item.rowNumber],
+  ['plataforma.colunaCpf', item => (item.cpf ? ocultarCpf(item.cpf) : '')],
+  ['plataforma.colunaAtleta', item => item.athlete?.fullName || item.athleteName || ''],
+  ['plataforma.colunaFiliacao', item => item.affiliationCode || ''],
+  ['plataforma.matricula', item => item.memberNumber || ''],
+  ['plataforma.colunaCategoria', item => item.categoryCode || ''],
+  ['plataforma.colunaClasse', item => item.className || ''],
+  ['plataforma.colunaColocacao', item => (item.placing ?? '')],
+  ['plataforma.pontosDoArquivo', item => (item.points ?? '')],
+  ['plataforma.colunaSituacao', item => estadoDeMatch(item.matchStatus).rotulo],
+  ['plataforma.colunaMotivo', item => item.reason || '']
 ];
 
 // Aspas duplicadas e campo entre aspas: é o mínimo para que um nome com
 // vírgula não vire duas colunas na planilha de quem abrir.
 const campoCsv = valor => `"${String(valor ?? '').replace(/"/g, '""')}"`;
 
-function exportarRevisao(dados, sufixo) {
+function exportarRevisao(dados, sufixo, t) {
   const linhas = [
-    COLUNAS_DA_EXPORTACAO.map(([titulo]) => campoCsv(titulo)).join(','),
+    COLUNAS_DA_EXPORTACAO.map(([chave]) => campoCsv(t(chave))).join(','),
     ...dados.items.map(item => COLUNAS_DA_EXPORTACAO.map(([, ler]) => campoCsv(ler(item))).join(','))
   ];
 
@@ -884,6 +901,7 @@ function exportarRevisao(dados, sufixo) {
 }
 
 export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
+  const { t } = useIdioma();
   const [situacao, setSituacao] = useState('');
   const [categoria, setCategoria] = useState('');
   const [busca, setBusca] = useState('');
@@ -930,7 +948,7 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
   };
 
   return (
-    <Modal title="Revisar importação" description="Confira os totais antes de aplicar. Linhas pendentes podem ser vinculadas manualmente." wide onClose={onClose}>
+    <Modal title={t('plataforma.revisarImportacao')} description={t('plataforma.revisarDescricao')} wide onClose={onClose}>
       <AsyncSection state={estado} linhas={4}>
         {dados => (
           <>
@@ -941,21 +959,21 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
             <div className={`alert ${dados.import.event ? 'alert-info' : 'alert-alerta'}`} style={{ marginBottom: 14 }}>
               <CalendarDays size={16} />
               <div>
-                <strong>{dados.import.event ? dados.import.event.name : 'Sem evento'}</strong>
+                <strong>{dados.import.event ? dados.import.event.name : t('plataforma.semEvento')}</strong>
                 <p>{dados.import.event
                   ? detalheDoEvento(dados.import.event)
-                  : 'Os resultados entram no histórico sem etapa, e o ponto do ranking não saberá de qual campeonato veio.'}</p>
+                  : t('plataforma.semEtapaAviso')}</p>
               </div>
             </div>
 
             <div className="import-summary">
-              <Metric label="Registros" value={dados.summary.totalRecords} />
-              <Metric label="Reconhecidos" value={dados.summary.recognized} destaque />
-              <Metric label="Pendentes" value={dados.summary.pending} />
-              <Metric label="Conflitos" value={dados.summary.conflicts} />
-              <Metric label="Duplicados" value={dados.summary.duplicates} />
-              <Metric label="Rejeitados" value={dados.summary.rejected} />
-              <Metric label="Aplicados" value={dados.summary.applied} />
+              <Metric label={t('plataforma.registros')} value={dados.summary.totalRecords} />
+              <Metric label={t('plataforma.reconhecidos')} value={dados.summary.recognized} destaque />
+              <Metric label={t('plataforma.pendentes')} value={dados.summary.pending} />
+              <Metric label={t('plataforma.conflitos')} value={dados.summary.conflicts} />
+              <Metric label={t('plataforma.duplicados')} value={dados.summary.duplicates} />
+              <Metric label={t('plataforma.rejeitados')} value={dados.summary.rejected} />
+              <Metric label={t('plataforma.aplicados')} value={dados.summary.applied} />
             </div>
 
             {/* O QUE VAI ACONTECER, DITO ANTES DO CLIQUE.
@@ -973,7 +991,7 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                     {dados.summary.applicable} resultado(s) entram no histórico e no ranking agora.
                     Os atletas ainda não cadastrados permanecerão pendentes de vínculo, e o
                     histórico será ligado ao perfil deles quando se cadastrarem.
-                    <strong> Nenhum atleta é criado automaticamente.</strong>
+                    <strong>{t('plataforma.nenhumCriadoAutomaticamente')}</strong>
                   </p>
                 </div>
               </div>
@@ -985,7 +1003,7 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
               <div className="alert alert-alerta" style={{ marginBottom: 14 }}>
                 <AlertTriangle size={16} />
                 <div>
-                  <strong>Há registros que não entram</strong>
+                  <strong>{t('plataforma.registrosQueNaoEntram')}</strong>
                   <p>
                     {dados.summary.conflicts} em conflito e {dados.summary.rejected} rejeitado(s)
                     ficam de fora e precisam de revisão. Isso não impede aplicar o resto.
@@ -1004,17 +1022,17 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                 <Search size={14} aria-hidden="true" />
                 <input
                   type="search"
-                  aria-label="Buscar na importação"
-                  placeholder="Buscar atleta, matrícula, classe..."
+                  aria-label={t('plataforma.buscarNaImportacao')}
+                  placeholder={t('plataforma.buscarNaImportacaoPlaceholder')}
                   value={busca}
                   onChange={evento => trocarBusca(evento.target.value)}
                 />
               </div>
 
-              <label htmlFor="filtro-situacao">Situação</label>
+              <label htmlFor="filtro-situacao">{t('evento.situacao')}</label>
               <select id="filtro-situacao" value={situacao} onChange={evento => trocarFiltro(evento.target.value)}>
-                {FILTROS_DA_REVISAO.map(([valor, rotulo]) => (
-                  <option key={valor || 'todas'} value={valor}>{rotulo}</option>
+                {FILTROS_DA_REVISAO.map(([valor, chave]) => (
+                  <option key={valor || 'todas'} value={valor}>{t(chave)}</option>
                 ))}
               </select>
 
@@ -1022,9 +1040,9 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                   seria oferecer filtros que só devolvem vazio. */}
               {(dados.categories || []).length > 0 && (
                 <>
-                  <label htmlFor="filtro-categoria">Categoria</label>
+                  <label htmlFor="filtro-categoria">{t('evento.categoria')}</label>
                   <select id="filtro-categoria" value={categoria} onChange={evento => trocarCategoria(evento.target.value)}>
-                    <option value="">Todas</option>
+                    <option value="">{t('plataforma.todas')}</option>
                     {dados.categories.map(item => (
                       <option key={item.code} value={item.code}>{item.code} ({item.count})</option>
                     ))}
@@ -1037,17 +1055,16 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
               <button
                 type="button"
                 className="button button-secondary button-sm"
-                title="Exportar as linhas desta página, com os filtros aplicados"
-                onClick={() => exportarRevisao(dados, situacao || categoria || termo.trim() ? '-filtrado' : '')}
+                title={t('plataforma.exportarDica')}
+                onClick={() => exportarRevisao(dados, situacao || categoria || termo.trim() ? '-filtrado' : '', t)}
                 disabled={!dados.items.length}
               >
-                <Download size={14} /> Exportar
-              </button>
+                <Download size={14} />{t('plataforma.exportar')}</button>
 
               <span className="import-contagem">
                 {dados.page?.total
                   ? `Mostrando ${(dados.page.offset ?? 0) + 1}–${(dados.page.offset ?? 0) + dados.items.length} de ${dados.page.total}`
-                  : 'Nenhum registro no filtro'}
+                  : t('plataforma.nenhumRegistroNoFiltro')}
                 {(situacao || categoria || termo.trim()) ? ' no filtro' : ' registros'}
               </span>
             </div>
@@ -1056,20 +1073,20 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>#</th><th>CPF</th><th>Atleta</th><th>Filiação</th>
+                    <th>#</th><th>CPF</th><th>{t('overall.atleta')}</th><th>{t('evento.filiacao')}</th>
                     {/* A matrícula de FILIAÇÃO — o "Member Number" dos arquivos
                         oficiais. Não é `athleteNumber`, que é outra coisa no
                         modelo; confundir os dois faria o operador conferir o
                         campo errado. */}
-                    <th>Matrícula</th>
-                    <th>Categoria</th>
+                    <th>{t('plataforma.matricula')}</th>
+                    <th>{t('evento.categoria')}</th>
                     {/* A classe é o que decide se o resultado alimenta o Super
                         Overall — sem ela na tela o operador não consegue
                         conferir a elegibilidade. */}
-                    <th>Classe</th>
-                    <th className="num">Col.</th>
-                    <th className="num">Pts arquivo</th>
-                    <th>Situação</th><th />
+                    <th>{t('evento.classe')}</th>
+                    <th className="num">{t('overall.colocacaoCurta')}</th>
+                    <th className="num">{t('plataforma.ptsArquivo')}</th>
+                    <th>{t('evento.situacao')}</th><th />
                   </tr>
                 </thead>
                 <tbody>
@@ -1085,7 +1102,7 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                         <td>{item.categoryCode || '—'}</td>
                         <td>
                           {item.className || '—'}
-                          {item.isOverallChampion && <Badge tom="ok">Overall</Badge>}
+                          {item.isOverallChampion && <Badge tom="ok">{t('carreira.colunaOverall')}</Badge>}
                         </td>
                         <td className="num">{item.placing ?? '—'}</td>
                         <td className="num">{item.points ?? '—'}</td>
@@ -1109,7 +1126,7 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                               entender que reconheceu. */}
                           {item.suggestedAthlete && (
                             <small style={{ display: 'block', marginTop: 4 }}>
-                              <span className="chip">sugerido</span>{' '}
+                              <span className="chip">{t('plataforma.sugerido')}</span>{' '}
                               <strong>{item.suggestedAthlete.fullName}</strong>
                               {item.suggestedAthlete.affiliation && ` · ${item.suggestedAthlete.affiliation.code}`}
                               {item.suggestedAthlete.affiliationNumber && ` · nº ${item.suggestedAthlete.affiliationNumber}`}
@@ -1121,7 +1138,7 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                               aperta "vincular" no escuro. */}
                           {Array.isArray(item.matchCandidates) && item.matchCandidates.length > 0 && (
                             <small style={{ display: 'block', marginTop: 4 }}>
-                              <strong>Conflito de identidade</strong>
+                              <strong>{t('plataforma.conflitoDeIdentidade')}</strong>
                               {item.matchCandidates.map(candidato => (
                                 <span key={`${candidato.matchedBy}-${candidato.athleteId}`} style={{ display: 'block' }}>
                                   {criterioDeMatch(candidato.matchedBy)}:{' '}
@@ -1162,7 +1179,7 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                               <button
                                 type="button"
                                 className="icon-button icon-button-sm"
-                                title="Vincular ao atleta"
+                                title={t('plataforma.vincularAoAtleta')}
                                 aria-label={`Vincular ao atleta a linha ${item.rowNumber}`}
                                 onClick={() => setVinculando(item)}
                               >
@@ -1187,7 +1204,7 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                   type="button" className="button button-secondary button-sm"
                   onClick={() => setPagina(atual => Math.max(0, atual - 1))}
                   disabled={pagina === 0}
-                >Anterior</button>
+                >{t('plataforma.anterior')}</button>
                 <span>
                   Página {pagina + 1} de {Math.max(1, Math.ceil((dados.page.total ?? 0) / POR_PAGINA_NA_REVISAO))}
                 </span>
@@ -1195,12 +1212,12 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                   type="button" className="button button-secondary button-sm"
                   onClick={() => setPagina(atual => atual + 1)}
                   disabled={!dados.page?.hasMore}
-                >Próxima</button>
+                >{t('plataforma.proxima')}</button>
               </div>
             )}
 
             <div className="modal-actions">
-              <button type="button" className="button button-secondary" onClick={onClose}>Fechar</button>
+              <button type="button" className="button button-secondary" onClick={onClose}>{t('acao.fechar')}</button>
               {dados.import.status !== 'REJECTED' && (
                 <button type="button" className="button button-primary" onClick={() => setAplicando(true)} disabled={!dados.summary.applicable}>
                   Aplicar {dados.summary.applicable} resultado(s)
@@ -1210,14 +1227,14 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
 
             {aplicando && (
               <ConfirmDialog
-                title="Aplicar importação"
+                title={t('plataforma.aplicarImportacao')}
                 // O DESTINO NO INSTANTE DA DECISÃO, e não só na tela anterior.
                 // Este é o último ponto em que dá para voltar atrás.
                 message={`Publicar ${dados.summary.applicable} resultado(s)`
                   + `${dados.summary.pendingLink ? ` — ${dados.summary.pendingLink} sem atleta cadastrado, que ficarão pendentes de vínculo` : ''}`
                   + ` em: ${dados.import.event
                   ? `${dados.import.event.name} — ${detalheDoEvento(dados.import.event)}`
-                  : 'SEM EVENTO — os resultados ficarão sem etapa no histórico'}. Resultados já importados não pontuam de novo.`}
+                  : t('plataforma.semEventoMaiusculo')}. Resultados já importados não pontuam de novo.`}
                 confirmLabel="Aplicar"
                 onConfirm={aplicar}
                 onClose={() => setAplicando(false)}
@@ -1241,6 +1258,7 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
 }
 
 function VincularAtleta({ item, organizationId, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const [busca, setBusca] = useState(item.athleteName || '');
   const [athleteId, setAthleteId] = useState('');
   const [salvando, setSalvando] = useState(false);
@@ -1251,7 +1269,7 @@ function VincularAtleta({ item, organizationId, notificar, onClose, onSalvo }) {
     setSalvando(true);
     try {
       await api.muscleWar.link(item.id, { athleteId });
-      notificar('Registro vinculado ao atleta.');
+      notificar(t('plataforma.registroVinculado'));
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -1261,13 +1279,13 @@ function VincularAtleta({ item, organizationId, notificar, onClose, onSalvo }) {
 
   return (
     <Modal
-      title="Vincular ao atleta"
+      title={t('plataforma.vincularAoAtleta')}
       description={`Linha ${item.rowNumber} · CPF da origem: ${item.cpf || 'não informado'} · ${item.reason || ''}`}
       onClose={onClose}
     >
       <form onSubmit={salvar}>
         <Field label="Buscar atleta">
-          <input value={busca} onChange={evt => setBusca(evt.target.value)} placeholder="Nome ou nome esportivo…" />
+          <input value={busca} onChange={evt => setBusca(evt.target.value)} placeholder={t('plataforma.nomeOuNomeEsportivo')} />
         </Field>
 
         <div className="lista-em-modal">
@@ -1281,10 +1299,10 @@ function VincularAtleta({ item, organizationId, notificar, onClose, onSalvo }) {
               </span>
             </label>
           ))}
-          {!(resultados.data?.items || []).length && <p style={{ padding: 14, fontSize: 12, color: 'var(--cinza-fraco)' }}>Nenhum atleta encontrado.</p>}
+          {!(resultados.data?.items || []).length && <p style={{ padding: 14, fontSize: 12, color: 'var(--cinza-fraco)' }}>{t('plataforma.nenhumAtletaEncontrado')}</p>}
         </div>
 
-        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Vincular" disabled={!athleteId} />
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('plataforma.vincular')} disabled={!athleteId} />
       </form>
     </Modal>
   );
@@ -1292,6 +1310,7 @@ function VincularAtleta({ item, organizationId, notificar, onClose, onSalvo }) {
 
 // ============================================================== AUDITORIA
 export function AdminAuditoria() {
+  const { t } = useIdioma();
   const [filtros, setFiltros] = useState({ entity: '', action: '' });
   // 200 é o teto da própria rota de auditoria, e aqui ele é PÁGINA, não fim da
   // trilha: auditoria se lê em varredura, então vale trazer bastante de uma
@@ -1308,22 +1327,22 @@ export function AdminAuditoria() {
 
   return (
     <div className="page">
-      <PageHead eyebrow="Segurança" title="Auditoria" description="Trilha das ações críticas: quem fez, o quê, quando e sobre qual registro." />
+      <PageHead eyebrow={t('plataforma.seguranca')} title={t('plataforma.auditoria')} description={t('plataforma.auditoriaDescricao')} />
 
       <div className="toolbar">
         <input
           className="select-control"
           value={filtros.entity}
           onChange={evento => setFiltros({ ...filtros, entity: evento.target.value })}
-          placeholder="Entidade (ex: Result)"
-          aria-label="Filtrar por entidade"
+          placeholder={t('plataforma.entidadeExemplo')}
+          aria-label={t('plataforma.filtrarPorEntidade')}
         />
         <input
           className="select-control"
           value={filtros.action}
           onChange={evento => setFiltros({ ...filtros, action: evento.target.value })}
-          placeholder="Ação (ex: RESULT_PUBLICATION)"
-          aria-label="Filtrar por ação"
+          placeholder={t('plataforma.acaoExemplo')}
+          aria-label={t('plataforma.filtrarPorAcao')}
         />
       </div>
 
@@ -1340,7 +1359,7 @@ export function AdminAuditoria() {
               </p>
             <div className="table-wrap">
               <table className="table">
-                <thead><tr><th>Quando</th><th>Ator</th><th>Ação</th><th>Entidade</th><th>Detalhe</th></tr></thead>
+                <thead><tr><th>{t('plataforma.quando')}</th><th>{t('plataforma.ator')}</th><th>{t('plataforma.acao')}</th><th>{t('plataforma.entidade')}</th><th>{t('plataforma.detalhe')}</th></tr></thead>
                 <tbody>
                   {dados.items.map(linha => (
                     <tr key={linha.id}>
@@ -1364,7 +1383,7 @@ export function AdminAuditoria() {
             <Paginacao nextCursor={estado.nextCursor} onMore={estado.carregarMais} loading={estado.carregandoMais} />
             </>
           )
-          : <EmptyState title="Sem registros" description="Nenhuma ação corresponde ao filtro." />
+          : <EmptyState title={t('plataforma.semRegistros')} description={t('plataforma.semRegistrosDescricao')} />
         )}
       </AsyncSection>
     </div>
@@ -1373,14 +1392,15 @@ export function AdminAuditoria() {
 
 // =========================================================== CONFIGURAÇÕES
 export function AdminConfiguracoes({ notificar }) {
+  const { t } = useIdioma();
   const [aba, setAba] = useState('organizacoes');
 
   return (
     <div className="page">
-      <PageHead eyebrow="Administração" title="Configurações" description="Organizações, filiações, catálogo de categorias, parceiros e usuários." />
+      <PageHead eyebrow="Administração" title={t('plataforma.configuracoes')} description={t('plataforma.configuracoesDescricao')} />
 
       <div className="chips" style={{ marginBottom: 18 }}>
-        {[['organizacoes', 'Organizações'], ['filiacoes', 'Filiações'], ['categorias', 'Categorias'], ['parceiros', 'Parceiros'], ['vinculos', 'Vínculo de equipe'], ['usuarios', 'Usuários']].map(([chave, rotulo]) => (
+        {[['organizacoes', t('plataforma.organizacoes')], ['filiacoes', t('plataforma.filiacoes')], ['categorias', t('plataforma.categorias')], ['parceiros', t('plataforma.parceiros')], ['vinculos', t('plataforma.vinculoDeEquipe')], ['usuarios', t('plataforma.usuarios')]].map(([chave, rotulo]) => (
           <button key={chave} type="button" className={`chip${aba === chave ? ' is-on' : ''}`} onClick={() => setAba(chave)}>{rotulo}</button>
         ))}
       </div>
@@ -1396,6 +1416,7 @@ export function AdminConfiguracoes({ notificar }) {
 }
 
 function Organizacoes({ notificar }) {
+  const { t } = useIdioma();
   const estado = useFetch(() => api.organizations.list(), []);
   const [criando, setCriando] = useState(false);
   const [gerindo, setGerindo] = useState(null);
@@ -1404,8 +1425,8 @@ function Organizacoes({ notificar }) {
     <>
       <section className="panel">
         <div className="panel-head">
-          <h2>Organizações</h2>
-          <button type="button" className="button button-primary button-sm" onClick={() => setCriando(true)}><Plus size={13} /> Nova</button>
+          <h2>{t('plataforma.organizacoes')}</h2>
+          <button type="button" className="button button-primary button-sm" onClick={() => setCriando(true)}><Plus size={13} />{t('plataforma.nova')}</button>
         </div>
         <AsyncSection state={estado} linhas={3}>
           {dados => (dados.items.length
@@ -1416,10 +1437,10 @@ function Organizacoes({ notificar }) {
                   <strong>{organizacao.name}</strong>
                   <small>{organizacao.slug} · {organizacao._count.members} membro(s) · {organizacao._count.athletes} atleta(s) · {organizacao._count.events} evento(s)</small>
                 </span>
-                <button type="button" className="button button-secondary button-sm" onClick={() => setGerindo(organizacao)}>Membros</button>
+                <button type="button" className="button button-secondary button-sm" onClick={() => setGerindo(organizacao)}>{t('plataforma.membros')}</button>
               </div>
             ))
-            : <EmptyState title="Nenhuma organização" description="Crie a organização que vai operar os campeonatos." />
+            : <EmptyState title={t('plataforma.nenhumaOrganizacao')} description={t('plataforma.nenhumaOrganizacaoDescricao')} />
           )}
         </AsyncSection>
       </section>
@@ -1431,6 +1452,7 @@ function Organizacoes({ notificar }) {
 }
 
 function NovaOrganizacao({ notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const [form, setForm] = useState({ name: '', slug: '' });
   const [salvando, setSalvando] = useState(false);
 
@@ -1439,7 +1461,7 @@ function NovaOrganizacao({ notificar, onClose, onSalvo }) {
     setSalvando(true);
     try {
       await api.organizations.create(form);
-      notificar('Organização criada. Você entrou como administrador dela.');
+      notificar(t('plataforma.organizacaoCriada'));
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -1448,11 +1470,11 @@ function NovaOrganizacao({ notificar, onClose, onSalvo }) {
   };
 
   return (
-    <Modal title="Nova organização" onClose={onClose}>
+    <Modal title={t('plataforma.novaOrganizacao')} onClose={onClose}>
       <form onSubmit={salvar}>
         <Field label="Nome" required><input value={form.name} onChange={evt => setForm({ ...form, name: evt.target.value })} required maxLength={140} /></Field>
-        <Field label="Identificador" required><input value={form.slug} onChange={evt => setForm({ ...form, slug: evt.target.value.toLowerCase() })} required pattern="[a-z0-9\-]{2,60}" /></Field>
-        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Criar" />
+        <Field label={t('plataforma.identificador')} required><input value={form.slug} onChange={evt => setForm({ ...form, slug: evt.target.value.toLowerCase() })} required pattern="[a-z0-9\-]{2,60}" /></Field>
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('plataforma.criar')} />
       </form>
     </Modal>
   );
@@ -1465,6 +1487,7 @@ const PAPEIS = [
 ];
 
 function MembrosDaOrganizacao({ organizacao, notificar, onClose }) {
+  const { t } = useIdioma();
   const estado = useFetch(() => api.organizations.findById(organizacao.id), [organizacao.id]);
   const usuarios = useFetch(() => api.admin.users({ limit: 100 }), []);
   const [form, setForm] = useState({ userId: '', role: 'EVENT_DIRECTOR' });
@@ -1475,7 +1498,7 @@ function MembrosDaOrganizacao({ organizacao, notificar, onClose }) {
     setSalvando(true);
     try {
       await api.organizations.addMember(organizacao.id, form);
-      notificar('Papel concedido nesta organização.');
+      notificar(t('plataforma.papelConcedido'));
       estado.reload();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -1487,7 +1510,7 @@ function MembrosDaOrganizacao({ organizacao, notificar, onClose }) {
   const remover = async membership => {
     try {
       await api.organizations.removeMember(organizacao.id, membership.id);
-      notificar('Vínculo removido.');
+      notificar(t('plataforma.vinculoRemovido'));
       estado.reload();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -1495,22 +1518,22 @@ function MembrosDaOrganizacao({ organizacao, notificar, onClose }) {
   };
 
   return (
-    <Modal title={`Membros — ${organizacao.name}`} description="O papel vale apenas dentro desta organização." wide onClose={onClose}>
+    <Modal title={`Membros — ${organizacao.name}`} description={t('plataforma.papelValeNaOrganizacao')} wide onClose={onClose}>
       <form onSubmit={adicionar} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: 8, alignItems: 'end', marginBottom: 16 }}>
-        <Field label="Usuário" required>
+        <Field label={t('plataforma.usuario')} required>
           <select value={form.userId} onChange={evt => setForm({ ...form, userId: evt.target.value })} required>
-            <option value="">Selecione…</option>
+            <option value="">{t('evento.selecione')}</option>
             {(usuarios.data?.items || []).map(usuario => <option key={usuario.id} value={usuario.id}>{usuario.name} — {usuario.email}</option>)}
           </select>
         </Field>
-        <Field label="Papel" required>
+        <Field label={t('plataforma.papel')} required>
           <select value={form.role} onChange={evt => setForm({ ...form, role: evt.target.value })} required>
             {/* `codigo` e não `papel`: o parâmetro sombrearia a função de rótulo
                 importada e o select voltaria a mostrar o enum cru. */}
             {PAPEIS.map(codigo => <option key={codigo} value={codigo}>{papel(codigo).rotulo}</option>)}
           </select>
         </Field>
-        <button type="submit" className="button button-primary" disabled={salvando} style={{ marginBottom: 13 }}>Conceder</button>
+        <button type="submit" className="button button-primary" disabled={salvando} style={{ marginBottom: 13 }}>{t('plataforma.conceder')}</button>
       </form>
 
       <AsyncSection state={estado} linhas={3}>
@@ -1522,17 +1545,18 @@ function MembrosDaOrganizacao({ organizacao, notificar, onClose }) {
               <small>{membro.user.email}</small>
             </span>
             <Badge tom={papel(membro.role).tom}>{papel(membro.role).rotulo}</Badge>
-            <button type="button" className="button button-danger button-sm" onClick={() => remover(membro)}>Remover</button>
+            <button type="button" className="button button-danger button-sm" onClick={() => remover(membro)}>{t('plataforma.remover')}</button>
           </div>
         ))}
       </AsyncSection>
 
-      <div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Fechar</button></div>
+      <div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>{t('acao.fechar')}</button></div>
     </Modal>
   );
 }
 
 function Filiacoes({ notificar }) {
+  const { t } = useIdioma();
   const organizacoes = useFetch(() => api.organizations.list(), []);
   const [organizationId, setOrganizationId] = useState('');
   const estado = useFetch(() => api.affiliations.list({ organizationId: organizationId || undefined }), [organizationId]);
@@ -1541,11 +1565,11 @@ function Filiacoes({ notificar }) {
   return (
     <>
       <div className="toolbar">
-        <select className="select-control" value={organizationId} onChange={evento => setOrganizationId(evento.target.value)} aria-label="Organização">
-          <option value="">Todas as organizações</option>
+        <select className="select-control" value={organizationId} onChange={evento => setOrganizationId(evento.target.value)} aria-label={t('evento.organizacao')}>
+          <option value="">{t('plataforma.todasAsOrganizacoes')}</option>
           {(organizacoes.data?.items || []).map(organizacao => <option key={organizacao.id} value={organizacao.id}>{organizacao.name}</option>)}
         </select>
-        <button type="button" className="button button-primary" onClick={() => setCriando(true)}><Plus size={14} /> Nova filiação</button>
+        <button type="button" className="button button-primary" onClick={() => setCriando(true)}><Plus size={14} />{t('plataforma.novaFiliacao')}</button>
       </div>
 
       <section className="panel">
@@ -1557,7 +1581,7 @@ function Filiacoes({ notificar }) {
                   <strong>{filiacao.name}</strong>
                   <small>{filiacao.code} · {tipoDeFiliacao(filiacao.kind).rotulo} · {filiacao._count.athletes} atleta(s)</small>
                 </span>
-                <Badge tom={filiacao.active ? 'ok' : 'neutro'}>{filiacao.active ? 'Ativa' : 'Inativa'}</Badge>
+                <Badge tom={filiacao.active ? 'ok' : 'neutro'}>{filiacao.active ? t('plataforma.ativa') : t('plataforma.inativa')}</Badge>
                 <button
                   type="button"
                   className="button button-secondary button-sm"
@@ -1569,11 +1593,11 @@ function Filiacoes({ notificar }) {
                     } catch (erro) { notificar(erro.message, 'erro'); }
                   }}
                 >
-                  {filiacao.active ? 'Desativar' : 'Ativar'}
+                  {filiacao.active ? t('plataforma.desativar') : t('plataforma.ativar')}
                 </button>
               </div>
             ))
-            : <EmptyState title="Nenhuma filiação" description="A filiação é o vínculo esportivo do atleta e chave de conferência na importação MuscleWare." />
+            : <EmptyState title={t('plataforma.nenhumaFiliacao')} description={t('plataforma.filiacaoDescricao')} />
           )}
         </AsyncSection>
       </section>
@@ -1584,6 +1608,7 @@ function Filiacoes({ notificar }) {
 }
 
 function NovaFiliacao({ organizacoes, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const [form, setForm] = useState({ organizationId: '', name: '', code: '', kind: 'FEDERATION', state: '' });
   const [salvando, setSalvando] = useState(false);
 
@@ -1592,7 +1617,7 @@ function NovaFiliacao({ organizacoes, notificar, onClose, onSalvo }) {
     setSalvando(true);
     try {
       await api.affiliations.create({ ...form, state: form.state || null });
-      notificar('Filiação criada.');
+      notificar(t('plataforma.filiacaoCriada'));
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -1601,17 +1626,17 @@ function NovaFiliacao({ organizacoes, notificar, onClose, onSalvo }) {
   };
 
   return (
-    <Modal title="Nova filiação" description="Federação, entidade, associação ou vínculo esportivo responsável pelo atleta." onClose={onClose}>
+    <Modal title={t('plataforma.novaFiliacao')} description={t('plataforma.novaFiliacaoDescricao')} onClose={onClose}>
       <form onSubmit={salvar}>
-        <Field label="Organização" required>
+        <Field label={t('evento.organizacao')} required>
           <select value={form.organizationId} onChange={evt => setForm({ ...form, organizationId: evt.target.value })} required>
-            <option value="">Selecione…</option>
+            <option value="">{t('evento.selecione')}</option>
             {organizacoes.map(organizacao => <option key={organizacao.id} value={organizacao.id}>{organizacao.name}</option>)}
           </select>
         </Field>
         <Field label="Nome" required><input value={form.name} onChange={evt => setForm({ ...form, name: evt.target.value })} required maxLength={140} /></Field>
         <div className="field-row">
-          <Field label="Código" required hint="Usado no matching MuscleWare."><input value={form.code} onChange={evt => setForm({ ...form, code: evt.target.value.toUpperCase() })} required pattern="[A-Z0-9\-]{2,30}" placeholder="FED-MT" /></Field>
+          <Field label="Código" required hint={t('plataforma.usadoNoMatching')}><input value={form.code} onChange={evt => setForm({ ...form, code: evt.target.value.toUpperCase() })} required pattern="[A-Z0-9\-]{2,30}" placeholder="FED-MT" /></Field>
           <Field label="UF"><input value={form.state} onChange={evt => setForm({ ...form, state: evt.target.value.toUpperCase().slice(0, 2) })} maxLength={2} /></Field>
         </div>
         <Field label="Tipo">
@@ -1619,24 +1644,25 @@ function NovaFiliacao({ organizacoes, notificar, onClose, onSalvo }) {
             {['FEDERATION', 'ENTITY', 'ASSOCIATION', 'TEAM', 'OTHER'].map(codigo => <option key={codigo} value={codigo}>{tipoDeFiliacao(codigo).rotulo}</option>)}
           </select>
         </Field>
-        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Criar filiação" />
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('plataforma.criarFiliacao')} />
       </form>
     </Modal>
   );
 }
 
 function Categorias({ notificar }) {
+  const { t } = useIdioma();
   const estado = useFetch(() => api.categories.list(), []);
   const [criando, setCriando] = useState(false);
 
   return (
     <>
       <div className="toolbar">
-        <button type="button" className="button button-primary" onClick={() => setCriando(true)}><Plus size={14} /> Nova categoria</button>
+        <button type="button" className="button button-primary" onClick={() => setCriando(true)}><Plus size={14} />{t('plataforma.novaCategoria')}</button>
       </div>
 
       <section className="panel">
-        <div className="panel-head"><h2>Catálogo oficial</h2></div>
+        <div className="panel-head"><h2>{t('plataforma.catalogoOficial')}</h2></div>
         <AsyncSection state={estado} linhas={4}>
           {dados => dados.items.map(categoria => (
             <div className="list-row" key={categoria.id}>
@@ -1656,6 +1682,7 @@ function Categorias({ notificar }) {
 }
 
 function NovaCategoria({ notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const [form, setForm] = useState({ code: '', name: '', sex: 'FEMALE' });
   const [salvando, setSalvando] = useState(false);
 
@@ -1664,7 +1691,7 @@ function NovaCategoria({ notificar, onClose, onSalvo }) {
     setSalvando(true);
     try {
       await api.categories.create(form);
-      notificar('Categoria adicionada ao catálogo.');
+      notificar(t('plataforma.categoriaAdicionada'));
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -1673,14 +1700,14 @@ function NovaCategoria({ notificar, onClose, onSalvo }) {
   };
 
   return (
-    <Modal title="Nova categoria" description="O catálogo é extensível: categorias novas entram por aqui, sem alteração de código." onClose={onClose}>
+    <Modal title={t('plataforma.novaCategoria')} description={t('plataforma.catalogoExtensivel')} onClose={onClose}>
       <form onSubmit={salvar}>
         <Field label="Código" required><input value={form.code} onChange={evt => setForm({ ...form, code: evt.target.value.toUpperCase() })} required pattern="[A-Z0-9_]{2,40}" /></Field>
         <Field label="Nome" required><input value={form.name} onChange={evt => setForm({ ...form, name: evt.target.value })} required maxLength={90} /></Field>
         <Field label="Sexo" required>
           <select value={form.sex} onChange={evt => setForm({ ...form, sex: evt.target.value })} required>
-            <option value="FEMALE">Feminino</option>
-            <option value="MALE">Masculino</option>
+            <option value="FEMALE">{t('evento.feminino')}</option>
+            <option value="MALE">{t('evento.masculino')}</option>
           </select>
         </Field>
         <ModalActions onClose={onClose} saving={salvando} confirmLabel="Adicionar" />
@@ -1690,6 +1717,7 @@ function NovaCategoria({ notificar, onClose, onSalvo }) {
 }
 
 function Parceiros({ notificar }) {
+  const { t } = useIdioma();
   const organizacoes = useFetch(() => api.organizations.list(), []);
   const [organizationId, setOrganizationId] = useState('');
   const empresas = useFetch(() => api.partners.companies({ organizationId: organizationId || undefined }), [organizationId]);
@@ -1702,18 +1730,18 @@ function Parceiros({ notificar }) {
   const secoes = [
     // Empresa vem antes da equipe porque é o que ela é no domínio: a empresa
     // se cadastra e entra na competição COM as suas equipes.
-    { chave: 'company', titulo: 'Empresas', estado: empresas },
-    { chave: 'team', titulo: 'Equipes', estado: equipes },
-    { chave: 'gym', titulo: 'Academias', estado: academias },
-    { chave: 'brand', titulo: 'Marcas', estado: marcas },
-    { chave: 'sponsor', titulo: 'Patrocinadores', estado: patrocinadores }
+    { chave: 'company', titulo: t('plataforma.empresas'), estado: empresas },
+    { chave: 'team', titulo: t('plataforma.equipes'), estado: equipes },
+    { chave: 'gym', titulo: t('plataforma.academias'), estado: academias },
+    { chave: 'brand', titulo: t('plataforma.marcas'), estado: marcas },
+    { chave: 'sponsor', titulo: t('plataforma.patrocinadores'), estado: patrocinadores }
   ];
 
   return (
     <>
       <div className="toolbar">
-        <select className="select-control" value={organizationId} onChange={evento => setOrganizationId(evento.target.value)} aria-label="Organização">
-          <option value="">Todas as organizações</option>
+        <select className="select-control" value={organizationId} onChange={evento => setOrganizationId(evento.target.value)} aria-label={t('evento.organizacao')}>
+          <option value="">{t('plataforma.todasAsOrganizacoes')}</option>
           {(organizacoes.data?.items || []).map(organizacao => <option key={organizacao.id} value={organizacao.id}>{organizacao.name}</option>)}
         </select>
       </div>
@@ -1735,7 +1763,7 @@ function Parceiros({ notificar }) {
                     </span>
                   </div>
                 ))
-                : <p style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>Nenhum registro.</p>
+                : <p style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>{t('plataforma.nenhumRegistro')}</p>
               )}
             </AsyncSection>
           </section>
@@ -1760,12 +1788,13 @@ function Parceiros({ notificar }) {
 }
 
 function NovoParceiro({ tipo, organizacoes, empresas = [], notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const [form, setForm] = useState({ organizationId: '', name: '', slug: '', city: '', state: '', companyId: '' });
   const [salvando, setSalvando] = useState(false);
 
   const titulos = {
-    company: 'Nova empresa', team: 'Nova equipe', gym: 'Nova academia',
-    brand: 'Nova marca', sponsor: 'Novo patrocinador'
+    company: t('plataforma.novaEmpresa'), team: t('plataforma.novaEquipe'), gym: t('plataforma.novaAcademia'),
+    brand: t('plataforma.novaMarca'), sponsor: t('plataforma.novoPatrocinador')
   };
 
   const salvar = async evento => {
@@ -1778,7 +1807,7 @@ function NovoParceiro({ tipo, organizacoes, empresas = [], notificar, onClose, o
       if (tipo === 'gym') await api.partners.createGym({ ...base, city: form.city || null, state: form.state || null });
       if (tipo === 'brand') await api.partners.createBrand({ ...base, slug: form.slug });
       if (tipo === 'sponsor') await api.partners.createSponsor(base);
-      notificar('Registro criado.');
+      notificar(t('plataforma.registroCriado'));
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -1791,30 +1820,30 @@ function NovoParceiro({ tipo, organizacoes, empresas = [], notificar, onClose, o
       title={titulos[tipo]}
       description={
         tipo === 'sponsor' || tipo === 'brand'
-          ? 'Relação COMERCIAL: não vincula atleta e não pontua. Nenhum valor financeiro é armazenado.'
+          ? t('plataforma.relacaoComercial')
           : tipo === 'company'
-            ? 'Empresa competidora: entra no campeonato com as suas equipes e pontua pela mesma tabela.'
+            ? t('plataforma.empresaCompetidora')
             : undefined
       }
       onClose={onClose}
     >
       <form onSubmit={salvar}>
-        <Field label="Organização" required>
+        <Field label={t('evento.organizacao')} required>
           <select value={form.organizationId} onChange={evt => setForm({ ...form, organizationId: evt.target.value })} required>
-            <option value="">Selecione…</option>
+            <option value="">{t('evento.selecione')}</option>
             {organizacoes.map(organizacao => <option key={organizacao.id} value={organizacao.id}>{organizacao.name}</option>)}
           </select>
         </Field>
         <Field label="Nome" required><input value={form.name} onChange={evt => setForm({ ...form, name: evt.target.value })} required maxLength={120} /></Field>
         {tipo === 'brand' && (
-          <Field label="Identificador" required hint="Também vira o identificador do perfil social da marca.">
+          <Field label={t('plataforma.identificador')} required hint={t('plataforma.identificadorSocial')}>
             <input value={form.slug} onChange={evt => setForm({ ...form, slug: evt.target.value.toLowerCase() })} required pattern="[a-z0-9\-]{2,60}" />
           </Field>
         )}
         {tipo === 'team' && (
-          <Field label="Empresa" hint="Opcional. A equipe pode competir sozinha; vinculada, os pontos dos seus atletas também contam para a empresa.">
+          <Field label={t('plataforma.empresa')} hint={t('plataforma.empresaHint')}>
             <select value={form.companyId} onChange={evt => setForm({ ...form, companyId: evt.target.value })}>
-              <option value="">Sem empresa</option>
+              <option value="">{t('plataforma.semEmpresa')}</option>
               {empresas.map(empresa => <option key={empresa.id} value={empresa.id}>{empresa.name}</option>)}
             </select>
           </Field>
@@ -1825,7 +1854,7 @@ function NovoParceiro({ tipo, organizacoes, empresas = [], notificar, onClose, o
             <Field label="UF"><input value={form.state} onChange={evt => setForm({ ...form, state: evt.target.value.toUpperCase().slice(0, 2) })} maxLength={2} /></Field>
           </div>
         )}
-        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Criar" />
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('plataforma.criar')} />
       </form>
     </Modal>
   );
@@ -1837,6 +1866,7 @@ function NovoParceiro({ tipo, organizacoes, empresas = [], notificar, onClose, o
 // vínculo atual antes de qualquer ação e repetir, sem reescrever, a mensagem
 // que o servidor devolveu — inclusive o nome da equipe atual.
 function VinculoDeEquipe({ notificar }) {
+  const { t } = useIdioma();
   const organizacoes = useFetch(() => api.organizations.list(), []);
   const [organizationId, setOrganizationId] = useState('');
   const [busca, setBusca] = useState('');
@@ -1858,18 +1888,18 @@ function VinculoDeEquipe({ notificar }) {
   return (
     <>
       <div className="toolbar">
-        <select className="select-control" value={organizationId} onChange={evento => { setOrganizationId(evento.target.value); setAtleta(null); }} aria-label="Organização">
-          <option value="">Selecione a organização…</option>
+        <select className="select-control" value={organizationId} onChange={evento => { setOrganizationId(evento.target.value); setAtleta(null); }} aria-label={t('evento.organizacao')}>
+          <option value="">{t('plataforma.selecioneOrganizacao')}</option>
           {(organizacoes.data?.items || []).map(organizacao => <option key={organizacao.id} value={organizacao.id}>{organizacao.name}</option>)}
         </select>
-        <input className="select-control" style={{ flex: "1 1 240px" }} value={busca} onChange={evento => setBusca(evento.target.value)} placeholder="Buscar atleta…" disabled={!organizationId} />
+        <input className="select-control" style={{ flex: "1 1 240px" }} value={busca} onChange={evento => setBusca(evento.target.value)} placeholder={t('evento.buscarAtleta')} disabled={!organizationId} />
       </div>
 
       <div className="grid grid-2">
         <section className="panel">
-          <div className="panel-head"><h2>Atletas</h2></div>
+          <div className="panel-head"><h2>{t('publico.atletas')}</h2></div>
           {!organizationId
-            ? <p style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>Selecione a organização para buscar.</p>
+            ? <p style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>{t('plataforma.selecioneParaBuscar')}</p>
             : (
               <AsyncSection state={resultados} linhas={3}>
                 {dados => (dados.items.length
@@ -1882,32 +1912,32 @@ function VinculoDeEquipe({ notificar }) {
                       <Avatar name={item.fullName} size="avatar-sm" />
                       <span className="info">
                         <strong>{item.fullName}</strong>
-                        <small>{item.team?.name || 'Sem equipe'}</small>
+                        <small>{item.team?.name || t('plataforma.semEquipe')}</small>
                       </span>
                     </button>
                   ))
-                  : <p style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>Nenhum atleta encontrado.</p>
+                  : <p style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>{t('plataforma.nenhumAtletaEncontrado')}</p>
                 )}
               </AsyncSection>
             )}
         </section>
 
         <section className="panel">
-          <div className="panel-head"><h2>Vínculo</h2></div>
+          <div className="panel-head"><h2>{t('plataforma.vinculo')}</h2></div>
           {!atleta
-            ? <EmptyState title="Nenhum atleta selecionado" description="Escolha um atleta para ver o vínculo atual e o histórico." />
+            ? <EmptyState title={t('plataforma.nenhumAtletaSelecionado')} description={t('plataforma.escolhaUmAtleta')} />
             : (
               <>
                 <div className="metric" style={{ marginBottom: 14 }}>
-                  <span>Equipe atual</span>
-                  <strong style={{ fontSize: 16 }}>{ativo?.team?.name || 'Sem equipe'}</strong>
+                  <span>{t('plataforma.equipeAtual')}</span>
+                  <strong style={{ fontSize: 16 }}>{ativo?.team?.name || t('plataforma.semEquipe')}</strong>
                   {ativo?.team?.company?.name && <small>Empresa: {ativo.team.company.name}</small>}
                 </div>
 
                 <div className="chips" style={{ marginBottom: 16 }}>
-                  {!ativo && <button type="button" className="button button-sm" onClick={() => setAcao('link')}>Vincular</button>}
-                  {ativo && <button type="button" className="button button-sm" onClick={() => setAcao('transfer')}>Transferir</button>}
-                  {ativo && <button type="button" className="button button-secondary button-sm" onClick={() => setAcao('unlink')}>Encerrar vínculo</button>}
+                  {!ativo && <button type="button" className="button button-sm" onClick={() => setAcao('link')}>{t('plataforma.vincular')}</button>}
+                  {ativo && <button type="button" className="button button-sm" onClick={() => setAcao('transfer')}>{t('plataforma.transferir')}</button>}
+                  {ativo && <button type="button" className="button button-secondary button-sm" onClick={() => setAcao('unlink')}>{t('plataforma.encerrarVinculo')}</button>}
                 </div>
 
                 <p style={{ fontSize: 11, color: 'var(--cinza-fraco)', marginBottom: 12 }}>
@@ -1922,14 +1952,14 @@ function VinculoDeEquipe({ notificar }) {
                         <span className="info">
                           <strong>{linha.team?.name || '—'}</strong>
                           <small>
-                            {formatarDataHora(linha.startedAt)} → {linha.endedAt ? formatarDataHora(linha.endedAt) : 'ativo'}
+                            {formatarDataHora(linha.startedAt)} → {linha.endedAt ? formatarDataHora(linha.endedAt) : t('plataforma.ativo')}
                             {linha.reason ? ` · ${linha.reason}` : ''}
                           </small>
                         </span>
-                        {!linha.endedAt && <Badge tom="ok">ativo</Badge>}
+                        {!linha.endedAt && <Badge tom="ok">{t('plataforma.ativo')}</Badge>}
                       </div>
                     ))
-                    : <p style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>Sem histórico de vínculo.</p>
+                    : <p style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>{t('plataforma.semHistoricoDeVinculo')}</p>
                   )}
                 </AsyncSection>
               </>
@@ -1950,12 +1980,13 @@ function VinculoDeEquipe({ notificar }) {
 }
 
 function AcaoDeVinculo({ acao, atleta, organizationId, atual, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const [teamId, setTeamId] = useState('');
   const [reason, setReason] = useState('');
   const [salvando, setSalvando] = useState(false);
   const equipes = useFetch(() => api.partners.teams({ organizationId }), [organizationId]);
 
-  const titulos = { link: 'Vincular à equipe', transfer: 'Transferir de equipe', unlink: 'Encerrar vínculo' };
+  const titulos = { link: t('plataforma.vincularAEquipe'), transfer: t('plataforma.transferirDeEquipe'), unlink: t('plataforma.encerrarVinculo') };
   const precisaEquipe = acao !== 'unlink';
   const precisaMotivo = acao !== 'link';
 
@@ -1966,7 +1997,7 @@ function AcaoDeVinculo({ acao, atleta, organizationId, atual, notificar, onClose
       if (acao === 'link') await api.athletes.linkTeam(atleta.id, { teamId, reason: reason || null });
       if (acao === 'transfer') await api.athletes.transferTeam(atleta.id, { teamId, reason });
       if (acao === 'unlink') await api.athletes.unlinkTeam(atleta.id, { reason });
-      notificar('Vínculo atualizado.');
+      notificar(t('plataforma.vinculoAtualizado'));
       onSalvo();
     } catch (erro) {
       // A mensagem do servidor já nomeia a equipe atual e a quem recorrer.
@@ -1984,16 +2015,16 @@ function AcaoDeVinculo({ acao, atleta, organizationId, atual, notificar, onClose
     >
       <form onSubmit={salvar}>
         {precisaEquipe && (
-          <Field label="Equipe" required>
+          <Field label={t('plataforma.equipe')} required>
             <select value={teamId} onChange={evt => setTeamId(evt.target.value)} required>
-              <option value="">Selecione…</option>
+              <option value="">{t('evento.selecione')}</option>
               {(equipes.data?.items || [])
                 .filter(equipe => equipe.id !== atual?.teamId)
                 .map(equipe => <option key={equipe.id} value={equipe.id}>{equipe.name}</option>)}
             </select>
           </Field>
         )}
-        <Field label="Motivo" required={precisaMotivo} hint={precisaMotivo ? 'Fica registrado na auditoria junto com quem autorizou.' : undefined}>
+        <Field label="Motivo" required={precisaMotivo} hint={precisaMotivo ? t('plataforma.motivoNaAuditoria') : undefined}>
           <input value={reason} onChange={evt => setReason(evt.target.value)} required={precisaMotivo} minLength={precisaMotivo ? 3 : 0} maxLength={200} />
         </Field>
         <ModalActions onClose={onClose} saving={salvando} confirmLabel="Confirmar" disabled={precisaEquipe && !teamId} />
@@ -2003,6 +2034,7 @@ function AcaoDeVinculo({ acao, atleta, organizationId, atual, notificar, onClose
 }
 
 function Usuarios({ notificar }) {
+  const { t } = useIdioma();
   const [busca, setBusca] = useState('');
   const estado = useFetch(() => api.admin.users({ limit: 60, search: busca || undefined }), [busca]);
   const [editando, setEditando] = useState(null);
@@ -2012,7 +2044,7 @@ function Usuarios({ notificar }) {
       <div className="toolbar">
         <label className="search-box">
           <Users size={16} />
-          <input value={busca} onChange={evento => setBusca(evento.target.value)} placeholder="Buscar por nome ou email…" aria-label="Buscar usuário" />
+          <input value={busca} onChange={evento => setBusca(evento.target.value)} placeholder={t('plataforma.buscarPorNomeOuEmail')} aria-label={t('plataforma.buscarUsuario')} />
         </label>
       </div>
 
@@ -2027,7 +2059,7 @@ function Usuarios({ notificar }) {
               </span>
               <Badge tom={papel(usuario.role).tom}>{papel(usuario.role).rotulo}</Badge>
               <Badge tom={estadoDoUsuario(usuario.status).tom}>{estadoDoUsuario(usuario.status).rotulo}</Badge>
-              <button type="button" className="button button-secondary button-sm" onClick={() => setEditando(usuario)}>Editar</button>
+              <button type="button" className="button button-secondary button-sm" onClick={() => setEditando(usuario)}>{t('evento.editar')}</button>
             </div>
           ))}
         </AsyncSection>
@@ -2039,6 +2071,7 @@ function Usuarios({ notificar }) {
 }
 
 function EditarUsuario({ usuario, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const [form, setForm] = useState({ role: usuario.role, status: usuario.status });
   const [salvando, setSalvando] = useState(false);
 
@@ -2047,7 +2080,7 @@ function EditarUsuario({ usuario, notificar, onClose, onSalvo }) {
     setSalvando(true);
     try {
       await api.admin.updateUser(usuario.id, form);
-      notificar('Usuário atualizado.');
+      notificar(t('plataforma.usuarioAtualizado'));
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -2056,20 +2089,20 @@ function EditarUsuario({ usuario, notificar, onClose, onSalvo }) {
   };
 
   return (
-    <Modal title={usuario.name} description="Papel global e situação da conta. Papéis por organização ficam em Organizações → Membros." onClose={onClose}>
+    <Modal title={usuario.name} description={t('plataforma.papelGlobalDescricao')} onClose={onClose}>
       <form onSubmit={salvar}>
-        <Field label="Papel global" hint="Papel privilegiado só é concedido por SUPER_ADMIN.">
+        <Field label={t('plataforma.papelGlobal')} hint={t('plataforma.papelPrivilegiado')}>
           <select value={form.role} onChange={evt => setForm({ ...form, role: evt.target.value })}>
             {/* `codigo` e não `papel`: o parâmetro sombrearia a função de rótulo
                 importada e o select voltaria a mostrar o enum cru. */}
             {PAPEIS.map(codigo => <option key={codigo} value={codigo}>{papel(codigo).rotulo}</option>)}
           </select>
         </Field>
-        <Field label="Situação">
+        <Field label={t('evento.situacao')}>
           <select value={form.status} onChange={evt => setForm({ ...form, status: evt.target.value })}>
-            <option value="ACTIVE">Ativa</option>
-            <option value="SUSPENDED">Suspensa</option>
-            <option value="DISABLED">Desativada</option>
+            <option value="ACTIVE">{t('plataforma.ativa')}</option>
+            <option value="SUSPENDED">{t('plataforma.suspensa')}</option>
+            <option value="DISABLED">{t('plataforma.desativada')}</option>
           </select>
         </Field>
         <ModalActions onClose={onClose} saving={salvando} />
