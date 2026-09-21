@@ -344,7 +344,22 @@ describe('o calendário não pede migration nenhuma', () => {
       // A auditoria também virou append-only: sem política de UPDATE e sem
       // política de DELETE, e sob FORCE RLS comando sem política é comando
       // negado — para o dono do schema inclusive.
-      '20260921000000_vinculo_privado_e_auditoria_inforjavel'
+      '20260921000000_vinculo_privado_e_auditoria_inforjavel',
+      // A matrícula identifica UM atleta por (organização, filiação). Entra
+      // pela revisão que esta lista existe para exigir.
+      //
+      // ADITIVA e DEFENSIVA: um índice único PARCIAL em ("organizationId",
+      // "affiliationId", "affiliationNumber"), restrito às linhas em que os
+      // dois últimos não são nulos — atleta sem filiação registrada continua
+      // existindo aos montes, e nenhum deles é afetado. Nenhuma coluna criada,
+      // nenhuma apagada, nenhuma política de RLS tocada.
+      //
+      // E ela NÃO CORRIGE DADO SOZINHA: antes de criar o índice, um bloco
+      // `DO` procura duplicatas e ABORTA com a contagem e até vinte exemplos
+      // se encontrar alguma. Em base que já carrega ambiguidade, qual dos dois
+      // cadastros fica é decisão humana — a migration para e mostra, em vez de
+      // escolher.
+      '20260921120000_matricula_identifica_um_atleta'
     ]);
   });
 });
