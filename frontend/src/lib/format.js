@@ -74,6 +74,57 @@ export function mascararCpf(valor) {
     .replace(/\.(\d{3})(\d{1,2})$/, '.$1-$2');
 }
 
+// ==========================================================================
+// O IDIOMA DOS RÓTULOS.
+//
+// Estes mapas são chamados de dezenas de lugares que não recebem contexto de
+// React — `estadoDaImportacao(codigo)` no meio de uma tabela, `papel(codigo)`
+// numa lista. Obrigar cada chamada a passar o idioma significaria visitar
+// todas elas e esquecer algumas.
+//
+// Em vez disso o idioma corrente é guardado aqui, e `ProvedorDeIdioma` o
+// atualiza quando a pessoa troca. O padrão é português, então tudo que existia
+// antes desta camada continua funcionando exatamente como funcionava — e é por
+// isso que nenhum teste anterior precisou mudar.
+//
+// O QUE NUNCA MUDA: o CÓDIGO. `MATCH_PENDING` é `MATCH_PENDING` em qualquer
+// idioma, no banco, na API e na chave de idempotência. Aqui só se escolhe o
+// texto que a pessoa lê.
+// ==========================================================================
+
+let idiomaDosRotulos = 'pt-BR';
+
+export function definirIdiomaDosRotulos(codigo) {
+  idiomaDosRotulos = codigo || 'pt-BR';
+}
+
+export const idiomaAtualDosRotulos = () => idiomaDosRotulos;
+
+// O REGISTRO É POR MAPA, E NÃO POR CÓDIGO SOLTO.
+//
+// O mesmo código significa coisas diferentes em mapas diferentes:
+// `MATCH_PENDING` é "Não identificado" na revisão da importação, e `PENDING` é
+// "Pendente" no estado do lote. Uma tabela keyed só pelo código traduziria um
+// com o texto do outro na primeira colisão — e colisão de enum entre módulos é
+// questão de tempo, não de hipótese.
+//
+// A chave aqui é o OBJETO do mapa. Ele já é o primeiro parâmetro de `rotulo`,
+// então nenhuma chamada precisou mudar.
+const TRADUCOES_POR_MAPA = new Map();
+
+const registrarTraducoes = (mapa, traducoes) => {
+  TRADUCOES_POR_MAPA.set(mapa, traducoes);
+  return mapa;
+};
+
+const rotulo = (mapa, codigo, tomPadrao = 'neutro') => {
+  const base = mapa[codigo] || { rotulo: codigo || '—', tom: tomPadrao };
+  const traduzido = TRADUCOES_POR_MAPA.get(mapa)?.[idiomaDosRotulos]?.[codigo];
+  // O TOM NUNCA MUDA COM O IDIOMA. Ele é semântica — perigo, alerta, ok — e
+  // vira cor na tela. Traduzir a cor seria traduzir a informação.
+  return traduzido ? { ...base, rotulo: traduzido } : base;
+};
+
 export const ESTADO_EVENTO = {
   DRAFT: { rotulo: 'Rascunho', tom: 'neutro' },
   PLANNED: { rotulo: 'Planejado', tom: 'info' },
@@ -86,6 +137,32 @@ export const ESTADO_EVENTO = {
   CLOSED: { rotulo: 'Encerrado', tom: 'neutro' },
   CANCELLED: { rotulo: 'Cancelado', tom: 'perigo' }
 };
+registrarTraducoes(ESTADO_EVENTO, {
+  en: {
+    'DRAFT': 'Draft',
+    'PLANNED': 'Planned',
+    'REGISTRATIONS_OPEN': 'Registrations open',
+    'REGISTRATIONS_CLOSED': 'Registrations closed',
+    'IN_OPERATION': 'In operation',
+    'IN_JUDGING': 'Judging',
+    'RESULTS_IN_REVIEW': 'Results under review',
+    'RESULTS_PUBLISHED': 'Results published',
+    'CLOSED': 'Closed',
+    'CANCELLED': 'Cancelled'
+  },
+  es: {
+    'DRAFT': 'Borrador',
+    'PLANNED': 'Planificado',
+    'REGISTRATIONS_OPEN': 'Inscripciones abiertas',
+    'REGISTRATIONS_CLOSED': 'Inscripciones cerradas',
+    'IN_OPERATION': 'En operación',
+    'IN_JUDGING': 'En juzgamiento',
+    'RESULTS_IN_REVIEW': 'Resultados en revisión',
+    'RESULTS_PUBLISHED': 'Resultados publicados',
+    'CLOSED': 'Cerrado',
+    'CANCELLED': 'Cancelado'
+  }
+});
 
 // ==========================================================================
 // RÓTULOS DE ENUM.
@@ -99,8 +176,7 @@ export const ESTADO_EVENTO = {
 // é engano. E `rotulo()` devolve o código quando o enum ganhar um valor novo,
 // em vez de deixar a tela em branco.
 // ==========================================================================
-const rotulo = (mapa, codigo, tomPadrao = 'neutro') =>
-  mapa[codigo] || { rotulo: codigo || '—', tom: tomPadrao };
+
 
 // Situação do atleta dentro de um resultado. Aparece na apuração oficial.
 export const ESTADO_DA_ENTRADA = {
@@ -109,6 +185,20 @@ export const ESTADO_DA_ENTRADA = {
   DISQUALIFIED: { rotulo: 'Desclassificado', tom: 'perigo' },
   ABSENT: { rotulo: 'Ausente', tom: 'neutro' }
 };
+registrarTraducoes(ESTADO_DA_ENTRADA, {
+  en: {
+    'RANKED': 'Ranked',
+    'TIE_UNRESOLVED': 'Unresolved tie',
+    'DISQUALIFIED': 'Disqualified',
+    'ABSENT': 'Absent'
+  },
+  es: {
+    'RANKED': 'Clasificado',
+    'TIE_UNRESOLVED': 'Empate no resuelto',
+    'DISQUALIFIED': 'Descalificado',
+    'ABSENT': 'Ausente'
+  }
+});
 export const estadoDaEntrada = codigo => rotulo(ESTADO_DA_ENTRADA, codigo);
 
 // Tipo de credencial. É lido na portaria, em pé, com fila andando.
@@ -122,6 +212,28 @@ export const TIPO_DE_CREDENCIAL = {
   SPONSOR: { rotulo: 'Patrocinador', tom: 'neutro' },
   GUEST: { rotulo: 'Convidado', tom: 'neutro' }
 };
+registrarTraducoes(TIPO_DE_CREDENCIAL, {
+  en: {
+    'ATHLETE': 'Athlete',
+    'COACH': 'Coach',
+    'STAFF': 'Staff',
+    'JUDGE': 'Judge',
+    'MEDIA': 'Press',
+    'PHOTOGRAPHER': 'Photographer',
+    'SPONSOR': 'Sponsor',
+    'GUEST': 'Guest'
+  },
+  es: {
+    'ATHLETE': 'Atleta',
+    'COACH': 'Coach',
+    'STAFF': 'Staff',
+    'JUDGE': 'Juez',
+    'MEDIA': 'Prensa',
+    'PHOTOGRAPHER': 'Fotógrafo',
+    'SPONSOR': 'Patrocinador',
+    'GUEST': 'Invitado'
+  }
+});
 export const tipoDeCredencial = codigo => rotulo(TIPO_DE_CREDENCIAL, codigo);
 
 // Papéis. Aparecem para quem administra, e mesmo aí "REGISTRATION_OPERATOR"
@@ -176,6 +288,22 @@ export const ESTADO_DA_IMPORTACAO = {
   // rótulos diferentes porque são dois fatos diferentes no histórico.
   INVALIDATED: { rotulo: 'Invalidada', tom: 'perigo' }
 };
+registrarTraducoes(ESTADO_DA_IMPORTACAO, {
+  en: {
+    'PENDING': 'Pending',
+    'PREVIEWED': 'Previewed',
+    'APPLIED': 'Applied',
+    'REJECTED': 'Rejected',
+    'INVALIDATED': 'Voided'
+  },
+  es: {
+    'PENDING': 'Pendiente',
+    'PREVIEWED': 'Previsualizada',
+    'APPLIED': 'Aplicada',
+    'REJECTED': 'Rechazada',
+    'INVALIDATED': 'Anulada'
+  }
+});
 export const estadoDaImportacao = codigo => rotulo(ESTADO_DA_IMPORTACAO, codigo);
 
 // Tipo de perfil social. Aparece como sobrelinha no perfil PÚBLICO.
@@ -317,6 +445,42 @@ export const ESTADO_MATCH = {
   IMPORT_REJECTED: { rotulo: 'Rejeitado', tom: 'perigo' },
   APPLIED: { rotulo: 'Aplicado', tom: 'ok' }
 };
+registrarTraducoes(ESTADO_MATCH, {
+  en: {
+    'MATCHED': 'Recognized',
+    'MATCH_PENDING': 'Not identified',
+    'CONFLICT': 'Conflict',
+    'DUPLICATE': 'Duplicate',
+    'IMPORT_REJECTED': 'Rejected',
+    'APPLIED': 'Applied'
+  },
+  es: {
+    'MATCHED': 'Reconocido',
+    'MATCH_PENDING': 'No identificado',
+    'CONFLICT': 'Conflicto',
+    'DUPLICATE': 'Duplicado',
+    'IMPORT_REJECTED': 'Rechazado',
+    'APPLIED': 'Aplicado'
+  }
+});
+
+// O ACESSOR EXISTE PORQUE O MAPA ESTAVA SENDO LIDO DIRETO.
+//
+// `ESTADO_MATCH[codigo]?.rotulo` espalhado pelas telas funciona — e passa ao
+// largo de `rotulo()`, que é onde a tradução mora. O resultado seria uma tela
+// em inglês com a coluna "Situação" em português, sem ninguém notar até
+// alguém olhar. Todo enum que chega à tela passa por uma função; este também.
+export const estadoDeMatch = codigo => rotulo(ESTADO_MATCH, codigo);
+
+// Critério que reconheceu a linha. Texto corrido, não par rótulo/tom — é
+// costurado dentro de uma frase ("Vinculado automaticamente por ...").
+const CRITERIO_TRADUZIDO = {
+  en: { AFFILIATION_NUMBER: 'affiliation + member number', CPF: 'CPF' },
+  es: { AFFILIATION_NUMBER: 'afiliación + matrícula', CPF: 'CPF' }
+};
+
+export const criterioDeMatch = codigo =>
+  CRITERIO_TRADUZIDO[idiomaDosRotulos]?.[codigo] ?? CRITERIO_DE_MATCH[codigo] ?? codigo;
 
 // Caminho da foto de perfil, ou null quando o perfil não tem foto.
 //

@@ -7,7 +7,7 @@ import { permissoesDe, podeCom } from '../lib/permissoes';
 import { AsyncSection, AtualizadoEm, Avatar, Badge, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead, Paginacao } from '../components/ui';
 // Só a classe de cartão clicável é usada aqui — é CSS, não precisa do motor
 // em JS. Importar o que não se usa é ruído que o lint acusa e o leitor não.
-import { CRITERIO_DE_MATCH, ESTADO_MATCH, formatarDataHora, ocultarCpf, papel, estadoDoUsuario, tipoDeFiliacao, estadoDaImportacao } from '../lib/format';
+import { criterioDeMatch, estadoDeMatch, formatarDataHora, ocultarCpf, papel, estadoDoUsuario, tipoDeFiliacao, estadoDaImportacao } from '../lib/format';
 
 // Painel administrativo, ranking, importação MuscleWar, auditoria e
 // configurações da plataforma.
@@ -857,7 +857,7 @@ const COLUNAS_DA_EXPORTACAO = [
   ['Classe', item => item.className || ''],
   ['Colocação', item => (item.placing ?? '')],
   ['Pontos do arquivo', item => (item.points ?? '')],
-  ['Situação', item => (ESTADO_MATCH[item.matchStatus]?.rotulo || item.matchStatus)],
+  ['Situação', item => estadoDeMatch(item.matchStatus).rotulo],
   ['Motivo', item => item.reason || '']
 ];
 
@@ -1074,7 +1074,7 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                 </thead>
                 <tbody>
                   {dados.items.map(item => {
-                    const info = ESTADO_MATCH[item.matchStatus] || { rotulo: item.matchStatus, tom: 'neutro' };
+                    const info = estadoDeMatch(item.matchStatus);
                     return (
                       <tr key={item.id}>
                         <td className="num">{item.rowNumber}</td>
@@ -1097,7 +1097,7 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                               certo. */}
                           {item.matchedBy && (
                             <small style={{ display: 'block', marginTop: 3 }}>
-                              por <strong>{CRITERIO_DE_MATCH[item.matchedBy] || item.matchedBy}</strong>
+                              por <strong>{criterioDeMatch(item.matchedBy)}</strong>
                             </small>
                           )}
 
@@ -1124,7 +1124,7 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                               <strong>Conflito de identidade</strong>
                               {item.matchCandidates.map(candidato => (
                                 <span key={`${candidato.matchedBy}-${candidato.athleteId}`} style={{ display: 'block' }}>
-                                  {CRITERIO_DE_MATCH[candidato.matchedBy] || candidato.matchedBy}:{' '}
+                                  {criterioDeMatch(candidato.matchedBy)}:{' '}
                                   {candidato.fullName}
                                   {candidato.affiliation && ` · ${candidato.affiliation.code}`}
                                   {candidato.affiliationNumber && ` · nº ${candidato.affiliationNumber}`}

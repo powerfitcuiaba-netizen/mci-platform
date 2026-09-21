@@ -9,6 +9,8 @@ import { AuthProvider, useAuth } from './AuthContext';
 import api from './services/api';
 import { useDebounce, useFetch, useHashRoute, useToasts } from './lib/hooks';
 import { Avatar, BlocoDaMarca, Toasts } from './components/ui';
+import SeletorDeIdioma from './components/seletorDeIdioma';
+import { useIdioma } from './lib/idioma';
 import { caminhoDoAvatar, papel } from './lib/format';
 import LimiteDeErro from './components/limiteDeErro';
 import AberturaMci, { aberturaJaFoiVista } from './components/aberturaMci';
@@ -170,6 +172,20 @@ function BuscaGlobal({ navegar }) {
 }
 
 function Shell() {
+  // O hook fica na PRIMEIRA linha do componente porque `Shell` tem retorno
+  // antecipado (a abertura da marca): chamá-lo depois dele mudaria a ordem dos
+  // hooks entre renderizações, que é o defeito que o ESLint pegou aqui.
+  const { t } = useIdioma();
+
+  // A tradução do item de navegação sai da ROTA. `item.rotulo` continua no
+  // código como o português de origem e como recuo — se uma rota nova entrar
+  // sem chave, ela aparece em português em vez de aparecer como "nav.x".
+  const rotuloDoItem = item => {
+    const chave = `nav.${item.rota}`;
+    const traduzido = t(chave);
+    return traduzido === chave ? item.rotulo : traduzido;
+  };
+
   const { user, logout, authenticated, loading } = useAuth();
   // A abertura roda uma vez por sessão do navegador, antes de qualquer tela.
   // `aberturaJaFoiVista` é lido na inicialização do estado — não num efeito —
@@ -306,22 +322,22 @@ function Shell() {
 
   return (
     <div className={`shell${entradaContinua ? ' entrada-continua' : ''}`} data-ato={atoDaRota(rota)}>
-      {menuAberto && <button type="button" className="mobile-scrim" aria-label="Fechar menu" onClick={() => setMenuAberto(false)} />}
+      {menuAberto && <button type="button" className="mobile-scrim" aria-label={t('navegacao.fecharMenu')} onClick={() => setMenuAberto(false)} />}
 
-      <nav className={`sidebar${menuAberto ? ' is-open' : ''}`} aria-label="Navegação principal">
+      <nav className={`sidebar${menuAberto ? ' is-open' : ''}`} aria-label={t('navegacao.principal')}>
         <div className="brand">
           <BlocoDaMarca />
         </div>
 
         <div className="nav-group">
-          <span className="nav-label">Plataforma</span>
+          <span className="nav-label">{t('grupo.plataforma')}</span>
           {NAVEGACAO_PRINCIPAL.map((item, indice) => {
             const Icone = item.icone;
             const ativo = item.rota === ativoPrincipal;
             const contador = item.contador === 'mensagens' ? mensagensNaoLidas : 0;
             return (
               <button key={item.rota} type="button" className={`nav-item revela${ativo ? ' is-active' : ''}`} style={estiloDaSequencia(indice)} onClick={() => navegarEFechar(item.rota)}>
-                <Icone size={16} /> {item.rotulo}
+                <Icone size={16} /> {rotuloDoItem(item)}
                 {contador > 0 && <span className="badge-count">{contador}</span>}
               </button>
             );
@@ -330,13 +346,13 @@ function Shell() {
 
         {itensAdmin.length > 0 && (
           <div className="nav-group">
-            <span className="nav-label">Administração</span>
+            <span className="nav-label">{t('grupo.administracao')}</span>
             {itensAdmin.map((item, indice) => {
               const Icone = item.icone;
               const ativo = item.rota === ativoAdmin;
               return (
                 <button key={item.rota} type="button" className={`nav-item revela${ativo ? ' is-active' : ''}`} style={estiloDaSequencia(NAVEGACAO_PRINCIPAL.length + indice)} onClick={() => navegarEFechar(item.rota)}>
-                  <Icone size={16} /> {item.rotulo}
+                  <Icone size={16} /> {rotuloDoItem(item)}
                 </button>
               );
             })}
@@ -351,23 +367,26 @@ function Shell() {
               <small>{papel(user?.role).rotulo}</small>
             </span>
           </button>
-          <button type="button" className="nav-item" onClick={logout}><LogOut size={16} /> Sair</button>
+          <button type="button" className="nav-item" onClick={logout}><LogOut size={16} /> {t('topo.sair')}</button>
         </div>
       </nav>
 
       <div className="main">
         <header className="topbar">
-          <button type="button" className="icon-button mobile-toggle" onClick={() => setMenuAberto(true)} aria-label="Abrir menu"><Menu size={16} /></button>
+          <button type="button" className="icon-button mobile-toggle" onClick={() => setMenuAberto(true)} aria-label={t('navegacao.abrirMenu')}><Menu size={16} /></button>
           <BuscaGlobal navegar={navegar} />
           <div className="topbar-actions">
+          {/* Canto superior direito, antes dos demais controles: é o primeiro
+              lugar onde quem não lê português procura. */}
+          <SeletorDeIdioma />
           {/* Controle global de som. Desligar encerra a trilha na hora e a
               preferência vale nas próximas sessões. */}
           <button
             type="button"
             className="icon-button"
             aria-pressed={somLigado}
-            aria-label={somLigado ? 'Desligar o som do sistema' : 'Ligar o som do sistema'}
-            title={somLigado ? 'Som ligado' : 'Som desligado'}
+            aria-label={somLigado ? t('topo.desligarSom') : t('topo.ligarSom')}
+            title={somLigado ? t('topo.somLigado') : t('topo.somDesligado')}
             onClick={() => {
               const proximo = !somLigado;
               definirPreferenciaDeAudio(proximo);
@@ -377,11 +396,11 @@ function Shell() {
           >
             {somLigado ? <Volume2 size={16} /> : <VolumeX size={16} />}
           </button>
-            <button type="button" className="icon-button" onClick={() => navegar('notificacoes')} aria-label={`Notificações${naoLidas ? `: ${naoLidas} não lidas` : ''}`}>
+            <button type="button" className="icon-button" onClick={() => navegar('notificacoes')} aria-label={`${t('topo.notificacoes')}${naoLidas ? `: ${t('topo.naoLidas', { n: naoLidas })}` : ''}`}>
               <Bell size={16} />
               {naoLidas > 0 && <span className="dot">{naoLidas > 9 ? '9+' : naoLidas}</span>}
             </button>
-            <button type="button" className="icon-button" onClick={() => navegar('perfil')} aria-label="Meu perfil social"><UserCircle size={16} /></button>
+            <button type="button" className="icon-button" onClick={() => navegar('perfil')} aria-label={t('topo.meuPerfil')}><UserCircle size={16} /></button>
           </div>
         </header>
 

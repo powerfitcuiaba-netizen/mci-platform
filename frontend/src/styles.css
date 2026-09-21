@@ -2251,3 +2251,70 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
   .acoes-da-linha .button { flex: 1 1 100%; }
   .acoes-da-linha .button + .button { margin-left: 0; }
 }
+
+/* ==========================================================================
+   SELETOR DE IDIOMA — canto superior direito.
+
+   Três alvos de toque numa barra que já disputa espaço com a busca e as
+   notificações. O tamanho mínimo é 44px de altura em toque, que é o alvo
+   confortável de dedo; a SIGLA some abaixo de 640px e a bandeira fica, para
+   que o controle encolha em vez de desaparecer.
+
+   O foco é visível de propósito e não é o contorno padrão do navegador: o
+   cabeçalho é escuro, e o contorno fino some nele.
+   ========================================================================== */
+.seletor-idioma {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--superficie-2, rgba(255, 255, 255, 0.06));
+}
+
+.seletor-idioma-opcao {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.seletor-idioma-opcao:hover { background: rgba(255, 255, 255, 0.08); }
+
+.seletor-idioma-opcao:focus-visible {
+  outline: 2px solid var(--acento, #f2c14e);
+  outline-offset: 2px;
+}
+
+/* O idioma em vigor não se distingue SÓ pela cor: ele fica preenchido e com
+   peso maior. Distinção só por cor não chega a quem não a enxerga — e o
+   `aria-pressed` responde por quem usa leitor de tela. */
+.seletor-idioma-opcao.is-active {
+  background: var(--acento, #f2c14e);
+  color: #151515;
+  font-weight: 800;
+}
+
+.seletor-idioma-bandeira { font-size: 15px; line-height: 1; }
+.seletor-idioma-sigla { letter-spacing: 0.04em; }
+
+@media (max-width: 640px) {
+  /* No celular a sigla sai e a bandeira fica: o controle continua presente e
+     tocável, sem empurrar a busca para fora da barra. */
+  .seletor-idioma-sigla { display: none; }
+  .seletor-idioma-opcao { padding: 4px 6px; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .seletor-idioma-opcao { transition: background 140ms ease, color 140ms ease; }
+}
