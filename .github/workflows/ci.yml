@@ -106,6 +106,25 @@ jobs:
             "DO \$\$ BEGIN IF current_setting('is_superuser') = 'on' THEN RAISE EXCEPTION 'papel da aplicacao e superusuario: o RLS nao teria efeito nenhum'; END IF; END \$\$"
           echo "mci_owner criado sem superusuário."
 
+          # O POSTGRES PARA DE GRITAR O QUE OS TESTES ESPERAM OUVIR.
+          #
+          # Os testes de forja provam que a política RECUSA a escrita — e cada
+          # recusa vira ERROR + STATEMENT no log do container. São dezenas de
+          # milhares de linhas de ruído ESPERADO, e o runner despeja tudo isso
+          # no fim do log do job.
+          #
+          # O efeito prático não é estético: a API de logs entrega cerca de
+          # 1 MB a partir do fim, e só o despejo passa disso. Quando a suíte
+          # reprova, o resumo do vitest fica inalcançável — aconteceu em cinco
+          # execuções seguidas, todas vermelhas e nenhuma legível.
+          #
+          # Nada de diagnóstico se perde: quem reporta falha de banco são os
+          # próprios testes, com a mensagem do PostgreSQL dentro do erro. O que
+          # se cala aqui é a cópia dessa mesma mensagem no log do container.
+          $PSQL -c "ALTER SYSTEM SET log_min_messages = 'fatal'"
+          $PSQL -c "ALTER SYSTEM SET log_min_error_statement = 'fatal'"
+          $PSQL -c "SELECT pg_reload_conf()"
+
 
       - name: Validar schema do Prisma
         run: npx prisma validate
