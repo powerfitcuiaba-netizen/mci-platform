@@ -6,7 +6,7 @@ import { comecarAMedir, pararDeMedir } from './instrumentacao-consultas.mjs';
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
   api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, unico, comoAtor
+  vincular, unico, comoAtor, gerarCpf
 } from './helpers.mjs';
 
 // ============================================================================
@@ -75,6 +75,7 @@ function arquivo(quantidade, prefixo) {
 let admin;
 let gerente;
 let organizationId;
+let npcId;
 
 beforeAll(() => garantirCatalogo());
 
@@ -88,8 +89,8 @@ beforeEach(async () => {
   await vincular(organizationId, gerente, 'RANKING_MANAGER');
   await vincular(organizationId, gerente, 'REGISTRATION_OPERATOR');
 
-  await api().post('/api/v1/affiliations').set(admin.auth())
-    .send({ organizationId, name: 'NPC Brasil', code: 'NPC' });
+  npcId = (await api().post('/api/v1/affiliations').set(admin.auth())
+    .send({ organizationId, name: 'NPC Brasil', code: 'NPC' })).body.id;
 
   // O importador NÃO cria equipe nem empresa a partir do nome no arquivo: ele
   // só reconhece as que já existem na organização. Elas precisam ser semeadas
@@ -279,4 +280,83 @@ describe('§14 o ranking público lê em lote, e não por competidor', () => {
     const pontos = await comoAtor(gerente, tx => tx.rankingPoint.count());
     expect(pontos).toBe(GRANDE);
   }, 120_000);
+});
+
+// ============================================================================
+// §16 — A VISÃO POR CATEGORIA NÃO PODE CUSTAR UMA CONSULTA POR CATEGORIA.
+//
+// `/me/history` ganhou a segmentação por categoria. A forma ingênua de
+// produzi-la — buscar o nome de cada categoria dentro do laço — funciona com
+// três categorias e degrada com doze, que é quanto um atleta de carreira longa
+// acumula. E degrada numa tela que ele abre no celular.
+//
+// A medição é a mesma das rotas públicas: o número de consultas não pode
+// acompanhar o número de categorias.
+// ============================================================================
+describe('§16 o histórico do atleta lê em lote', () => {
+  async function historicoCom(quantasCategorias) {
+    const categorias = ['BIKINI', 'WELLNESS', 'CLASSIC_PHYSIQUE', 'MENS_PHYSIQUE', 'MENS_BODYBUILDING'];
+    const classes = [
+      "Women's Bikini - Open Class A",
+      "Women's Wellness - Open Class B",
+      "Men's Classic Physique - Open Class A",
+      "Men's Physique - Open Class B",
+      "Men's Bodybuilding - Open Middleweight"
+    ];
+
+    const seasonId = (await api().post('/api/v1/seasons').set(admin.auth())
+      .send({ organizationId, name: `T${quantasCategorias}`, year: 2020 + quantasCategorias })).body.id;
+    await api().put(`/api/v1/seasons/${seasonId}/points-rules`).set(admin.auth()).send({
+      rules: [{ placing: 1, points: 5 }, { placing: 2, points: 4 }, { placing: 3, points: 3 }]
+    });
+
+    const cpf = gerarCpf(600000000 + quantasCategorias * 7919);
+    const matricula = `NPC-H${quantasCategorias}`;
+    const cabecalho = 'Athlete #,Class,First Name,Last Name,Member Number,cpf,categoria,Placing';
+    const linhas = [cabecalho];
+    for (let i = 0; i < quantasCategorias; i += 1) {
+      linhas.push(`${i + 1},${classes[i]},HIST,ORICO,${matricula},${cpf},${categorias[i]},${(i % 3) + 1}`);
+    }
+
+    const lote = await api().post('/api/v1/musclewar/imports').set(gerente.auth()).send({
+      organizationId, seasonId, sourceType: 'CSV', sourceRef: unico('hist') + '.csv',
+      content: linhas.join('\n'), externalIdPrefix: unico('H').toUpperCase(),
+      defaultAffiliationCode: 'NPC'
+    });
+    expect(lote.status, JSON.stringify(lote.body).slice(0, 300)).toBe(201);
+    await api().post(`/api/v1/musclewar/imports/${lote.body.import.id}/apply`).set(gerente.auth());
+
+    const pessoa = await criarUsuario({ name: `Historico ${quantasCategorias}` });
+    const pedido = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+      fullName: 'HIST ORICO', cpf, sex: 'MALE', birthDate: '1995-03-10',
+      affiliationId: npcId, affiliationNumber: matricula
+    });
+    expect(pedido.status, JSON.stringify(pedido.body).slice(0, 300)).toBe(201);
+    await api().post(`/api/v1/athlete-requests/${pedido.body.id}/approve`).set(admin.auth()).send({});
+
+    return pessoa;
+  }
+
+  it('uma categoria e cinco categorias custam o MESMO número de consultas', async () => {
+    const comUma = await historicoCom(1);
+    const comCinco = await historicoCom(5);
+
+    comecarAMedir();
+    const uma = await api().get('/api/v1/me/history').set(comUma.auth());
+    const consultasUma = pararDeMedir();
+
+    comecarAMedir();
+    const cinco = await api().get('/api/v1/me/history').set(comCinco.auth());
+    const consultasCinco = pararDeMedir();
+
+    expect(uma.status).toBe(200);
+    expect(cinco.status).toBe(200);
+    expect(uma.body.byCategory).toHaveLength(1);
+    expect(cinco.body.byCategory, 'o cenário grande precisa ter cinco categorias').toHaveLength(5);
+
+    expect(consultasCinco.length - consultasUma.length,
+      `1 categoria: ${consultasUma.length} consultas; 5 categorias: ${consultasCinco.length}. `
+      + 'Se acompanhar o número de categorias, é N+1.'
+    ).toBe(0);
+  }, 180_000);
 });

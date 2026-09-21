@@ -113,14 +113,48 @@ export function MeuHistorico() {
           }
 
           const totais = dados.totals || {};
+          const porCategoria = dados.byCategory || [];
 
           return (
             <>
-              <div className="grid grid-4">
+              {/* DESEMPENHO POR CATEGORIA — vem ANTES do consolidado, e é
+                  deliberado.
+
+                  Quem compete em Classic Physique, Bodybuilding e Men's
+                  Physique tem TRÊS carreiras, e o número consolidado não é
+                  nenhuma delas: é a soma de coisas que não competem entre si.
+                  Mostrar só o total é como a confusão começa — alguém lê "25
+                  pontos" e usa esse número como se fosse o desempenho numa
+                  categoria, que é justamente o que o ranking nunca faz.
+
+                  Cada cartão abaixo corresponde a UM ranking de verdade. */}
+              {porCategoria.length > 0 && (
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>Desempenho por categoria</h2>
+                    <span className="muted">Cada categoria tem ranking próprio</span>
+                  </div>
+                  <div className="grid grid-3" style={{ padding: 'var(--e3)' }}>
+                    {porCategoria.map(linha => (
+                      <Metric
+                        key={linha.category?.id ?? 'sem-categoria'}
+                        label={linha.category?.name || linha.category?.code || 'Sem categoria'}
+                        value={linha.points}
+                        hint={`${linha.participations} participaç${linha.participations === 1 ? 'ão' : 'ões'}`}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* O CONSOLIDADO, com o nome do que ele é. Ele não alimenta
+                  ranking nenhum: nenhuma categoria recebe este número. */}
+              <div className="grid grid-4" style={{ marginTop: porCategoria.length ? 18 : 0 }}>
                 <Metric label="Participações" value={totais.participations ?? dados.total} />
                 <Metric label="Pontos de colocação" value={totais.placementPoints ?? 0} />
                 <Metric label="Bônus Overall" value={totais.overallBonus ?? 0} />
-                <Metric label="Total" value={totais.points ?? 0} destaque />
+                <Metric label="Total geral" value={totais.points ?? 0} destaque
+                  hint="Soma de todas as categorias" />
               </div>
 
               <section className="panel" style={{ marginTop: 18 }}>
