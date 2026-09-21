@@ -15,7 +15,25 @@ jobs:
   backend:
     name: Backend — migrations, RLS e testes
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # TETO SUBIU DE 25 PARA 40, E O MOTIVO NÃO É A SUÍTE TER FICADO LENTA.
+    #
+    # A execução #233 foi CANCELADA aos 24m23s no passo de testes: nenhum teste
+    # falhou, o job foi cortado — e com ele os dois passos que conferem que
+    # backup/restore e BYPASSRLS não pularam, que rodam depois.
+    #
+    # Antes de subir o teto, o custo foi medido em vez de presumido. A suspeita
+    # natural era a política nova de escrita do AuditLog, que avalia até três
+    # subconsultas por INSERT: 400 escritas levaram 489ms, ou 1,22ms cada. A
+    # suíte inteira faz cerca de mil escritas de auditoria — algo em torno de
+    # 1,2 segundo no total. Não é isso.
+    #
+    # O que é: este job JÁ VARIOU de 7m36s a 24m29s no mesmo código, e está
+    # registrado em fases anteriores. A suíte cresceu 9% (799s para 871s
+    # medidos localmente), o suficiente para um runner lento cruzar os 25.
+    #
+    # 40 dá folga real sem esconder travamento: o dobro do tempo local, e ainda
+    # bem abaixo do ponto em que um job pendurado passaria despercebido.
+    timeout-minutes: 40
 
     # A suíte exige PostgreSQL de verdade: o RLS é testado executando as
     # políticas, não lendo o SQL.
