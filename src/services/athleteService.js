@@ -6,6 +6,8 @@ const { can } = require('../utils/permissions');
 const { athleteFor, athletePublic } = require('../utils/visibility');
 const audit = require('./auditService');
 const notifications = require('./notificationService');
+const muscleWar = require('./muscleWarService');
+const logger = require('../utils/logger');
 
 // `identity` traz o CPF, que vive em tabela própria com política restrita. Se
 // o ator não puder lê-la, o RLS simplesmente não devolve a linha e o
@@ -53,6 +55,56 @@ async function lookup({ organizationId, cpf }, actor) {
   return { found: true, athlete: athleteFor(athlete, actor, organizationId) };
 }
 
+// ============================================================================
+// A MATRÍCULA IDENTIFICA UMA PESSOA DENTRO DA FEDERAÇÃO.
+//
+// POR QUE ISTO PRECISOU VIRAR REGRA, E NÃO SÓ DEFESA
+//
+// O sistema aceitava dois cadastros com a MESMA matrícula na MESMA filiação.
+// O vínculo tardio lidava com isso defensivamente: ao encontrar dois donos,
+// recusava vincular e marcava CONFLITO para o operador decidir. Correto — e
+// insuficiente, porque a ambiguidade podia aparecer DEPOIS.
+//
+// A sequência que quebrava: o operador cadastra a primeira pessoa com a
+// matrícula NPC-123; naquele instante ela é dona única, o vínculo é inequívoco
+// e o histórico vai para ela. Semanas depois alguém cadastra a segunda pessoa
+// com a mesma matrícula. Agora há dois donos — e o histórico já foi creditado
+// ao primeiro, por ordem de chegada, que é exatamente o que este projeto trata
+// como regra absoluta a não quebrar.
+//
+// Recusar o vínculo no momento em que a ambiguidade nasce não resolve: o ponto
+// já está somando no ranking de quem talvez não tenha competido.
+//
+// A correção é impedir o estado, e não reagir a ele. Matrícula repetida na
+// mesma filiação não é um dado difícil: é um dado ERRADO — ou o número foi
+// digitado errado, ou é a mesma pessoa cadastrada duas vezes, ou a federação
+// reaproveitou o número e isso precisa de decisão humana ANTES, não depois.
+//
+// FORA DESTA REGRA: matrícula nula. Atleta sem filiação registrada continua
+// existindo aos montes, e todos eles têm `affiliationNumber` nulo.
+// ============================================================================
+
+async function assertMatriculaLivre({ organizationId, affiliationId, affiliationNumber }, exceto = null) {
+  if (!affiliationId || !affiliationNumber) return;
+
+  const jaTem = await prisma.athlete.findFirst({
+    where: {
+      organizationId,
+      affiliationId,
+      affiliationNumber,
+      ...(exceto ? { id: { not: exceto } } : {})
+    },
+    select: { id: true, fullName: true }
+  });
+
+  if (jaTem) {
+    throw new AppError(409, 'AFFILIATION_NUMBER_IN_USE',
+      `A matrícula ${affiliationNumber} já pertence a ${jaTem.fullName} nesta filiação. `
+      + 'Uma matrícula identifica um atleta: confira o número, ou corrija o cadastro existente '
+      + 'antes de criar outro.');
+  }
+}
+
 async function create(data, actor) {
   assertCan(actor, 'athletes.create', data.organizationId);
 
@@ -64,6 +116,7 @@ async function create(data, actor) {
   if (existente) throw new AppError(409, 'ATHLETE_CPF_EXISTS', 'Já existe um atleta com este CPF nesta organização');
 
   await validarVinculos(data, data.organizationId);
+  await assertMatriculaLivre(data);
 
   try {
     const athlete = await prisma.athlete.create({
@@ -112,11 +165,42 @@ async function create(data, actor) {
       organizationId: data.organizationId, metadata: { fullName: athlete.fullName, affiliationId: athlete.affiliationId }
     });
 
+    // O HISTÓRICO VAI ATRÁS DO CADASTRO TAMBÉM POR ESTA PORTA — AGORA QUE DÁ.
+    //
+    // Esta chamada já existiu e foi REVERTIDA numa fase anterior, e o motivo
+    // da reversão é o que precisa ser lido antes de mexer aqui de novo: com a
+    // matrícula podendo ter dois donos, vincular no instante da criação era
+    // vínculo por ORDEM DE CHEGADA. O primeiro cadastrado levava o histórico
+    // porque naquele momento era dono único; o segundo aparecia depois, e o
+    // ponto já estava somando no ranking de quem talvez não tivesse competido.
+    //
+    // O que mudou não foi esta linha: foi a regra embaixo dela. Matrícula
+    // repetida na mesma filiação não é mais um estado possível — há guarda no
+    // serviço e índice único parcial no banco. Sem ambiguidade futura, o
+    // vínculo no cadastro deixa de escolher e volta a apenas reconhecer.
+    //
+    // Fora da transação de propósito, como na aprovação de pedido: se o
+    // vínculo falhar, o atleta continua criado e correto, e a operação é
+    // idempotente. Dentro dela, uma falha em resultado antigo desfaria um
+    // cadastro válido.
+    try {
+      await muscleWar.vincularPendentesDoAtleta(athlete, actor);
+    } catch (erro) {
+      logger.error({ erro: erro.message, athleteId: athlete.id },
+        'atleta criado, mas o vínculo de resultados pendentes falhou');
+    }
+
     return athleteFor(athlete, actor, data.organizationId);
   } catch (error) {
     // Duas inscrições simultâneas com o mesmo CPF: a constraint decide.
     if (error.code === 'P2002') {
       const alvo = String(error.meta?.target || '');
+      // Dois cadastros simultâneos com a mesma matrícula: a conferência acima
+      // pode ter passado nos dois, e quem decide é o índice único.
+      if (alvo.includes('affiliationNumber')) {
+        throw new AppError(409, 'AFFILIATION_NUMBER_IN_USE',
+          'Esta matrícula acabou de ser usada por outro cadastro nesta filiação.');
+      }
       if (alvo.includes('athleteNumber')) throw new AppError(409, 'ATHLETE_NUMBER_IN_USE', 'Número de atleta já utilizado');
       throw new AppError(409, 'ATHLETE_CPF_EXISTS', 'Já existe um atleta com este CPF nesta organização');
     }
@@ -165,6 +249,17 @@ async function update(id, data, actor) {
   }
 
   await validarVinculos(data, athlete.organizationId);
+
+  // A conferência usa o estado RESULTANTE, e não o recebido: editar só o
+  // número mantendo a filiação, ou só a filiação mantendo o número, muda o par
+  // do mesmo jeito. Olhar apenas o que veio no corpo deixaria a segunda forma
+  // passar direto para o índice único — que recusa, mas com a mensagem
+  // genérica de "registro já existe", sem dizer de quem é a matrícula.
+  await assertMatriculaLivre({
+    organizationId: athlete.organizationId,
+    affiliationId: data.affiliationId ?? athlete.affiliationId,
+    affiliationNumber: data.affiliationNumber ?? athlete.affiliationNumber
+  }, id);
 
   // Vínculo esportivo e número de atleta não são autoedição: mudam a
   // elegibilidade e só saem por operador.

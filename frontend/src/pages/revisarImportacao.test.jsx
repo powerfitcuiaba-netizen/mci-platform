@@ -26,7 +26,13 @@ const EVENTO = {
 
 const previaCom = (evento = EVENTO) => ({
   import: { id: 'imp1', organizationId: 'org1', status: 'PENDING', eventId: evento?.id ?? null, event: evento },
-  summary: { totalRecords: 3, recognized: 3, valid: 3, pending: 0, conflicts: 0, duplicates: 0, rejected: 0, applied: 0 },
+  // `applicable` é o número que o botão passou a usar: com o histórico
+  // anterior ao cadastro, `valid` deixou de significar "reconhecido" e passou
+  // a significar "entra". Aqui os três são reconhecidos, então coincidem.
+  summary: {
+    totalRecords: 3, recognized: 3, valid: 3, applicable: 3, pendingLink: 0,
+    pending: 0, conflicts: 0, duplicates: 0, rejected: 0, applied: 0
+  },
   page: { total: 3, hasMore: false },
   items: [{
     id: 'it1', rowNumber: 1, matchStatus: 'MATCHED', athleteName: 'Yuri Santinelli',

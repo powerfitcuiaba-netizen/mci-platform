@@ -55,15 +55,28 @@ beforeAll(async () => {
 
     // Ponto de ranking escrito direto: o que está sob teste é a LEITURA. O
     // caminho oficial de escrita (apuração + recompute) tem suíte própria.
+    // `organizationId` passou a ser obrigatório no lançamento: a tenancy do
+    // ledger deixou de ser deduzida do atleta, que agora pode não existir.
     const lancar = (season, pontos) => prisma.rankingPoint.create({
       data: {
-        seasonId: season.id, athleteId: atleta.id, source: 'MUSCLEWAR',
+        seasonId: season.id, organizationId, athleteId: atleta.id, source: 'MUSCLEWAR',
         points: pontos, placementPoints: pontos, superOverallPoints: pontos,
         superOverallEligible: true, teamId: equipe.id, companyId: empresa.id, placing: 1
       }
     });
     await lancar(temporadaAntiga, 10);
     await lancar(temporadaAtual, 7);
+
+    // AS ROTAS SOB TESTE SÃO PÚBLICAS, e público lê a PROJEÇÃO, não o ledger:
+    // `RankingPoint` ganhou RLS de operador nesta fase. Semear direto enche o
+    // ledger e deixa a projeção vazia — e as quatro medições abaixo veriam
+    // zero, como se o filtro por temporada tivesse apagado tudo.
+    //
+    // O recálculo é o mesmo que a aplicação usa em produção: publicar não é
+    // efeito colateral de escrever, é passo próprio.
+    const ranking = await import('../src/services/rankingService.js');
+    await ranking.recompute_(temporadaAntiga.id);
+    await ranking.recompute_(temporadaAtual.id);
   });
 });
 

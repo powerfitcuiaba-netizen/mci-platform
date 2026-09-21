@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { MarcaMci } from './ui';
 import { direcaoDeAudio, definirPreferenciaDeAudio } from '../lib/audioDirector';
 import { NIVEL, podeAnimar } from '../lib/experiencia';
+import { useIdioma } from '../lib/idioma';
 
 // ============================================================================
 // ABERTURA DO MCI.
@@ -43,6 +44,7 @@ function marcarComoVista() {
 }
 
 export default function AberturaMci({ aoTerminar }) {
+  const { t } = useIdioma();
   const [saindo, setSaindo] = useState(false);
   const [audio, setAudio] = useState('parado');
   const encerrada = useRef(false);
@@ -111,7 +113,7 @@ export default function AberturaMci({ aoTerminar }) {
     <div
       className={`abertura${saindo ? ' is-saindo' : ''}${reduzido.current ? ' is-reduzida' : ''}`}
       role="dialog"
-      aria-label="Abertura do MCI Platform"
+      aria-label={t('abertura.rotulo')}
     >
       <div className="abertura-palco">
         <MarcaMci largura={260} className="abertura-marca" />
@@ -121,7 +123,7 @@ export default function AberturaMci({ aoTerminar }) {
       <div className="abertura-acoes">
         {audio === 'bloqueado' && (
           <button type="button" className="button button-secondary button-sm" onClick={ativarSom}>
-            🔊 Ativar experiência sonora
+            🔊 {t('abertura.ativarSom')}
           </button>
         )}
         {audio === 'tocando' && (
@@ -130,11 +132,11 @@ export default function AberturaMci({ aoTerminar }) {
             className="button button-ghost button-sm"
             onClick={() => { definirPreferenciaDeAudio(false); direcaoDeAudio.encerrar({ imediato: true }); setAudio('desligado'); }}
           >
-            🔇 Silenciar
+            🔇 {t('abertura.silenciar')}
           </button>
         )}
         <button type="button" className="button button-ghost button-sm" onClick={() => encerrar.current()}>
-          Entrar agora
+          {t('abertura.entrarAgora')}
         </button>
       </div>
     </div>

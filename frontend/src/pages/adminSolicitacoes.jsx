@@ -5,6 +5,7 @@ import { useFetch } from '../lib/hooks';
 import { PageHead, Badge, AsyncSection, Modal, Field, Paginacao, ProtectedMedia } from '../components/ui';
 import { anunciar, MCIEvento } from '../lib/experiencia';
 import { mascararCpf, formatarData, formatarDataHora } from '../lib/format';
+import { useIdioma, TextoRico } from '../lib/idioma';
 
 // ============================================================================
 // FILA DE SOLICITAÇÕES DE PERFIL DE ATLETA — tela do operador da federação.
@@ -24,17 +25,24 @@ import { mascararCpf, formatarData, formatarDataHora } from '../lib/format';
 // ============================================================================
 
 const TOM = { PENDING: 'atencao', APPROVED: 'sucesso', REJECTED: 'perigo', CANCELLED: 'neutro' };
-const ROTULO = { PENDING: 'Em análise', APPROVED: 'Aprovada', REJECTED: 'Recusada', CANCELLED: 'Cancelada' };
+// O CÓDIGO do estado é da API; o mapa leva à CHAVE do rótulo.
+const ROTULO = {
+  PENDING: 'solicitacao.emAnalise',
+  APPROVED: 'solicitacao.aprovada',
+  REJECTED: 'solicitacao.recusada',
+  CANCELLED: 'solicitacao.cancelada'
+};
 
 const FILTROS = [
-  ['PENDING', 'Em análise'],
-  ['APPROVED', 'Aprovadas'],
-  ['REJECTED', 'Recusadas'],
-  ['CANCELLED', 'Canceladas'],
-  ['', 'Todas']
+  ['PENDING', 'solicitacao.emAnalise'],
+  ['APPROVED', 'fila.aprovadas'],
+  ['REJECTED', 'fila.recusadas'],
+  ['CANCELLED', 'fila.canceladas'],
+  ['', 'fila.todas']
 ];
 
 export default function AdminSolicitacoes({ notificar }) {
+  const { t } = useIdioma();
   const [status, setStatus] = useState('PENDING');
   const [cursor, setCursor] = useState(null);
   const [abrindo, setAbrindo] = useState(null);
@@ -49,21 +57,21 @@ export default function AdminSolicitacoes({ notificar }) {
   return (
     <div className="page">
       <PageHead
-        eyebrow="Federação"
-        title="Solicitações de atletas"
-        description="Pedidos de perfil de atleta aguardando a confirmação da filiação."
+        eyebrow={t('fila.federacao')}
+        title={t('fila.titulo')}
+        description={t('fila.descricao')}
       />
 
-      <div className="chips" role="group" aria-label="Filtrar por situação">
-        {FILTROS.map(([valor, rotulo]) => (
+      <div className="chips" role="group" aria-label={t('fila.filtrarPorSituacao')}>
+        {FILTROS.map(([valor, chave]) => (
           <button
-            key={rotulo}
+            key={chave}
             type="button"
             className={`chip${status === valor ? ' is-on' : ''}`}
             aria-pressed={status === valor}
             onClick={() => trocarFiltro(valor)}
           >
-            {rotulo}
+            {t(chave)}
           </button>
         ))}
       </div>
@@ -77,12 +85,12 @@ export default function AdminSolicitacoes({ notificar }) {
               <table className="table">
                 <thead>
                   <tr>
-                    <th scope="col">Solicitante</th>
-                    <th scope="col">Entidade de filiação</th>
-                    <th scope="col">Registro</th>
-                    <th scope="col">Enviada em</th>
-                    <th scope="col">Situação</th>
-                    <th scope="col"><span className="sr-only">Ações</span></th>
+                    <th scope="col">{t('fila.solicitante')}</th>
+                    <th scope="col">{t('solicitacao.entidade')}</th>
+                    <th scope="col">{t('fila.registro')}</th>
+                    <th scope="col">{t('fila.enviadaEm')}</th>
+                    <th scope="col">{t('conta.situacao')}</th>
+                    <th scope="col"><span className="sr-only">{t('fila.acoes')}</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -95,10 +103,10 @@ export default function AdminSolicitacoes({ notificar }) {
                       <td>{pedido.affiliation?.name || '—'}</td>
                       <td className="num">{pedido.affiliationNumber}</td>
                       <td>{formatarData(pedido.createdAt)}</td>
-                      <td><Badge tom={TOM[pedido.status]}>{ROTULO[pedido.status]}</Badge></td>
+                      <td><Badge tom={TOM[pedido.status]}>{t(ROTULO[pedido.status])}</Badge></td>
                       <td>
                         <button type="button" className="button button-secondary button-sm" onClick={() => setAbrindo(pedido)}>
-                          Ver
+                          {t('fila.ver')}
                         </button>
                       </td>
                     </tr>
@@ -112,16 +120,16 @@ export default function AdminSolicitacoes({ notificar }) {
                 <li key={pedido.id} className="card cartao-pedido">
                   <div className="cartao-topo">
                     <strong>{pedido.fullName}</strong>
-                    <Badge tom={TOM[pedido.status]}>{ROTULO[pedido.status]}</Badge>
+                    <Badge tom={TOM[pedido.status]}>{t(ROTULO[pedido.status])}</Badge>
                   </div>
                   <small className="muted">{pedido.user?.email}</small>
                   <dl className="linha-revisao-compacta">
-                    <div><dt>Filiação</dt><dd>{pedido.affiliation?.name || '—'}</dd></div>
-                    <div><dt>Registro</dt><dd>{pedido.affiliationNumber}</dd></div>
-                    <div><dt>Enviada</dt><dd>{formatarData(pedido.createdAt)}</dd></div>
+                    <div><dt>{t('carreira.colunaFiliacao')}</dt><dd>{pedido.affiliation?.name || '—'}</dd></div>
+                    <div><dt>{t('fila.registro')}</dt><dd>{pedido.affiliationNumber}</dd></div>
+                    <div><dt>{t('fila.enviada')}</dt><dd>{formatarData(pedido.createdAt)}</dd></div>
                   </dl>
                   <button type="button" className="button button-secondary" onClick={() => setAbrindo(pedido)}>
-                    Ver solicitação
+                    {t('fila.verSolicitacao')}
                   </button>
                 </li>
               ))}
@@ -147,6 +155,7 @@ export default function AdminSolicitacoes({ notificar }) {
 // ---------------------------------------------------------------------------
 
 function Analise({ id, onClose, aoDecidir, notificar }) {
+  const { t } = useIdioma();
   const { user } = useAuth();
   // O pedido é RECARREGADO por id em vez de reaproveitar a linha da lista: é
   // esta chamada que traz o CPF, e é nela que o servidor reconfere a permissão
@@ -165,16 +174,20 @@ function Analise({ id, onClose, aoDecidir, notificar }) {
     try {
       if (acao === 'aprovar') {
         await api.athleteRequests.aprovar(id);
-        notificar?.('Solicitação aprovada. O atleta foi criado.');
+        notificar?.(t('fila.aprovadaAviso'));
         // Aprovar cria um atleta — é o momento em que alguém passa a existir na
         // plataforma. Nível EVENTO: confirma sem tomar o centro da tela, porque
         // uma fila de solicitações se analisa uma atrás da outra.
-        anunciar(MCIEvento.SUCESSO, { titulo: 'Solicitação aprovada', descricao: 'O perfil de atleta foi criado.' });
+        anunciar(MCIEvento.SUCESSO, {
+          titulo: t('fila.aprovadaTitulo'), descricao: t('fila.aprovadaDescricao')
+        });
       } else {
         await api.athleteRequests.rejeitar(id, motivo.trim());
-        notificar?.('Solicitação recusada.');
+        notificar?.(t('fila.recusadaAviso'));
         // Recusar NÃO comemora: do outro lado há uma pessoa esperando.
-        anunciar(MCIEvento.AVISO, { titulo: 'Solicitação recusada', descricao: 'O motivo foi registrado e enviado.' });
+        anunciar(MCIEvento.AVISO, {
+          titulo: t('fila.recusadaTitulo'), descricao: t('fila.recusadaDescricao')
+        });
       }
       aoDecidir();
     } catch (problema) {
@@ -190,7 +203,7 @@ function Analise({ id, onClose, aoDecidir, notificar }) {
   const pendente = dados?.status === 'PENDING';
 
   return (
-    <Modal title="Analisar solicitação" description="Confirme a filiação antes de aprovar." wide onClose={onClose}>
+    <Modal title={t('fila.analisar')} description={t('fila.analisarDescricao')} wide onClose={onClose}>
       <AsyncSection state={pedido} linhas={5}>
         {pedidoCarregado => (
           <>
@@ -200,36 +213,41 @@ function Analise({ id, onClose, aoDecidir, notificar }) {
             <div className="foto-da-analise">
               <div className="foto-previa foto-previa-grande">
                 {pedidoCarregado.hasPhoto
-                  ? <ProtectedMedia path={`/media/athlete-requests/${pedidoCarregado.id}/photo`} alt={`Foto enviada por ${pedidoCarregado.fullName}`} />
-                  : <span className="foto-vazia">Sem foto</span>}
+                  ? (
+                    <ProtectedMedia
+                      path={`/media/athlete-requests/${pedidoCarregado.id}/photo`}
+                      alt={t('fila.fotoDe', { nome: pedidoCarregado.fullName })}
+                    />
+                  )
+                  : <span className="foto-vazia">{t('solicitacao.semFoto')}</span>}
               </div>
               {!pedidoCarregado.hasPhoto && (
-                <small className="muted">
-                  Este pedido veio sem foto. A foto é opcional — confira a identidade pelos
-                  demais dados.
-                </small>
+                <small className="muted">{t('fila.semFotoNota')}</small>
               )}
             </div>
 
             <dl className="lista-revisao">
-              <Linha rotulo="Nome informado" valor={pedidoCarregado.fullName} />
-              <Linha rotulo="Conta" valor={pedidoCarregado.user?.email} />
+              <Linha rotulo={t('fila.nomeInformado')} valor={pedidoCarregado.fullName} />
+              <Linha rotulo={t('fila.contaDoSolicitante')} valor={pedidoCarregado.user?.email} />
               <Linha
                 rotulo="CPF"
-                valor={pedidoCarregado.cpf ? mascararCpf(pedidoCarregado.cpf) : 'Já não está guardado neste pedido'}
+                valor={pedidoCarregado.cpf ? mascararCpf(pedidoCarregado.cpf) : t('fila.cpfApagado')}
                 sensivel
               />
-              <Linha rotulo="Categoria de competição" valor={pedidoCarregado.sex === 'FEMALE' ? 'Feminino' : 'Masculino'} />
-              <Linha rotulo="Nascimento" valor={pedidoCarregado.birthDate ? formatarData(pedidoCarregado.birthDate) : '—'} />
-              <Linha rotulo="Entidade de filiação" valor={pedidoCarregado.affiliation?.name} />
-              <Linha rotulo="Número de registro" valor={pedidoCarregado.affiliationNumber} />
-              <Linha rotulo="Cidade" valor={[pedidoCarregado.user?.city, pedidoCarregado.user?.state].filter(Boolean).join(' — ')} />
-              <Linha rotulo="Enviada em" valor={formatarDataHora(pedidoCarregado.createdAt)} />
+              <Linha
+                rotulo={t('solicitacao.categoriaDeCompeticao')}
+                valor={t(pedidoCarregado.sex === 'FEMALE' ? 'solicitacao.feminino' : 'solicitacao.masculino')}
+              />
+              <Linha rotulo={t('fila.nascimento')} valor={pedidoCarregado.birthDate ? formatarData(pedidoCarregado.birthDate) : '—'} />
+              <Linha rotulo={t('solicitacao.entidade')} valor={pedidoCarregado.affiliation?.name} />
+              <Linha rotulo={t('solicitacao.numeroDeRegistro')} valor={pedidoCarregado.affiliationNumber} />
+              <Linha rotulo={t('fila.cidade')} valor={[pedidoCarregado.user?.city, pedidoCarregado.user?.state].filter(Boolean).join(' — ')} />
+              <Linha rotulo={t('fila.enviadaEm')} valor={formatarDataHora(pedidoCarregado.createdAt)} />
               {pedidoCarregado.reviewedAt && (
-                <Linha rotulo="Analisada em" valor={formatarDataHora(pedidoCarregado.reviewedAt)} />
+                <Linha rotulo={t('fila.analisadaEm')} valor={formatarDataHora(pedidoCarregado.reviewedAt)} />
               )}
               {pedidoCarregado.rejectionReason && (
-                <Linha rotulo="Motivo da recusa" valor={pedidoCarregado.rejectionReason} />
+                <Linha rotulo={t('fila.motivoDaRecusa')} valor={pedidoCarregado.rejectionReason} />
               )}
             </dl>
 
@@ -237,29 +255,34 @@ function Analise({ id, onClose, aoDecidir, notificar }) {
                 "ok", é a criação do atleta e do documento. */}
             {pendente && !eProprio && (
               <p className="muted">
-                Aprovar cria o perfil de atleta de <strong>{pedidoCarregado.fullName}</strong> em{' '}
-                <strong>{pedidoCarregado.affiliation?.name}</strong> e vincula o CPF à ficha. A ação
-                fica registrada em auditoria com o seu nome.
+                <TextoRico
+                  chave="fila.oQueAprovarFaz"
+                  valores={{ nome: pedidoCarregado.fullName, entidade: pedidoCarregado.affiliation?.name }}
+                />
               </p>
             )}
 
             {eProprio && (
               <div className="alert alert-alerta" role="status">
                 <div>
-                  <strong>Esta solicitação é sua.</strong>
-                  <p>Quem pede não analisa. Peça a outro operador da federação.</p>
+                  <strong>{t('fila.pedidoProprio')}</strong>
+                  <p>{t('fila.pedidoProprioNota')}</p>
                 </div>
               </div>
             )}
 
             {!pendente && (
               <div className="alert alert-info" role="status">
-                <div><strong>Esta solicitação já foi {ROTULO[pedidoCarregado.status].toLowerCase()}.</strong></div>
+                <div>
+                  <strong>
+                    {t('fila.jaDecidida', { situacao: t(ROTULO[pedidoCarregado.status]).toLowerCase() })}
+                  </strong>
+                </div>
               </div>
             )}
 
             {recusando && (
-              <Field label="Motivo da recusa" required hint="O solicitante vê este texto. Diga o que ele precisa corrigir.">
+              <Field label={t('fila.motivoDaRecusa')} required hint={t('fila.motivoHint')}>
                 <textarea
                   value={motivo}
                   onChange={evento => setMotivo(evento.target.value)}
@@ -274,13 +297,13 @@ function Analise({ id, onClose, aoDecidir, notificar }) {
 
             <div className="modal-actions">
               <button type="button" className="button button-ghost" onClick={onClose} disabled={salvando}>
-                Fechar
+                {t('acao.fechar')}
               </button>
 
               {pendente && !eProprio && (recusando ? (
                 <>
                   <button type="button" className="button button-ghost" onClick={() => setRecusando(false)} disabled={salvando}>
-                    Voltar
+                    {t('acao.voltar')}
                   </button>
                   <button
                     type="button"
@@ -288,16 +311,16 @@ function Analise({ id, onClose, aoDecidir, notificar }) {
                     onClick={() => decidir('rejeitar')}
                     disabled={salvando || motivo.trim().length < 3}
                   >
-                    {salvando ? 'Recusando…' : 'Confirmar recusa'}
+                    {t(salvando ? 'fila.recusando' : 'fila.confirmarRecusa')}
                   </button>
                 </>
               ) : (
                 <>
                   <button type="button" className="button button-secondary" onClick={() => setRecusando(true)} disabled={salvando}>
-                    Recusar
+                    {t('fila.recusar')}
                   </button>
                   <button type="button" className="button button-primary" onClick={() => decidir('aprovar')} disabled={salvando}>
-                    {salvando ? 'Aprovando…' : 'Aprovar e criar atleta'}
+                    {t(salvando ? 'fila.aprovando' : 'fila.aprovarECriar')}
                   </button>
                 </>
               ))}

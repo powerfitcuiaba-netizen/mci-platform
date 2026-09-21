@@ -5,6 +5,7 @@ import { useFetch } from '../lib/hooks';
 import { SeletorDeEvento } from './adminEvent';
 import { AsyncSection, Badge, EmptyState, Field, Modal, PageHead } from '../components/ui';
 import { formatarData, formatarDataHora } from '../lib/format';
+import { useIdioma } from '../lib/idioma';
 
 // ==========================================================================
 // HOMOLOGAÇÃO DO OVERALL.
@@ -36,14 +37,15 @@ export function AdminOverall({ notificar }) {
     [eventId, recarga]
   );
 
+  const { t } = useIdioma();
   const recarregar = () => setRecarga(n => n + 1);
 
   return (
     <div className="page">
       <PageHead
-        eyebrow="Ranking"
-        title="Homologação do Overall"
-        description="Registro da decisão oficial da organização. A plataforma não calcula nem escolhe o campeão Overall."
+        eyebrow={t('overall.ranking')}
+        title={t('overall.titulo')}
+        description={t('overall.descricao')}
       />
 
       <div className="toolbar">
@@ -51,7 +53,7 @@ export function AdminOverall({ notificar }) {
       </div>
 
       {!eventId
-        ? <EmptyState title="Escolha um campeonato" description="A homologação é por campeonato e por classe absoluta." />
+        ? <EmptyState title={t('overall.escolhaCampeonato')} description={t('overall.escolhaCampeonatoDescricao')} />
         : (
           <AsyncSection state={estado} linhas={4}>
             {dados => {
@@ -63,7 +65,7 @@ export function AdminOverall({ notificar }) {
                     <div className="panel-head"><h2>{dados.event.name}</h2></div>
                     <div className="hero-meta" style={{ padding: '0 0 10px' }}>
                       <span>{formatarData(dados.event.startDate)}</span>
-                      <span>{dados.event.season?.name || 'Sem temporada'}</span>
+                      <span>{dados.event.season?.name || t('overall.semTemporada')}</span>
                       <span>{dados.event.organization?.name}</span>
                     </div>
                   </section>
@@ -71,8 +73,8 @@ export function AdminOverall({ notificar }) {
                   {!dados.items.length
                     ? (
                       <EmptyState
-                        title="Nenhuma classe absoluta neste campeonato"
-                        description="O título Overall é da classe absoluta. Sem uma classe marcada como absoluta, não há o que homologar."
+                        title={t('overall.semClasseAbsoluta')}
+                        description={t('overall.semClasseAbsolutaDescricao')}
                       />
                     )
                     : dados.items.map(grupo => (
@@ -114,6 +116,7 @@ export function AdminOverall({ notificar }) {
 }
 
 function GrupoAbsoluto({ grupo, onDeclarar, onRevogar }) {
+  const { t } = useIdioma();
   const homologado = Boolean(grupo.declaredTitle);
   const campeao = homologado
     ? grupo.candidates.find(c => c.athlete.id === grupo.declaredTitle.athleteId)
@@ -129,37 +132,37 @@ function GrupoAbsoluto({ grupo, onDeclarar, onRevogar }) {
           </small>
         </h2>
         {homologado
-          ? <Badge tom="ok">Homologado</Badge>
-          : <Badge tom="neutro">Sem homologação</Badge>}
+          ? <Badge tom="ok">{t('overall.homologado')}</Badge>
+          : <Badge tom="neutro">{t('overall.semHomologacao')}</Badge>}
       </div>
 
       {homologado && (
         <div className="alert alert-ok" style={{ marginBottom: 14 }}>
           <Trophy size={16} />
           <div>
-            <strong>Overall declarado oficialmente</strong>
+            <strong>{t('overall.declaradoOficialmente')}</strong>
             <p>
-              {campeao?.athlete.fullName || 'Atleta homologado'}
-              {' · '}homologado em {formatarDataHora(grupo.declaredTitle.declaredAt)}
+              {campeao?.athlete.fullName || t('overall.atletaHomologado')}
+              {' · '}{t('overall.homologadoEm', { data: formatarDataHora(grupo.declaredTitle.declaredAt) })}
             </p>
           </div>
           <button type="button" className="button button-secondary button-sm" onClick={onRevogar}>
-            Revogar
+            {t('overall.revogar')}
           </button>
         </div>
       )}
 
       {!grupo.candidates.length
-        ? <EmptyState title="Sem resultado publicado" description="Os candidatos aparecem quando o resultado desta classe é publicado." />
+        ? <EmptyState title={t('overall.semResultadoPublicado')} description={t('overall.semResultadoDescricao')} />
         : (
           <div className="table-wrap">
             <table className="table homologacao-tabela">
               <thead>
                 <tr>
-                  <th className="num">Col.</th>
-                  <th>Atleta</th>
-                  <th className="num">Matrícula</th>
-                  <th>Filiação</th>
+                  <th className="num">{t('overall.colocacaoCurta')}</th>
+                  <th>{t('overall.atleta')}</th>
+                  <th className="num">{t('overall.matricula')}</th>
+                  <th>{t('overall.filiacao')}</th>
                   <th />
                 </tr>
               </thead>
@@ -169,10 +172,10 @@ function GrupoAbsoluto({ grupo, onDeclarar, onRevogar }) {
                     {/* A colocação é FATO do resultado publicado. Não é
                         destaque, não é sugestão e não muda de cor no 1º
                         lugar — quem escolhe o Overall é o operador. */}
-                    <td className="num" data-rotulo="Colocação">{candidato.placing ?? '—'}º</td>
-                    <td data-rotulo="Atleta">{candidato.athlete.fullName}</td>
-                    <td className="num" data-rotulo="Matrícula">{candidato.affiliationNumber || '—'}</td>
-                    <td data-rotulo="Filiação">{candidato.affiliation?.name || '—'}</td>
+                    <td className="num" data-rotulo={t('overall.colocacao')}>{candidato.placing ?? '—'}º</td>
+                    <td data-rotulo={t('overall.atleta')}>{candidato.athlete.fullName}</td>
+                    <td className="num" data-rotulo={t('overall.matricula')}>{candidato.affiliationNumber || '—'}</td>
+                    <td data-rotulo={t('overall.filiacao')}>{candidato.affiliation?.name || '—'}</td>
                     <td style={{ textAlign: 'right' }}>
                       {!homologado && (
                         <button
@@ -180,7 +183,7 @@ function GrupoAbsoluto({ grupo, onDeclarar, onRevogar }) {
                           className="button button-secondary button-sm"
                           onClick={() => onDeclarar(candidato)}
                         >
-                          Declarar Overall
+                          {t('overall.declararOverall')}
                         </button>
                       )}
                     </td>
@@ -197,6 +200,7 @@ function GrupoAbsoluto({ grupo, onDeclarar, onRevogar }) {
 // A PRÉVIA. Busca do servidor o impacto exato e mostra a conta aberta antes de
 // qualquer escrita — e o servidor, por sua vez, não grava nada para respondê-la.
 function DialogoDeHomologacao({ eventId, grupo, candidato, notificar, onClose, onPronto }) {
+  const { t } = useIdioma();
   const [enviando, setEnviando] = useState(false);
   const previa = useFetch(
     () => api.ranking.overallPreview(eventId, { athleteId: candidato.athlete.id, categoryId: grupo.category?.id }),
@@ -210,50 +214,50 @@ function DialogoDeHomologacao({ eventId, grupo, candidato, notificar, onClose, o
         athleteId: candidato.athlete.id,
         ...(grupo.category?.id ? { categoryId: grupo.category.id } : {})
       });
-      notificar?.('Overall homologado.');
+      notificar?.(t('overall.homologadoAviso'));
       onPronto();
     } catch (erro) {
-      notificar?.(erro.message || 'Não foi possível homologar.', 'erro');
+      notificar?.(erro.message || t('overall.falhaAoHomologar'), 'erro');
       setEnviando(false);
     }
   };
 
   return (
     <Modal
-      title="Homologação do Overall"
-      description="Confira o impacto antes de confirmar."
+      title={t('overall.titulo')}
+      description={t('overall.confiraOImpacto')}
       onClose={onClose}
     >
       <AsyncSection state={previa} linhas={3}>
         {dados => (
           <>
             <dl className="definicoes">
-              <div><dt>Campeonato</dt><dd>{dados.event.name}</dd></div>
-              <div><dt>Categoria</dt><dd>{dados.category?.name || '—'} · {dados.competitionClass?.name}</dd></div>
-              <div><dt>Atleta</dt><dd>{dados.athlete.fullName}</dd></div>
-              <div><dt>Matrícula</dt><dd>{dados.athlete.affiliationNumber || '—'}</dd></div>
-              <div><dt>Filiação</dt><dd>{dados.athlete.affiliation?.name || '—'}</dd></div>
-              <div><dt>Colocação</dt><dd>{dados.participation.placing}º</dd></div>
-              <div><dt>Pontos da colocação</dt><dd>{dados.participation.placementPoints}</dd></div>
-              <div><dt>Bônus Overall</dt><dd><strong>+{dados.overallBonus}</strong></dd></div>
-              <div><dt>Total da participação</dt><dd><strong>{dados.participation.pointsAfter}</strong></dd></div>
-              <div><dt>Impacto no acumulado</dt><dd>+{dados.seasonImpact}</dd></div>
+              <div><dt>{t('overall.campeonato')}</dt><dd>{dados.event.name}</dd></div>
+              <div><dt>{t('overall.categoria')}</dt><dd>{dados.category?.name || '—'} · {dados.competitionClass?.name}</dd></div>
+              <div><dt>{t('overall.atleta')}</dt><dd>{dados.athlete.fullName}</dd></div>
+              <div><dt>{t('overall.matricula')}</dt><dd>{dados.athlete.affiliationNumber || '—'}</dd></div>
+              <div><dt>{t('overall.filiacao')}</dt><dd>{dados.athlete.affiliation?.name || '—'}</dd></div>
+              <div><dt>{t('overall.colocacao')}</dt><dd>{dados.participation.placing}º</dd></div>
+              <div><dt>{t('overall.pontosDaColocacao')}</dt><dd>{dados.participation.placementPoints}</dd></div>
+              <div><dt>{t('overall.bonusOverall')}</dt><dd><strong>+{dados.overallBonus}</strong></dd></div>
+              <div><dt>{t('overall.totalDaParticipacao')}</dt><dd><strong>{dados.participation.pointsAfter}</strong></dd></div>
+              <div><dt>{t('overall.impactoNoAcumulado')}</dt><dd>+{dados.seasonImpact}</dd></div>
             </dl>
 
             <div className="alert alert-alerta" style={{ marginTop: 14 }}>
               <ShieldCheck size={16} />
               <div>
-                <strong>Esta ação registra uma declaração oficial de Overall.</strong>
-                <p>A plataforma não calcula e não decide o campeão.</p>
+                <strong>{t('overall.declaracaoOficial')}</strong>
+                <p>{t('overall.naoCalculamos')}</p>
               </div>
             </div>
 
             <div className="modal-actions">
               <button type="button" className="button button-secondary" onClick={onClose} disabled={enviando}>
-                Cancelar
+                {t('acao.cancelar')}
               </button>
               <button type="button" className="button button-primary" onClick={confirmar} disabled={enviando}>
-                {enviando ? 'Homologando…' : 'Confirmar homologação'}
+                {t(enviando ? 'overall.homologando' : 'overall.confirmarHomologacao')}
               </button>
             </div>
           </>
@@ -266,6 +270,7 @@ function DialogoDeHomologacao({ eventId, grupo, candidato, notificar, onClose, o
 // REVOGAÇÃO. Motivo obrigatório: revogar título homologado sem dizer por quê
 // deixa o próximo operador sem saber o que já foi analisado.
 function DialogoDeRevogacao({ eventId, grupo, notificar, onClose, onPronto }) {
+  const { t } = useIdioma();
   const [motivo, setMotivo] = useState('');
   const [enviando, setEnviando] = useState(false);
 
@@ -273,40 +278,40 @@ function DialogoDeRevogacao({ eventId, grupo, notificar, onClose, onPronto }) {
     setEnviando(true);
     try {
       await api.ranking.revokeOverall(eventId, grupo.declaredTitle.id, { reason: motivo.trim() });
-      notificar?.('Homologação revogada.');
+      notificar?.(t('overall.revogadaAviso'));
       onPronto();
     } catch (erro) {
-      notificar?.(erro.message || 'Não foi possível revogar.', 'erro');
+      notificar?.(erro.message || t('overall.falhaAoRevogar'), 'erro');
       setEnviando(false);
     }
   };
 
   return (
     <Modal
-      title="Revogar homologação"
-      description="A revogação retira o bônus de +10. A colocação não é alterada."
+      title={t('overall.revogarHomologacao')}
+      description={t('overall.revogarDescricao')}
       onClose={onClose}
     >
       <div className="alert alert-alerta" style={{ marginBottom: 14 }}>
         <AlertTriangle size={16} />
         <div>
-          <strong>Isto corrige uma decisão oficial já registrada.</strong>
-          <p>O motivo fica na auditoria, junto de quem revogou e de quando.</p>
+          <strong>{t('overall.corrigeDecisao')}</strong>
+          <p>{t('overall.motivoNaAuditoria')}</p>
         </div>
       </div>
 
-      <Field label="Motivo da revogação" required>
+      <Field label={t('overall.motivoDaRevogacao')} required>
         <textarea
           value={motivo}
           onChange={evento => setMotivo(evento.target.value)}
           rows={3}
-          placeholder="Ex.: ata oficial corrigida pela organização"
+          placeholder={t('overall.exemploDeMotivo')}
         />
       </Field>
 
       <div className="modal-actions">
         <button type="button" className="button button-secondary" onClick={onClose} disabled={enviando}>
-          Cancelar
+          {t('acao.cancelar')}
         </button>
         <button
           type="button"
@@ -314,7 +319,7 @@ function DialogoDeRevogacao({ eventId, grupo, notificar, onClose, onPronto }) {
           onClick={revogar}
           disabled={enviando || motivo.trim().length < 3}
         >
-          {enviando ? 'Revogando…' : 'Revogar homologação'}
+          {t(enviando ? 'overall.revogando' : 'overall.revogarHomologacao')}
         </button>
       </div>
     </Modal>

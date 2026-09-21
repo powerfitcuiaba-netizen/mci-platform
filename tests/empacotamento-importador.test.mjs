@@ -301,7 +301,65 @@ describe('o calendário não pede migration nenhuma', () => {
       // desfazer DEPOIS, e o lote precisa continuar no histórico dizendo qual
       // das duas coisas aconteceu. Um lote antigo segue válido com os três
       // campos nulos.
-      '20260919160000_importacao_invalidada'
+      '20260919160000_importacao_invalidada',
+      // ADICIONADA na fase do histórico anterior ao cadastro. Ela é
+      // estrutural e não cosmética, e por isso precisa de justificativa aqui:
+      //
+      // `ExternalResult.athleteId` e `RankingPoint.athleteId` eram NOT NULL.
+      // Isso tornava IMPOSSÍVEL carregar o histórico oficial de um campeonato
+      // antigo antes de os atletas se cadastrarem — e a única saída sem
+      // migration seria criar atleta automaticamente, com CPF inventado e
+      // carreiras de homônimos fundidas.
+      //
+      // A migration cria `ExternalAthlete` (a identidade esportiva externa,
+      // separada da identidade de usuário do MCI), dá `organizationId` PRÓPRIO
+      // às três tabelas do ledger — porque a tenancy delas era deduzida do
+      // atleta, e o atleta passou a poder não existir —, cria a projeção
+      // pública `PublicRankingEntry` e liga RLS com FORCE nas cinco.
+      //
+      // Nenhum dado é apagado: sem DROP de tabela, sem TRUNCATE, sem DELETE.
+      // Cada backfill termina num bloco que conta órfãs e ABORTA a migration
+      // se achar alguma, em vez de ligar RLS sobre linha sem dono.
+      '20260920000000_identidade_externa_e_rls_do_ledger',
+      // ADICIONADA para consertar um defeito da anterior, e o registro disso
+      // importa mais do que o conserto: ao fechar o ledger para não-operadores,
+      // a migration acima fechou também o ATLETA — e `GET /me/history` lê
+      // `RankingPoint` com a sessão dele. A tela da carreira passou a devolver
+      // vazio.
+      //
+      // Esta reabre a leitura para o DONO da linha, pelo mesmo padrão que
+      // `AthleteProfileRequest` já usa. Só SELECT; escrita segue de operador.
+      // `athleteId` nulo NÃO passa — e há teste dedicado a isso, porque o
+      // resultado histórico sem dono não pode virar visível a qualquer
+      // pessoa autenticada.
+      '20260920120000_o_dono_le_o_proprio_historico',
+      // Duas cláusulas incondicionais fechadas, e nenhuma coluna tocada.
+      //
+      // `AthleteTeamMembership` tinha `USING (true)` na leitura: o histórico de
+      // equipe inteiro — datas, motivo de saída, quem registrou — era legível
+      // por qualquer um, anônimo inclusive. `AuditLog` tinha `WITH CHECK
+      // (true)`: a leitura era restrita e a ESCRITA não era conferida, então
+      // uma linha podia ser gravada com o `userId` de outra pessoa.
+      //
+      // A auditoria também virou append-only: sem política de UPDATE e sem
+      // política de DELETE, e sob FORCE RLS comando sem política é comando
+      // negado — para o dono do schema inclusive.
+      '20260921000000_vinculo_privado_e_auditoria_inforjavel',
+      // A matrícula identifica UM atleta por (organização, filiação). Entra
+      // pela revisão que esta lista existe para exigir.
+      //
+      // ADITIVA e DEFENSIVA: um índice único PARCIAL em ("organizationId",
+      // "affiliationId", "affiliationNumber"), restrito às linhas em que os
+      // dois últimos não são nulos — atleta sem filiação registrada continua
+      // existindo aos montes, e nenhum deles é afetado. Nenhuma coluna criada,
+      // nenhuma apagada, nenhuma política de RLS tocada.
+      //
+      // E ela NÃO CORRIGE DADO SOZINHA: antes de criar o índice, um bloco
+      // `DO` procura duplicatas e ABORTA com a contagem e até vinte exemplos
+      // se encontrar alguma. Em base que já carrega ambiguidade, qual dos dois
+      // cadastros fica é decisão humana — a migration para e mostra, em vez de
+      // escolher.
+      '20260921120000_matricula_identifica_um_atleta'
     ]);
   });
 });

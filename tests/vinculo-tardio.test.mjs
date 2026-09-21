@@ -198,32 +198,27 @@ describe('conflito bloqueia, e o sistema não escolhe', () => {
     expect(item.reason).toMatch(/FED-MT|filia/i);
   });
 
-  it('dois atletas com a mesma matrícula na mesma filiação é CONFLICT', async () => {
-    const { body } = await importar(csv([linha('88281', 'Yuri', 'Santinelli')]));
+  it('dois atletas com a mesma matrícula na mesma filiação é RECUSADO na origem', async () => {
+    // Este caso era CONFLICT: o sistema aceitava os dois cadastros e depois se
+    // recusava a escolher entre eles. A recusa estava certa, e chegava tarde —
+    // a ambiguidade já existia no banco, e bastava alguém decidir errado uma
+    // vez para o histórico ir para a pessoa errada.
+    //
+    // Agora a matrícula identifica UMA pessoa dentro da filiação: o segundo
+    // cadastro não é aceito. A guarda do vínculo continua no código como
+    // defesa para dado legado, e é medida em `matricula-identifica-um`.
+    await pedirECadastrar({ matricula: 'NPC-9090', nome: 'PRIMEIRA PESSOA', semente: 909 });
 
-    // O primeiro entra pela porta da frente e vincula.
-    await pedirECadastrar({ matricula: '88281', nome: 'Yuri Santinelli', semente: 708 });
-    // O segundo é semeado direto: o cadastro normal barraria o duplicado, e o
-    // que está sob teste é o gate reagindo a uma base já inconsistente.
-    await comoAtor(gerente, tx => tx.athlete.create({
-      data: {
-        organizationId, fullName: 'HOMONIMO', sex: 'MALE', affiliationId: npc.id,
-        affiliationNumber: '88281', identity: { create: { organizationId, cpf: gerarCpf(709) } }
-      }
-    }));
-
-    const segundo = await importar(csv([linha('88281', 'Yuri', 'Santinelli', 1, CLASSE, 9)]), {
-      externalIdPrefix: 'SEGUNDA'
+    const segunda = await api().post('/api/v1/athletes').set(admin.auth()).send({
+      organizationId, fullName: 'SEGUNDA PESSOA', cpf: gerarCpf(910),
+      sex: 'MALE', birthDate: '1995-03-10',
+      affiliationId: npc.id, affiliationNumber: 'NPC-9090'
     });
-    const [item] = await itensDoLote(segundo.body.import.id);
-    expect(item.matchStatus).toBe('CONFLICT');
-    expect(item.athleteId).toBeNull();
-    expect(await itensDoLote(body.import.id)).toBeDefined();
-  });
-});
 
-// ------------------------------------------------------------------- 14, 15
-describe('aprovações que não têm o que vincular', () => {
+    expect(segunda.status).toBe(409);
+    expect(segunda.body.error.code).toBe('AFFILIATION_NUMBER_IN_USE');
+  });
+
   it('atleta aprovado sem resultado pendente não altera nada', async () => {
     const antes = await contagens();
     await pedirECadastrar({ matricula: '99999', nome: 'Ninguem Do Arquivo', semente: 710 });
@@ -264,36 +259,52 @@ describe('idempotência e ausência de pontuação nova', () => {
     await importar(csv([linha('147986', 'Kananda', 'Azevedo', 2, CLASSE, 2)]), { externalIdPrefix: 'DESCARTE' });
 
     await aplicar(body.import.id);
-    const pontosAntes = (await ledger()).length;
+
+    // AS DUAS LINHAS JÁ ENTRARAM: a da Kananda com dono, a do Yuri sem. O
+    // cenário antigo esperava que o Yuri ficasse de fora até se cadastrar —
+    // era a regra de um sistema que já tinha cadastro de atletas.
+    const antes = await ledger();
+    expect(antes.length).toBe(2);
+    const semDonoAntes = antes.filter(p => p.athleteId === null);
+    expect(semDonoAntes).toHaveLength(1);
+    const somaAntes = antes.reduce((s, p) => s + p.points, 0);
+    const idsAntes = antes.map(p => p.id).sort();
 
     await pedirECadastrar({ matricula: '88281', nome: 'Yuri Santinelli', semente: 714 });
 
+    // O CADASTRO NÃO ACRESCENTA PONTO. Ele dá dono a um que já existia: os
+    // mesmos ids, a mesma soma, e ninguém mais sem dono.
     const depois = await ledger();
-    expect(depois.length).toBe(pontosAntes + 1);
-    const soma = depois.reduce((s, p) => s + p.points, 0);
+    expect(depois.length).toBe(2);
+    expect(depois.map(p => p.id).sort()).toEqual(idsAntes);
+    expect(depois.reduce((s, p) => s + p.points, 0)).toBe(somaAntes);
+    expect(depois.filter(p => p.athleteId === null)).toHaveLength(0);
 
     // Reaplicar não pode somar de novo.
     await aplicar(body.import.id).catch(() => null);
     const final = await ledger();
     expect(final.length).toBe(depois.length);
-    expect(final.reduce((s, p) => s + p.points, 0)).toBe(soma);
+    expect(final.reduce((s, p) => s + p.points, 0)).toBe(somaAntes);
   });
 
   it('aplicar de novo depois do vínculo não produz ponto em dobro', async () => {
     const { body } = await importar(csv([linha('88281', 'Yuri', 'Santinelli')]));
 
-    // Antes do cadastro não há o que aplicar: a linha está pendente.
+    // A LINHA PENDENTE APLICA — invertido nesta fase. Antes, sem cadastro não
+    // havia o que aplicar; agora o resultado histórico entra sem dono.
     const semNinguem = await aplicar(body.import.id);
-    expect(semNinguem.status).toBe(422);
-    expect((await contagens()).pontos).toBe(0);
+    expect(semNinguem.status).toBe(200);
+    expect((await contagens()).pontos).toBe(1);
 
+    // E o cadastro, quando vem, não acrescenta ponto nenhum — ele dá dono.
     await pedirECadastrar({ matricula: '88281', nome: 'Yuri Santinelli', semente: 715 });
 
-    // Agora a linha está reconhecida: esta é a PRIMEIRA aplicação de verdade.
-    expect((await aplicar(body.import.id)).status).toBe(200);
-    const primeiro = await itensDoLote(body.import.id);
+    // O retrato de comparação é tirado DEPOIS do cadastro: o que as
+    // reaplicações abaixo não podem mexer é neste estado, e não no anterior
+    // ao atleta existir.
     const contagemPrimeira = await contagens();
     expect(contagemPrimeira.pontos).toBe(1);
+    const primeiro = await itensDoLote(body.import.id);
 
     // Da segunda em diante, nada muda.
     await aplicar(body.import.id).catch(() => null);

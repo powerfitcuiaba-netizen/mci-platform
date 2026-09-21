@@ -54,7 +54,10 @@ const lote = itens => ({
   items: itens,
   summary: {
     totalRecords: itens.length, recognized: 0, pending: 0, conflicts: 0,
-    duplicates: 0, rejected: 0, applied: 0, valid: 0
+    duplicates: 0, rejected: 0, applied: 0,
+    // `applicable` e `pendingLink` nasceram na fase do histórico anterior ao
+    // cadastro: `valid` sozinho não distingue mais "entra" de "tem dono".
+    applicable: 0, pendingLink: 0, valid: 0
   }
 });
 
@@ -202,7 +205,12 @@ describe('a revisão diz que a lista está cortada', () => {
     api.muscleWar.preview.mockResolvedValue(comPagina(
       [item({ id: 'i1', rowNumber: 1 })],
       { limit: 200, offset: 0, matchStatus: null, returned: 1, total: 10000, hasMore: true },
-      { totalRecords: 10000, recognized: 8500, pending: 1200, conflicts: 300, valid: 8500 }
+      {
+        totalRecords: 10000, recognized: 8500, pending: 1200, conflicts: 300,
+        // 8500 reconhecidos + 1200 pendentes de vínculo entram; os 300 em
+        // conflito ficam fora.
+        applicable: 9700, pendingLink: 1200, valid: 9700
+      }
     ));
 
     render(<RevisarImportacao importId="imp1" notificar={() => {}} onClose={() => {}} onMudou={() => {}} />);
@@ -210,7 +218,14 @@ describe('a revisão diz que a lista está cortada', () => {
     // Uma linha na tela, 1.200 pendentes no lote: é o número do lote que
     // precisa aparecer, senão o aviso de revisão nunca dispara.
     expect(await screen.findByText('1200')).toBeTruthy();
-    expect(await screen.findByText(/Aplicar agora vai trazer apenas os 8500/i)).toBeTruthy();
+    // O AVISO MUDOU DE SENTIDO com a fase do histórico anterior ao cadastro.
+    // Dizia "vai trazer apenas os reconhecidos", que era verdade quando
+    // pendente não entrava. Agora ele diz quantos ENTRAM e quantos ficam
+    // esperando dono — e continua dizendo, em letra maiúscula, que ninguém é
+    // cadastrado automaticamente.
+    expect(await screen.findByText(/1200 resultado\(s\) ficarão pendentes de vínculo/i)).toBeTruthy();
+    expect(await screen.findByText(/9700 resultado\(s\) entram no histórico/i)).toBeTruthy();
+    expect(await screen.findByText(/Nenhum atleta é criado automaticamente/i)).toBeTruthy();
   });
 
   it('lote que cabe numa página não mostra paginação', async () => {

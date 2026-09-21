@@ -8,6 +8,7 @@ import {
 } from '../lib/formulario';
 import { formatarData } from '../lib/format';
 import { conferirFoto, TIPOS_DE_FOTO } from '../lib/foto';
+import { useIdioma } from '../lib/idioma';
 
 // ============================================================================
 // MINHA SOLICITAÇÃO DE PERFIL DE ATLETA.
@@ -25,9 +26,17 @@ import { conferirFoto, TIPOS_DE_FOTO } from '../lib/foto';
 // ============================================================================
 
 const TOM = { PENDING: 'atencao', APPROVED: 'sucesso', REJECTED: 'perigo', CANCELLED: 'neutro' };
-const ROTULO = { PENDING: 'Em análise', APPROVED: 'Aprovada', REJECTED: 'Recusada', CANCELLED: 'Cancelada' };
+// O CÓDIGO do estado é o que vem da API e não muda de idioma; o mapa leva à
+// CHAVE do rótulo, e não ao rótulo.
+const ROTULO = {
+  PENDING: 'solicitacao.emAnalise',
+  APPROVED: 'solicitacao.aprovada',
+  REJECTED: 'solicitacao.recusada',
+  CANCELLED: 'solicitacao.cancelada'
+};
 
 export default function MinhaSolicitacao({ notificar }) {
+  const { t } = useIdioma();
   const { user, refreshSession } = useAuth();
   // `GET /athlete-requests/me` devolve `{ items: [...] }`, e não um array —
   // como toda listagem desta API. Tratar a resposta como array derrubava a
@@ -61,7 +70,7 @@ export default function MinhaSolicitacao({ notificar }) {
       await api.athleteRequests.cancelar(cancelando.id);
       setCancelando(null);
       pedidos.reload();
-      notificar?.('Solicitação cancelada.');
+      notificar?.(t('solicitacao.canceladaAviso'));
     } catch (problema) {
       setCancelando(null);
       notificar?.(problema.message, 'erro');
@@ -71,9 +80,9 @@ export default function MinhaSolicitacao({ notificar }) {
   return (
     <div className="page">
       <PageHead
-        eyebrow="Perfil de atleta"
-        title="Minha solicitação"
-        description="Competir exige filiação confirmada pela federação. Você envia os dados; um operador analisa."
+        eyebrow={t('solicitacao.perfilDeAtleta')}
+        title={t('solicitacao.minhaSolicitacao')}
+        description={t('solicitacao.descricao')}
       />
 
       <AsyncSection state={pedidos} linhas={3}>
@@ -88,26 +97,19 @@ export default function MinhaSolicitacao({ notificar }) {
                   Uma aprovação antiga sem `athleteId` não basta. */}
               {user?.athleteId ? (
                 <section className="card">
-                  <Badge tom="sucesso">Perfil de atleta ativo</Badge>
-                  <h2>Você já compete pela MCI</h2>
-                  <p className="muted">
-                    Seu perfil de atleta está ativo. Para corrigir filiação, número de registro
-                    ou qualquer dado da sua ficha, fale com a sua federação — esses campos são
-                    mantidos por ela, não por esta tela.
-                  </p>
+                  <Badge tom="sucesso">{t('solicitacao.perfilAtivo')}</Badge>
+                  <h2>{t('solicitacao.jaCompete')}</h2>
+                  <p className="muted">{t('solicitacao.jaCompeteTexto')}</p>
                 </section>
               ) : emAberto ? (
                 <EmAnalise pedido={emAberto} aoCancelar={() => setCancelando(emAberto)} aoMudarFoto={() => pedidos.reload()} notificar={notificar} />
               ) : aprovado ? (
                 <section className="card">
-                  <Badge tom="sucesso">Aprovada</Badge>
-                  <h2>Sua solicitação foi aprovada</h2>
-                  <p className="muted">
-                    A federação aprovou o seu perfil. Se ele ainda não aparece aqui, atualize a
-                    sessão.
-                  </p>
+                  <Badge tom="sucesso">{t('solicitacao.aprovada')}</Badge>
+                  <h2>{t('solicitacao.foiAprovada')}</h2>
+                  <p className="muted">{t('solicitacao.foiAprovadaTexto')}</p>
                   <button type="button" className="button button-ghost button-sm" onClick={() => refreshSession()}>
-                    Atualizar minha sessão
+                    {t('solicitacao.atualizarSessao')}
                   </button>
                 </section>
               ) : (
@@ -127,9 +129,9 @@ export default function MinhaSolicitacao({ notificar }) {
 
       {cancelando && (
         <ConfirmDialog
-          title="Cancelar solicitação"
-          message="A solicitação sai da fila da federação e o CPF enviado é apagado. Você pode enviar outra depois."
-          confirmLabel="Cancelar solicitação"
+          title={t('solicitacao.cancelarSolicitacao')}
+          message={t('solicitacao.cancelarAviso')}
+          confirmLabel={t('solicitacao.cancelarSolicitacao')}
           onConfirm={cancelar}
           onClose={() => setCancelando(null)}
         />
@@ -139,6 +141,7 @@ export default function MinhaSolicitacao({ notificar }) {
 }
 
 function EmAnalise({ pedido, aoCancelar, aoMudarFoto, notificar }) {
+  const { t } = useIdioma();
   const [enviando, setEnviando] = useState(false);
 
   // Enquanto o pedido está aberto a foto pode ser trocada: é o caminho de
@@ -149,7 +152,7 @@ function EmAnalise({ pedido, aoCancelar, aoMudarFoto, notificar }) {
     try {
       if (escolha) await api.athleteRequests.enviarFoto(pedido.id, escolha.arquivo);
       else await api.athleteRequests.removerFoto(pedido.id);
-      notificar?.(escolha ? 'Foto enviada.' : 'Foto removida.');
+      notificar?.(t(escolha ? 'solicitacao.fotoEnviadaAviso' : 'solicitacao.fotoRemovidaAviso'));
       aoMudarFoto();
     } catch (problema) {
       notificar?.(problema.message, 'erro');
@@ -160,32 +163,32 @@ function EmAnalise({ pedido, aoCancelar, aoMudarFoto, notificar }) {
 
   return (
     <section className="card">
-      <Badge tom="atencao">Em análise</Badge>
-      <h2>Sua solicitação está na fila da federação</h2>
+      <Badge tom="atencao">{t('solicitacao.emAnalise')}</Badge>
+      <h2>{t('solicitacao.naFila')}</h2>
       <p className="muted">
-        Enviada em {formatarData(pedido.createdAt)}. Um operador de{' '}
-        <strong>{pedido.affiliation?.name || 'sua federação'}</strong> vai analisar.
-        Enquanto isso, você pode usar a plataforma normalmente.
+        {t('solicitacao.enviadaEm', { data: formatarData(pedido.createdAt) })}{' '}
+        <strong>{pedido.affiliation?.name || t('solicitacao.suaFederacao')}</strong>{' '}
+        {t('solicitacao.vaiAnalisar')}
       </p>
 
       <dl className="lista-revisao">
-        <Linha rotulo="Nome" valor={pedido.fullName} />
-        <Linha rotulo="Entidade de filiação" valor={pedido.affiliation?.name} />
-        <Linha rotulo="Número de registro" valor={pedido.affiliationNumber} />
+        <Linha rotulo={t('solicitacao.nome')} valor={pedido.fullName} />
+        <Linha rotulo={t('solicitacao.entidade')} valor={pedido.affiliation?.name} />
+        <Linha rotulo={t('solicitacao.numeroDeRegistro')} valor={pedido.affiliationNumber} />
         {/* O CPF NÃO volta do servidor nesta rota, de propósito: você já sabe o
             seu documento, e devolvê-lo criaria mais uma superfície de vazamento. */}
-        <Linha rotulo="CPF" valor="Guardado com a federação até a análise" />
+        <Linha rotulo="CPF" valor={t('solicitacao.cpfGuardado')} />
       </dl>
 
       <div className="campo-da-foto">
-        <span className="rotulo-da-foto">Foto enviada</span>
+        <span className="rotulo-da-foto">{t('solicitacao.fotoEnviada')}</span>
         <div className="foto-escolha">
           <div className="foto-previa">
             {/* A foto é buscada COM o token: a rota exige sessão e decide entre
                 o dono e o operador. `<img src>` cru não manda cabeçalho. */}
             {pedido.hasPhoto
-              ? <ProtectedMedia path={`/media/athlete-requests/${pedido.id}/photo`} alt="Foto enviada na solicitação" />
-              : <span className="foto-vazia">Sem foto</span>}
+              ? <ProtectedMedia path={`/media/athlete-requests/${pedido.id}/photo`} alt={t('solicitacao.fotoEnviadaAlt')} />
+              : <span className="foto-vazia">{t('solicitacao.semFoto')}</span>}
           </div>
           <div className="foto-acoes">
             <EscolhaDaFoto
@@ -195,7 +198,7 @@ function EmAnalise({ pedido, aoCancelar, aoMudarFoto, notificar }) {
             />
             {pedido.hasPhoto && (
               <button type="button" className="button button-ghost button-sm" onClick={() => trocar(null)} disabled={enviando}>
-                Remover foto
+                {t('solicitacao.removerFoto')}
               </button>
             )}
           </div>
@@ -203,7 +206,7 @@ function EmAnalise({ pedido, aoCancelar, aoMudarFoto, notificar }) {
       </div>
 
       <button type="button" className="button button-ghost" onClick={aoCancelar}>
-        Cancelar solicitação
+        {t('solicitacao.cancelarSolicitacao')}
       </button>
     </section>
   );
@@ -219,16 +222,18 @@ function Linha({ rotulo, valor }) {
 }
 
 function Historico({ pedidos }) {
+  const { t } = useIdioma();
+
   return (
     <section className="card">
-      <h2>Histórico</h2>
-      <p className="muted">A fila guarda o que já aconteceu — inclusive o que foi recusado.</p>
+      <h2>{t('solicitacao.historico')}</h2>
+      <p className="muted">{t('solicitacao.historicoTexto')}</p>
       <ul className="lista-simples">
         {pedidos.map(pedido => (
           <li key={pedido.id}>
-            <Badge tom={TOM[pedido.status]}>{ROTULO[pedido.status]}</Badge>
+            <Badge tom={TOM[pedido.status]}>{t(ROTULO[pedido.status])}</Badge>
             <span>{pedido.affiliation?.name || '—'} · {formatarData(pedido.createdAt)}</span>
-            {pedido.rejectionReason && <p className="muted">Motivo: {pedido.rejectionReason}</p>}
+            {pedido.rejectionReason && <p className="muted">{t('solicitacao.motivo')}: {pedido.rejectionReason}</p>}
           </li>
         ))}
       </ul>
@@ -244,6 +249,7 @@ function Historico({ pedidos }) {
 // `URL.createObjectURL` é revogado quando a escolha muda ou o componente sai —
 // sem isso, cada troca de foto deixa um blob preso na memória da aba.
 function EscolhaDaFoto({ foto, aoEscolher, desabilitado }) {
+  const { t, idioma } = useIdioma();
   const [erro, setErro] = useState(null);
   const entrada = useRef(null);
   const [previa, setPrevia] = useState(null);
@@ -263,21 +269,32 @@ function EscolhaDaFoto({ foto, aoEscolher, desabilitado }) {
     if (!arquivo) return;
 
     const resultado = conferirFoto(arquivo);
-    if (resultado.erro) { setErro(resultado.erro); return; }
+    // A conferência devolve chave e números crus; o tamanho é escrito aqui,
+    // onde se sabe o idioma — "5,0" em português, "5.0" em inglês.
+    if (resultado.erro) {
+      // Uma casa decimal SEMPRE: "5 MB" e "5,0 MB" dizem o mesmo, mas o
+      // segundo deixa claro que o limite é exato, e é como o aviso sempre foi.
+      const numero = new Intl.NumberFormat(idioma, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+      const valores = resultado.valores
+        ? { tamanho: numero.format(resultado.valores.tamanho), limite: numero.format(resultado.valores.limite) }
+        : undefined;
+      setErro(t(resultado.erro, valores));
+      return;
+    }
     setErro(null);
     aoEscolher({ arquivo, nome: arquivo.name });
   };
 
   return (
     <div className="campo-da-foto">
-      <span className="rotulo-da-foto">Foto de perfil</span>
-      <p className="muted">Opcional. A federação usa a foto para confirmar sua identidade.</p>
+      <span className="rotulo-da-foto">{t('solicitacao.fotoDePerfil')}</span>
+      <p className="muted">{t('solicitacao.fotoOpcional')}</p>
 
       <div className="foto-escolha">
         <div className="foto-previa" aria-hidden={!previa}>
           {previa
-            ? <img src={previa} alt={`Pré-visualização da foto escolhida: ${foto?.nome || ''}`} />
-            : <span className="foto-vazia">Sem foto</span>}
+            ? <img src={previa} alt={t('solicitacao.previaDaFoto', { nome: foto?.nome || '' })} />
+            : <span className="foto-vazia">{t('solicitacao.semFoto')}</span>}
         </div>
 
         <div className="foto-acoes">
@@ -291,14 +308,14 @@ function EscolhaDaFoto({ foto, aoEscolher, desabilitado }) {
             disabled={desabilitado}
           />
           <label htmlFor="entrada-da-foto" className={`button button-secondary${desabilitado ? ' is-disabled' : ''}`}>
-            {foto ? 'Trocar foto' : 'Escolher foto'}
+            {t(foto ? 'solicitacao.trocarFoto' : 'solicitacao.escolherFoto')}
           </label>
           {foto && (
             <button type="button" className="button button-ghost button-sm" onClick={() => { aoEscolher(null); setErro(null); }} disabled={desabilitado}>
-              Remover
+              {t('solicitacao.remover')}
             </button>
           )}
-          <small className="muted">JPG, PNG ou WebP, até 5 MB.</small>
+          <small className="muted">{t('solicitacao.formatosDaFoto')}</small>
         </div>
       </div>
 
@@ -310,6 +327,7 @@ function EscolhaDaFoto({ foto, aoEscolher, desabilitado }) {
 const VAZIO = { cpf: '', sex: '', affiliationId: '', affiliationNumber: '', birthDate: '' };
 
 function Formulario({ nomeDaConta, ultimaRecusa, aoEnviar, notificar }) {
+  const { t } = useIdioma();
   // A vitrine de autocadastro, e NÃO `GET /affiliations`: aquela é escopada ao
   // vínculo do ator, e quem acabou de criar conta não tem vínculo nenhum — a
   // lista voltava vazia e a solicitação era impossível. Medido na API.
@@ -359,7 +377,7 @@ function Formulario({ nomeDaConta, ultimaRecusa, aoEnviar, notificar }) {
           // de novo e bater em 409. O que ela precisa saber é que o pedido
           // entrou e que só a foto ficou faltando — e a tela de acompanhamento
           // deixa reenviá-la.
-          notificar?.(`Solicitação enviada, mas a foto não subiu: ${problemaDaFoto.message} Você pode reenviá-la abaixo.`, 'erro');
+          notificar?.(t('solicitacao.enviadaSemFoto', { erro: problemaDaFoto.message }), 'erro');
           setForm({ ...VAZIO, name: nomeDaConta });
           setFoto(null);
           aoEnviar();
@@ -371,7 +389,7 @@ function Formulario({ nomeDaConta, ultimaRecusa, aoEnviar, notificar }) {
       // o mantém visível para quem passar pelo computador.
       setForm({ ...VAZIO, name: nomeDaConta });
       setFoto(null);
-      notificar?.('Solicitação enviada. A federação vai analisar.');
+      notificar?.(t('solicitacao.enviada'));
       aoEnviar();
     } catch (problema) {
       setErroGeral(problema.message);
@@ -386,31 +404,28 @@ function Formulario({ nomeDaConta, ultimaRecusa, aoEnviar, notificar }) {
 
   return (
     <section className="card">
-      <h2>Solicitar perfil de atleta</h2>
-      <p className="muted">
-        Estes dados vão direto para a federação que você escolher. Nada fica guardado neste
-        navegador.
-      </p>
+      <h2>{t('solicitacao.solicitarPerfil')}</h2>
+      <p className="muted">{t('solicitacao.solicitarTexto')}</p>
 
       {ultimaRecusa?.rejectionReason && (
         <div className="alert alert-alerta" role="status">
           <div>
-            <strong>Sua última solicitação foi recusada.</strong>
-            <p>Motivo: {ultimaRecusa.rejectionReason}</p>
+            <strong>{t('solicitacao.ultimaRecusada')}</strong>
+            <p>{t('solicitacao.motivo')}: {ultimaRecusa.rejectionReason}</p>
           </div>
         </div>
       )}
 
       <form onSubmit={enviar} noValidate>
-        <Field label="Nome completo" required hint="Como consta no seu documento.">
+        <Field label={t('cadastro.nomeCompleto')} required hint={t('solicitacao.nomeHint')}>
           <input
             value={form.name} onChange={e => campo('name', e.target.value)} maxLength={160}
             aria-invalid={!!erros.name}
           />
         </Field>
-        {erros.name && <small className="campo-erro" role="alert">{erros.name}</small>}
+        {erros.name && <small className="campo-erro" role="alert">{t(erros.name)}</small>}
 
-        <Field label="CPF" required hint="Usado para vincular seus resultados. Nunca aparece em busca pública.">
+        <Field label="CPF" required hint={t('solicitacao.cpfHint')}>
           <input
             inputMode="numeric"
             value={form.cpf}
@@ -421,31 +436,33 @@ function Formulario({ nomeDaConta, ultimaRecusa, aoEnviar, notificar }) {
             aria-describedby={erros.cpf ? 'erro-cpf' : undefined}
           />
         </Field>
-        {erros.cpf && <small id="erro-cpf" className="campo-erro" role="alert">{erros.cpf}</small>}
-        {cpfValido(form.cpf) && <small className="muted">Será enviado como {cpfResumido(form.cpf)}</small>}
+        {erros.cpf && <small id="erro-cpf" className="campo-erro" role="alert">{t(erros.cpf)}</small>}
+        {cpfValido(form.cpf) && (
+          <small className="muted">{t('solicitacao.cpfSeraEnviado', { resumo: cpfResumido(form.cpf) })}</small>
+        )}
 
-        <Field label="Categoria de competição" required hint="Define em quais categorias você pode ser inscrito.">
+        <Field label={t('solicitacao.categoriaDeCompeticao')} required hint={t('solicitacao.categoriaHint')}>
           <select value={form.sex} onChange={e => campo('sex', e.target.value)} aria-invalid={!!erros.sex}>
             <option value="">—</option>
-            <option value="FEMALE">Feminino</option>
-            <option value="MALE">Masculino</option>
+            <option value="FEMALE">{t('solicitacao.feminino')}</option>
+            <option value="MALE">{t('solicitacao.masculino')}</option>
           </select>
         </Field>
-        {erros.sex && <small className="campo-erro" role="alert">{erros.sex}</small>}
+        {erros.sex && <small className="campo-erro" role="alert">{t(erros.sex)}</small>}
 
-        <Field label="Data de nascimento" hint="Opcional. Usada para conferir sua faixa etária.">
+        <Field label={t('cadastro.dataDeNascimento')} hint={t('solicitacao.nascimentoHint')}>
           <input type="date" value={form.birthDate} onChange={e => campo('birthDate', e.target.value)} />
         </Field>
-        {erros.birthDate && <small className="campo-erro" role="alert">{erros.birthDate}</small>}
+        {erros.birthDate && <small className="campo-erro" role="alert">{t(erros.birthDate)}</small>}
 
-        <Field label="Entidade de filiação" required hint="A federação que confirma o seu vínculo.">
+        <Field label={t('solicitacao.entidade')} required hint={t('solicitacao.entidadeHint')}>
           <select
             value={form.affiliationId}
             onChange={e => campo('affiliationId', e.target.value)}
             disabled={filiacoes.loading}
             aria-invalid={!!erros.affiliationId}
           >
-            <option value="">{filiacoes.loading ? 'Carregando…' : '—'}</option>
+            <option value="">{filiacoes.loading ? t('estado.carregando') : '—'}</option>
             {ativas.map(item => (
               <option key={item.id} value={item.id}>
                 {item.name}{item.state ? ` — ${item.state}` : ''}
@@ -453,22 +470,19 @@ function Formulario({ nomeDaConta, ultimaRecusa, aoEnviar, notificar }) {
             ))}
           </select>
         </Field>
-        {erros.affiliationId && <small className="campo-erro" role="alert">{erros.affiliationId}</small>}
+        {erros.affiliationId && <small className="campo-erro" role="alert">{t(erros.affiliationId)}</small>}
         {/* Lista vazia não é "escolha nenhuma": é um impedimento, e a pessoa
             precisa saber que não adianta insistir no formulário. */}
         {!filiacoes.loading && !filiacoes.error && ativas.length === 0 && (
-          <small className="muted">
-            Nenhuma entidade de filiação ativa está disponível para a sua conta. Fale com a
-            organização do campeonato.
-          </small>
+          <small className="muted">{t('solicitacao.semEntidades')}</small>
         )}
         {filiacoes.error && (
           <small className="campo-erro" role="alert">
-            Não conseguimos carregar as entidades de filiação. {filiacoes.error}
+            {t('solicitacao.erroEntidades')} {filiacoes.error}
           </small>
         )}
 
-        <Field label="Número de registro" required hint="O número que a federação lhe deu.">
+        <Field label={t('solicitacao.numeroDeRegistro')} required hint={t('solicitacao.matriculaHint')}>
           <input
             value={form.affiliationNumber}
             onChange={e => campo('affiliationNumber', e.target.value)}
@@ -476,7 +490,7 @@ function Formulario({ nomeDaConta, ultimaRecusa, aoEnviar, notificar }) {
             aria-invalid={!!erros.affiliationNumber}
           />
         </Field>
-        {erros.affiliationNumber && <small className="campo-erro" role="alert">{erros.affiliationNumber}</small>}
+        {erros.affiliationNumber && <small className="campo-erro" role="alert">{t(erros.affiliationNumber)}</small>}
 
         <EscolhaDaFoto foto={foto} aoEscolher={setFoto} desabilitado={enviando} />
 
@@ -484,12 +498,10 @@ function Formulario({ nomeDaConta, ultimaRecusa, aoEnviar, notificar }) {
           <div className="alert alert-erro" role="alert"><div><strong>{erroGeral}</strong></div></div>
         )}
 
-        <p className="muted aviso-de-envio">
-          Seus dados serão enviados para validação da federação.
-        </p>
+        <p className="muted aviso-de-envio">{t('solicitacao.avisoDeEnvio')}</p>
 
         <button type="submit" className="button button-primary" disabled={enviando}>
-          {enviando ? 'Enviando…' : 'Enviar para análise'}
+          {t(enviando ? 'cadastro.enviando' : 'solicitacao.enviarParaAnalise')}
         </button>
       </form>
     </section>

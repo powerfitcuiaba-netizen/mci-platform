@@ -7,11 +7,13 @@ import { useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Lightbox, Modal, ModalActions, PageHead, Paginacao, ProtectedMedia, Field } from '../components/ui';
 import { anunciar, MCIEvento } from '../lib/experiencia';
 import { caminhoDoAvatar, desde, ESTADO_PRO, formatarData, tipoDePerfil } from '../lib/format';
+import { useIdioma } from '../lib/idioma';
 
 // MCI Social. Toda interação chama a API: não existe contador local que não
 // tenha sido confirmado pelo servidor.
 
 function Stories({ notificar }) {
+  const { t } = useIdioma();
   const estado = useFetch(() => api.social.stories(), []);
   const [aberto, setAberto] = useState(null);
   const inputRef = useRef(null);
@@ -25,7 +27,7 @@ function Stories({ notificar }) {
     setEnviando(true);
     try {
       await api.social.createStory(arquivo, {});
-      notificar('Story publicado.');
+      notificar(t('social.storyPublicado'));
       estado.reload();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -49,9 +51,9 @@ function Stories({ notificar }) {
       <div className="stories">
         <button type="button" className="story-bubble" onClick={() => inputRef.current?.click()} disabled={enviando}>
           <span className="story-ring is-seen"><span className="avatar"><ImageIcon size={18} /></span></span>
-          <small>{enviando ? 'Enviando…' : 'Seu story'}</small>
+          <small>{t(enviando ? 'social.enviando' : 'social.seuStory')}</small>
         </button>
-        <input ref={inputRef} type="file" accept="image/*,video/*" hidden onChange={publicar} aria-label="Publicar story" />
+        <input ref={inputRef} type="file" accept="image/*,video/*" hidden onChange={publicar} aria-label={t('social.publicarStory')} />
 
         {(estado.data?.items || []).map(grupo => {
           const todosVistos = grupo.items.every(item => item.seen);
@@ -71,9 +73,11 @@ function Stories({ notificar }) {
           <div style={{ display: 'grid', gap: 10 }}>
             {aberto.items.map(item => (
               <figure key={item.id} style={{ margin: 0 }}>
-                <ProtectedMedia path={`/media/stories/${item.id}`} kind={item.kind} alt={item.caption || 'Story'} />
+                <ProtectedMedia path={`/media/stories/${item.id}`} kind={item.kind} alt={item.caption || t('social.story')} />
                 {item.caption && <figcaption style={{ fontSize: 12.5, color: 'var(--cinza)', marginTop: 6 }}>{item.caption}</figcaption>}
-                <small style={{ color: 'var(--cinza-fraco)', fontSize: 11 }}>expira {desde(item.expiresAt)}</small>
+                <small style={{ color: 'var(--cinza-fraco)', fontSize: 11 }}>
+                  {t('social.expira', { quando: desde(item.expiresAt) })}
+                </small>
               </figure>
             ))}
           </div>
@@ -84,6 +88,7 @@ function Stories({ notificar }) {
 }
 
 function Composer({ notificar, onPublicado }) {
+  const { t } = useIdioma();
   const [conteudo, setConteudo] = useState('');
   const [visibilidade, setVisibilidade] = useState('PUBLIC');
   const [arquivo, setArquivo] = useState(null);
@@ -113,10 +118,12 @@ function Composer({ notificar, onPublicado }) {
 
       setConteudo('');
       setArquivo(null);
-      notificar('Publicação criada.');
+      notificar(t('social.publicacaoCriadaAviso'));
       // Nível EVENTO: confirma sem tomar o centro da tela. Publicar é coisa
       // que se faz muitas vezes; interromper a cada vez cansaria.
-      anunciar(MCIEvento.SUCESSO, { titulo: 'Publicação criada', descricao: 'Já está no seu perfil.' });
+      anunciar(MCIEvento.SUCESSO, {
+        titulo: t('social.publicacaoCriada'), descricao: t('social.jaNoPerfil')
+      });
       onPublicado();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -130,13 +137,13 @@ function Composer({ notificar, onPublicado }) {
       <textarea
         value={conteudo}
         onChange={evento => setConteudo(evento.target.value)}
-        placeholder="Compartilhe treino, bastidor, resultado…"
+        placeholder={t('social.compartilhePlaceholder')}
         maxLength={5000}
-        aria-label="Conteúdo da publicação"
+        aria-label={t('social.conteudoDaPublicacao')}
       />
       <div className="composer-foot">
         <button type="button" className="button button-secondary button-sm" onClick={() => inputRef.current?.click()}>
-          <ImageIcon size={14} /> Mídia
+          <ImageIcon size={14} /> {t('social.midia')}
         </button>
         <input
           ref={inputRef}
@@ -144,27 +151,30 @@ function Composer({ notificar, onPublicado }) {
           accept="image/*,video/*"
           hidden
           onChange={evento => setArquivo(evento.target.files?.[0] || null)}
-          aria-label="Anexar mídia"
+          aria-label={t('social.anexarMidia')}
         />
         {arquivo && (
           <span className="composer-preview">
             <span className="composer-miniatura">
               {arquivo.type.startsWith('video/')
                 ? <video src={previa} muted playsInline />
-                : <img src={previa} alt={`Prévia de ${arquivo.name}`} />}
-              <button type="button" onClick={() => setArquivo(null)} aria-label={`Remover ${arquivo.name}`}>
+                : <img src={previa} alt={t('social.previaDe', { nome: arquivo.name })} />}
+              <button
+                type="button" onClick={() => setArquivo(null)}
+                aria-label={t('social.removerArquivo', { nome: arquivo.name })}
+              >
                 <Trash2 size={13} />
               </button>
             </span>
           </span>
         )}
-        <select className="select-control" value={visibilidade} onChange={evento => setVisibilidade(evento.target.value)} aria-label="Visibilidade">
-          <option value="PUBLIC">Pública</option>
-          <option value="FOLLOWERS">Seguidores</option>
-          <option value="PRIVATE">Somente eu</option>
+        <select className="select-control" value={visibilidade} onChange={evento => setVisibilidade(evento.target.value)} aria-label={t('social.visibilidade')}>
+          <option value="PUBLIC">{t('social.publica')}</option>
+          <option value="FOLLOWERS">{t('social.seguidores')}</option>
+          <option value="PRIVATE">{t('social.somenteEu')}</option>
         </select>
         <button type="submit" className="button button-primary" disabled={enviando || !conteudo.trim()}>
-          {enviando ? 'Publicando…' : 'Publicar'}
+          {t(enviando ? 'social.publicando' : 'social.publicar')}
         </button>
       </div>
     </form>
@@ -172,6 +182,7 @@ function Composer({ notificar, onPublicado }) {
 }
 
 function Comentarios({ postId, notificar, onMudou }) {
+  const { t } = useIdioma();
   const estado = useFetch(() => api.social.comments(postId, { limit: 20 }), [postId]);
   const [texto, setTexto] = useState('');
   const [respondendo, setRespondendo] = useState(null);
@@ -215,9 +226,9 @@ function Comentarios({ postId, notificar, onMudou }) {
               <strong>@{comentario.author.handle}</strong>
               {comentario.content}
               <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
-                <button type="button" className="button button-ghost button-sm" onClick={() => setRespondendo(comentario)}>Responder</button>
+                <button type="button" className="button button-ghost button-sm" onClick={() => setRespondendo(comentario)}>{t('social.responder')}</button>
                 {comentario.isMine && (
-                  <button type="button" className="button button-ghost button-sm" onClick={() => apagar(comentario)}>Apagar</button>
+                  <button type="button" className="button button-ghost button-sm" onClick={() => apagar(comentario)}>{t('social.apagar')}</button>
                 )}
                 <small style={{ color: 'var(--cinza-fraco)', alignSelf: 'center' }}>{desde(comentario.createdAt)}</small>
               </div>
@@ -230,8 +241,10 @@ function Comentarios({ postId, notificar, onMudou }) {
         <input
           value={texto}
           onChange={evento => setTexto(evento.target.value)}
-          placeholder={respondendo ? `Respondendo @${respondendo.author.handle}…` : 'Comentar…'}
-          aria-label="Comentário"
+          placeholder={respondendo
+            ? t('social.respondendoA', { handle: respondendo.author.handle })
+            : t('social.comentarPlaceholder')}
+          aria-label={t('social.comentario')}
           maxLength={2000}
         />
         {respondendo && <button type="button" className="button button-secondary button-sm" onClick={() => setRespondendo(null)}>×</button>}
@@ -242,6 +255,7 @@ function Comentarios({ postId, notificar, onMudou }) {
 }
 
 export function Post({ post, notificar, onMudou, navegar }) {
+  const { t } = useIdioma();
   const [aberto, setAberto] = useState(false);
   const [estado, setEstado] = useState(post);
   const [ocupado, setOcupado] = useState(false);
@@ -270,7 +284,7 @@ export function Post({ post, notificar, onMudou, navegar }) {
       await api.social.share(estado.id, {});
       const atualizado = await api.social.getPost(estado.id);
       setEstado(atualizado);
-      notificar('Publicação compartilhada.');
+      notificar(t('social.compartilhadaAviso'));
     } catch (erro) {
       notificar(erro.message, 'erro');
     } finally {
@@ -281,7 +295,7 @@ export function Post({ post, notificar, onMudou, navegar }) {
   const apagar = async () => {
     try {
       await api.social.deletePost(estado.id);
-      notificar('Publicação removida.');
+      notificar(t('social.removidaAviso'));
       onMudou();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -289,11 +303,11 @@ export function Post({ post, notificar, onMudou, navegar }) {
   };
 
   const denunciar = async () => {
-    const motivo = window.prompt('Descreva o motivo da denúncia:');
+    const motivo = window.prompt(t('social.motivoDaDenuncia'));
     if (!motivo?.trim()) return;
     try {
       await api.social.report({ targetType: 'POST', targetId: estado.id, reason: motivo.trim() });
-      notificar('Denúncia registrada. A moderação vai analisar.');
+      notificar(t('social.denunciaRegistrada'));
     } catch (erro) {
       notificar(erro.message, 'erro');
     }
@@ -310,12 +324,21 @@ export function Post({ post, notificar, onMudou, navegar }) {
               @{estado.author.handle}
             </button>
             {' · '}{desde(estado.createdAt)}
-            {estado.visibility !== 'PUBLIC' && ` · ${estado.visibility === 'FOLLOWERS' ? 'seguidores' : 'privado'}`}
+            {estado.visibility !== 'PUBLIC'
+              && ` · ${t(estado.visibility === 'FOLLOWERS' ? 'social.visibilidadeSeguidores' : 'social.visibilidadePrivado')}`}
           </small>
         </div>
         {estado.isMine
-          ? <button type="button" className="icon-button" onClick={apagar} aria-label="Apagar publicação"><Trash2 size={15} /></button>
-          : <button type="button" className="icon-button" onClick={denunciar} aria-label="Denunciar publicação"><MoreHorizontal size={15} /></button>}
+          ? (
+            <button type="button" className="icon-button" onClick={apagar} aria-label={t('social.apagarPublicacao')}>
+              <Trash2 size={15} />
+            </button>
+          )
+          : (
+            <button type="button" className="icon-button" onClick={denunciar} aria-label={t('social.denunciarPublicacao')}>
+              <MoreHorizontal size={15} />
+            </button>
+          )}
       </header>
 
       <div className="post-body">{estado.content}</div>
@@ -328,16 +351,19 @@ export function Post({ post, notificar, onMudou, navegar }) {
               type="button"
               className="midia-ampliavel"
               onClick={() => setAmpliada({ path: `/media/posts/${item.id}`, kind: item.kind })}
-              aria-label="Abrir mídia ampliada"
+              aria-label={t('messenger.abrirMidia')}
             >
-              <ProtectedMedia path={`/media/posts/${item.id}`} kind={item.kind} alt="Mídia da publicação" width={item.width} height={item.height} />
+              <ProtectedMedia
+                path={`/media/posts/${item.id}`} kind={item.kind}
+                alt={t('social.midiaDaPublicacao')} width={item.width} height={item.height}
+              />
             </button>
           ))}
         </div>
       )}
 
       {ampliada && (
-        <Lightbox path={ampliada.path} kind={ampliada.kind} alt="Mídia da publicação" onClose={() => setAmpliada(null)} />
+        <Lightbox path={ampliada.path} kind={ampliada.kind} alt={t('social.midiaDaPublicacao')} onClose={() => setAmpliada(null)} />
       )}
 
       {/*
@@ -352,7 +378,7 @@ export function Post({ post, notificar, onMudou, navegar }) {
           type="button"
           className={`post-action${estado.likedByMe ? ' is-on' : ''}`}
           disabled={ocupado}
-          aria-label={`${estado.likedByMe ? 'Descurtir' : 'Curtir'} publicação (${estado.counts.likes})`}
+          aria-label={t(estado.likedByMe ? 'social.descurtirRotulo' : 'social.curtirRotulo', { n: estado.counts.likes })}
           aria-pressed={estado.likedByMe}
           onClick={() => alternar(() => (estado.likedByMe ? api.social.unlike(estado.id) : api.social.like(estado.id)))}
         >
@@ -361,7 +387,7 @@ export function Post({ post, notificar, onMudou, navegar }) {
         <button
           type="button"
           className="post-action"
-          aria-label={`${aberto ? 'Fechar' : 'Abrir'} comentários (${estado.counts.comments})`}
+          aria-label={t(aberto ? 'social.fecharComentarios' : 'social.abrirComentarios', { n: estado.counts.comments })}
           aria-expanded={aberto}
           onClick={() => setAberto(atual => !atual)}
         >
@@ -370,7 +396,7 @@ export function Post({ post, notificar, onMudou, navegar }) {
         <button
           type="button"
           className="post-action"
-          aria-label={`Compartilhar publicação (${estado.counts.shares})`}
+          aria-label={t('social.compartilharRotulo', { n: estado.counts.shares })}
           onClick={compartilhar}
           disabled={ocupado}
         >
@@ -380,7 +406,7 @@ export function Post({ post, notificar, onMudou, navegar }) {
           type="button"
           className={`post-action${estado.savedByMe ? ' is-on-save' : ''}`}
           disabled={ocupado}
-          aria-label={`${estado.savedByMe ? 'Remover publicação dos salvos' : 'Salvar publicação'} (${estado.counts.saves})`}
+          aria-label={t(estado.savedByMe ? 'social.removerDosSalvosRotulo' : 'social.salvarRotulo', { n: estado.counts.saves })}
           aria-pressed={estado.savedByMe}
           onClick={() => alternar(() => (estado.savedByMe ? api.social.unsave(estado.id) : api.social.save(estado.id)))}
           style={{ marginLeft: 'auto' }}
@@ -395,6 +421,7 @@ export function Post({ post, notificar, onMudou, navegar }) {
 }
 
 export function Feed({ notificar, navegar }) {
+  const { t } = useIdioma();
   const [escopo, setEscopo] = useState('FOLLOWING');
   const [pagina, setPagina] = useState({ items: [], nextCursor: null });
   const [carregandoMais, setCarregandoMais] = useState(false);
@@ -421,15 +448,19 @@ export function Feed({ notificar, navegar }) {
 
   return (
     <div className="page">
-      <PageHead eyebrow="MCI Social" title="Feed" description="A comunidade Muscle Contest: atletas, coaches, academias, equipes e marcas." />
+      <PageHead
+        eyebrow={t('social.mciSocial')}
+        title={t('social.feed')}
+        description={t('social.feedDescricao')}
+      />
 
       <div className="grid grid-social">
         <div>
           <Stories notificar={notificar} />
 
           <div className="chips" style={{ marginBottom: 14 }}>
-            <button type="button" className={`chip${escopo === 'FOLLOWING' ? ' is-on' : ''}`} onClick={() => setEscopo('FOLLOWING')}>Seguindo</button>
-            <button type="button" className={`chip${escopo === 'DISCOVER' ? ' is-on' : ''}`} onClick={() => setEscopo('DISCOVER')}>Descobrir</button>
+            <button type="button" className={`chip${escopo === 'FOLLOWING' ? ' is-on' : ''}`} onClick={() => setEscopo('FOLLOWING')}>{t('social.seguindo')}</button>
+            <button type="button" className={`chip${escopo === 'DISCOVER' ? ' is-on' : ''}`} onClick={() => setEscopo('DISCOVER')}>{t('social.descobrir')}</button>
           </div>
 
           <Composer notificar={notificar} onPublicado={() => estado.reload()} />
@@ -446,9 +477,13 @@ export function Feed({ notificar, navegar }) {
               )
               : (
                 <EmptyState
-                  title={escopo === 'FOLLOWING' ? 'Seu feed está vazio' : 'Ainda não há publicações públicas'}
-                  description={escopo === 'FOLLOWING' ? 'Siga atletas, coaches e marcas para acompanhar o que eles publicam.' : 'Publique algo para começar a conversa.'}
-                  action={escopo === 'FOLLOWING' && <button type="button" className="button button-secondary" onClick={() => setEscopo('DISCOVER')}>Descobrir perfis</button>}
+                  title={t(escopo === 'FOLLOWING' ? 'social.feedVazio' : 'social.semPublicasAinda')}
+                  description={t(escopo === 'FOLLOWING' ? 'social.feedVazioDescricao' : 'social.publiqueAlgo')}
+                  action={escopo === 'FOLLOWING' && (
+                    <button type="button" className="button button-secondary" onClick={() => setEscopo('DISCOVER')}>
+                      {t('social.descobrirPerfis')}
+                    </button>
+                  )}
                 />
               )
             )}
@@ -457,7 +492,7 @@ export function Feed({ notificar, navegar }) {
 
         <aside>
           <section className="panel" style={{ marginBottom: 14 }}>
-            <div className="panel-head"><h2>Comunidades</h2></div>
+            <div className="panel-head"><h2>{t('social.comunidades')}</h2></div>
             <AsyncSection state={comunidades} linhas={3}>
               {dados => dados.items.map(comunidade => (
                 <button
@@ -469,9 +504,13 @@ export function Feed({ notificar, navegar }) {
                 >
                   <span className="info">
                     <strong>{comunidade.name}</strong>
-                    <small>{comunidade._count.members} membros · {comunidade._count.posts} publicações</small>
+                    <small>
+                      {t('social.membrosEPublicacoes', {
+                        membros: comunidade._count.members, publicacoes: comunidade._count.posts
+                      })}
+                    </small>
                   </span>
-                  {comunidade.isMember && <Badge tom="ok">Membro</Badge>}
+                  {comunidade.isMember && <Badge tom="ok">{t('social.membro')}</Badge>}
                 </button>
               ))}
             </AsyncSection>
@@ -483,6 +522,7 @@ export function Feed({ notificar, navegar }) {
 }
 
 export function Perfil({ handle, notificar, navegar }) {
+  const { t } = useIdioma();
   const estado = useFetch(() => api.social.profile(handle), [handle]);
   const [pagina, setPagina] = useState({ items: [], nextCursor: null });
 
@@ -507,7 +547,7 @@ export function Perfil({ handle, notificar, navegar }) {
   const bloquear = async () => {
     try {
       await api.social.block(handle);
-      notificar('Perfil bloqueado.');
+      notificar(t('social.perfilBloqueado'));
       navegar('social');
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -529,32 +569,40 @@ export function Perfil({ handle, notificar, navegar }) {
                   <p style={{ margin: '4px 0 0' }}>@{profile.handle}</p>
                   {profile.bio && <p style={{ marginTop: 8 }}>{profile.bio}</p>}
                   <div className="hero-meta">
-                    <span><strong>{profile.counts.posts}</strong> publicações</span>
-                    <span><strong>{profile.counts.followers}</strong> seguidores</span>
-                    <span><strong>{profile.counts.following}</strong> seguindo</span>
+                    <span><strong>{profile.counts.posts}</strong> {t('social.publicacoes')}</span>
+                    <span><strong>{profile.counts.followers}</strong> {t('social.seguidoresContagem')}</span>
+                    <span><strong>{profile.counts.following}</strong> {t('social.seguindoContagem')}</span>
                     {profile.athlete && <Badge tom={ESTADO_PRO[profile.athlete.proStatus].tom}>{ESTADO_PRO[profile.athlete.proStatus].rotulo}</Badge>}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button type="button" className={`button ${isFollowing ? 'button-secondary' : 'button-primary'}`} onClick={alternarSeguir}>
-                    {isFollowing ? <><UserMinus size={14} /> Deixar de seguir</> : <><UserPlus size={14} /> Seguir</>}
+                    {isFollowing
+                      ? <><UserMinus size={14} /> {t('social.deixarDeSeguir')}</>
+                      : <><UserPlus size={14} /> {t('social.seguir')}</>}
                   </button>
-                  <button type="button" className="button button-secondary" onClick={bloquear}>Bloquear</button>
+                  <button type="button" className="button button-secondary" onClick={bloquear}>{t('social.bloquear')}</button>
                 </div>
               </section>
 
               {profile.athlete && (
                 <div className="grid grid-4" style={{ marginTop: 18 }}>
-                  <div className="metric"><span>Títulos</span><strong>{titles.filter(item => item.placing === 1).length}</strong></div>
-                  <div className="metric"><span>Pódios</span><strong>{titles.length}</strong></div>
-                  <div className="metric"><span>Equipe</span><strong style={{ fontSize: 18 }}>{profile.athlete.team?.name || '—'}</strong></div>
-                  <div className="metric"><span>Academia</span><strong style={{ fontSize: 18 }}>{profile.athlete.gym?.name || '—'}</strong></div>
+                  <div className="metric"><span>{t('social.titulos')}</span><strong>{titles.filter(item => item.placing === 1).length}</strong></div>
+                  <div className="metric"><span>{t('social.podios')}</span><strong>{titles.length}</strong></div>
+                  <div className="metric">
+                    <span>{t('social.equipe')}</span>
+                    <strong style={{ fontSize: 18 }}>{profile.athlete.team?.name || '—'}</strong>
+                  </div>
+                  <div className="metric">
+                    <span>{t('social.academia')}</span>
+                    <strong style={{ fontSize: 18 }}>{profile.athlete.gym?.name || '—'}</strong>
+                  </div>
                 </div>
               )}
 
               {titles.length > 0 && (
                 <section className="panel" style={{ marginTop: 18 }}>
-                  <div className="panel-head"><h2>Pódios</h2></div>
+                  <div className="panel-head"><h2>{t('social.podios')}</h2></div>
                   {titles.map((item, indice) => (
                     <div className="list-row" key={`${item.event.id}-${indice}`}>
                       <span className={`placing placing-${item.placing}`}>{item.placing}</span>
@@ -562,7 +610,7 @@ export function Perfil({ handle, notificar, navegar }) {
                         <strong>{item.event.name}</strong>
                         <small>{formatarData(item.publishedAt)}</small>
                       </span>
-                      <button type="button" className="button button-ghost button-sm" onClick={() => navegar(`campeonatos/${item.event.slug}`)}>Ver etapa</button>
+                      <button type="button" className="button button-ghost button-sm" onClick={() => navegar(`campeonatos/${item.event.slug}`)}>{t('social.verEtapa')}</button>
                     </div>
                   ))}
                 </section>
@@ -574,11 +622,11 @@ export function Perfil({ handle, notificar, navegar }) {
                     <AsyncSection state={posts} linhas={3}>
                       {() => (pagina.items.length
                         ? pagina.items.map(post => <Post key={post.id} post={post} notificar={notificar} navegar={navegar} onMudou={() => posts.reload()} />)
-                        : <EmptyState title="Sem publicações" description="Este perfil ainda não publicou nada visível para você." />
+                        : <EmptyState title={t('social.semPublicacoes')} description={t('social.semPublicacoesDescricao')} />
                       )}
                     </AsyncSection>
                   )
-                  : <EmptyState title="Perfil privado" description="Siga este perfil para acompanhar as publicações." />}
+                  : <EmptyState title={t('social.perfilPrivado')} description={t('social.perfilPrivadoDescricao')} />}
               </div>
             </>
           );
@@ -589,12 +637,13 @@ export function Perfil({ handle, notificar, navegar }) {
 }
 
 export function Comunidades({ navegar, notificar }) {
+  const { t } = useIdioma();
   const estado = useFetch(() => api.communities.list({ limit: 40 }), []);
 
   const entrar = async comunidade => {
     try {
       await api.communities.join(comunidade.slug);
-      notificar(`Você entrou em ${comunidade.name}.`);
+      notificar(t('social.entrouEm', { nome: comunidade.name }));
       estado.reload();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -603,7 +652,11 @@ export function Comunidades({ navegar, notificar }) {
 
   return (
     <div className="page">
-      <PageHead eyebrow="MCI Community" title="Comunidades" description="Espaços por categoria, papel e campeonato." />
+      <PageHead
+        eyebrow={t('social.mciCommunity')}
+        title={t('social.comunidades')}
+        description={t('social.comunidadesDescricao')}
+      />
 
       <AsyncSection state={estado} linhas={4}>
         {dados => (dados.items.length
@@ -613,26 +666,26 @@ export function Comunidades({ navegar, notificar }) {
                 <section className="panel" key={comunidade.id}>
                   <div className="panel-head">
                     <h2>{comunidade.name}</h2>
-                    {comunidade.visibility === 'PRIVATE' && <Badge tom="alerta">Privada</Badge>}
+                    {comunidade.visibility === 'PRIVATE' && <Badge tom="alerta">{t('social.privada')}</Badge>}
                   </div>
-                  <p style={{ color: 'var(--cinza)', fontSize: 12.5, margin: '0 0 12px', minHeight: 34 }}>{comunidade.description || 'Sem descrição.'}</p>
+                  <p style={{ color: 'var(--cinza)', fontSize: 12.5, margin: '0 0 12px', minHeight: 34 }}>{comunidade.description || t('social.semDescricao')}</p>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--cinza-fraco)' }}>
-                    <span>{comunidade._count.members} membros</span>
+                    <span>{t('social.membros', { n: comunidade._count.members })}</span>
                     <span>·</span>
-                    <span>{comunidade._count.posts} publicações</span>
+                    <span>{t('social.publicacoesContagem', { n: comunidade._count.posts })}</span>
                   </div>
                   <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-                    <button type="button" className="button button-secondary button-sm" onClick={() => navegar(`comunidades/${comunidade.slug}`)}>Abrir</button>
+                    <button type="button" className="button button-secondary button-sm" onClick={() => navegar(`comunidades/${comunidade.slug}`)}>{t('social.abrir')}</button>
                     {!comunidade.isMember && comunidade.visibility === 'PUBLIC' && (
-                      <button type="button" className="button button-primary button-sm" onClick={() => entrar(comunidade)}>Entrar</button>
+                      <button type="button" className="button button-primary button-sm" onClick={() => entrar(comunidade)}>{t('social.entrar')}</button>
                     )}
-                    {comunidade.isMember && <Badge tom="ok">Membro</Badge>}
+                    {comunidade.isMember && <Badge tom="ok">{t('social.membro')}</Badge>}
                   </div>
                 </section>
               ))}
             </div>
           )
-          : <EmptyState title="Nenhuma comunidade disponível" />
+          : <EmptyState title={t('social.nenhumaComunidade')} />
         )}
       </AsyncSection>
     </div>
@@ -640,6 +693,7 @@ export function Comunidades({ navegar, notificar }) {
 }
 
 export function ComunidadeDetalhe({ slug, notificar, navegar }) {
+  const { t } = useIdioma();
   const estado = useFetch(() => api.communities.findBySlug(slug), [slug]);
   const membros = useFetch(() => api.communities.members(slug, { limit: 20 }), [slug]);
   const [pagina, setPagina] = useState({ items: [], nextCursor: null });
@@ -661,7 +715,7 @@ export function ComunidadeDetalhe({ slug, notificar, navegar }) {
       await api.social.createPost({ content: conteudo.trim(), communityId: estado.data.community.id });
       setConteudo('');
       posts.reload();
-      notificar('Publicado na comunidade.');
+      notificar(t('social.publicadoNaComunidade'));
     } catch (erro) {
       notificar(erro.message, 'erro');
     } finally {
@@ -682,27 +736,27 @@ export function ComunidadeDetalhe({ slug, notificar, navegar }) {
 
   return (
     <div className="page">
-      <button type="button" className="button button-ghost button-sm" onClick={() => navegar('comunidades')} style={{ marginBottom: 14 }}>← Comunidades</button>
+      <button type="button" className="button button-ghost button-sm" onClick={() => navegar('comunidades')} style={{ marginBottom: 14 }}>{t('social.voltarParaComunidades')}</button>
 
       <AsyncSection state={estado} linhas={3}>
         {dados => (
           <>
             <section className="hero">
-              <span className="eyebrow">MCI Community</span>
+              <span className="eyebrow">{t('social.mciCommunity')}</span>
               <h1>{dados.community.name}</h1>
               {dados.community.description && <p>{dados.community.description}</p>}
               <div className="hero-meta">
-                <span>{dados.community._count.members} membros</span>
-                <span>{dados.community._count.posts} publicações</span>
+                <span>{t('social.membros', { n: dados.community._count.members })}</span>
+                <span>{t('social.publicacoesContagem', { n: dados.community._count.posts })}</span>
                 <button type="button" className={`button button-sm ${dados.isMember ? 'button-secondary' : 'button-primary'}`} onClick={alternarMembro}>
-                  {dados.isMember ? 'Sair' : 'Entrar'}
+                  {t(dados.isMember ? 'social.sair' : 'social.entrar')}
                 </button>
               </div>
             </section>
 
             {dados.community.rules && (
               <div className="alert alert-info" style={{ marginTop: 16 }}>
-                <div><strong>Regras</strong><p>{dados.community.rules}</p></div>
+                <div><strong>{t('social.regras')}</strong><p>{dados.community.rules}</p></div>
               </div>
             )}
 
@@ -710,9 +764,11 @@ export function ComunidadeDetalhe({ slug, notificar, navegar }) {
               <div>
                 {dados.isMember && (
                   <form className="composer" onSubmit={publicar}>
-                    <textarea value={conteudo} onChange={evento => setConteudo(evento.target.value)} placeholder={`Publicar em ${dados.community.name}…`} aria-label="Publicação na comunidade" />
+                    <textarea value={conteudo} onChange={evento => setConteudo(evento.target.value)} placeholder={t('social.publicarEm', { nome: dados.community.name })} aria-label={t('social.publicacaoNaComunidade')} />
                     <div className="composer-foot">
-                      <button type="submit" className="button button-primary" disabled={enviando || !conteudo.trim()}>Publicar</button>
+                      <button type="submit" className="button button-primary" disabled={enviando || !conteudo.trim()}>
+                        {t('social.publicar')}
+                      </button>
                     </div>
                   </form>
                 )}
@@ -720,13 +776,18 @@ export function ComunidadeDetalhe({ slug, notificar, navegar }) {
                 <AsyncSection state={posts} linhas={3}>
                   {() => (pagina.items.length
                     ? pagina.items.map(post => <Post key={post.id} post={post} notificar={notificar} navegar={navegar} onMudou={() => posts.reload()} />)
-                    : <EmptyState title="Sem publicações" description={dados.isMember ? 'Seja o primeiro a publicar aqui.' : 'Entre na comunidade para participar.'} />
+                    : (
+                      <EmptyState
+                        title={t('social.semPublicacoes')}
+                        description={t(dados.isMember ? 'social.sejaOPrimeiro' : 'social.entreParaParticipar')}
+                      />
+                    )
                   )}
                 </AsyncSection>
               </div>
 
               <aside className="panel">
-                <div className="panel-head"><h2>Membros</h2></div>
+                <div className="panel-head"><h2>{t('social.membrosTitulo')}</h2></div>
                 <AsyncSection state={membros} linhas={3}>
                   {lista => lista.items.map(membro => (
                     <div className="list-row" key={membro.id}>
@@ -735,7 +796,7 @@ export function ComunidadeDetalhe({ slug, notificar, navegar }) {
                         <strong>{membro.displayName}</strong>
                         <small>@{membro.handle}</small>
                       </span>
-                      {membro.role === 'ADMIN' && <Badge tom="info">Admin</Badge>}
+                      {membro.role === 'ADMIN' && <Badge tom="info">{t('social.admin')}</Badge>}
                     </div>
                   ))}
                 </AsyncSection>
@@ -749,15 +810,16 @@ export function ComunidadeDetalhe({ slug, notificar, navegar }) {
 }
 
 export function Salvos({ notificar, navegar }) {
+  const { t } = useIdioma();
   const estado = useFetch(() => api.social.saved({ limit: 20 }), []);
 
   return (
     <div className="page">
-      <PageHead eyebrow="MCI Social" title="Salvos" description="Publicações que você guardou." />
+      <PageHead eyebrow={t('social.mciSocial')} title={t('social.salvos')} description={t('social.salvosDescricao')} />
       <AsyncSection state={estado} linhas={3}>
         {dados => (dados.items.length
           ? dados.items.map(post => <Post key={post.id} post={post} notificar={notificar} navegar={navegar} onMudou={() => estado.reload()} />)
-          : <EmptyState title="Nada salvo ainda" description="Use o marcador de uma publicação para guardá-la aqui." />
+          : <EmptyState title={t('social.nadaSalvo')} description={t('social.nadaSalvoDescricao')} />
         )}
       </AsyncSection>
     </div>
@@ -765,6 +827,7 @@ export function Salvos({ notificar, navegar }) {
 }
 
 export function Notificacoes() {
+  const { t } = useIdioma();
   const estado = useFetch(() => api.notifications.list({ limit: 60 }), []);
 
   const marcarTodas = async () => {
@@ -776,10 +839,14 @@ export function Notificacoes() {
   return (
     <div className="page">
       <PageHead
-        eyebrow="Central"
-        title="Notificações"
-        description="Interações sociais, mensagens e movimentações do campeonato."
-        actions={<button type="button" className="button button-secondary" onClick={marcarTodas}>Marcar todas como lidas</button>}
+        eyebrow={t('social.central')}
+        title={t('social.notificacoes')}
+        description={t('social.notificacoesDescricao')}
+        actions={(
+          <button type="button" className="button button-secondary" onClick={marcarTodas}>
+            {t('social.marcarTodas')}
+          </button>
+        )}
       />
 
       <section className="panel">
@@ -800,12 +867,12 @@ export function Notificacoes() {
                     className="button button-ghost button-sm"
                     onClick={async () => { await api.notifications.markRead(item.id); estado.reload(); refreshData(); }}
                   >
-                    Marcar lida
+                    {t('social.marcarLida')}
                   </button>
                 )}
               </div>
             ))
-            : <EmptyState title="Nenhuma notificação" description="Curtidas, comentários, mensagens e resultados aparecem aqui." />
+            : <EmptyState title={t('social.nenhumaNotificacao')} description={t('social.nenhumaNotificacaoDescricao')} />
           )}
         </AsyncSection>
       </section>
@@ -814,19 +881,26 @@ export function Notificacoes() {
 }
 
 export function MeuPerfilSocial({ notificar }) {
+  const { t } = useIdioma();
   const estado = useFetch(() => api.social.me(), []);
   const [editando, setEditando] = useState(false);
 
   return (
     <div className="page">
-      <PageHead eyebrow="MCI Social" title="Meu perfil social" description="Identidade pública na comunidade Muscle Contest." />
+      <PageHead
+        eyebrow={t('social.mciSocial')}
+        title={t('social.meuPerfilSocial')}
+        description={t('social.meuPerfilDescricao')}
+      />
 
       <AsyncSection state={estado} linhas={3}>
         {perfil => (
           <section className="panel" style={{ maxWidth: 560 }}>
             <FotoDePerfil perfil={perfil} notificar={notificar} onMudou={() => { estado.reload(); refreshData(); }} />
-            <p style={{ color: 'var(--cinza)', fontSize: 13 }}>{perfil.bio || 'Sem bio.'}</p>
-            <button type="button" className="button button-secondary" onClick={() => setEditando(true)}>Editar perfil</button>
+            <p style={{ color: 'var(--cinza)', fontSize: 13 }}>{perfil.bio || t('social.semBio')}</p>
+            <button type="button" className="button button-secondary" onClick={() => setEditando(true)}>
+              {t('social.editarPerfil')}
+            </button>
 
             {editando && (
               <EditarPerfilSocial
@@ -853,6 +927,7 @@ const TIPOS_DE_FOTO = ['image/png', 'image/jpeg', 'image/webp'];
 const LIMITE_DA_FOTO = 5 * 1024 * 1024;
 
 function FotoDePerfil({ perfil, notificar, onMudou }) {
+  const { t } = useIdioma();
   const [arquivo, setArquivo] = useState(null);
   const [previa, setPrevia] = useState(null);
   const [ocupado, setOcupado] = useState(false);
@@ -872,11 +947,11 @@ function FotoDePerfil({ perfil, notificar, onMudou }) {
     evento.target.value = '';
     if (!escolhido) return;
     if (!TIPOS_DE_FOTO.includes(escolhido.type)) {
-      notificar('Formato não aceito. Use JPG, PNG ou WebP.', 'erro');
+      notificar(t('social.formatoNaoAceito'), 'erro');
       return;
     }
     if (escolhido.size > LIMITE_DA_FOTO) {
-      notificar('A foto passa de 5 MB. Escolha uma menor.', 'erro');
+      notificar(t('social.fotoGrandeDemais'), 'erro');
       return;
     }
     setArquivo(escolhido);
@@ -887,7 +962,7 @@ function FotoDePerfil({ perfil, notificar, onMudou }) {
     try {
       await api.social.setAvatar(arquivo);
       setArquivo(null);
-      notificar('Foto de perfil atualizada.');
+      notificar(t('social.fotoAtualizada'));
       onMudou();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -900,7 +975,7 @@ function FotoDePerfil({ perfil, notificar, onMudou }) {
     setOcupado(true);
     try {
       await api.social.removeAvatar();
-      notificar('Foto de perfil removida.');
+      notificar(t('social.fotoRemovida'));
       onMudou();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -912,7 +987,7 @@ function FotoDePerfil({ perfil, notificar, onMudou }) {
   return (
     <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', marginBottom: 18 }}>
       {previa
-        ? <span className="avatar avatar-lg"><img src={previa} alt="Prévia da nova foto de perfil" /></span>
+        ? <span className="avatar avatar-lg"><img src={previa} alt={t('social.previaDaNovaFoto')} /></span>
         : <Avatar name={perfil.displayName} mediaPath={caminhoDoAvatar(perfil)} size="avatar-lg" />}
 
       <div style={{ flex: 1, minWidth: 200 }}>
@@ -923,20 +998,20 @@ function FotoDePerfil({ perfil, notificar, onMudou }) {
           {arquivo ? (
             <>
               <button type="button" className="button button-primary button-sm" onClick={salvar} disabled={ocupado}>
-                {ocupado ? 'Salvando…' : 'Salvar foto'}
+                {t(ocupado ? 'social.salvando' : 'social.salvarFoto')}
               </button>
               <button type="button" className="button button-ghost button-sm" onClick={() => setArquivo(null)} disabled={ocupado}>
-                Cancelar
+                {t('acao.cancelar')}
               </button>
             </>
           ) : (
             <>
               <button type="button" className="button button-secondary button-sm" onClick={() => inputRef.current?.click()} disabled={ocupado}>
-                <ImageIcon size={14} /> {perfil.hasAvatar ? 'Trocar foto' : 'Adicionar foto'}
+                <ImageIcon size={14} /> {t(perfil.hasAvatar ? 'social.trocarFoto' : 'social.adicionarFoto')}
               </button>
               {perfil.hasAvatar && (
                 <button type="button" className="button button-ghost button-sm" onClick={remover} disabled={ocupado}>
-                  Remover foto
+                  {t('social.removerFoto')}
                 </button>
               )}
             </>
@@ -953,7 +1028,7 @@ function FotoDePerfil({ perfil, notificar, onMudou }) {
           accept="image/png,image/jpeg,image/webp"
           hidden
           onChange={escolher}
-          aria-label="Escolher foto de perfil"
+          aria-label={t('social.escolherFoto')}
         />
       </div>
     </div>
@@ -961,6 +1036,7 @@ function FotoDePerfil({ perfil, notificar, onMudou }) {
 }
 
 function EditarPerfilSocial({ perfil, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const [form, setForm] = useState({ displayName: perfil.displayName, bio: perfil.bio || '', handle: perfil.handle, isPrivate: perfil.isPrivate });
   const [salvando, setSalvando] = useState(false);
 
@@ -970,7 +1046,7 @@ function EditarPerfilSocial({ perfil, notificar, onClose, onSalvo }) {
     try {
       await api.social.updateProfile({ displayName: form.displayName, bio: form.bio || null, isPrivate: form.isPrivate });
       if (form.handle !== perfil.handle) await api.social.setHandle(form.handle);
-      notificar('Perfil atualizado.');
+      notificar(t('social.perfilAtualizado'));
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -979,20 +1055,20 @@ function EditarPerfilSocial({ perfil, notificar, onClose, onSalvo }) {
   };
 
   return (
-    <Modal title="Editar perfil social" onClose={onClose}>
+    <Modal title={t('social.editarPerfilSocial')} onClose={onClose}>
       <form onSubmit={salvar}>
-        <Field label="Nome de exibição" required>
+        <Field label={t('social.nomeDeExibicao')} required>
           <input value={form.displayName} onChange={evento => setForm({ ...form, displayName: evento.target.value })} required minLength={2} maxLength={80} />
         </Field>
-        <Field label="Identificador" required hint="Somente letras minúsculas, números, ponto e sublinhado.">
+        <Field label={t('social.identificador')} required hint={t('social.identificadorHint')}>
           <input value={form.handle} onChange={evento => setForm({ ...form, handle: evento.target.value.toLowerCase() })} required pattern="[a-z0-9_.]{3,30}" />
         </Field>
-        <Field label="Bio">
+        <Field label={t('social.bio')}>
           <textarea value={form.bio} onChange={evento => setForm({ ...form, bio: evento.target.value })} maxLength={500} />
         </Field>
         <label className="field" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <input type="checkbox" style={{ width: 'auto' }} checked={form.isPrivate} onChange={evento => setForm({ ...form, isPrivate: evento.target.checked })} />
-          <span style={{ margin: 0 }}>Perfil privado (só seguidores veem as publicações)</span>
+          <span style={{ margin: 0 }}>{t('social.perfilPrivadoOpcao')}</span>
         </label>
         <ModalActions onClose={onClose} saving={salvando} />
       </form>

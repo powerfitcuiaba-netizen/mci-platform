@@ -6,6 +6,7 @@ import {
   mascararTelefone, mascararCep, digitos, UFS, PAPEIS_ABERTOS,
   errosDaEtapa, corpoDoCadastro
 } from '../lib/formulario';
+import { useIdioma, TextoRico } from '../lib/idioma';
 
 // ============================================================================
 // CADASTRO COMPLETO — assistente de 5 etapas.
@@ -28,13 +29,9 @@ import {
 //    plataforma. Função de operação é concessão da organização, com auditoria.
 // ============================================================================
 
-const ETAPAS = [
-  ['IDENTIDADE', 'Quem é você'],
-  ['CONTATO', 'Como falamos com você'],
-  ['ENDEREÇO', 'Onde você está'],
-  ['PERFIL ESPORTIVO', 'O que vem depois'],
-  ['REVISÃO', 'Confira antes de enviar']
-];
+// As etapas em CHAVES: o rótulo do passo e o título da tela saem do
+// dicionário, e a lista guarda só a ordem.
+const ETAPAS = ['cadastro.etapa1', 'cadastro.etapa2', 'cadastro.etapa3', 'cadastro.etapa4', 'cadastro.etapa5'];
 
 const TOTAL = ETAPAS.length;
 
@@ -45,15 +42,17 @@ const INICIAL = {
 };
 
 function Passos({ etapa }) {
+  const { t } = useIdioma();
+
   return (
-    <ol className="passos" aria-label={`Etapa ${etapa} de ${TOTAL}`}>
-      {ETAPAS.map(([rotulo], indice) => {
+    <ol className="passos" aria-label={t('cadastro.etapaDe', { atual: etapa, total: TOTAL })}>
+      {ETAPAS.map((chave, indice) => {
         const numero = indice + 1;
         const estado = numero < etapa ? 'feito' : numero === etapa ? 'atual' : 'futuro';
         return (
-          <li key={rotulo} className={`passo is-${estado}`} aria-current={numero === etapa ? 'step' : undefined}>
+          <li key={chave} className={`passo is-${estado}`} aria-current={numero === etapa ? 'step' : undefined}>
             <span className="passo-bolha">{numero < etapa ? '✓' : numero}</span>
-            <span className="passo-rotulo">{rotulo}</span>
+            <span className="passo-rotulo">{t(chave)}</span>
           </li>
         );
       })}
@@ -63,12 +62,17 @@ function Passos({ etapa }) {
 
 // O erro fica COLADO no campo e é ligado a ele por aria-describedby: um resumo
 // no topo obriga quem usa leitor de tela a caçar o campo correspondente.
+// `texto` é uma CHAVE de tradução vinda da validação, e não uma frase. Ver o
+// comentário em `lib/formulario.js`.
 function Erro({ id, texto }) {
+  const { t } = useIdioma();
+
   if (!texto) return null;
-  return <small id={id} className="campo-erro" role="alert">{texto}</small>;
+  return <small id={id} className="campo-erro" role="alert">{t(texto)}</small>;
 }
 
 export default function CadastroWizard({ aoVoltarParaEntrada }) {
+  const { t } = useIdioma();
   const { register } = useAuth();
   const [etapa, setEtapa] = useState(1);
   const [form, setForm] = useState(INICIAL);
@@ -174,7 +178,7 @@ export default function CadastroWizard({ aoVoltarParaEntrada }) {
       // 409 é e-mail já cadastrado: o campo está na etapa 2, e deixar a pessoa
       // na revisão com um erro sobre um campo que ela não vê é um beco.
       if (problema.status === 409) {
-        setErros({ email: 'Este e-mail já está cadastrado' });
+        setErros({ email: 'cadastro.emailJaCadastrado' });
         setEtapa(2);
       }
     }
@@ -184,15 +188,15 @@ export default function CadastroWizard({ aoVoltarParaEntrada }) {
     <div className="auth-shell">
       <div className="auth-card auth-card-larga">
         <MarcaMci largura={148} className="marca-na-entrada" />
-        <span className="eyebrow">MCI Platform · Etapa {etapa} de {TOTAL}</span>
-        <h1 tabIndex={-1} ref={titulo}>{ETAPAS[etapa - 1][1]}</h1>
+        <span className="eyebrow">MCI Platform · {t('cadastro.etapaDe', { atual: etapa, total: TOTAL })}</span>
+        <h1 tabIndex={-1} ref={titulo}>{t(`${ETAPAS[etapa - 1]}.titulo`)}</h1>
 
         <Passos etapa={etapa} />
 
         <form onSubmit={etapa === TOTAL ? enviar : evento => { evento.preventDefault(); avancar(); }} noValidate>
           {etapa === 1 && (
             <>
-              <Field label="Nome completo" required>
+              <Field label={t('cadastro.nomeCompleto')} required>
                 <input
                   value={form.name} onChange={e => campo('name', e.target.value)}
                   maxLength={120} autoComplete="name" autoFocus
@@ -201,7 +205,7 @@ export default function CadastroWizard({ aoVoltarParaEntrada }) {
               </Field>
               <Erro id="erro-name" texto={erros.name} />
 
-              <Field label="Data de nascimento" required>
+              <Field label={t('cadastro.dataDeNascimento')} required>
                 <input
                   type="date" value={form.birthDate} onChange={e => campo('birthDate', e.target.value)}
                   autoComplete="bday"
@@ -210,20 +214,20 @@ export default function CadastroWizard({ aoVoltarParaEntrada }) {
               </Field>
               <Erro id="erro-birthDate" texto={erros.birthDate} />
 
-              <Field label="Você é" required hint="Define como você aparece na plataforma. Não é nível de acesso.">
+              <Field label={t('cadastro.voceE')} required hint={t('cadastro.voceEHint')}>
                 <select value={form.role} onChange={e => campo('role', e.target.value)}>
-                  {PAPEIS_ABERTOS.map(([valor, rotulo]) => <option key={valor} value={valor}>{rotulo}</option>)}
+                  {PAPEIS_ABERTOS.map(codigo => <option key={codigo} value={codigo}>{t(`papel.${codigo}`)}</option>)}
                 </select>
               </Field>
               <p className="muted" style={{ marginTop: -2 }}>
-                {PAPEIS_ABERTOS.find(([valor]) => valor === form.role)?.[2]}
+                {t(`papel.${form.role}.descricao`)}
               </p>
             </>
           )}
 
           {etapa === 2 && (
             <>
-              <Field label="E-mail" required>
+              <Field label={t('cadastro.email')} required>
                 <input
                   type="email" value={form.email} onChange={e => campo('email', e.target.value)}
                   autoComplete="email" autoFocus
@@ -232,7 +236,7 @@ export default function CadastroWizard({ aoVoltarParaEntrada }) {
               </Field>
               <Erro id="erro-email" texto={erros.email} />
 
-              <Field label="Senha" required hint="Ao menos 8 caracteres.">
+              <Field label={t('cadastro.senha')} required hint={t('cadastro.senhaHint')}>
                 <input
                   type="password" value={form.password} onChange={e => campo('password', e.target.value)}
                   autoComplete="new-password"
@@ -243,7 +247,7 @@ export default function CadastroWizard({ aoVoltarParaEntrada }) {
 
               <div className="grade-dupla">
                 <div>
-                  <Field label="Telefone" required>
+                  <Field label={t('cadastro.telefone')} required>
                     <input
                       inputMode="numeric" value={form.phone}
                       onChange={e => campo('phone', mascararTelefone(e.target.value))}
@@ -254,7 +258,7 @@ export default function CadastroWizard({ aoVoltarParaEntrada }) {
                   <Erro id="erro-phone" texto={erros.phone} />
                 </div>
                 <div>
-                  <Field label="WhatsApp" required>
+                  <Field label={t('cadastro.whatsapp')} required>
                     <input
                       inputMode="numeric" value={form.whatsapp}
                       onChange={e => campo('whatsapp', mascararTelefone(e.target.value))}
@@ -271,14 +275,14 @@ export default function CadastroWizard({ aoVoltarParaEntrada }) {
                 onClick={() => campo('whatsapp', form.phone)}
                 disabled={!form.phone}
               >
-                Usar o mesmo número do telefone
+                {t('cadastro.mesmoNumero')}
               </button>
             </>
           )}
 
           {etapa === 3 && (
             <>
-              <Field label="CEP" required hint="Preenchemos o endereço para você.">
+              <Field label={t('cadastro.cep')} required hint={t('cadastro.cepHint')}>
                 <input
                   inputMode="numeric" value={form.postalCode} autoFocus
                   onChange={e => {
@@ -294,10 +298,10 @@ export default function CadastroWizard({ aoVoltarParaEntrada }) {
               {/* aria-live: a pessoa precisa saber que a busca aconteceu mesmo
                   sem enxergar o campo mudar de cor. */}
               <p className="muted" aria-live="polite" style={{ marginTop: -2 }}>
-                {cep.estado === 'buscando' ? 'Buscando endereço…' : cep.mensagem || ''}
+                {cep.estado === 'buscando' ? t('cadastro.buscandoEndereco') : cep.mensagem || ''}
               </p>
 
-              <Field label="Endereço" required>
+              <Field label={t('cadastro.endereco')} required>
                 <input
                   value={form.addressLine} onChange={e => campo('addressLine', e.target.value)}
                   maxLength={200} autoComplete="street-address"
@@ -308,7 +312,7 @@ export default function CadastroWizard({ aoVoltarParaEntrada }) {
 
               <div className="grade-dupla">
                 <div>
-                  <Field label="Número" required>
+                  <Field label={t('cadastro.numero')} required>
                     <input
                       value={form.addressNumber} onChange={e => campo('addressNumber', e.target.value)}
                       maxLength={20}
@@ -317,14 +321,14 @@ export default function CadastroWizard({ aoVoltarParaEntrada }) {
                   </Field>
                   <Erro id="erro-addressNumber" texto={erros.addressNumber} />
                 </div>
-                <Field label="Complemento">
+                <Field label={t('cadastro.complemento')}>
                   <input value={form.addressComplement} onChange={e => campo('addressComplement', e.target.value)} maxLength={80} />
                 </Field>
               </div>
 
               <div className="grade-dupla">
                 <div>
-                  <Field label="Cidade" required>
+                  <Field label={t('cadastro.cidade')} required>
                     <input
                       value={form.city} onChange={e => campo('city', e.target.value)} maxLength={80}
                       aria-invalid={!!erros.city} aria-describedby={erros.city ? 'erro-city' : undefined}
@@ -333,7 +337,7 @@ export default function CadastroWizard({ aoVoltarParaEntrada }) {
                   <Erro id="erro-city" texto={erros.city} />
                 </div>
                 <div>
-                  <Field label="UF" required>
+                  <Field label={t('cadastro.uf')} required>
                     <select
                       value={form.state} onChange={e => campo('state', e.target.value)}
                       aria-invalid={!!erros.state} aria-describedby={erros.state ? 'erro-state' : undefined}
@@ -352,37 +356,16 @@ export default function CadastroWizard({ aoVoltarParaEntrada }) {
             <div className="painel-informativo">
               {eAtleta ? (
                 <>
-                  <h2>Sua filiação é confirmada pela federação</h2>
-                  <p>
-                    Competir exige um vínculo que a MCI não concede sozinha: quem confirma é a
-                    federação à qual você é filiado. Por isso o seu perfil de atleta passa por
-                    uma análise — e ela só começa depois de a sua conta existir.
-                  </p>
-                  <p className="muted">
-                    Assim que você concluir o cadastro, abriremos a página <strong>Minha
-                    solicitação</strong>, onde você informa <strong>CPF</strong>, a
-                    <strong> entidade de filiação</strong> e o seu <strong>número de
-                    registro</strong>. Um operador da federação analisa e aprova.
-                  </p>
-                  <p className="muted">
-                    O CPF não é pedido aqui de propósito: ele só é digitado depois de a sua
-                    sessão existir, e vai direto para a federação — nunca fica guardado neste
-                    navegador.
-                  </p>
+                  <h2>{t('cadastro.filiacaoTitulo')}</h2>
+                  <p>{t('cadastro.filiacaoTexto')}</p>
+                  <p className="muted"><TextoRico chave="cadastro.filiacaoProximoPasso" /></p>
+                  <p className="muted">{t('cadastro.cpfDepois')}</p>
                 </>
               ) : (
                 <>
-                  <h2>Não precisamos de mais nada</h2>
-                  <p>
-                    O perfil <strong>{PAPEIS_ABERTOS.find(([valor]) => valor === form.role)?.[1]}</strong> não
-                    compete nas etapas, então não pedimos CPF nem filiação — seria coletar
-                    documento de quem não vai à prova.
-                  </p>
-                  <p className="muted">
-                    Funções de operação — direção de evento, credenciamento, pesagem, palco,
-                    resultados — não são escolhidas aqui. Elas são concedidas pela organização
-                    do campeonato a uma conta que já existe.
-                  </p>
+                  <h2>{t('cadastro.semMaisNada')}</h2>
+                  <p><TextoRico chave="cadastro.semMaisNadaTexto" valores={{ papel: t(`papel.${form.role}`) }} /></p>
+                  <p className="muted">{t('cadastro.funcoesDeOperacao')}</p>
                 </>
               )}
             </div>
@@ -390,7 +373,7 @@ export default function CadastroWizard({ aoVoltarParaEntrada }) {
 
           {etapa === 5 && (
             <div className="revisao">
-              <p className="muted">Confira os dados. Você pode voltar e corrigir qualquer etapa.</p>
+              <p className="muted">{t('cadastro.confiraOsDados')}</p>
               <Revisao form={form} aoEditar={setEtapa} />
             </div>
           )}
@@ -403,11 +386,11 @@ export default function CadastroWizard({ aoVoltarParaEntrada }) {
 
           <div className="acoes-do-passo">
             {etapa > 1
-              ? <button type="button" className="button button-ghost" onClick={voltar} disabled={enviando}>Voltar</button>
-              : <button type="button" className="button button-ghost" onClick={aoVoltarParaEntrada}>Já tenho conta</button>}
+              ? <button type="button" className="button button-ghost" onClick={voltar} disabled={enviando}>{t('acao.voltar')}</button>
+              : <button type="button" className="button button-ghost" onClick={aoVoltarParaEntrada}>{t('cadastro.jaTenhoConta')}</button>}
 
             <button type="submit" className="button button-primary" disabled={enviando}>
-              {etapa < TOTAL ? 'Continuar' : enviando ? 'Enviando…' : 'Criar conta'}
+              {t(etapa < TOTAL ? 'cadastro.continuar' : enviando ? 'cadastro.enviando' : 'login.criarConta')}
             </button>
           </div>
         </form>
@@ -420,7 +403,7 @@ export default function CadastroWizard({ aoVoltarParaEntrada }) {
 // achar o erro e não ter como voltar direto nele é o que faz a pessoa desistir
 // na última tela.
 function Revisao({ form, aoEditar }) {
-  const papel = PAPEIS_ABERTOS.find(([valor]) => valor === form.role);
+  const { t } = useIdioma();
   const endereco = [
     `${form.addressLine}, ${form.addressNumber}`,
     form.addressComplement,
@@ -429,9 +412,18 @@ function Revisao({ form, aoEditar }) {
   ].filter(Boolean).join(' · ');
 
   const blocos = [
-    [1, 'Identidade', [['Nome', form.name], ['Nascimento', form.birthDate], ['Perfil', papel?.[1]]]],
-    [2, 'Contato', [['E-mail', form.email], ['Senha', '••••••••'], ['Telefone', form.phone], ['WhatsApp', form.whatsapp]]],
-    [3, 'Endereço', [['Endereço', endereco]]]
+    [1, t('cadastro.revisaoIdentidade'), [
+      [t('cadastro.revisaoNome'), form.name],
+      [t('cadastro.revisaoNascimento'), form.birthDate],
+      [t('cadastro.revisaoPerfil'), t(`papel.${form.role}`)]
+    ]],
+    [2, t('cadastro.revisaoContato'), [
+      [t('cadastro.email'), form.email],
+      [t('cadastro.senha'), '••••••••'],
+      [t('cadastro.telefone'), form.phone],
+      [t('cadastro.whatsapp'), form.whatsapp]
+    ]],
+    [3, t('cadastro.revisaoEndereco'), [[t('cadastro.endereco'), endereco]]]
   ];
 
   return (
@@ -441,7 +433,7 @@ function Revisao({ form, aoEditar }) {
           <div className="bloco-revisao-topo">
             <h3>{titulo}</h3>
             <button type="button" className="button button-ghost button-sm" onClick={() => aoEditar(numero)}>
-              Editar
+              {t('cadastro.editar')}
             </button>
           </div>
           {linhas.map(([rotulo, valor]) => (

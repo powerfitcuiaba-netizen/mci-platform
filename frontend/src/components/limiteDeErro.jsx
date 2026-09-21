@@ -1,5 +1,6 @@
 import { Component } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { traduzir, idiomaPreferido } from '../lib/idioma';
 
 // ==========================================================================
 // Limite de erro.
@@ -52,23 +53,26 @@ export default class LimiteDeErro extends Component {
   render() {
     if (!this.state.erro) return this.props.children;
 
+    // SEM O HOOK, DE PROPÓSITO. Esta é a única tela que roda depois de a
+    // árvore ter quebrado, e o provedor de idioma pode ser justamente o que
+    // caiu. A preferência é lida direto do armazenamento — o mesmo valor que o
+    // provedor usaria —, então a tela de recuperação nunca depende do que ela
+    // existe para substituir.
+    const t = (chave, valores) => traduzir(idiomaPreferido(), chave, valores);
+
     return (
       <div className="page" style={{ display: 'grid', placeItems: 'center', minHeight: '60vh' }}>
         <div className="alert alert-erro" role="alert" style={{ maxWidth: 560 }}>
           <AlertTriangle size={18} />
           <div style={{ flex: 1 }}>
-            <strong>Esta tela parou de responder</strong>
-            <p>
-              O restante do sistema continua funcionando. Volte ao início e
-              tente de novo; se acontecer outra vez, avise o suporte técnico
-              informando em qual tela ocorreu.
-            </p>
+            <strong>{t('erro.titulo')}</strong>
+            <p>{t('erro.explicacao')}</p>
             <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
               <button type="button" className="button button-primary" onClick={this.voltarAoInicio}>
-                Voltar ao início
+                {t('erro.voltarAoInicio')}
               </button>
               <button type="button" className="button button-secondary" onClick={() => window.location.reload()}>
-                Recarregar
+                {t('erro.recarregar')}
               </button>
             </div>
           </div>

@@ -84,41 +84,44 @@ export const UFS = Object.freeze([
 // Os sete perfis que o cadastro aberto cria. A lista reflete o que o SERVIDOR
 // aceita (`PAPEIS_DE_CADASTRO_ABERTO`); esconder uma opção aqui não protegeria
 // nada, a proteção é de lá.
+// SÓ O CÓDIGO. O rótulo e a descrição de cada perfil vivem no dicionário, sob
+// as chaves `papel.<CÓDIGO>` e `papel.<CÓDIGO>.descricao`. Manter a frase aqui
+// significaria formulário em português dentro de uma tela em espanhol — e o
+// código é justamente a parte que não pode mudar de idioma, porque é ele que
+// vai para a API.
 export const PAPEIS_ABERTOS = Object.freeze([
-  ['ATHLETE', 'Atleta', 'Compete nas etapas do Campeonato Brasileiro'],
-  ['COACH', 'Coach', 'Prepara e acompanha atletas'],
-  ['GYM', 'Academia', 'Centro de treinamento'],
-  ['TEAM', 'Equipe', 'Time que reúne atletas'],
-  ['BRAND', 'Marca', 'Marca do ecossistema'],
-  ['SPONSOR', 'Patrocinador', 'Apoia atletas e etapas'],
-  ['MEDIA', 'Imprensa', 'Cobertura e conteúdo']
+  'ATHLETE', 'COACH', 'GYM', 'TEAM', 'BRAND', 'SPONSOR', 'MEDIA'
 ]);
 
 // Campos exigidos por etapa. A validação por etapa existe para NÃO bloquear o
 // avanço por causa de um campo que ainda nem foi mostrado — o erro precisa
 // aparecer onde a pessoa está, não três telas adiante.
+// O VALOR DE CADA ERRO É UMA CHAVE DE TRADUÇÃO, e não a frase. Quem desenha o
+// erro na tela chama `t(chave)`. Devolver português daqui deixaria a mensagem
+// em português numa interface em inglês — e este módulo, por não ser
+// componente, não tem como saber o idioma em vigor.
 export function errosDaEtapa(etapa, form) {
   const erros = {};
   const vazio = campo => !String(form[campo] ?? '').trim();
 
   if (etapa === 1) {
-    if (vazio('name') || form.name.trim().length < 2) erros.name = 'Informe seu nome completo';
-    if (!nascimentoValido(form.birthDate)) erros.birthDate = 'Informe uma data de nascimento válida';
+    if (vazio('name') || form.name.trim().length < 2) erros.name = 'form.erro.nome';
+    if (!nascimentoValido(form.birthDate)) erros.birthDate = 'form.erro.nascimento';
   }
 
   if (etapa === 2) {
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email || '')) erros.email = 'Informe um e-mail válido';
-    if ((form.password || '').length < 8) erros.password = 'A senha precisa de pelo menos 8 caracteres';
-    if (!telefoneValido(form.phone)) erros.phone = 'Telefone com DDD e 8 ou 9 dígitos';
-    if (!telefoneValido(form.whatsapp)) erros.whatsapp = 'WhatsApp com DDD e 8 ou 9 dígitos';
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email || '')) erros.email = 'form.erro.email';
+    if ((form.password || '').length < 8) erros.password = 'form.erro.senha';
+    if (!telefoneValido(form.phone)) erros.phone = 'form.erro.telefone';
+    if (!telefoneValido(form.whatsapp)) erros.whatsapp = 'form.erro.whatsapp';
   }
 
   if (etapa === 3) {
-    if (!cepValido(form.postalCode)) erros.postalCode = 'CEP com 8 dígitos';
-    if (vazio('addressLine')) erros.addressLine = 'Informe o endereço';
-    if (vazio('addressNumber')) erros.addressNumber = 'Informe o número';
-    if (!UFS.includes(String(form.state || '').toUpperCase())) erros.state = 'Selecione a UF';
-    if (vazio('city')) erros.city = 'Informe a cidade';
+    if (!cepValido(form.postalCode)) erros.postalCode = 'form.erro.cep';
+    if (vazio('addressLine')) erros.addressLine = 'form.erro.endereco';
+    if (vazio('addressNumber')) erros.addressNumber = 'form.erro.numero';
+    if (!UFS.includes(String(form.state || '').toUpperCase())) erros.state = 'form.erro.uf';
+    if (vazio('city')) erros.city = 'form.erro.cidade';
   }
 
   // As etapas 4 (PERFIL ESPORTIVO) e 5 (REVISÃO) não cobram campo nenhum: a
@@ -143,12 +146,12 @@ export function errosDaSolicitacao(form) {
   // O nome vem preenchido com o da conta, mas é editável — a ficha da
   // federação usa o nome do documento, que nem sempre é o do cadastro. Se a
   // pessoa apagar, o servidor recusa com 400; acusar aqui é mais barato.
-  if (vazio('name') || form.name.trim().length < 2) erros.name = 'Informe o nome como consta no documento';
-  if (!cpfValido(form.cpf)) erros.cpf = 'CPF inválido';
-  if (!form.sex) erros.sex = 'Selecione a categoria de competição';
-  if (vazio('affiliationId')) erros.affiliationId = 'Selecione a entidade de filiação';
-  if (vazio('affiliationNumber')) erros.affiliationNumber = 'Informe o número de registro';
-  if (form.birthDate && !nascimentoValido(form.birthDate)) erros.birthDate = 'Informe uma data de nascimento válida';
+  if (vazio('name') || form.name.trim().length < 2) erros.name = 'form.erro.nomeDocumento';
+  if (!cpfValido(form.cpf)) erros.cpf = 'form.erro.cpf';
+  if (!form.sex) erros.sex = 'form.erro.sexo';
+  if (vazio('affiliationId')) erros.affiliationId = 'form.erro.filiacao';
+  if (vazio('affiliationNumber')) erros.affiliationNumber = 'form.erro.matricula';
+  if (form.birthDate && !nascimentoValido(form.birthDate)) erros.birthDate = 'form.erro.nascimento';
 
   return erros;
 }

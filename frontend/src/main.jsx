@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { ProvedorDeIdioma } from './lib/idioma';
 import './styles.css';
 
 // A fonte da marca é carregada por JavaScript, e não por `@import` no CSS,
@@ -21,5 +22,5 @@ function carregarFonteDaMarca() {
 carregarFonteDaMarca();
 
 createRoot(document.getElementById('root')).render(
-  <React.StrictMode><App /></React.StrictMode>
+  <React.StrictMode><ProvedorDeIdioma><App /></ProvedorDeIdioma></React.StrictMode>
 );

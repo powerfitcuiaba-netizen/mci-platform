@@ -19,7 +19,13 @@ describe('conferência da foto antes do envio', () => {
 
   it('recusa acima do limite, e diz os dois tamanhos', () => {
     const r = conferirFoto(falso('image/png', MAX_FOTO_BYTES + 1));
-    expect(r.erro).toContain('5,0 MB');
+    // A CONFERÊNCIA DEVOLVE CHAVE E NÚMEROS, e não a frase pronta: o texto é
+    // montado na tela, no idioma em vigor. A garantia que este teste cobra
+    // continua sendo a mesma — o aviso diz QUANTO a foto tem e QUAL é o
+    // limite —, só que agora ela é medida onde os dois números moram.
+    expect(r.erro).toBe('foto.erro.tamanho');
+    expect(r.valores.limite).toBeCloseTo(5, 5);
+    expect(r.valores.tamanho).toBeGreaterThan(r.valores.limite);
     expect(conferirFoto(falso('image/png', MAX_FOTO_BYTES)).erro).toBeUndefined();
   });
 

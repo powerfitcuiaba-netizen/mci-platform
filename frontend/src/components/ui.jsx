@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Check, Info, Loader2, RefreshCw, X } from 'lucide-react';
 import { iniciais } from '../lib/format';
 import { fetchMediaObjectUrl, releaseMediaObjectUrl } from '../services/api';
+import { useIdioma } from '../lib/idioma';
 
 // Blocos de interface compartilhados. Tudo aqui é apresentação: nenhuma
 // decisão de autorização ou de regra de negócio mora neste arquivo.
@@ -150,6 +151,7 @@ export function Metric({ label, value, hint, destaque = false, onClick, destino 
 // QUANDO conferiu: sem isso, número velho por falha de rede é indistinguível
 // de número recém-confirmado, e o operador confia no que não devia.
 export function AtualizadoEm({ quando }) {
+  const { t } = useIdioma();
   const [, redesenhar] = useState(0);
 
   // O texto envelhece sozinho: sem este tique, "agora" continuaria escrito
@@ -164,10 +166,10 @@ export function AtualizadoEm({ quando }) {
 
   const segundos = Math.max(0, Math.round((Date.now() - quando) / 1000));
   const texto = segundos < 45
-    ? 'Atualizado agora'
+    ? t('ui.atualizadoAgora')
     : segundos < 5400
-      ? `Atualizado há ${Math.round(segundos / 60)} min`
-      : `Atualizado há ${Math.round(segundos / 3600)} h`;
+      ? t('ui.atualizadoMinutos', { n: Math.round(segundos / 60) })
+      : t('ui.atualizadoHoras', { n: Math.round(segundos / 3600) });
 
   return (
     <p className="atualizado-em" role="status" aria-live="polite">
@@ -176,21 +178,27 @@ export function AtualizadoEm({ quando }) {
   );
 }
 
-export const Skeleton = ({ linhas = 4 }) => (
-  <div className="skeleton" aria-busy="true" aria-label="Carregando">
-    {Array.from({ length: linhas }, (_, indice) => <i key={indice} />)}
-  </div>
-);
+export function Skeleton({ linhas = 4 }) {
+  const { t } = useIdioma();
+
+  return (
+    <div className="skeleton" aria-busy="true" aria-label={t('ui.carregando')}>
+      {Array.from({ length: linhas }, (_, indice) => <i key={indice} />)}
+    </div>
+  );
+}
 
 export function ErrorState({ message, onRetry }) {
+  const { t } = useIdioma();
+
   return (
     <div className="alert alert-erro" role="alert">
       <AlertTriangle size={17} />
       <div style={{ flex: 1 }}>
-        <strong>Não foi possível carregar</strong>
+        <strong>{t('estado.erro')}</strong>
         <p>{message}</p>
       </div>
-      {onRetry && <button type="button" className="button button-secondary button-sm" onClick={onRetry}>Tentar de novo</button>}
+      {onRetry && <button type="button" className="button button-secondary button-sm" onClick={onRetry}>{t('ui.tentarDeNovo')}</button>}
     </div>
   );
 }
@@ -213,9 +221,11 @@ export const EmptyState = ({ title, description, action }) => (
 // quebrava ao escolher um evento. Nulo é ausência de dado, não erro: mostra o
 // esqueleto, que é o que estava acontecendo de fato.
 export function AsyncSection({ state, empty, children, linhas = 4 }) {
+  const { t } = useIdioma();
+
   if (state.error) return <ErrorState message={state.error} onRetry={state.reload} />;
   if (state.data === null || state.data === undefined) return <Skeleton linhas={linhas} />;
-  if (empty && empty(state.data)) return <EmptyState title="Nada por aqui ainda" description="Quando houver registro, ele aparece nesta tela." />;
+  if (empty && empty(state.data)) return <EmptyState title={t('estado.vazio')} description={t('ui.vazioDescricao')} />;
   return children(state.data);
 }
 
@@ -241,6 +251,7 @@ const FOCALIZAVEIS = [
 ].join(',');
 
 export function Modal({ title, description, wide = false, onClose, children }) {
+  const { t } = useIdioma();
   const caixa = useRef(null);
 
   useEffect(() => {
@@ -310,7 +321,7 @@ export function Modal({ title, description, wide = false, onClose, children }) {
             <h2>{title}</h2>
             {description && <p>{description}</p>}
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="Fechar"><X size={16} /></button>
+          <button type="button" className="icon-button" onClick={onClose} aria-label={t('acao.fechar')}><X size={16} /></button>
         </div>
         {children}
       </div>
@@ -318,14 +329,21 @@ export function Modal({ title, description, wide = false, onClose, children }) {
   );
 }
 
-export const ModalActions = ({ onClose, saving, confirmLabel = 'Salvar', disabled = false }) => (
-  <div className="modal-actions">
-    <button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button>
-    <button type="submit" className="button button-primary" disabled={saving || disabled}>
-      {saving && <Loader2 size={14} className="spin" />} {confirmLabel}
-    </button>
-  </div>
-);
+// O RÓTULO PADRÃO NÃO PODE SER LITERAL NO PARÂMETRO: valor padrão é avaliado
+// fora de qualquer contexto e ficaria em português mesmo com a tela em inglês.
+// `null` significa "use o padrão traduzido".
+export function ModalActions({ onClose, saving, confirmLabel = null, disabled = false }) {
+  const { t } = useIdioma();
+
+  return (
+    <div className="modal-actions">
+      <button type="button" className="button button-secondary" onClick={onClose}>{t('acao.cancelar')}</button>
+      <button type="submit" className="button button-primary" disabled={saving || disabled}>
+        {saving && <Loader2 size={14} className="spin" />} {confirmLabel ?? t('acao.salvar')}
+      </button>
+    </div>
+  );
+}
 
 export function Avatar({ name, mediaPath, size = '' }) {
   const [src, setSrc] = useState(null);
@@ -357,6 +375,7 @@ export function Avatar({ name, mediaPath, size = '' }) {
 // Mídia protegida: buscada com o token e exibida como object URL. Vale para
 // imagem e vídeo de publicação, story e mensagem.
 export function ProtectedMedia({ path, kind = 'IMAGE', alt = '', width = null, height = null }) {
+  const { t } = useIdioma();
   const [src, setSrc] = useState(null);
   const [erro, setErro] = useState(false);
 
@@ -382,7 +401,7 @@ export function ProtectedMedia({ path, kind = 'IMAGE', alt = '', width = null, h
   // carregamento quanto para a própria imagem.
   const proporcao = width && height ? { aspectRatio: `${width} / ${height}` } : null;
 
-  if (erro) return <div className="empty" style={{ padding: 20 }}><p>Mídia indisponível.</p></div>;
+  if (erro) return <div className="empty" style={{ padding: 20 }}><p>{t('ui.midiaIndisponivel')}</p></div>;
   if (!src) {
     return (
       <div className="skeleton" style={{ padding: 8 }}>
@@ -401,6 +420,7 @@ export function ProtectedMedia({ path, kind = 'IMAGE', alt = '', width = null, h
 // atrás. Sem isso, quem navega por teclado abre a foto e continua tabulando
 // por uma tela que não está mais vendo.
 export function Lightbox({ path, kind = 'IMAGE', alt = '', onClose }) {
+  const { t } = useIdioma();
   const caixa = useRef(null);
   const anterior = useRef(null);
 
@@ -434,10 +454,10 @@ export function Lightbox({ path, kind = 'IMAGE', alt = '', onClose }) {
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        aria-label={alt || 'Imagem ampliada'}
+        aria-label={alt || t('ui.imagemAmpliada')}
         onClick={evento => evento.stopPropagation()}
       >
-        <button type="button" className="icon-button lightbox-fechar" onClick={onClose} aria-label="Fechar imagem">
+        <button type="button" className="icon-button lightbox-fechar" onClick={onClose} aria-label={t('ui.fecharImagem')}>
           <X size={18} />
         </button>
         <ProtectedMedia path={path} kind={kind} alt={alt} />
@@ -447,6 +467,7 @@ export function Lightbox({ path, kind = 'IMAGE', alt = '', onClose }) {
 }
 
 export function Toasts({ toasts, onDismiss }) {
+  const { t } = useIdioma();
   if (!toasts.length) return null;
   return (
     <div className="toast-stack" role="status" aria-live="polite">
@@ -454,7 +475,7 @@ export function Toasts({ toasts, onDismiss }) {
         <div key={toast.id} className={`toast${toast.tipo === 'erro' ? ' is-erro' : ''}`}>
           {toast.tipo === 'erro' ? <AlertTriangle size={15} /> : toast.tipo === 'info' ? <Info size={15} /> : <Check size={15} />}
           <span style={{ flex: 1 }}>{toast.mensagem}</span>
-          <button type="button" className="button button-ghost button-sm" onClick={() => onDismiss(toast.id)} aria-label="Dispensar">
+          <button type="button" className="button button-ghost button-sm" onClick={() => onDismiss(toast.id)} aria-label={t('ui.dispensar')}>
             <X size={13} />
           </button>
         </div>
@@ -465,7 +486,8 @@ export function Toasts({ toasts, onDismiss }) {
 
 // Confirmação explícita para ação destrutiva. Substitui window.confirm, que não
 // é estilizável nem acessível de forma consistente.
-export function ConfirmDialog({ title, message, confirmLabel = 'Confirmar', onConfirm, onClose }) {
+export function ConfirmDialog({ title, message, confirmLabel = null, onConfirm, onClose }) {
+  const { t } = useIdioma();
   const [enviando, setEnviando] = useState(false);
 
   const confirmar = async () => {
@@ -482,24 +504,28 @@ export function ConfirmDialog({ title, message, confirmLabel = 'Confirmar', onCo
     <Modal title={title} onClose={onClose}>
       <p style={{ color: 'var(--cinza)', fontSize: 13, margin: 0 }}>{message}</p>
       <div className="modal-actions">
-        <button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button>
-        <button type="button" className="button button-danger" onClick={confirmar} disabled={enviando}>{confirmLabel}</button>
+        <button type="button" className="button button-secondary" onClick={onClose}>{t('acao.cancelar')}</button>
+        <button type="button" className="button button-danger" onClick={confirmar} disabled={enviando}>
+          {confirmLabel ?? t('acao.confirmar')}
+        </button>
       </div>
     </Modal>
   );
 }
 
-export const Paginacao = ({ nextCursor, onMore, loading }) => (
-  nextCursor
-    ? (
-      <div className="pagination">
-        <button type="button" className="button button-secondary" onClick={onMore} disabled={loading}>
-          {loading ? 'Carregando…' : 'Carregar mais'}
-        </button>
-      </div>
-    )
-    : null
-);
+export function Paginacao({ nextCursor, onMore, loading }) {
+  const { t } = useIdioma();
+
+  if (!nextCursor) return null;
+
+  return (
+    <div className="pagination">
+      <button type="button" className="button button-secondary" onClick={onMore} disabled={loading}>
+        {t(loading ? 'estado.carregando' : 'ui.carregarMais')}
+      </button>
+    </div>
+  );
+}
 
 
 // Desenha o QR da credencial a partir do código que o sistema já guarda. Não
@@ -511,6 +537,7 @@ export const Paginacao = ({ nextCursor, onMore, loading }) => (
 // componente não abre superfície de XSS mesmo que o código venha adulterado.
 // A biblioteca entra sob demanda, fora do caminho da primeira pintura.
 export function CodigoQr({ valor, tamanho = 148, legenda = false }) {
+  const { t } = useIdioma();
   const [matriz, setMatriz] = useState(null);
   const [falhou, setFalhou] = useState(false);
 
@@ -543,7 +570,7 @@ export function CodigoQr({ valor, tamanho = 148, legenda = false }) {
   }, [valor]);
 
   if (!valor) return null;
-  if (falhou) return <p className="muted">Não foi possível desenhar o QR. O código continua legível ao lado.</p>;
+  if (falhou) return <p className="muted">{t('ui.qrFalhou')}</p>;
   if (!matriz) return <div className="qr-carregando" style={{ width: tamanho, height: tamanho }} aria-hidden="true" />;
 
   const margem = 2;
@@ -551,7 +578,7 @@ export function CodigoQr({ valor, tamanho = 148, legenda = false }) {
 
   return (
     <figure className="qr" style={{ width: tamanho }}>
-      <svg className="qr-tela" viewBox={`0 0 ${total} ${total}`} role="img" aria-label={`QR da credencial ${valor}`}>
+      <svg className="qr-tela" viewBox={`0 0 ${total} ${total}`} role="img" aria-label={t('ui.qrDaCredencial', { valor })}>
         <rect x="0" y="0" width={total} height={total} fill="#ffffff" />
         {matriz.escuros.map(([x, y]) => (
           <rect key={`${x}-${y}`} x={x + margem} y={y + margem} width="1" height="1" fill="#000000" />

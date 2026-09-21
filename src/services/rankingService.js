@@ -472,6 +472,9 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
         await tx.rankingPoint.create({
           data: {
             seasonId, athleteId: entry.athleteId, categoryId,
+            // A organização, EXPLÍCITA. Aqui ela é a do evento — o caminho
+            // interno nasce de um evento do MCI, e é dele que a linha é.
+            organizationId: result.event.organizationId,
             source: 'EVENT', eventId: result.eventId, resultId,
             classId: result.classId,
             teamId: vinculos.get(entry.athleteId)?.teamId ?? null,
@@ -538,20 +541,64 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
 // passava a mostrar uma colocação que o lançamento já não tinha. Recebendo o
 // cliente transacional de fora, a função também pode ser chamada DENTRO do
 // bloqueio que serializa a correção administrativa, sem soltá-lo no meio.
+/**
+ * O competidor que ainda NÃO tem cadastro no MCI, na forma que a tela espera.
+ *
+ * O histórico oficial é carregado antes de os atletas se inscreverem: por um
+ * tempo — que pode ser longo — a linha do ranking existe, pontua e precisa ter
+ * nome, sem haver `Athlete` nenhum por trás.
+ *
+ * `id` NULO é deliberado, e não um descuido: nada que consuma isto pode
+ * construir um link para o perfil de um atleta que não existe. `pendingLink`
+ * diz à tela que a pessoa está no ranking esperando o cadastro dela — não que
+ * houve erro.
+ */
+function competidorExterno(linha) {
+  if (!linha?.externalAthleteId && !linha?.displayName) return null;
+  return {
+    id: null,
+    externalAthleteId: linha.externalAthleteId ?? null,
+    fullName: linha.displayName ?? 'Atleta não cadastrado',
+    stageName: null,
+    state: null,
+    team: null,
+    pendingLink: true
+  };
+}
+
 async function recomputarEm(tx, seasonId) {
   const pontos = await tx.rankingPoint.findMany({
     where: { seasonId },
     select: {
-      athleteId: true, categoryId: true, points: true, placing: true,
-      isOverallChampion: true, eventId: true, externalResultId: true
+      id: true,
+      athleteId: true, externalAthleteId: true, organizationId: true,
+      categoryId: true, points: true, placing: true,
+      superOverallPoints: true, superOverallEligible: true, didNotShow: true,
+      isOverallChampion: true, eventId: true, classId: true,
+      teamId: true, companyId: true, voidedAt: true, externalResultId: true,
+      externalAthlete: { select: { id: true, displayName: true } }
     }
   });
 
+  // O COMPETIDOR, e não o atleta. Um resultado histórico carregado antes de o
+  // atleta se cadastrar não tem `athleteId` — e agrupar por uma coluna nula
+  // juntaria num balde só todos os competidores sem cadastro da temporada.
+  const competidorDe = ponto => ponto.athleteId ?? `X:${ponto.externalAthleteId}`;
+
   const acumulado = new Map();
   for (const ponto of pontos) {
-    const chave = `${ponto.athleteId}::${ponto.categoryId ?? ''}`;
+    const competidor = competidorDe(ponto);
+    const chave = `${competidor}::${ponto.categoryId ?? ''}`;
     if (!acumulado.has(chave)) {
-      acumulado.set(chave, { athleteId: ponto.athleteId, categoryId: ponto.categoryId, totalPoints: 0, fontes: new Set(), pontos: [] });
+      acumulado.set(chave, {
+        competitorKey: competidor,
+        athleteId: ponto.athleteId,
+        externalAthleteId: ponto.externalAthleteId,
+        organizationId: ponto.organizationId,
+        displayName: ponto.externalAthlete?.displayName ?? null,
+        categoryId: ponto.categoryId,
+        totalPoints: 0, fontes: new Set(), pontos: []
+      });
     }
     const linha = acumulado.get(chave);
     linha.totalPoints += ponto.points;
@@ -559,8 +606,10 @@ async function recomputarEm(tx, seasonId) {
     linha.pontos.push(ponto);
   }
 
-  const athleteIds = [...new Set([...acumulado.values()].map(linha => linha.athleteId))];
-  const atletas = await tx.athlete.findMany({ where: { id: { in: athleteIds } }, select: { id: true, state: true, country: true } });
+  const athleteIds = [...new Set([...acumulado.values()].map(linha => linha.athleteId).filter(Boolean))];
+  const atletas = athleteIds.length
+    ? await tx.athlete.findMany({ where: { id: { in: athleteIds } }, select: { id: true, state: true, country: true } })
+    : [];
   const porAtleta = new Map(atletas.map(atleta => [atleta.id, atleta]));
 
   const comContadores = [...acumulado.values()].map(linha => ({
@@ -582,11 +631,17 @@ async function recomputarEm(tx, seasonId) {
   await tx.ranking.deleteMany({ where: { seasonId } });
 
   for (const linha of classificadas) {
-    const atleta = porAtleta.get(linha.athleteId);
+    const atleta = linha.athleteId ? porAtleta.get(linha.athleteId) : null;
     await tx.ranking.create({
       data: {
         seasonId,
-        athleteId: linha.athleteId,
+        organizationId: linha.organizationId,
+        competitorKey: linha.competitorKey,
+        athleteId: linha.athleteId ?? null,
+        externalAthleteId: linha.externalAthleteId ?? null,
+        // O nome da fonte só serve enquanto não há cadastro. Havendo, quem
+        // manda é o cadastro, e a leitura o busca pela relação.
+        displayName: linha.athleteId ? null : linha.displayName,
         categoryId: linha.categoryId,
         totalPoints: linha.totalPoints,
         eventCount: linha.fontes.size,
@@ -604,10 +659,64 @@ async function recomputarEm(tx, seasonId) {
     });
   }
 
+  await republicarProjecao(tx, seasonId, pontos, competidorDe);
+
   return {
     rows: classificadas.length,
     tieUnresolved: classificadas.filter(linha => linha.tieUnresolved).length
   };
+}
+
+/**
+ * Reescreve a PROJEÇÃO PÚBLICA da temporada — uma linha por lançamento, só
+ * com as colunas que são públicas.
+ *
+ * POR QUE ELA PRECISA EXISTIR, e por que não é um agregado
+ *
+ * `RankingPoint` passou a ter RLS de operador. Quatro rotas anônimas viviam de
+ * lê-lo direto (`/ranking/super-overall`, `/ranking/by`, `/ranking/teams`,
+ * `/ranking/companies`), e fechar a tabela sem mais nada as deixaria vazias
+ * para o visitante.
+ *
+ * Materializar um AGREGADO por recorte significaria escrever a soma em vários
+ * lugares, e cada um deles é uma chance de a pontuação divergir da regra
+ * homologada. Uma linha por lançamento mantém um motor só: o mesmo código que
+ * soma hoje continua somando, lendo de outro lugar.
+ *
+ * O lançamento invalidado CONTINUA AQUI, zerado, exatamente como está no
+ * ledger — tirá-lo mudaria `eventCount`, que conta participação e não ponto.
+ */
+async function republicarProjecao(tx, seasonId, pontos, competidorDe) {
+  await tx.publicRankingEntry.deleteMany({ where: { seasonId } });
+  if (!pontos.length) return;
+
+  await tx.publicRankingEntry.createMany({
+    data: pontos.map(ponto => ({
+      // O id do lançamento é o id da projeção: torna a correspondência entre
+      // as duas tabelas conferível sem uma coluna de ligação a mais.
+      id: ponto.id,
+      seasonId,
+      organizationId: ponto.organizationId,
+      competitorKey: competidorDe(ponto),
+      athleteId: ponto.athleteId ?? null,
+      externalAthleteId: ponto.externalAthleteId ?? null,
+      displayName: ponto.athleteId ? null : (ponto.externalAthlete?.displayName ?? null),
+      categoryId: ponto.categoryId ?? null,
+      eventId: ponto.eventId ?? null,
+      classId: ponto.classId ?? null,
+      teamId: ponto.teamId ?? null,
+      companyId: ponto.companyId ?? null,
+      placing: ponto.placing ?? null,
+      points: ponto.points,
+      superOverallPoints: ponto.superOverallPoints,
+      superOverallEligible: ponto.superOverallEligible,
+      isOverallChampion: ponto.isOverallChampion,
+      didNotShow: ponto.didNotShow,
+      voided: ponto.voidedAt != null,
+      // O mesmo COALESCE que o SQL antigo contava como DISTINCT.
+      sourceKey: ponto.eventId || ponto.externalResultId || 'externo'
+    }))
+  });
 }
 
 async function recompute_(seasonId) {
@@ -668,16 +777,19 @@ async function teamRanking(seasonId, { categoryId = null, organizationId = null 
   //
   // A agregação e o desempate abaixo não mudaram uma linha: a regra é
   // homologada, e o que se corrigiu foi o transporte.
-  const pontos = await prisma.rankingPoint.findMany({
+  // Projeção pública: a rota é anônima e `RankingPoint` tem RLS de operador.
+  // `competitorKey` no lugar de `athleteId` porque o competidor sem cadastro
+  // também compõe a equipe — o resultado histórico dele conta para ela.
+  const pontos = await publico.publicRankingEntry.findMany({
     where: { seasonId, teamId: { not: null }, ...(categoryId ? { categoryId } : {}) },
     select: {
-      teamId: true, athleteId: true, points: true, placing: true, isOverallChampion: true,
-      eventId: true, externalResultId: true
+      teamId: true, competitorKey: true, points: true, placing: true, isOverallChampion: true,
+      sourceKey: true
     }
   });
 
   const equipes = new Map(
-    (await prisma.team.findMany({
+    (await publico.team.findMany({
       where: { id: { in: [...new Set(pontos.map(ponto => ponto.teamId))] } },
       select: { id: true, name: true, city: true, state: true }
     })).map(equipe => [equipe.id, equipe])
@@ -693,8 +805,10 @@ async function teamRanking(seasonId, { categoryId = null, organizationId = null 
     }
     const linha = acumulado.get(ponto.teamId);
     linha.totalPoints += ponto.points;
-    linha.atletas.add(ponto.athleteId);
-    linha.fontes.add(ponto.eventId || ponto.externalResultId || 'externo');
+    // O COMPETIDOR, e não o atleta: quem ainda não se cadastrou também
+    // compete pela equipe, e o resultado histórico dele conta para ela.
+    linha.atletas.add(ponto.competitorKey);
+    linha.fontes.add(ponto.sourceKey);
     linha.pontos.push(ponto);
   }
 
@@ -1239,16 +1353,16 @@ async function companyRanking(seasonId, { categoryId = null, organizationId = nu
 
   // Mesma correção do ranking de equipes, pela mesma medição: poucas empresas
   // repetidas em muitos lançamentos.
-  const pontos = await prisma.rankingPoint.findMany({
+  const pontos = await publico.publicRankingEntry.findMany({
     where: { seasonId, companyId: { not: null }, ...(categoryId ? { categoryId } : {}) },
     select: {
-      companyId: true, teamId: true, athleteId: true, points: true, placing: true,
-      isOverallChampion: true, eventId: true, externalResultId: true
+      companyId: true, teamId: true, competitorKey: true, points: true, placing: true,
+      isOverallChampion: true, sourceKey: true
     }
   });
 
   const empresas = new Map(
-    (await prisma.company.findMany({
+    (await publico.company.findMany({
       where: { id: { in: [...new Set(pontos.map(ponto => ponto.companyId))] } },
       select: { id: true, name: true, city: true, state: true }
     })).map(empresa => [empresa.id, empresa])
@@ -1264,9 +1378,11 @@ async function companyRanking(seasonId, { categoryId = null, organizationId = nu
     }
     const linha = acumulado.get(ponto.companyId);
     linha.totalPoints += ponto.points;
-    linha.atletas.add(ponto.athleteId);
+    // O COMPETIDOR, e não o atleta: quem ainda não se cadastrou também
+    // compete pela equipe, e o resultado histórico dele conta para ela.
+    linha.atletas.add(ponto.competitorKey);
     if (ponto.teamId) linha.equipes.add(ponto.teamId);
-    linha.fontes.add(ponto.eventId || ponto.externalResultId || 'externo');
+    linha.fontes.add(ponto.sourceKey);
     linha.pontos.push(ponto);
   }
 
@@ -1324,19 +1440,41 @@ async function athleteRankingBy(seasonId, { classId = null, eventId = null, divi
     where.classId = { in: classes.length ? classes.map(classe => classe.id) : ['__sem-classe__'] };
   }
 
-  const pontos = await publico.rankingPoint.findMany({
+  // A PROJEÇÃO PÚBLICA, e não o ledger: `RankingPoint` tem RLS de operador e
+  // esta rota é anônima. Mesmos campos de pontuação, mesmas linhas, só as
+  // colunas públicas. `sourceKey` substitui o `externalResultId` que era usado
+  // para contar participações distintas.
+  const pontos = await publico.publicRankingEntry.findMany({
     where,
     select: {
-      athleteId: true, categoryId: true, points: true, superOverallPoints: true, placing: true,
-      isOverallChampion: true, eventId: true, classId: true, externalResultId: true,
-      athlete: { select: { id: true, fullName: true, stageName: true, state: true, team: { select: { id: true, name: true } } } }
+      competitorKey: true, athleteId: true, externalAthleteId: true, displayName: true,
+      categoryId: true, points: true, superOverallPoints: true, placing: true,
+      isOverallChampion: true, eventId: true, classId: true, sourceKey: true
     }
   });
 
+  // O nome de quem JÁ tem cadastro continua vindo do cadastro; `Athlete` tem
+  // política própria e o anônimo já a atravessa.
+  const idsDeAtleta = [...new Set(pontos.map(ponto => ponto.athleteId).filter(Boolean))];
+  const atletas = new Map(
+    (idsDeAtleta.length
+      ? await publico.athlete.findMany({
+        where: { id: { in: idsDeAtleta } },
+        select: { id: true, fullName: true, stageName: true, state: true, team: { select: { id: true, name: true } } }
+      })
+      : []).map(atleta => [atleta.id, atleta])
+  );
+
   const acumulado = new Map();
   for (const ponto of pontos) {
-    if (!acumulado.has(ponto.athleteId)) {
-      acumulado.set(ponto.athleteId, {
+    // Agrupar por COMPETIDOR: resultado histórico sem cadastro não tem
+    // `athleteId`, e agrupar por nulo juntaria todos num balde só.
+    ponto.athleteId = ponto.athleteId ?? null;
+    ponto.athlete = ponto.athleteId
+      ? (atletas.get(ponto.athleteId) ?? null)
+      : competidorExterno(ponto);
+    if (!acumulado.has(ponto.competitorKey)) {
+      acumulado.set(ponto.competitorKey, {
         athleteId: ponto.athleteId, athlete: ponto.athlete,
         totalPoints: 0, fontes: new Set(), pontos: []
       });
@@ -1345,7 +1483,7 @@ async function athleteRankingBy(seasonId, { classId = null, eventId = null, divi
     // Recorte do CAMPEONATO: soma `points`, como o ranking principal. Trocar
     // por `superOverallPoints` aqui apagaria Estreante, Novice e Master.
     linha.totalPoints += ponto.points;
-    linha.fontes.add(ponto.eventId || ponto.externalResultId || 'externo');
+    linha.fontes.add(ponto.sourceKey);
     linha.pontos.push(ponto);
   }
 
@@ -1395,16 +1533,23 @@ async function superOverallRanking(seasonId, { categoryId = null, limit = null, 
     seasonId, categoryId, limite: vistaPublica ? TOP_PUBLICO : null
   });
 
+  const idsDeAtleta = agregadas.map(linha => linha.athleteId).filter(Boolean);
   const atletas = new Map(
-    (await publico.athlete.findMany({
-      where: { id: { in: agregadas.map(linha => linha.athleteId) } },
-      select: { id: true, fullName: true, stageName: true, state: true, team: { select: { id: true, name: true } } }
-    })).map(atleta => [atleta.id, atleta])
+    (idsDeAtleta.length
+      ? await publico.athlete.findMany({
+        where: { id: { in: idsDeAtleta } },
+        select: { id: true, fullName: true, stageName: true, state: true, team: { select: { id: true, name: true } } }
+      })
+      : []).map(atleta => [atleta.id, atleta])
   );
 
   const linhas = agregadas.map(linha => ({
     athleteId: linha.athleteId,
-    athlete: atletas.get(linha.athleteId) ?? null,
+    // Com cadastro, quem manda é o cadastro. Sem cadastro, o nome CONFORME A
+    // FONTE — que é o que existe enquanto o atleta não se inscreveu no MCI.
+    athlete: linha.athleteId
+      ? (atletas.get(linha.athleteId) ?? null)
+      : competidorExterno(linha),
     // O ranking anual soma os pontos ELEGÍVEIS, não os do campeonato. São
     // números diferentes de propósito: somar `points` aqui traria de volta,
     // por dentro, as classes que a regra exclui.
@@ -1452,25 +1597,42 @@ async function agregarSuperOverall({ seasonId, categoryId, limite }) {
     ? Prisma.sql`"seasonId" = ${seasonId} AND "superOverallEligible" = true AND "categoryId" = ${categoryId}`
     : Prisma.sql`"seasonId" = ${seasonId} AND "superOverallEligible" = true`;
 
+  // LÊ A PROJEÇÃO PÚBLICA, e não o ledger.
+  //
+  // `RankingPoint` passou a ter RLS de operador — esta rota é anônima e não
+  // enxergaria linha nenhuma. `PublicRankingEntry` tem os MESMOS campos de
+  // pontuação, uma linha por lançamento, e só as colunas públicas. A soma é a
+  // mesma; o que muda é de onde ela sai.
+  //
+  // `sourceKey` já é o `COALESCE(eventId, externalResultId, 'externo')` que
+  // esta consulta contava — materializado, porque `externalResultId` é coluna
+  // do ledger e não sai de lá.
+  //
+  // O agrupamento é por COMPETIDOR: um resultado histórico ainda sem cadastro
+  // não tem `athleteId`, e agrupar por coluna nula juntaria todos eles numa
+  // linha só.
   const consultar = async quantas => publico.$queryRaw`
     SELECT
-      "athleteId",
+      "competitorKey",
+      MIN("athleteId")                                                 AS "athleteId",
+      MIN("externalAthleteId")                                         AS "externalAthleteId",
+      MIN("displayName")                                               AS "displayName",
       SUM("superOverallPoints")::int                                   AS "totalPoints",
-      COUNT(DISTINCT COALESCE("eventId", "externalResultId", 'externo'))::int AS "eventCount",
+      COUNT(DISTINCT "sourceKey")::int                                 AS "eventCount",
       SUM(CASE WHEN "isOverallChampion" THEN 1 ELSE 0 END)::int        AS "overallWins",
       SUM(CASE WHEN "placing" = 1 THEN 1 ELSE 0 END)::int              AS "firstPlaceCount",
       SUM(CASE WHEN "placing" = 2 THEN 1 ELSE 0 END)::int              AS "secondPlaceCount",
       SUM(CASE WHEN "placing" = 3 THEN 1 ELSE 0 END)::int              AS "thirdPlaceCount",
       SUM(CASE WHEN "placing" = 4 THEN 1 ELSE 0 END)::int              AS "fourthPlaceCount",
       SUM(CASE WHEN "placing" = 5 THEN 1 ELSE 0 END)::int              AS "fifthPlaceCount"
-    FROM "RankingPoint"
+    FROM "PublicRankingEntry"
     WHERE ${where}
-    GROUP BY "athleteId"
+    GROUP BY "competitorKey"
     -- A ordem aqui e de PRE-SELECAO, nao de classificacao: ela serve para que
     -- o topo caiba no limite. Quem atribui posicao e declara empate continua
     -- sendo classificar(), no motor.
     ORDER BY "totalPoints" DESC, "overallWins" DESC, "firstPlaceCount" DESC,
-             "secondPlaceCount" DESC, "thirdPlaceCount" DESC, "athleteId" ASC
+             "secondPlaceCount" DESC, "thirdPlaceCount" DESC, "competitorKey" ASC
     ${quantas ? Prisma.sql`LIMIT ${quantas}` : Prisma.empty}
   `;
 
@@ -1680,7 +1842,7 @@ async function list(filtros, actor = null) {
   });
   const vistaPublica = ehVistaPublica(actor, temporada?.organizationId ?? null);
 
-  const items = await publico.ranking.findMany({
+  const brutos = await publico.ranking.findMany({
     where,
     include: {
       athlete: { select: { id: true, fullName: true, stageName: true, state: true, city: true, proStatus: true, team: { select: { id: true, name: true } } } },
@@ -1701,6 +1863,14 @@ async function list(filtros, actor = null) {
     take: vistaPublica ? TOP_PUBLICO : filtros.limit,
     ...(!vistaPublica && filtros.cursor ? { cursor: { id: filtros.cursor }, skip: 1 } : {})
   });
+
+  // O COMPETIDOR AINDA SEM CADASTRO tem linha no ranking e não tem `athlete`.
+  // A relação obrigatória virou opcional no banco; aqui ela vira o retrato que
+  // a tela sabe desenhar, com o nome CONFORME A FONTE e `id` nulo — nada pode
+  // montar link para um perfil que não existe.
+  const items = brutos.map(linha => (linha.athlete
+    ? linha
+    : { ...linha, athlete: competidorExterno(linha) }));
 
   return {
     items,

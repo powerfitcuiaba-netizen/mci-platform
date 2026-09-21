@@ -7,12 +7,15 @@ import { formatarDataHora, estadoDaEntrada } from '../lib/format';
 import { SeletorDeEvento, POR_PAGINA } from './adminEvent';
 import { anunciar, MCIEvento } from '../lib/experiencia';
 import { Revelacao } from '../components/experiencia';
+import { useIdioma } from '../lib/idioma';
 
 // O resultado inteiro tem dois estados; a entrada de cada atleta tem outros
 // quatro. Misturar os dois mapas mostraria "Classificado" onde se lê
 // "Publicado", então cada um tem o seu.
-const estadoDaInscricaoDoResultado = codigo =>
-  ({ PUBLISHED: 'Publicado', DRAFT: 'Rascunho' })[codigo] || codigo || '—';
+// O mapa leva à CHAVE do rótulo; quem traduz é quem desenha.
+const CHAVE_DO_ESTADO = { PUBLISHED: 'resultado.publicado', DRAFT: 'resultado.rascunho' };
+const estadoDaInscricaoDoResultado = (codigo, t) =>
+  (CHAVE_DO_ESTADO[codigo] ? t(CHAVE_DO_ESTADO[codigo]) : codigo) || '—';
 
 // Resultados. O MCI NÃO julga: o julgamento acontece fora, e esta tela LANÇA a
 // colocação oficial recebida. Não há ficha de juiz, nota nem apuração — o
@@ -20,6 +23,7 @@ const estadoDaInscricaoDoResultado = codigo =>
 // permissão à parte.
 
 export function AdminResultados({ notificar }) {
+  const { t } = useIdioma();
   const [eventId, setEventId] = useState('');
   const [corrigindo, setCorrigindo] = useState(null);
   const [versoes, setVersoes] = useState(null);
@@ -55,16 +59,20 @@ export function AdminResultados({ notificar }) {
 
   return (
     <div className="page">
-      <PageHead eyebrow="Competição" title="Resultados" description="Lançamento do resultado oficial recebido, publicação protegida e correção versionada." />
+      <PageHead
+        eyebrow={t('resultado.competicao')}
+        title={t('resultado.titulo')}
+        description={t('resultado.descricao')}
+      />
 
       <div className="toolbar"><SeletorDeEvento eventId={eventId} onChange={setEventId} /></div>
 
       {!eventId
-        ? <EmptyState title="Selecione um evento" />
+        ? <EmptyState title={t('resultado.selecioneEvento')} />
         : (
           <>
             <section className="panel" style={{ marginBottom: 16 }}>
-              <div className="panel-head"><h2>Resultado oficial por classe</h2></div>
+              <div className="panel-head"><h2>{t('resultado.porClasse')}</h2></div>
               {classes.length
                 ? classes.map((classe, indice) => {
                   const existente = (resultados.data?.items || []).find(item => item.classId === classe.id);
@@ -80,27 +88,33 @@ export function AdminResultados({ notificar }) {
                         <strong>{classe.rotulo}</strong>
                         <small>
                           {existente
-                            ? `${existente.status === 'PUBLISHED' ? 'Publicado' : 'Rascunho'} · versão ${existente.version} · checksum ${existente.checksum.slice(0, 10)}…`
-                            : 'Resultado ainda não recebido'}
+                            ? t('resultado.resumoDaLinha', {
+                              situacao: t(existente.status === 'PUBLISHED' ? 'resultado.publicado' : 'resultado.rascunho'),
+                              versao: existente.version,
+                              checksum: existente.checksum.slice(0, 10)
+                            })
+                            : t('resultado.aindaNaoRecebido')}
                         </small>
                       </span>
-                      {existente?.hasUnresolvedTie && <Badge tom="perigo">Empate não resolvido</Badge>}
+                      {existente?.hasUnresolvedTie && <Badge tom="perigo">{t('resultado.empateNaoResolvido')}</Badge>}
                       <button type="button" className="button button-secondary button-sm" onClick={() => setLancando(classe)}>
-                        {existente ? 'Relançar' : 'Lançar resultado'}
+                        {t(existente ? 'resultado.relancar' : 'resultado.lancarResultado')}
                       </button>
                       {existente && existente.status !== 'PUBLISHED' && (
-                        <button type="button" className="button button-primary button-sm" onClick={() => setPublicando(existente)}>Publicar</button>
+                        <button type="button" className="button button-primary button-sm" onClick={() => setPublicando(existente)}>{t('resultado.publicar')}</button>
                       )}
                       {existente && (
                         <>
-                          <button type="button" className="button button-secondary button-sm" onClick={() => setCorrigindo(existente)}>Corrigir</button>
-                          <button type="button" className="button button-ghost button-sm" onClick={() => setVersoes(existente)}>Versões</button>
+                          <button type="button" className="button button-secondary button-sm" onClick={() => setCorrigindo(existente)}>{t('resultado.corrigir')}</button>
+                          <button type="button" className="button button-ghost button-sm" onClick={() => setVersoes(existente)}>
+                            {t('resultado.versoes')}
+                          </button>
                         </>
                       )}
                     </Revelacao>
                   );
                 })
-                : <EmptyState title="Sem classes cadastradas" />}
+                : <EmptyState title={t('resultado.semClasses')} />}
             </section>
 
             {/* O TÍTULO OVERALL.
@@ -112,13 +126,13 @@ export function AdminResultados({ notificar }) {
             <section className="panel" style={{ marginBottom: 16 }}>
               <div className="panel-head">
                 <div>
-                  <h2>Título Overall</h2>
+                  <h2>{t('resultado.tituloOverall')}</h2>
                   <small style={{ color: 'var(--cinza-fraco)', fontSize: 11.5 }}>
-                    Declarado pela organização. A plataforma registra — não decide.
+                    {t('resultado.tituloOverallNota')}
                   </small>
                 </div>
                 <button type="button" className="button button-primary button-sm" onClick={() => setDeclarando(true)}>
-                  <Trophy size={14} /> Declarar Overall
+                  <Trophy size={14} /> {t('overall.declararOverall')}
                 </button>
               </div>
 
@@ -139,14 +153,16 @@ export function AdminResultados({ notificar }) {
                       <span className="info">
                         <strong>{titulo.athlete.stageName || titulo.athlete.fullName}</strong>
                         <small>
-                          {titulo.category?.name || 'Overall do evento'}
-                          {titulo.declaredAt ? ` · declarado em ${formatarDataHora(titulo.declaredAt)}` : ''}
+                          {titulo.category?.name || t('resultado.overallDoEvento')}
+                          {titulo.declaredAt
+                            ? ` · ${t('resultado.declaradoEm', { data: formatarDataHora(titulo.declaredAt) })}`
+                            : ''}
                           {titulo.note ? ` · ${titulo.note}` : ''}
                         </small>
                       </span>
                     </Revelacao>
                   ))
-                  : <EmptyState title="Nenhum título Overall declarado" description="O Overall é decidido pela comissão e registrado aqui." />
+                  : <EmptyState title={t('resultado.nenhumTitulo')} description={t('resultado.nenhumTituloDescricao')} />
                 )}
               </AsyncSection>
             </section>
@@ -158,20 +174,26 @@ export function AdminResultados({ notificar }) {
                     <div>
                       <h2>{resultado.competitionClass.division.eventCategory.category.name} · {resultado.competitionClass.name}</h2>
                       <small style={{ color: 'var(--cinza-fraco)', fontSize: 11.5 }}>
-                        Versão {resultado.version} · apurado em {formatarDataHora(resultado.computedAt)}
+                        {t('resultado.versaoApurada', { versao: resultado.version, data: formatarDataHora(resultado.computedAt) })}
                       </small>
                     </div>
-                    <Badge tom={resultado.status === 'PUBLISHED' ? 'ok' : 'alerta'}>{resultado.status === 'PUBLISHED' ? 'Publicado' : 'Rascunho'}</Badge>
+                    <Badge tom={resultado.status === 'PUBLISHED' ? 'ok' : 'alerta'}>
+                      {t(resultado.status === 'PUBLISHED' ? 'resultado.publicado' : 'resultado.rascunho')}
+                    </Badge>
                   </div>
 
                   {resultado.entries.map(entrada => (
                     <div className="list-row" key={entrada.id}>
                       <span className={entrada.status === 'TIE_UNRESOLVED' ? 'placing placing-tie' : `placing placing-${entrada.placing}`}>
-                        {entrada.status === 'TIE_UNRESOLVED' ? 'EMP' : entrada.placing ?? '—'}
+                        {entrada.status === 'TIE_UNRESOLVED' ? t('resultado.empateCurto') : entrada.placing ?? '—'}
                       </span>
                       <span className="info">
                         <strong>{entrada.athlete.stageName || entrada.athlete.fullName}</strong>
-                        <small>soma {entrada.score} · bruta {entrada.rawScore} · {entrada.breakdown?.judgeVotes ?? 0} voto(s)</small>
+                        <small>
+                          {t('resultado.somaBruta', {
+                            soma: entrada.score, bruta: entrada.rawScore, votos: entrada.breakdown?.judgeVotes ?? 0
+                          })}
+                        </small>
                       </span>
                       {entrada.status !== 'RANKED' && <Badge tom={estadoDaEntrada(entrada.status).tom}>{estadoDaEntrada(entrada.status).rotulo}</Badge>}
                     </div>
@@ -211,6 +233,7 @@ export function AdminResultados({ notificar }) {
 // julgamento disfarçado. Empate recebido é lançado como empate e trava a
 // publicação até a comissão decidir.
 function LancarResultado({ classe, eventId, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const [linhas, setLinhas] = useState([]);
   const [salvando, setSalvando] = useState(false);
 
@@ -254,9 +277,7 @@ function LancarResultado({ classe, eventId, notificar, onClose, onSalvo }) {
       }));
       const resultado = await api.results.receive(classe.id, { entries });
       notificar(
-        resultado.hasUnresolvedTie
-          ? 'Resultado lançado com empate não resolvido: a publicação fica travada até a correção.'
-          : 'Resultado oficial lançado.',
+        t(resultado.hasUnresolvedTie ? 'resultado.lancadoComEmpate' : 'resultado.lancadoAviso'),
         resultado.hasUnresolvedTie ? 'info' : 'ok'
       );
       // Empate não é conquista: a publicação ficou TRAVADA. Celebrar aqui
@@ -265,8 +286,8 @@ function LancarResultado({ classe, eventId, notificar, onClose, onSalvo }) {
       anunciar(
         resultado.hasUnresolvedTie ? MCIEvento.AVISO : MCIEvento.SUCESSO,
         resultado.hasUnresolvedTie
-          ? { titulo: 'Empate não resolvido', descricao: 'A publicação fica travada até a comissão decidir.' }
-          : { titulo: 'Resultado lançado', descricao: `${classe.rotulo}` }
+          ? { titulo: t('resultado.empateNaoResolvido'), descricao: t('resultado.publicacaoTravada') }
+          : { titulo: t('resultado.lancadoTitulo'), descricao: `${classe.rotulo}` }
       );
       onSalvo();
     } catch (erro) {
@@ -277,12 +298,9 @@ function LancarResultado({ classe, eventId, notificar, onClose, onSalvo }) {
   };
 
   return (
-    <Modal title={`Lançar resultado — ${classe.rotulo}`} onClose={onClose}>
+    <Modal title={t('resultado.lancarEm', { classe: classe.rotulo })} onClose={onClose}>
       <form onSubmit={enviar}>
-        <p className="muted" style={{ marginBottom: 12 }}>
-          O julgamento é externo. Transcreva a colocação oficial recebida; a
-          plataforma não recalcula nem desempata.
-        </p>
+        <p className="muted" style={{ marginBottom: 12 }}>{t('resultado.julgamentoExterno')}</p>
         {/* `AsyncSection` recebe os filhos como FUNÇÃO — ela chama
             `children(state.data)`. Este bloco passava JSX direto e o nome da
             prop também estava errado (`estado`), então o diálogo estourava de
@@ -293,18 +311,18 @@ function LancarResultado({ classe, eventId, notificar, onClose, onSalvo }) {
             ? linhas.map(linha => (
               <div className="list-row" key={linha.athleteId}>
                 <span className="info"><strong>{linha.nome}</strong></span>
-                <input type="number" min="1" max="999" value={linha.placing} placeholder="Colocação"
+                <input type="number" min="1" max="999" value={linha.placing} placeholder={t('overall.colocacao')}
                   disabled={linha.status !== 'RANKED'} style={{ width: 110 }}
                   onChange={evento => alterar(linha.athleteId, 'placing', evento.target.value)} />
                 <select value={linha.status} onChange={evento => alterar(linha.athleteId, 'status', evento.target.value)}>
-                  <option value="RANKED">Colocado</option>
-                  <option value="TIE_UNRESOLVED">Empate não resolvido</option>
-                  <option value="DISQUALIFIED">Desclassificado</option>
-                  <option value="ABSENT">Ausente</option>
+                  <option value="RANKED">{t('resultado.colocado')}</option>
+                  <option value="TIE_UNRESOLVED">{t('resultado.empateNaoResolvido')}</option>
+                  <option value="DISQUALIFIED">{t('resultado.desclassificado')}</option>
+                  <option value="ABSENT">{t('resultado.ausente')}</option>
                 </select>
               </div>
             ))
-            : <EmptyState title="Nenhum inscrito nesta classe" />)}
+            : <EmptyState title={t('resultado.nenhumInscrito')} />)}
         </AsyncSection>
         {/* "Nenhum inscrito nesta classe" pode ser só a página 1: a lista vem
             do evento inteiro e é filtrada por classe DEPOIS de chegar. */}
@@ -317,7 +335,7 @@ function LancarResultado({ classe, eventId, notificar, onClose, onSalvo }) {
         <ModalActions
           onClose={onClose}
           saving={salvando}
-          confirmLabel="Lançar resultado oficial"
+          confirmLabel={t('resultado.lancarOficial')}
           disabled={!linhas.length}
         />
       </form>
@@ -326,6 +344,7 @@ function LancarResultado({ classe, eventId, notificar, onClose, onSalvo }) {
 }
 
 function PublicarResultado({ resultado, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const [reason, setReason] = useState('');
   const [salvando, setSalvando] = useState(false);
 
@@ -335,14 +354,20 @@ function PublicarResultado({ resultado, notificar, onClose, onSalvo }) {
     try {
       const resposta = await api.results.publish(resultado.classId, { reason: reason || null });
       const pontuaram = resposta.ranking?.awarded;
-      notificar(`Resultado publicado. ${pontuaram ? `${pontuaram} atleta(s) pontuaram no ranking.` : 'Sem pontuação de ranking (evento sem temporada).'}`);
+      notificar(t('resultado.publicadoComPontos', {
+        complemento: pontuaram
+          ? t('resultado.atletasPontuaram', { n: pontuaram })
+          : t('resultado.semPontuacao')
+      }));
       // Publicar é o instante em que a classificação deixa de ser rascunho e
       // passa a valer para o público e para o ranking. É o nível MOMENTO — e
       // NÃO o nível do campeão, que continua reservado. Nada aqui bloqueia o
       // operador: a celebração passa por cima e sai sozinha.
       anunciar(MCIEvento.RESULTADO_PUBLICADO, {
-        titulo: 'Resultado publicado',
-        descricao: pontuaram ? `${pontuaram} atleta(s) pontuaram no ranking.` : 'Classificação agora é pública.'
+        titulo: t('resultado.publicadoTitulo'),
+        descricao: pontuaram
+          ? t('resultado.atletasPontuaram', { n: pontuaram })
+          : t('resultado.classificacaoPublica')
       });
       refreshData();
       onSalvo();
@@ -353,18 +378,22 @@ function PublicarResultado({ resultado, notificar, onClose, onSalvo }) {
   };
 
   return (
-    <Modal title="Publicar resultado" description="Publicar torna a classificação pública e dispara a pontuação de ranking." onClose={onClose}>
+    <Modal title={t('resultado.publicarResultado')} description={t('resultado.publicarDescricao')} onClose={onClose}>
       <form onSubmit={publicar}>
-        <Field label="Motivo / observação" hint="Fica registrado na versão publicada.">
-          <textarea value={reason} onChange={evento => setReason(evento.target.value)} maxLength={300} placeholder="Ex: Resultado oficial conferido pela comissão técnica" />
+        <Field label={t('resultado.motivoObservacao')} hint={t('resultado.motivoHint')}>
+          <textarea
+            value={reason} onChange={evento => setReason(evento.target.value)}
+            maxLength={300} placeholder={t('resultado.exemploMotivo')}
+          />
         </Field>
-        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Publicar" />
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('resultado.publicar')} />
       </form>
     </Modal>
   );
 }
 
 function CorrigirResultado({ resultado, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const [reason, setReason] = useState('');
   const [entradas, setEntradas] = useState(
     resultado.entries.map(entrada => ({
@@ -391,9 +420,11 @@ function CorrigirResultado({ resultado, notificar, onClose, onSalvo }) {
           status: item.status
         }))
       });
-      notificar('Correção registrada como nova versão.');
+      notificar(t('resultado.correcaoRegistradaAviso'));
       // Correção é conserto, não conquista: confirmação sóbria, nível EVENTO.
-      anunciar(MCIEvento.SUCESSO, { titulo: 'Correção registrada', descricao: 'A versão anterior foi preservada.' });
+      anunciar(MCIEvento.SUCESSO, {
+        titulo: t('resultado.correcaoRegistrada'), descricao: t('resultado.versaoPreservada')
+      });
       refreshData();
       onSalvo();
     } catch (erro) {
@@ -403,10 +434,13 @@ function CorrigirResultado({ resultado, notificar, onClose, onSalvo }) {
   };
 
   return (
-    <Modal title="Corrigir resultado" description="A correção não sobrescreve: cria a versão seguinte, preserva a anterior e exige motivo." wide onClose={onClose}>
+    <Modal title={t('resultado.corrigirResultado')} description={t('resultado.corrigirDescricao')} wide onClose={onClose}>
       <form onSubmit={salvar}>
-        <Field label="Motivo da correção" required>
-          <textarea value={reason} onChange={evento => setReason(evento.target.value)} required minLength={5} maxLength={400} placeholder="Ex: Desempate decidido em reunião da comissão técnica" />
+        <Field label={t('resultado.motivoDaCorrecao')} required>
+          <textarea
+            value={reason} onChange={evento => setReason(evento.target.value)}
+            required minLength={5} maxLength={400} placeholder={t('resultado.exemploCorrecao')}
+          />
         </Field>
 
         <div className="judge-sheet">
@@ -417,12 +451,12 @@ function CorrigirResultado({ resultado, notificar, onClose, onSalvo }) {
                 value={entrada.status}
                 onChange={evt => setEntradas(atual => atual.map((item, posicao) => (posicao === indice ? { ...item, status: evt.target.value } : item)))}
                 style={{ width: 150 }}
-                aria-label={`Situação de ${entrada.nome}`}
+                aria-label={t('resultado.situacaoDe', { nome: entrada.nome })}
               >
-                <option value="RANKED">Classificado</option>
-                <option value="TIE_UNRESOLVED">Empate não resolvido</option>
-                <option value="DISQUALIFIED">Desclassificado</option>
-                <option value="ABSENT">Ausente</option>
+                <option value="RANKED">{t('resultado.classificado')}</option>
+                <option value="TIE_UNRESOLVED">{t('resultado.empateNaoResolvido')}</option>
+                <option value="DISQUALIFIED">{t('resultado.desclassificado')}</option>
+                <option value="ABSENT">{t('resultado.ausente')}</option>
               </select>
               <input
                 type="number"
@@ -432,7 +466,7 @@ function CorrigirResultado({ resultado, notificar, onClose, onSalvo }) {
                 disabled={entrada.status !== 'RANKED'}
                 onChange={evt => setEntradas(atual => atual.map((item, posicao) => (posicao === indice ? { ...item, placing: evt.target.value } : item)))}
                 style={{ width: 80, background: 'var(--preto)', border: '1px solid var(--linha-forte)', borderRadius: 4, padding: 8, textAlign: 'center' }}
-                aria-label={`Colocação de ${entrada.nome}`}
+                aria-label={t('resultado.colocacaoDe', { nome: entrada.nome })}
               />
             </div>
           ))}
@@ -440,21 +474,25 @@ function CorrigirResultado({ resultado, notificar, onClose, onSalvo }) {
 
         {repetida && (
           <div className="alert alert-erro" style={{ marginTop: 14 }}>
-            <div><strong>Colocação repetida</strong><p>Duas colocações iguais não formam uma classificação válida.</p></div>
+            <div>
+              <strong>{t('resultado.colocacaoRepetida')}</strong>
+              <p>{t('resultado.colocacaoRepetidaTexto')}</p>
+            </div>
           </div>
         )}
 
-        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Registrar correção" disabled={repetida} />
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('resultado.registrarCorrecao')} disabled={repetida} />
       </form>
     </Modal>
   );
 }
 
 function HistoricoDeVersoes({ resultado, onClose }) {
+  const { t } = useIdioma();
   const estado = useFetch(() => api.results.versions(resultado.classId), [resultado.classId]);
 
   return (
-    <Modal title="Histórico de versões" description="Cada mudança de estado do resultado gera uma versão preservada." wide onClose={onClose}>
+    <Modal title={t('resultado.historicoDeVersoes')} description={t('resultado.historicoDescricao')} wide onClose={onClose}>
       <AsyncSection state={estado} linhas={3}>
         {dados => (dados.items.length
           ? dados.items.map(versao => (
@@ -464,7 +502,8 @@ function HistoricoDeVersoes({ resultado, onClose }) {
                 <div style={{ flex: 1 }}>
                   <strong style={{ display: 'block', fontSize: 13 }}>{versao.reason}</strong>
                   <small style={{ color: 'var(--cinza-fraco)' }}>
-                    {versao.createdBy?.name || 'sistema'} · {formatarDataHora(versao.createdAt)} · {estadoDaInscricaoDoResultado(versao.snapshot.status)}
+                    {versao.createdBy?.name || t('resultado.sistema')} · {formatarDataHora(versao.createdAt)}
+                    {' · '}{estadoDaInscricaoDoResultado(versao.snapshot.status, t)}
                   </small>
                 </div>
               </div>
@@ -477,11 +516,11 @@ function HistoricoDeVersoes({ resultado, onClose }) {
               </div>
             </div>
           ))
-          : <EmptyState title="Sem versões registradas" />
+          : <EmptyState title={t('resultado.semVersoes')} />
         )}
       </AsyncSection>
       <div className="modal-actions">
-        <button type="button" className="button button-secondary" onClick={onClose}>Fechar</button>
+        <button type="button" className="button button-secondary" onClick={onClose}>{t('acao.fechar')}</button>
       </div>
     </Modal>
   );
@@ -499,6 +538,7 @@ function HistoricoDeVersoes({ resultado, onClose }) {
 // inscritos do evento, e acontece uma vez por evento. É isso que mantém o
 // nível 5 raro — a raridade vem do FATO, não de uma regra de interface.
 function DeclararOverall({ eventId, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const inscricoes = useListaPaginada(
     cursor => api.registrations.listByEvent(eventId, { limit: POR_PAGINA, cursor: cursor || undefined }),
     [eventId]
@@ -530,11 +570,11 @@ function DeclararOverall({ eventId, notificar, onClose, onSalvo }) {
         categoryId: categoryId || undefined,
         note: note.trim() || undefined
       });
-      notificar('Título Overall declarado. Os resultados publicados foram repontuados.');
+      notificar(t('resultado.tituloDeclaradoAviso'));
 
       // O ÚNICO nível 5 da operação, e o único lugar do produto que o dispara.
       anunciar(MCIEvento.CAMPEAO, {
-        titulo: categorias.find(c => c.id === categoryId)?.nome || 'Campeão Overall',
+        titulo: categorias.find(c => c.id === categoryId)?.nome || t('resultado.campeaoOverall'),
         nome: escolhido?.nome,
         descricao: evento.data?.name
       });
@@ -549,24 +589,24 @@ function DeclararOverall({ eventId, notificar, onClose, onSalvo }) {
 
   return (
     <Modal
-      title="Declarar título Overall"
-      description="A comissão decide; a plataforma registra. A declaração fica na auditoria e repontua os resultados já publicados."
+      title={t('resultado.declararTitulo')}
+      description={t('resultado.declararDescricao')}
       onClose={onClose}
     >
       <form onSubmit={declarar}>
         {falha && (
           <div className="alert alert-erro" style={{ marginBottom: 14 }}>
             <div>
-              <strong>Título não declarado</strong>
+              <strong>{t('resultado.tituloNaoDeclarado')}</strong>
               <p>{falha}</p>
-              <p>Nada foi registrado. Confira a escolha e tente de novo.</p>
+              <p>{t('resultado.nadaFoiRegistrado')}</p>
             </div>
           </div>
         )}
 
-        <Field label="Atleta" required hint="Somente inscritos neste evento.">
+        <Field label={t('overall.atleta')} required hint={t('resultado.somenteInscritos')}>
           <select value={athleteId} onChange={evt => setAthleteId(evt.target.value)} required>
-            <option value="">Selecione…</option>
+            <option value="">{t('resultado.selecione')}</option>
             {atletas.map(item => <option key={item.id} value={item.id}>{item.nome}</option>)}
           </select>
         </Field>
@@ -574,19 +614,19 @@ function DeclararOverall({ eventId, notificar, onClose, onSalvo }) {
             da lista de inscritos. */}
         <Paginacao nextCursor={inscricoes.nextCursor} onMore={inscricoes.carregarMais} loading={inscricoes.carregandoMais} />
 
-        <Field label="Recorte" hint="Sem recorte, é o Overall do evento inteiro.">
+        <Field label={t('resultado.recorte')} hint={t('resultado.recorteHint')}>
           <select value={categoryId} onChange={evt => setCategoryId(evt.target.value)}>
-            <option value="">Overall do evento</option>
+            <option value="">{t('resultado.overallDoEvento')}</option>
             {categorias.map(item => <option key={item.id} value={item.id}>{item.nome}</option>)}
           </select>
         </Field>
 
-        <Field label="Observação" hint="Fica registrada junto da declaração.">
+        <Field label={t('resultado.observacao')} hint={t('resultado.observacaoHint')}>
           <textarea value={note} onChange={evt => setNote(evt.target.value)} maxLength={300}
-            placeholder="Ex: decisão da comissão técnica em 14/09" />
+            placeholder={t('resultado.exemploObservacao')} />
         </Field>
 
-        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Declarar Overall" disabled={!athleteId} />
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('overall.declararOverall')} disabled={!athleteId} />
       </form>
     </Modal>
   );

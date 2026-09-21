@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { createRequire } from 'node:module';
 import {
   api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, unico, comoAtor, gerarCpf
+  vincular, unico, comoAtor, gerarCpf,
+  comMatriculaDuplicadaPermitida
 } from './helpers.mjs';
 
 // ==========================================================================
@@ -296,10 +297,28 @@ describe('CENÁRIO 6 — PENDING até o atleta existir, e nem um ponto antes dis
     const publicado = await comoAtor(A.admin, tx => tx.muscleWarImport.findUnique({ where: { id: lote.id } }));
     expect(publicado.status).toBe('APPLIED');
 
-    // 3) o pendente NÃO pontuou, e nenhum atleta foi criado por conta própria
+    // 3) O PENDENTE PONTUA AGORA — e esta é a inversão desta fase.
+    //
+    // O cenário chamava-se "nem um ponto antes disso", e trancava a regra de
+    // um sistema que já tinha cadastro. O MCI carrega o histórico oficial
+    // ANTES de as pessoas se cadastrarem: o resultado de matrícula
+    // desconhecida entra, vale o que a colocação dele vale, e fica esperando
+    // dono. O que NÃO muda é a parte que importa — ninguém é cadastrado
+    // automaticamente para isso acontecer.
     const depoisDaAplicacao = await pontosDe(A.admin);
-    expect(depoisDaAplicacao).toHaveLength(1);
-    expect(depoisDaAplicacao[0].athleteId).toBe(A.atleta.id);
+    expect(depoisDaAplicacao).toHaveLength(2);
+
+    const doCadastrado = depoisDaAplicacao.find(p => p.athleteId === A.atleta.id);
+    const semDono = depoisDaAplicacao.find(p => p.athleteId === null);
+    expect(doCadastrado, 'o resultado de quem tem cadastro').toBeTruthy();
+    expect(semDono, 'o resultado histórico sem dono').toBeTruthy();
+    expect(semDono.externalAthleteId).not.toBeNull();
+    // Já com o evento e a colocação certos, antes de existir atleta nenhum.
+    expect(semDono.eventId).toBe(A.eventoA.id);
+    expect(semDono.placing).toBe(2);
+    expect(semDono.points).toBe(4);
+
+    // NENHUM ATLETA CRIADO. Continua sendo a asserção que não pode ceder.
     expect(await comoAtor(A.admin, tx => tx.athlete.count({ where: { organizationId: A.org } }))).toBe(1);
 
     // 4–7) o atleta passa a existir COM a matrícula que estava no arquivo
@@ -314,18 +333,21 @@ describe('CENÁRIO 6 — PENDING até o atleta existir, e nem um ponto antes dis
     const resultado = await comoAtor(ator, () => vincularPendentesDoAtleta(novo, ator));
     expect(resultado.vinculados).toBe(1);
     expect(resultado.conflitos).toBe(0);
-    // O lote já publicado é reaplicado para dar ao recém-vinculado os pontos
-    // dele; sem isso o atleta fica com o resultado reconhecido e nada somando.
-    expect(resultado.lotesAplicados).toBe(1);
+    // O LOTE NÃO É REAPLICADO, e isso também inverteu. O ponto já existe: o
+    // vínculo dá dono a ele, não o cria. Reaplicar aqui só produziria um 422
+    // `NOTHING_TO_APPLY` a cada aprovação de cadastro.
+    expect(resultado.lotesAplicados).toBe(0);
+    expect(resultado.lancamentosVinculados).toBe(1);
 
-    // 8–9) o ponto é materializado, com o evento certo e a colocação certa
+    // 8–9) O MESMO PONTO, agora com dono. Não um ponto novo.
     const doTardio = await pontosDe(A.admin, { athleteId: novo.id });
     expect(doTardio).toHaveLength(1);
+    expect(doTardio[0].id, 'é o mesmo lançamento, não um refeito').toBe(semDono.id);
     expect(doTardio[0].eventId).toBe(A.eventoA.id);
     expect(doTardio[0].placing).toBe(2);
     expect(doTardio[0].points).toBe(4);
 
-    // 10) nem o ponto do tardio nem o do primeiro atleta duplicam
+    // 10) nada duplica, e o total não se mexe
     await comoAtor(A.operador, () => vincularPendentesDoAtleta(novo, A.operador));
     expect(await pontosDe(A.admin, { athleteId: novo.id })).toHaveLength(1);
     expect(await pontosDe(A.admin)).toHaveLength(2);
@@ -336,29 +358,36 @@ describe('CENÁRIO 7 — conflito de identidade não se resolve no chute', () =>
   it('matrícula que aponta para mais de um atleta vira CONFLICT e não pontua', async () => {
     // Dois atletas da MESMA federação e filiação com a MESMA matrícula: a
     // chave deixa de identificar, e escolher um dos dois seria arbitrário.
-    await comoAtor(A.operador, tx => tx.athlete.create({
-      data: {
-        organizationId: A.org, fullName: 'HOMONIMO UM', sex: 'MALE',
-        affiliationId: A.filiacao.id, affiliationNumber: '55555',
-        identity: { create: { organizationId: A.org, cpf: gerarCpf(774) } }
-      }
-    }));
-    await comoAtor(A.operador, tx => tx.athlete.create({
-      data: {
-        organizationId: A.org, fullName: 'HOMONIMO DOIS', sex: 'MALE',
-        affiliationId: A.filiacao.id, affiliationNumber: '55555',
-        identity: { create: { organizationId: A.org, cpf: gerarCpf(775) } }
-      }
-    }));
+    //
+    // Este estado é DADO LEGADO desde a migration que tornou a matrícula única
+    // por (organização, filiação): ele não nasce mais pela porta da frente. A
+    // defesa do importador continua valendo para a base que já o carrega, e
+    // medi-la exige montá-lo com o índice fora — ver `helpers.mjs`.
+    await comMatriculaDuplicadaPermitida(async () => {
+      await comoAtor(A.operador, tx => tx.athlete.create({
+        data: {
+          organizationId: A.org, fullName: 'HOMONIMO UM', sex: 'MALE',
+          affiliationId: A.filiacao.id, affiliationNumber: '55555',
+          identity: { create: { organizationId: A.org, cpf: gerarCpf(774) } }
+        }
+      }));
+      await comoAtor(A.operador, tx => tx.athlete.create({
+        data: {
+          organizationId: A.org, fullName: 'HOMONIMO DOIS', sex: 'MALE',
+          affiliationId: A.filiacao.id, affiliationNumber: '55555',
+          identity: { create: { organizationId: A.org, cpf: gerarCpf(775) } }
+        }
+      }));
 
-    const lote = (await A.lote(csv([linha('55555', 1)]), { eventId: A.eventoA.id })).body.import;
-    const [item] = (await A.previa(lote.id)).body.items;
-    expect(item.matchStatus).toBe('CONFLICT');
-    expect(item.athleteId ?? null).toBeNull();
-    expect(item.matchCandidates.length).toBeGreaterThanOrEqual(2);
+      const lote = (await A.lote(csv([linha('55555', 1)]), { eventId: A.eventoA.id })).body.import;
+      const [item] = (await A.previa(lote.id)).body.items;
+      expect(item.matchStatus).toBe('CONFLICT');
+      expect(item.athleteId ?? null).toBeNull();
+      expect(item.matchCandidates.length).toBeGreaterThanOrEqual(2);
 
-    await A.aplicar(lote.id);
-    expect(await pontosDe(A.admin)).toHaveLength(0);
+      await A.aplicar(lote.id);
+      expect(await pontosDe(A.admin)).toHaveLength(0);
+    });
   }, 60_000);
 });
 

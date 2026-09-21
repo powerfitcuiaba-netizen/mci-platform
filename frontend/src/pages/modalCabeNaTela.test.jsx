@@ -178,25 +178,38 @@ describe('o resumo de sete métricas muda de forma por viewport, e só por ela',
 });
 
 describe('a nomenclatura visível é MuscleWare', () => {
-  const visiveis = [
-    ['App.jsx', /rotulo:\s*'MuscleWare'/],
-    ['pages/adminPlatform.jsx', /Importar resultados MuscleWare/],
-    ['pages/adminPlatform.jsx', /title="MuscleWare"/],
-    ['pages/adminPlatform.jsx', /Modal title="Importar resultados MuscleWare"/]
-  ];
+  // ESTE TESTE MUDOU DE LUGAR PORQUE O TEXTO MUDOU DE LUGAR.
+  //
+  // Ele procurava a grafia oficial dentro das TELAS. Com a interface passando
+  // pelo dicionário, o texto visível não mora mais lá — e um teste que
+  // continuasse olhando o componente encontraria só `t('plataforma.muscleWare')`,
+  // aprovando qualquer grafia que estivesse do outro lado da chave.
+  //
+  // Olhar o dicionário é mais forte do que era antes: cobre os TRÊS idiomas.
+  // O nome do produto não se traduz, e agora isso é medido em português,
+  // inglês e espanhol de uma vez.
+  const DICIONARIOS = ['lib/idiomas/ptBR.js', 'lib/idiomas/en.js', 'lib/idiomas/es.js'];
 
-  it.each(visiveis)('%s traz a grafia oficial', (arquivo, padrao) => {
-    expect(ler(arquivo)).toMatch(padrao);
+  it.each(DICIONARIOS)('%s traz a grafia oficial do produto', arquivo => {
+    const fonte = ler(arquivo);
+    expect(fonte).toMatch(/'plataforma\.muscleWare': 'MuscleWare'/);
+    // Em inglês o nome do produto não fica no fim da frase ("Import
+    // MuscleWare results"), e é exatamente por isso que a conferência é pela
+    // PRESENÇA do nome, e não pela posição dele.
+    expect(fonte).toMatch(/'plataforma\.importarResultados': '[^']*MuscleWare[^']*'/);
+  });
+
+  it('a navegação continua trazendo a grafia oficial', () => {
+    expect(ler('lib/idiomas/ptBR.js')).toMatch(/'nav\.admin\/musclewar': 'MuscleWare'/);
   });
 
   it('nenhum texto de interface usa a grafia antiga', () => {
-    // A busca é pela grafia SEGUIDA DE ASPAS ou de fim de texto visível —
-    // identificador (`AdminMuscleWar`) e rota (`admin/musclewar`) são contrato
-    // técnico e permanecem, por instrução explícita.
-    for (const arquivo of ['App.jsx', 'pages/adminPlatform.jsx', 'pages/adminEvent.jsx']) {
-      const fonte = ler(arquivo);
-      const visiveis = fonte.match(/(?:rotulo|title|label|hint|description|destino):?\s*=?\s*["'][^"']*MuscleWar(?!e)[^"']*["']/g);
-      expect(visiveis, `grafia antiga em texto visível de ${arquivo}`).toBeNull();
+    // Identificador (`AdminMuscleWar`) e rota (`admin/musclewar`) são contrato
+    // técnico e permanecem, por instrução explícita — por isso a busca é só
+    // nos dicionários, onde só mora texto visível.
+    for (const arquivo of DICIONARIOS) {
+      const antiga = ler(arquivo).match(/MuscleWar(?!e)/g);
+      expect(antiga, `grafia antiga em ${arquivo}`).toBeNull();
     }
   });
 });

@@ -210,3 +210,55 @@ export async function inscrever(operador, eventId, { cpf, athlete, classIds }) {
   if (resposta.status !== 201) throw new Error(`falha na inscrição: ${resposta.status} ${JSON.stringify(resposta.body)}`);
   return resposta.body;
 }
+
+// ============================================================================
+// DADO LEGADO: DUAS PESSOAS COM A MESMA MATRÍCULA.
+//
+// Desde a migration `20260921120000_matricula_identifica_um_atleta`, a
+// matrícula identifica UM atleta por (organização, filiação): há guarda no
+// serviço e índice único parcial no banco. A ambiguidade não NASCE mais.
+//
+// Ela ainda EXISTE, porém, em base que rodou anos sem o índice — e é para esse
+// dado que o importador continua marcando CONFLITO em vez de escolher. Medir
+// essa defesa exige montar o cenário, e montá-lo exige derrubar o índice: com
+// ele no lugar o `INSERT` é recusado, e um teste que não monta o cenário não
+// prova nada.
+//
+// A CLÁUSULA `finally` NÃO É ZELO: recriar o índice com as linhas ambíguas
+// ainda lá falha com "Duplicate keys exist", e falhar aqui deixaria toda a
+// suíte seguinte rodando sem a trava, medindo um banco errado. Por isso as
+// linhas ambíguas saem ANTES, e a ausência do índice ao final é erro.
+//
+// Em produção, limpar duplicata é decisão humana — qual dos dois cadastros
+// fica. Aqui é descarte de fixture.
+// ============================================================================
+export const INDICE_DE_MATRICULA = 'Athlete_organizationId_affiliationId_affiliationNumber_key';
+
+export async function indiceDeMatriculaExiste() {
+  const [linha] = await prisma.$queryRawUnsafe(
+    `SELECT count(*)::int AS n FROM pg_indexes WHERE indexname = '${INDICE_DE_MATRICULA}'`);
+  return linha.n === 1;
+}
+
+export async function criarIndiceDeMatricula() {
+  await prisma.$executeRawUnsafe(
+    `CREATE UNIQUE INDEX IF NOT EXISTS "${INDICE_DE_MATRICULA}" ON "Athlete"
+     ("organizationId", "affiliationId", "affiliationNumber")
+     WHERE "affiliationId" IS NOT NULL AND "affiliationNumber" IS NOT NULL`);
+}
+
+export async function comMatriculaDuplicadaPermitida(callback) {
+  await prisma.$executeRawUnsafe(`DROP INDEX IF EXISTS "${INDICE_DE_MATRICULA}"`);
+  try {
+    return await callback();
+  } finally {
+    // O BANCO É ESVAZIADO ANTES DE O ÍNDICE VOLTAR, e não é exagero: com as
+    // linhas ambíguas ainda lá, `CREATE UNIQUE INDEX` falha com "Duplicate keys
+    // exist" e a suíte inteira seguiria sem a trava. `limparBanco` é TRUNCATE,
+    // que não passa por política de RLS — apagar as duplicatas com DELETE
+    // esbarraria justamente nas políticas que este projeto não afrouxa. O
+    // `beforeEach` de cada arquivo recria o cenário do teste seguinte.
+    await limparBanco();
+    await criarIndiceDeMatricula();
+  }
+}

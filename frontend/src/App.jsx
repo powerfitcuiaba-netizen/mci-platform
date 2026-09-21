@@ -9,6 +9,8 @@ import { AuthProvider, useAuth } from './AuthContext';
 import api from './services/api';
 import { useDebounce, useFetch, useHashRoute, useToasts } from './lib/hooks';
 import { Avatar, BlocoDaMarca, Toasts } from './components/ui';
+import SeletorDeIdioma from './components/seletorDeIdioma';
+import { useIdioma } from './lib/idioma';
 import { caminhoDoAvatar, papel } from './lib/format';
 import LimiteDeErro from './components/limiteDeErro';
 import AberturaMci, { aberturaJaFoiVista } from './components/aberturaMci';
@@ -88,6 +90,7 @@ function rotaAtiva(itens, rota) {
 }
 
 function BuscaGlobal({ navegar }) {
+  const { t } = useIdioma();
   const [termo, setTermo] = useState('');
   const busca = useDebounce(termo, 400);
   const [aberto, setAberto] = useState(false);
@@ -128,8 +131,8 @@ function BuscaGlobal({ navegar }) {
           onChange={evento => { setTermo(evento.target.value); setAberto(true); }}
           onFocus={() => setAberto(true)}
           onBlur={() => setTimeout(() => setAberto(false), 160)}
-          placeholder="Buscar atleta, evento, perfil, comunidade…"
-          aria-label="Busca global"
+          placeholder={t('busca.placeholder')}
+          aria-label={t('busca.rotulo')}
           ref={campo}
         />
         <kbd className="atalho" aria-hidden="true">Ctrl K</kbd>
@@ -137,18 +140,18 @@ function BuscaGlobal({ navegar }) {
 
       {aberto && busca.trim().length >= 2 && (
         <div className="panel" style={{ position: 'absolute', top: 46, left: 0, right: 0, zIndex: 8, maxHeight: 380, overflowY: 'auto' }}>
-          {!temResultado && <p style={{ fontSize: 12.5, color: 'var(--cinza-fraco)', margin: 0 }}>Nada encontrado.</p>}
+          {!temResultado && <p style={{ fontSize: 12.5, color: 'var(--cinza-fraco)', margin: 0 }}>{t('busca.nadaEncontrado')}</p>}
 
           {(resultados.athletes || []).map(atleta => (
             <button key={atleta.id} type="button" className="list-row" style={{ width: '100%', background: 'transparent', border: 0, textAlign: 'left' }} onClick={() => navegar(`atletas/${atleta.id}`)}>
               <Avatar name={atleta.fullName} size="avatar-sm" />
-              <span className="info"><strong>{atleta.stageName || atleta.fullName}</strong><small>Atleta</small></span>
+              <span className="info"><strong>{atleta.stageName || atleta.fullName}</strong><small>{t('busca.atleta')}</small></span>
             </button>
           ))}
           {(resultados.events || []).map(evento => (
             <button key={evento.id} type="button" className="list-row" style={{ width: '100%', background: 'transparent', border: 0, textAlign: 'left' }} onClick={() => navegar(`campeonatos/${evento.slug}`)}>
               <span className="avatar avatar-sm"><Trophy size={13} /></span>
-              <span className="info"><strong>{evento.name}</strong><small>Campeonato</small></span>
+              <span className="info"><strong>{evento.name}</strong><small>{t('busca.campeonato')}</small></span>
             </button>
           ))}
           {(resultados.profiles || []).map(perfil => (
@@ -160,7 +163,7 @@ function BuscaGlobal({ navegar }) {
           {(resultados.communities || []).map(comunidade => (
             <button key={comunidade.id} type="button" className="list-row" style={{ width: '100%', background: 'transparent', border: 0, textAlign: 'left' }} onClick={() => navegar(`comunidades/${comunidade.slug}`)}>
               <span className="avatar avatar-sm"><Users2 size={13} /></span>
-              <span className="info"><strong>{comunidade.name}</strong><small>Comunidade</small></span>
+              <span className="info"><strong>{comunidade.name}</strong><small>{t('busca.comunidade')}</small></span>
             </button>
           ))}
         </div>
@@ -170,6 +173,20 @@ function BuscaGlobal({ navegar }) {
 }
 
 function Shell() {
+  // O hook fica na PRIMEIRA linha do componente porque `Shell` tem retorno
+  // antecipado (a abertura da marca): chamá-lo depois dele mudaria a ordem dos
+  // hooks entre renderizações, que é o defeito que o ESLint pegou aqui.
+  const { t } = useIdioma();
+
+  // A tradução do item de navegação sai da ROTA. `item.rotulo` continua no
+  // código como o português de origem e como recuo — se uma rota nova entrar
+  // sem chave, ela aparece em português em vez de aparecer como "nav.x".
+  const rotuloDoItem = item => {
+    const chave = `nav.${item.rota}`;
+    const traduzido = t(chave);
+    return traduzido === chave ? item.rotulo : traduzido;
+  };
+
   const { user, logout, authenticated, loading } = useAuth();
   // A abertura roda uma vez por sessão do navegador, antes de qualquer tela.
   // `aberturaJaFoiVista` é lido na inicialização do estado — não num efeito —
@@ -236,7 +253,7 @@ function Shell() {
   }
 
   if (loading) {
-    return <div className="auth-shell"><div className="auth-card"><p>Carregando…</p></div></div>;
+    return <div className="auth-shell"><div className="auth-card"><p>{t('estado.carregando')}</p></div></div>;
   }
 
   // A primeira tela depois da abertura costuma ser a de ENTRADA, e não o
@@ -306,22 +323,22 @@ function Shell() {
 
   return (
     <div className={`shell${entradaContinua ? ' entrada-continua' : ''}`} data-ato={atoDaRota(rota)}>
-      {menuAberto && <button type="button" className="mobile-scrim" aria-label="Fechar menu" onClick={() => setMenuAberto(false)} />}
+      {menuAberto && <button type="button" className="mobile-scrim" aria-label={t('navegacao.fecharMenu')} onClick={() => setMenuAberto(false)} />}
 
-      <nav className={`sidebar${menuAberto ? ' is-open' : ''}`} aria-label="Navegação principal">
+      <nav className={`sidebar${menuAberto ? ' is-open' : ''}`} aria-label={t('navegacao.principal')}>
         <div className="brand">
           <BlocoDaMarca />
         </div>
 
         <div className="nav-group">
-          <span className="nav-label">Plataforma</span>
+          <span className="nav-label">{t('grupo.plataforma')}</span>
           {NAVEGACAO_PRINCIPAL.map((item, indice) => {
             const Icone = item.icone;
             const ativo = item.rota === ativoPrincipal;
             const contador = item.contador === 'mensagens' ? mensagensNaoLidas : 0;
             return (
               <button key={item.rota} type="button" className={`nav-item revela${ativo ? ' is-active' : ''}`} style={estiloDaSequencia(indice)} onClick={() => navegarEFechar(item.rota)}>
-                <Icone size={16} /> {item.rotulo}
+                <Icone size={16} /> {rotuloDoItem(item)}
                 {contador > 0 && <span className="badge-count">{contador}</span>}
               </button>
             );
@@ -330,13 +347,13 @@ function Shell() {
 
         {itensAdmin.length > 0 && (
           <div className="nav-group">
-            <span className="nav-label">Administração</span>
+            <span className="nav-label">{t('grupo.administracao')}</span>
             {itensAdmin.map((item, indice) => {
               const Icone = item.icone;
               const ativo = item.rota === ativoAdmin;
               return (
                 <button key={item.rota} type="button" className={`nav-item revela${ativo ? ' is-active' : ''}`} style={estiloDaSequencia(NAVEGACAO_PRINCIPAL.length + indice)} onClick={() => navegarEFechar(item.rota)}>
-                  <Icone size={16} /> {item.rotulo}
+                  <Icone size={16} /> {rotuloDoItem(item)}
                 </button>
               );
             })}
@@ -351,23 +368,26 @@ function Shell() {
               <small>{papel(user?.role).rotulo}</small>
             </span>
           </button>
-          <button type="button" className="nav-item" onClick={logout}><LogOut size={16} /> Sair</button>
+          <button type="button" className="nav-item" onClick={logout}><LogOut size={16} /> {t('topo.sair')}</button>
         </div>
       </nav>
 
       <div className="main">
         <header className="topbar">
-          <button type="button" className="icon-button mobile-toggle" onClick={() => setMenuAberto(true)} aria-label="Abrir menu"><Menu size={16} /></button>
+          <button type="button" className="icon-button mobile-toggle" onClick={() => setMenuAberto(true)} aria-label={t('navegacao.abrirMenu')}><Menu size={16} /></button>
           <BuscaGlobal navegar={navegar} />
           <div className="topbar-actions">
+          {/* Canto superior direito, antes dos demais controles: é o primeiro
+              lugar onde quem não lê português procura. */}
+          <SeletorDeIdioma />
           {/* Controle global de som. Desligar encerra a trilha na hora e a
               preferência vale nas próximas sessões. */}
           <button
             type="button"
             className="icon-button"
             aria-pressed={somLigado}
-            aria-label={somLigado ? 'Desligar o som do sistema' : 'Ligar o som do sistema'}
-            title={somLigado ? 'Som ligado' : 'Som desligado'}
+            aria-label={somLigado ? t('topo.desligarSom') : t('topo.ligarSom')}
+            title={somLigado ? t('topo.somLigado') : t('topo.somDesligado')}
             onClick={() => {
               const proximo = !somLigado;
               definirPreferenciaDeAudio(proximo);
@@ -377,11 +397,11 @@ function Shell() {
           >
             {somLigado ? <Volume2 size={16} /> : <VolumeX size={16} />}
           </button>
-            <button type="button" className="icon-button" onClick={() => navegar('notificacoes')} aria-label={`Notificações${naoLidas ? `: ${naoLidas} não lidas` : ''}`}>
+            <button type="button" className="icon-button" onClick={() => navegar('notificacoes')} aria-label={`${t('topo.notificacoes')}${naoLidas ? `: ${t('topo.naoLidas', { n: naoLidas })}` : ''}`}>
               <Bell size={16} />
               {naoLidas > 0 && <span className="dot">{naoLidas > 9 ? '9+' : naoLidas}</span>}
             </button>
-            <button type="button" className="icon-button" onClick={() => navegar('perfil')} aria-label="Meu perfil social"><UserCircle size={16} /></button>
+            <button type="button" className="icon-button" onClick={() => navegar('perfil')} aria-label={t('topo.meuPerfil')}><UserCircle size={16} /></button>
           </div>
         </header>
 

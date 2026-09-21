@@ -15,7 +15,25 @@ jobs:
   backend:
     name: Backend — migrations, RLS e testes
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # TETO SUBIU DE 25 PARA 40, E O MOTIVO NÃO É A SUÍTE TER FICADO LENTA.
+    #
+    # A execução #233 foi CANCELADA aos 24m23s no passo de testes: nenhum teste
+    # falhou, o job foi cortado — e com ele os dois passos que conferem que
+    # backup/restore e BYPASSRLS não pularam, que rodam depois.
+    #
+    # Antes de subir o teto, o custo foi medido em vez de presumido. A suspeita
+    # natural era a política nova de escrita do AuditLog, que avalia até três
+    # subconsultas por INSERT: 400 escritas levaram 489ms, ou 1,22ms cada. A
+    # suíte inteira faz cerca de mil escritas de auditoria — algo em torno de
+    # 1,2 segundo no total. Não é isso.
+    #
+    # O que é: este job JÁ VARIOU de 7m36s a 24m29s no mesmo código, e está
+    # registrado em fases anteriores. A suíte cresceu 9% (799s para 871s
+    # medidos localmente), o suficiente para um runner lento cruzar os 25.
+    #
+    # 40 dá folga real sem esconder travamento: o dobro do tempo local, e ainda
+    # bem abaixo do ponto em que um job pendurado passaria despercebido.
+    timeout-minutes: 40
 
     # A suíte exige PostgreSQL de verdade: o RLS é testado executando as
     # políticas, não lendo o SQL.
@@ -48,6 +66,11 @@ jobs:
       JWT_SECRET: ci-secret-apenas-para-a-pipeline-com-tamanho-suficiente
       BCRYPT_ROUNDS: '4'
       LOG_LEVEL: silent
+      # Senha EFÊMERA de papel de TESTE, num banco de descarte que morre com o
+      # job. Não é segredo: está aqui, à vista, pelo mesmo motivo que as
+      # outras senhas desta pipeline — para que o arquivo descreva por inteiro
+      # o ambiente que ele monta.
+      BYPASSRLS_TEST_PASSWORD: teste_bypassrls_efemero
 
     steps:
       - uses: actions/checkout@v4
@@ -87,6 +110,25 @@ jobs:
           PGPASSWORD=mci_owner_ci psql -h localhost -U mci_owner -d mci_test -v ON_ERROR_STOP=1 -qc \
             "DO \$\$ BEGIN IF current_setting('is_superuser') = 'on' THEN RAISE EXCEPTION 'papel da aplicacao e superusuario: o RLS nao teria efeito nenhum'; END IF; END \$\$"
           echo "mci_owner criado sem superusuário."
+
+          # O POSTGRES PARA DE GRITAR O QUE OS TESTES ESPERAM OUVIR.
+          #
+          # Os testes de forja provam que a política RECUSA a escrita — e cada
+          # recusa vira ERROR + STATEMENT no log do container. São dezenas de
+          # milhares de linhas de ruído ESPERADO, e o runner despeja tudo isso
+          # no fim do log do job.
+          #
+          # O efeito prático não é estético: a API de logs entrega cerca de
+          # 1 MB a partir do fim, e só o despejo passa disso. Quando a suíte
+          # reprova, o resumo do vitest fica inalcançável — aconteceu em cinco
+          # execuções seguidas, todas vermelhas e nenhuma legível.
+          #
+          # Nada de diagnóstico se perde: quem reporta falha de banco são os
+          # próprios testes, com a mensagem do PostgreSQL dentro do erro. O que
+          # se cala aqui é a cópia dessa mesma mensagem no log do container.
+          $PSQL -c "ALTER SYSTEM SET log_min_messages = 'fatal'"
+          $PSQL -c "ALTER SYSTEM SET log_min_error_statement = 'fatal'"
+          $PSQL -c "SELECT pg_reload_conf()"
 
 
       - name: Validar schema do Prisma
@@ -140,11 +182,55 @@ jobs:
           psql -h localhost -U mci -d mci_test -v ON_ERROR_STOP=1 \
                -c "ALTER ROLE mci_owner CREATEDB"
 
+      # OS PAPÉIS DO TESTE DE BYPASSRLS SÃO PROVISIONADOS POR QUEM PODE.
+      #
+      # O teste criava o papel sozinho e a CI reprovava: conceder BYPASSRLS
+      # exige já tê-lo, e `mci_owner` não tem — nem pode ter, porque é o papel
+      # da aplicação. Aqui quem cria é o usuário de bootstrap, exatamente como
+      # em produção seria o DBA, e o teste apenas se conecta por eles.
+      - name: Provisionar os papéis do teste de BYPASSRLS
+        env:
+          PGPASSWORD: mci_ci
+        run: |
+          psql -h localhost -U mci -d mci_test -v ON_ERROR_STOP=1 \
+               -v senha="'${BYPASSRLS_TEST_PASSWORD}'" \
+               -f scripts/provision-bypassrls-test-roles.sql
+
       - name: Popular o catálogo oficial
         run: node prisma/seed.js
 
       - name: Testes do backend
-        run: npx vitest run
+        # A SAÍDA VAI PARA ARQUIVO, E NÃO SÓ PARA O LOG DO JOB.
+        #
+        # O log deste job termina com o despejo do container do Postgres, que
+        # nesta suíte tem centenas de milhares de linhas: cada recusa de RLS
+        # dos testes de forja vira ERROR + STATEMENT. É ruído ESPERADO — são
+        # testes provando que a política recusa —, mas ele empurra a saída do
+        # vitest para tão longe do fim que, quando a suíte reprova, o motivo
+        # fica ilegível: só se alcança o despejo, nunca o resumo.
+        #
+        # Aconteceu de verdade: quatro execuções seguidas vermelhas e nenhuma
+        # delas dizendo qual teste caiu. `pipefail` preserva o código de saída
+        # do vitest através do `tee`.
+        run: |
+          set -o pipefail
+          npx vitest run 2>&1 | tee /tmp/testes-do-backend.log
+
+      # Só quando reprova, e primeiro no log: o resumo do vitest, longe do
+      # despejo do container.
+      - name: Que teste caiu
+        if: failure()
+        run: |
+          echo "───── resumo do vitest ─────"
+          grep -E "FAIL|×|Test Files|Tests  " /tmp/testes-do-backend.log | tail -60 || true
+
+      - name: Guardar a saída completa dos testes
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: saida-dos-testes-do-backend
+          path: /tmp/testes-do-backend.log
+          retention-days: 7
 
       # Uma suíte que pula silenciosamente é uma suíte que não existe. Este
       # passo reprova se os testes de backup/restore não tiverem rodado.
@@ -159,6 +245,29 @@ jobs:
           # o dump não guarda arquivo algum.
           if [ "$PULADOS" != "0" ] || [ "$PASSOU" -lt 11 ]; then
             echo "O ensaio de backup/restore não rodou por inteiro."
+            exit 1
+          fi
+
+      # O MESMO CUIDADO PARA O ÚNICO TESTE QUE SÓ RODA AQUI.
+      #
+      # `bypassrls-real` cria um papel com BYPASSRLS, conecta por ele e mede
+      # duas coisas: que o atributo DERRUBA FORCE ROW LEVEL SECURITY, e que a
+      # barreira de partida recusa essa conexão. Ele exige CREATEROLE, que só
+      # existe nesta pipeline — no ambiente de desenvolvimento ele pula, e
+      # pular é o comportamento correto lá.
+      #
+      # Aqui, pular seria perder a única prova de que o perigo é real. Este
+      # passo reprova se isso acontecer.
+      - name: Conferir que o teste real de BYPASSRLS não foi pulado
+        run: |
+          set -e
+          SAIDA=$(npx vitest run tests/bypassrls-real.test.mjs --reporter=json 2>/dev/null | tail -1)
+          PULADOS=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPendingTests+r.numTodoTests)" <<< "$SAIDA")
+          PASSOU=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPassedTests)" <<< "$SAIDA")
+          echo "bypassrls real: $PASSOU passaram, $PULADOS pulados"
+          # 5 do papel com BYPASSRLS + 1 do papel de backup.
+          if [ "$PULADOS" != "0" ] || [ "$PASSOU" -lt 6 ]; then
+            echo "O teste real de BYPASSRLS não rodou. Sem ele, a barreira está afirmada e não medida."
             exit 1
           fi
 

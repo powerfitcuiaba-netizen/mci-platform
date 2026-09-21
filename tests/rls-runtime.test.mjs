@@ -43,7 +43,7 @@ beforeEach(async () => {
 });
 
 describe('FORCE ROW LEVEL SECURITY — o dono da tabela também é filtrado', () => {
-  it('as 22 tabelas protegidas estão com FORCE ligado', async () => {
+  it('as 27 tabelas protegidas estão com FORCE ligado', async () => {
     const linhas = await prisma.$queryRaw`
       SELECT c.relname::text AS tabela, c.relforcerowsecurity AS forcado
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -57,7 +57,21 @@ describe('FORCE ROW LEVEL SECURITY — o dono da tabela também é filtrado', ()
     // atleta. Ela guarda CPF entre o pedido e a análise, então nasceu com RLS
     // FORÇADA e política estreita: enxergam a linha apenas o dono do pedido e
     // os operadores da organização.
-    expect(linhas.length).toBe(22);
+    //
+    // E de 22 para 27 com o LEDGER E SUA PROJEÇÃO: `ExternalAthlete`,
+    // `ExternalResult`, `RankingPoint`, `Ranking` e `PublicRankingEntry`.
+    //
+    // Essas cinco não estavam desprotegidas antes — estavam protegidas por
+    // DEDUÇÃO: `athleteId` era NOT NULL, toda linha pertencia a um atleta, e
+    // todo atleta a uma organização. O isolamento era consequência de uma
+    // coluna obrigatória, não de uma regra escrita.
+    //
+    // O histórico oficial carregado ANTES do cadastro desfaz essa dedução:
+    // `athleteId` passou a ser nulável, e uma linha sem atleta não teria
+    // caminho nenhum até um tenant. Por isso as três ganharam
+    // `organizationId` próprio e as cinco ganharam política — a proteção
+    // deixou de ser deduzida e passou a ser declarada.
+    expect(linhas.length).toBe(27);
     const semForce = linhas.filter(linha => !linha.forcado).map(linha => linha.tabela);
     expect(semForce, 'tabela com RLS mas sem FORCE volta a isentar o dono').toEqual([]);
   });
@@ -294,16 +308,63 @@ describe('a requisição real carrega o contexto até o PostgreSQL', () => {
 });
 
 describe('auditoria de bypass', () => {
+  // UM ARQUIVO PRECISA PODER DIZER "BYPASSRLS", E É O QUE PROCURA POR ELE.
+  //
+  // `src/config/rlsGuard.js` existe para RECUSAR a partida quando a conexão
+  // contorna o RLS. Para isso ele consulta `pg_roles.rolbypassrls` e escreve
+  // o diagnóstico com essa palavra. A varredura literal acusava esse arquivo —
+  // e estava lendo a barreira como se fosse o buraco.
+  //
+  // A exceção é a MENOR possível, e vem com uma asserção a mais em troca:
+  //
+  //   · o termo liberado é UM, `BYPASSRLS`, e só nesse UM arquivo;
+  //   · `SET ROLE`, `DISABLE ROW LEVEL SECURITY`, `NO FORCE ROW LEVEL` e
+  //     `row_security = off` continuam proibidos em TODO `src/`, o arquivo da
+  //     barreira incluído;
+  //   · e a barreira passa a ter de provar que não EXECUTA nada: nenhum
+  //     `$executeRaw`, nenhuma instrução que não seja SELECT. Ela lê catálogo
+  //     e decide; não altera estado.
+  const DESLIGAR_RLS = 'DISABLE ROW LEVEL SECURITY|SET ROLE|NO FORCE ROW LEVEL|row_security *= *off';
+  const BARREIRA = 'src/config/rlsGuard.js';
+
   it('nenhum código de aplicação desliga, força papel ou contorna o RLS', async () => {
     const { execSync } = await import('node:child_process');
-    const padrao = 'DISABLE ROW LEVEL SECURITY|SET ROLE|NO FORCE ROW LEVEL|row_security *= *off|BYPASSRLS';
+    const padrao = `${DESLIGAR_RLS}|BYPASSRLS`;
 
     const encontrado = execSync(
-      `grep -rnE '${padrao}' src/ || true`,
+      `grep -rnE '${padrao}' src/ --exclude=${BARREIRA.split('/').pop()} || true`,
       { encoding: 'utf8', cwd: process.cwd() }
     ).trim();
 
     expect(encontrado, `bypass de RLS encontrado em src/:\n${encontrado}`).toBe('');
+  });
+
+  it('a própria barreira não desliga RLS nem troca de papel', async () => {
+    const { execSync } = await import('node:child_process');
+
+    const proibido = execSync(
+      `grep -nE '${DESLIGAR_RLS}' ${BARREIRA} || true`,
+      { encoding: 'utf8', cwd: process.cwd() }
+    ).trim();
+
+    expect(proibido, `a barreira contém instrução de bypass:\n${proibido}`).toBe('');
+  });
+
+  it('a barreira apenas LÊ: nenhum comando que altere estado', async () => {
+    const { readFileSync } = await import('node:fs');
+    const fonte = readFileSync(BARREIRA, 'utf8');
+
+    // `$executeRaw` é o único caminho do Prisma para SQL que não é consulta.
+    // Sem ele, a barreira não tem como alterar nada — e é essa impossibilidade,
+    // e não a boa intenção do arquivo, que justifica a exceção acima.
+    expect(fonte, 'a barreira não pode executar SQL que altere estado')
+      .not.toContain('$executeRaw');
+
+    // E o SQL que ela roda é SELECT. Qualquer verbo de escrita aqui seria uma
+    // mudança de natureza do arquivo, e a exceção deixaria de valer.
+    for (const verbo of ['INSERT ', 'UPDATE ', 'DELETE ', 'ALTER ', 'DROP ', 'GRANT ', 'CREATE ']) {
+      expect(fonte.toUpperCase(), `a barreira usa ${verbo.trim()}`).not.toContain(verbo);
+    }
   });
 
   it('o ator do RLS é definido em um único lugar do código', async () => {

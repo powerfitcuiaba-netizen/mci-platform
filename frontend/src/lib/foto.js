@@ -13,24 +13,34 @@
 export const TIPOS_DE_FOTO = Object.freeze(['image/png', 'image/jpeg', 'image/webp']);
 export const MAX_FOTO_BYTES = 5 * 1024 * 1024;
 
-const MB = bytes => `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`;
+const MEGABYTES = bytes => bytes / (1024 * 1024);
 
-// Devolve `{ erro }` ou `{ arquivo }`. Nunca lança: a tela mostra o texto.
+// Devolve `{ erro, valores }` ou `{ arquivo }`. Nunca lança: a tela mostra o
+// texto.
+//
+// `erro` é uma CHAVE de tradução, e `valores` o que ela interpola. Este módulo
+// não é componente e não tem como saber o idioma em vigor — devolver a frase
+// pronta daqui deixaria o aviso em português numa tela em espanhol. O TAMANHO
+// vai como número, e não como texto já formatado: "5,0" e "5.0" são o mesmo
+// número escrito por idiomas diferentes, e quem sabe qual usar é a tela.
 export function conferirFoto(arquivo) {
-  if (!arquivo) return { erro: 'Escolha uma imagem.' };
+  if (!arquivo) return { erro: 'foto.erro.semArquivo' };
 
   // O tipo aqui é o que o NAVEGADOR deduziu, quase sempre pela extensão. Serve
   // para avisar cedo, não para decidir: quem decide é o servidor, olhando os
   // bytes.
   if (!TIPOS_DE_FOTO.includes(arquivo.type)) {
-    return { erro: 'A foto precisa ser JPG, PNG ou WebP.' };
+    return { erro: 'foto.erro.tipo' };
   }
   if (arquivo.size > MAX_FOTO_BYTES) {
-    return { erro: `A foto tem ${MB(arquivo.size)} e o limite é ${MB(MAX_FOTO_BYTES)}.` };
+    return {
+      erro: 'foto.erro.tamanho',
+      valores: { tamanho: MEGABYTES(arquivo.size), limite: MEGABYTES(MAX_FOTO_BYTES) }
+    };
   }
-  if (arquivo.size === 0) return { erro: 'O arquivo está vazio.' };
+  if (arquivo.size === 0) return { erro: 'foto.erro.vazio' };
 
   return { arquivo };
 }
 
-export const tamanhoLegivel = MB;
+export const emMegabytes = MEGABYTES;

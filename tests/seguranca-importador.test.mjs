@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
-  api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
+  api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
   vincular, unico, comoAtor, gerarCpf
 } from './helpers.mjs';
 
@@ -249,8 +249,46 @@ describe('§7 importId — estados que não podem publicar', () => {
     expect([403, 404]).toContain(r.status);
   });
 
-  it('lote sem linha reconhecida não aplica', async () => {
-    expect((await api().post(`/api/v1/musclewar/imports/${loteA.id}/apply`).set(operadorA.auth()).send({})).status).toBe(422);
+  // ESTE TESTE MUDOU DE REGRA, e o nome mudou junto.
+  //
+  // Chamava-se "lote sem linha reconhecida não aplica", e trancava a regra de
+  // um sistema que já tinha cadastro de atletas. O MCI é novo e não tem: o
+  // histórico oficial dos campeonatos antigos entra ANTES de as pessoas se
+  // cadastrarem, e uma linha pendente de vínculo deixou de ser inaplicável.
+  //
+  // O que precisa continuar trancado, e é o que ele tranca agora, é o outro
+  // lado: aplicar NÃO pode virar uma porta que aceita qualquer coisa. Conflito
+  // e rejeitado continuam fora, e um lote SÓ com eles continua recusado.
+  it('pendente de vínculo aplica; conflito e rejeitado continuam fora', async () => {
+    const atletasAntes = await prisma.athlete.count();
+
+    const aplicacao = await api().post(`/api/v1/musclewar/imports/${loteA.id}/apply`)
+      .set(operadorA.auth()).send({});
+    expect(aplicacao.status, JSON.stringify(aplicacao.body)).toBe(200);
+    expect(aplicacao.body.applied).toBe(1);
+
+    // Entrou no histórico SEM dono, e sem fabricar dono.
+    expect(await prisma.athlete.count()).toBe(atletasAntes);
+    const depois = await totais();
+    expect(depois.pontos).toBe(1);
+    expect(depois.externos).toBe(1);
+
+    const semDono = await comoAtor(adminA, tx => tx.rankingPoint.findMany({ where: { athleteId: null } }));
+    expect(semDono).toHaveLength(1);
+    expect(semDono[0].externalAthleteId).not.toBeNull();
+    expect(semDono[0].organizationId).toBe(orgA);
+  });
+
+  it('lote sem NENHUMA linha aplicável continua recusado', async () => {
+    // Linha sem identificador externo: rejeitada na análise, e rejeitada
+    // continua. "Pendente entra" não é "tudo entra".
+    const soRuim = (await criarLote(orgA, seasonA, operadorA,
+      csv([linha('', 'Sem Identificador')]))).body.import;
+
+    const resposta = await api().post(`/api/v1/musclewar/imports/${soRuim.id}/apply`)
+      .set(operadorA.auth()).send({});
+    expect(resposta.status).toBe(422);
+    expect(resposta.body.error.code).toBe('NOTHING_TO_APPLY');
     expect((await totais()).pontos).toBe(0);
   });
 

@@ -92,7 +92,7 @@ async function history(actor, filtros = {}) {
   // Uma consulta para a página, uma para o total e uma para as somas. Nada de
   // N+1: as relações vêm por `select` na mesma ida, e o atleta foi buscado uma
   // única vez acima.
-  const [items, total, somas] = await Promise.all([
+  const [items, total, somas, porCategoriaCru] = await Promise.all([
     prisma.rankingPoint.findMany({
       where,
       select: {
@@ -121,13 +121,59 @@ async function history(actor, filtros = {}) {
     prisma.rankingPoint.count({ where }),
     prisma.rankingPoint.aggregate({
       where, _sum: { placementPoints: true, overallBonus: true, points: true }
+    }),
+    // DESEMPENHO POR CATEGORIA — a agregação que faltava.
+    //
+    // O total consolidado sozinho é o número mais perigoso desta tela. Um
+    // atleta que competiu em Classic Physique, Bodybuilding e Men's Physique
+    // tem TRÊS carreiras, e "25 pontos" não é nenhuma delas: é a soma de
+    // coisas que não competem entre si. Quem lê esse número solto acaba
+    // usando-o como se fosse o desempenho numa categoria — que é justamente a
+    // confusão que o ranking não comete e a tela não pode introduzir.
+    //
+    // `groupBy` no banco, e não soma em memória sobre `items`: `items` é UMA
+    // PÁGINA. Somar a página daria o total da página e chamaria de carreira.
+    prisma.rankingPoint.groupBy({
+      by: ['categoryId'],
+      where,
+      _sum: { placementPoints: true, overallBonus: true, points: true },
+      _count: { _all: true }
     })
   ]);
+
+  // Os nomes das categorias vêm em UMA consulta, por lista de ids. Uma por
+  // categoria seria N+1 numa tela que o atleta abre no celular.
+  const idsDeCategoria = porCategoriaCru.map(linha => linha.categoryId).filter(Boolean);
+  const categorias = idsDeCategoria.length
+    ? await prisma.category.findMany({
+      where: { id: { in: idsDeCategoria } },
+      select: { id: true, code: true, name: true }
+    })
+    : [];
+  const categoriaPorId = new Map(categorias.map(categoria => [categoria.id, categoria]));
+
+  const porCategoria = porCategoriaCru
+    .map(linha => ({
+      category: linha.categoryId ? (categoriaPorId.get(linha.categoryId) ?? null) : null,
+      participations: linha._count._all,
+      placementPoints: linha._sum.placementPoints ?? 0,
+      overallBonus: linha._sum.overallBonus ?? 0,
+      points: linha._sum.points ?? 0
+    }))
+    // Mais pontos primeiro; empate resolvido pelo nome, para que a ordem seja
+    // estável entre duas aberturas da mesma tela.
+    .sort((a, b) => b.points - a.points
+      || String(a.category?.name ?? '').localeCompare(String(b.category?.name ?? '')));
 
   return {
     athlete: { id: athlete.id, fullName: athlete.fullName, stageName: athlete.stageName },
     items,
     total,
+    // A SEGMENTAÇÃO VEM ANTES DO CONSOLIDADO, na resposta e na tela: é ela que
+    // corresponde aos rankings de verdade.
+    byCategory: porCategoria,
+    // E o consolidado continua existindo, com o nome do que ele é. Ele NÃO
+    // alimenta ranking nenhum: nenhuma categoria recebe este número.
     totals: {
       participations: total,
       placementPoints: somas._sum.placementPoints ?? 0,
