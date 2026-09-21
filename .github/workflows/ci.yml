@@ -162,7 +162,37 @@ jobs:
         run: node prisma/seed.js
 
       - name: Testes do backend
-        run: npx vitest run
+        # A SAÍDA VAI PARA ARQUIVO, E NÃO SÓ PARA O LOG DO JOB.
+        #
+        # O log deste job termina com o despejo do container do Postgres, que
+        # nesta suíte tem centenas de milhares de linhas: cada recusa de RLS
+        # dos testes de forja vira ERROR + STATEMENT. É ruído ESPERADO — são
+        # testes provando que a política recusa —, mas ele empurra a saída do
+        # vitest para tão longe do fim que, quando a suíte reprova, o motivo
+        # fica ilegível: só se alcança o despejo, nunca o resumo.
+        #
+        # Aconteceu de verdade: quatro execuções seguidas vermelhas e nenhuma
+        # delas dizendo qual teste caiu. `pipefail` preserva o código de saída
+        # do vitest através do `tee`.
+        run: |
+          set -o pipefail
+          npx vitest run 2>&1 | tee /tmp/testes-do-backend.log
+
+      # Só quando reprova, e primeiro no log: o resumo do vitest, longe do
+      # despejo do container.
+      - name: Que teste caiu
+        if: failure()
+        run: |
+          echo "───── resumo do vitest ─────"
+          grep -E "FAIL|×|Test Files|Tests  " /tmp/testes-do-backend.log | tail -60 || true
+
+      - name: Guardar a saída completa dos testes
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: saida-dos-testes-do-backend
+          path: /tmp/testes-do-backend.log
+          retention-days: 7
 
       # Uma suíte que pula silenciosamente é uma suíte que não existe. Este
       # passo reprova se os testes de backup/restore não tiverem rodado.
