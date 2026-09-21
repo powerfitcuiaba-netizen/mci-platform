@@ -4,6 +4,7 @@ import api from '../services/api';
 import { useFetch } from '../lib/hooks';
 import { Lightbox, Avatar, EmptyState, Field, Modal, ModalActions, ProtectedMedia, Skeleton } from '../components/ui';
 import { caminhoDoAvatar, desde, formatarHora } from '../lib/format';
+import { useIdioma } from '../lib/idioma';
 
 // MCI Messenger. A privacidade é do servidor: aqui só se pede o que o usuário
 // tem direito de ver, e a API responde 404 para conversa alheia.
@@ -11,6 +12,7 @@ import { caminhoDoAvatar, desde, formatarHora } from '../lib/format';
 const REACOES = ['👍', '🔥', '💪', '👏', '❤️'];
 
 export default function Messenger({ notificar }) {
+  const { t } = useIdioma();
   const [selecionada, setSelecionada] = useState(null);
   const [novaConversa, setNovaConversa] = useState(false);
 
@@ -25,8 +27,13 @@ export default function Messenger({ notificar }) {
       <div className={classe}>
         <aside className="conversation-list">
           <header>
-            <h2>Mensagens</h2>
-            <button type="button" className="icon-button" onClick={() => setNovaConversa(true)} aria-label="Nova conversa"><Plus size={16} /></button>
+            <h2>{t('messenger.mensagens')}</h2>
+            <button
+              type="button" className="icon-button"
+              onClick={() => setNovaConversa(true)} aria-label={t('messenger.novaConversa')}
+            >
+              <Plus size={16} />
+            </button>
           </header>
 
           {conversas.loading && !conversas.data && <div style={{ padding: 14 }}><Skeleton linhas={4} /></div>}
@@ -42,7 +49,7 @@ export default function Messenger({ notificar }) {
               <Avatar name={conversa.title} mediaPath={caminhoDoAvatar(conversa.counterpart)} />
               <span className="info">
                 <strong>{conversa.title}</strong>
-                <small>{conversa.lastMessageAt ? desde(conversa.lastMessageAt) : 'sem mensagens'}</small>
+                <small>{conversa.lastMessageAt ? desde(conversa.lastMessageAt) : t('messenger.semMensagens')}</small>
               </span>
               {conversa.unreadCount > 0 && <span className="unread">{conversa.unreadCount}</span>}
             </button>
@@ -51,9 +58,13 @@ export default function Messenger({ notificar }) {
           {conversas.data && !conversas.data.items.length && (
             <div style={{ padding: 20 }}>
               <EmptyState
-                title="Nenhuma conversa"
-                description="Comece uma conversa com um atleta, coach ou marca."
-                action={<button type="button" className="button button-primary button-sm" onClick={() => setNovaConversa(true)}>Nova conversa</button>}
+                title={t('messenger.nenhumaConversa')}
+                description={t('messenger.nenhumaConversaDescricao')}
+                action={(
+                  <button type="button" className="button button-primary button-sm" onClick={() => setNovaConversa(true)}>
+                    {t('messenger.novaConversa')}
+                  </button>
+                )}
               />
             </div>
           )}
@@ -62,7 +73,7 @@ export default function Messenger({ notificar }) {
         <section className="chat">
           {selecionada
             ? <Conversa key={selecionada} conversationId={selecionada} notificar={notificar} onVoltar={() => setSelecionada(null)} onMudou={() => conversas.reload()} />
-            : <div className="chat-empty">Selecione uma conversa para começar.</div>}
+            : <div className="chat-empty">{t('messenger.selecioneUma')}</div>}
         </section>
       </div>
 
@@ -81,6 +92,7 @@ export default function Messenger({ notificar }) {
 // comportamento que precisa de prova, e ele não é alcançável pela casca sem
 // montar a lista de conversas inteira.
 export function Conversa({ conversationId, notificar, onVoltar, onMudou }) {
+  const { t } = useIdioma();
   const [texto, setTexto] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [ampliada, setAmpliada] = useState(null);
@@ -169,16 +181,20 @@ export function Conversa({ conversationId, notificar, onVoltar, onMudou }) {
   return (
     <>
       <header className="chat-head">
-        <button type="button" className="icon-button mobile-toggle" onClick={onVoltar} aria-label="Voltar"><ArrowLeft size={16} /></button>
+        <button type="button" className="icon-button mobile-toggle" onClick={onVoltar} aria-label={t('acao.voltar')}><ArrowLeft size={16} /></button>
         <Avatar name={conversa.data?.title} mediaPath={caminhoDoAvatar(conversa.data?.counterpart)} />
         <div className="info">
-          <strong>{conversa.data?.title || 'Conversa'}</strong>
-          <small>{conversa.data?.kind === 'GROUP' ? `${conversa.data.members.length} participantes` : 'Conversa individual'}</small>
+          <strong>{conversa.data?.title || t('messenger.conversa')}</strong>
+          <small>
+            {conversa.data?.kind === 'GROUP'
+              ? t('messenger.participantes', { n: conversa.data.members.length })
+              : t('messenger.conversaIndividual')}
+          </small>
         </div>
       </header>
 
       {ampliada && (
-        <Lightbox path={ampliada.path} kind={ampliada.kind} alt="Mídia da mensagem" onClose={() => setAmpliada(null)} />
+        <Lightbox path={ampliada.path} kind={ampliada.kind} alt={t('messenger.midiaDaMensagem')} onClose={() => setAmpliada(null)} />
       )}
 
       <div className="chat-body">
@@ -195,7 +211,7 @@ export function Conversa({ conversationId, notificar, onVoltar, onMudou }) {
             {mensagem.replyTo && <div className="quote">{mensagem.replyTo.body}</div>}
 
             {mensagem.deleted
-              ? 'Mensagem apagada'
+              ? t('messenger.mensagemApagada')
               : (
                 <>
                   {mensagem.body}
@@ -204,9 +220,13 @@ export function Conversa({ conversationId, notificar, onVoltar, onMudou }) {
                       type="button"
                       className="midia-ampliavel"
                       onClick={() => setAmpliada({ path: `/messenger/messages/${mensagem.id}/media`, kind: mensagem.mediaKind })}
-                      aria-label="Abrir mídia ampliada"
+                      aria-label={t('messenger.abrirMidia')}
                     >
-                      <ProtectedMedia path={`/messenger/messages/${mensagem.id}/media`} kind={mensagem.mediaKind} alt="Mídia da mensagem" />
+                      <ProtectedMedia
+                        path={`/messenger/messages/${mensagem.id}/media`}
+                        kind={mensagem.mediaKind}
+                        alt={t('messenger.midiaDaMensagem')}
+                      />
                     </button>
                   )}
                   {mensagem.sharedPost && (
@@ -232,13 +252,13 @@ export function Conversa({ conversationId, notificar, onVoltar, onMudou }) {
                     type="button"
                     onClick={() => reagir(mensagem.id, emoji)}
                     style={{ border: 0, background: 'transparent', fontSize: 13, padding: '1px 3px', opacity: .65 }}
-                    aria-label={`Reagir com ${emoji}`}
+                    aria-label={t('messenger.reagirCom', { emoji })}
                   >
                     {emoji}
                   </button>
                 ))}
                 {mensagem.isMine && (
-                  <button type="button" onClick={() => apagar(mensagem.id)} style={{ border: 0, background: 'transparent', color: 'var(--cinza-fraco)', padding: '1px 3px' }} aria-label="Apagar mensagem">
+                  <button type="button" onClick={() => apagar(mensagem.id)} style={{ border: 0, background: 'transparent', color: 'var(--cinza-fraco)', padding: '1px 3px' }} aria-label={t('messenger.apagarMensagem')}>
                     <Trash2 size={12} />
                   </button>
                 )}
@@ -254,19 +274,19 @@ export function Conversa({ conversationId, notificar, onVoltar, onMudou }) {
       {falhaDoEnvio && (
         <div className="alert alert-erro falha-do-envio" role="alert">
           <div>
-            <strong>Não foi possível enviar</strong>
+            <strong>{t('messenger.falhaAoEnviar')}</strong>
             <p>{falhaDoEnvio}</p>
           </div>
           <button type="button" className="button button-secondary button-sm" onClick={() => enviar()}>
-            Tentar de novo
+            {t('ui.tentarDeNovo')}
           </button>
         </div>
       )}
       <form className="chat-foot" onSubmit={enviar}>
-        <button type="button" className="icon-button" onClick={() => inputArquivo.current?.click()} aria-label="Enviar mídia"><ImagePlus size={16} /></button>
+        <button type="button" className="icon-button" onClick={() => inputArquivo.current?.click()} aria-label={t('messenger.enviarMidia')}><ImagePlus size={16} /></button>
         <input ref={inputArquivo} type="file" accept="image/*,video/*" hidden onChange={enviarMidia} />
-        <input type="text" value={texto} onChange={evento => setTexto(evento.target.value)} placeholder="Escreva uma mensagem…" aria-label="Mensagem" maxLength={4000} />
-        <button type="submit" className="button button-primary" disabled={enviando || !texto.trim()} aria-label={enviando ? 'Enviando mensagem' : 'Enviar mensagem'}>
+        <input type="text" value={texto} onChange={evento => setTexto(evento.target.value)} placeholder={t('messenger.escrevaUmaMensagem')} aria-label={t('messenger.mensagem')} maxLength={4000} />
+        <button type="submit" className="button button-primary" disabled={enviando || !texto.trim()} aria-label={t(enviando ? 'messenger.enviandoMensagem' : 'messenger.enviarMensagem')}>
           <Send size={15} />
         </button>
       </form>
@@ -275,6 +295,7 @@ export function Conversa({ conversationId, notificar, onVoltar, onMudou }) {
 }
 
 function NovaConversa({ notificar, onClose, onCriada }) {
+  const { t } = useIdioma();
   const [busca, setBusca] = useState('');
   const [selecionados, setSelecionados] = useState([]);
   const [titulo, setTitulo] = useState('');
@@ -307,7 +328,7 @@ function NovaConversa({ notificar, onClose, onCriada }) {
       const kind = selecionados.length > 1 ? 'GROUP' : 'DIRECT';
       const conversa = await api.messenger.createConversation({
         kind,
-        title: kind === 'GROUP' ? (titulo.trim() || 'Grupo') : undefined,
+        title: kind === 'GROUP' ? (titulo.trim() || t('messenger.grupo')) : undefined,
         participantIds: selecionados.map(item => item.id)
       });
       onCriada(conversa.id);
@@ -318,16 +339,16 @@ function NovaConversa({ notificar, onClose, onCriada }) {
   };
 
   return (
-    <Modal title="Nova conversa" description="Busque por identificador ou nome de exibição." onClose={onClose}>
+    <Modal title={t('messenger.novaConversa')} description={t('messenger.novaConversaDescricao')} onClose={onClose}>
       <form onSubmit={procurar} style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
         <input
           value={busca}
           onChange={evento => setBusca(evento.target.value)}
-          placeholder="Buscar perfil…"
-          aria-label="Buscar perfil"
+          placeholder={t('messenger.buscarPerfil')}
+          aria-label={t('messenger.buscarPerfilRotulo')}
           style={{ flex: 1, background: 'var(--preto)', border: '1px solid var(--linha)', borderRadius: 4, padding: '10px 11px' }}
         />
-        <button type="submit" className="button button-secondary">Buscar</button>
+        <button type="submit" className="button button-secondary">{t('messenger.buscar')}</button>
       </form>
 
       {selecionados.length > 0 && (
@@ -352,19 +373,22 @@ function NovaConversa({ notificar, onClose, onCriada }) {
               <strong>{perfil.displayName}</strong>
               <small>@{perfil.handle}</small>
             </span>
-            {selecionados.some(item => item.id === perfil.id) && <span className="badge badge-ok">Selecionado</span>}
+            {selecionados.some(item => item.id === perfil.id) && <span className="badge badge-ok">{t('messenger.selecionado')}</span>}
           </button>
         ))}
-        {!resultados.length && <p style={{ color: 'var(--cinza-fraco)', fontSize: 12.5 }}>Busque um perfil para começar.</p>}
+        {!resultados.length && <p style={{ color: 'var(--cinza-fraco)', fontSize: 12.5 }}>{t('messenger.busqueParaComecar')}</p>}
       </div>
 
       <form onSubmit={criar}>
         {selecionados.length > 1 && (
-          <Field label="Nome do grupo" required>
-            <input value={titulo} onChange={evento => setTitulo(evento.target.value)} required minLength={1} maxLength={90} placeholder="Ex: Equipe Wellness" />
+          <Field label={t('messenger.nomeDoGrupo')} required>
+            <input
+              value={titulo} onChange={evento => setTitulo(evento.target.value)}
+              required minLength={1} maxLength={90} placeholder={t('messenger.exemploDeGrupo')}
+            />
           </Field>
         )}
-        <ModalActions onClose={onClose} saving={criando} confirmLabel="Abrir conversa" disabled={!selecionados.length} />
+        <ModalActions onClose={onClose} saving={criando} confirmLabel={t('messenger.abrirConversa')} disabled={!selecionados.length} />
       </form>
     </Modal>
   );
