@@ -1,5 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { definirIdiomaDosRotulos } from './format';
+import ptBR from './idiomas/ptBR';
+import en from './idiomas/en';
+import es from './idiomas/es';
 
 // ============================================================================
 // IDIOMA DA INTERFACE — pt-BR, en, es.
@@ -43,342 +46,19 @@ export const IDIOMA_PADRAO = 'pt-BR';
 
 const CHAVE_DE_PREFERENCIA = 'mci.idioma';
 
+// OS TRÊS DICIONÁRIOS MORAM EM ARQUIVOS PRÓPRIOS.
+//
+// Ficaram juntos enquanto eram cem chaves. Passaram de mil, e um arquivo único
+// deixou de caber na cabeça de quem revisa: para conferir uma tradução era
+// preciso rolar por duas outras. Separados, a revisão de um idioma é a leitura
+// de um arquivo, e o `diff` de uma tradução nova não carrega as outras duas.
+//
+// A paridade entre eles não depende de disciplina: `idioma.test.jsx` reprova
+// chave que exista num idioma e falte noutro, e tradução vazia.
 const DICIONARIO = {
-  'pt-BR': {
-    'idioma.escolher': 'Idioma',
-    'idioma.pt-BR': 'Português',
-    'idioma.en': 'English',
-    'idioma.es': 'Español',
-
-
-    // Navegação. A CHAVE é a ROTA — o mesmo identificador que o roteador usa.
-    // Derivar a chave do rótulo em português quebraria na primeira renomeação;
-    // derivá-la da rota amarra a tradução ao destino, que é o que não muda.
-    'nav.inicio': 'Início',
-    'nav.campeonatos': 'Campeonatos',
-    'nav.atletas': 'Atletas',
-    'nav.ranking': 'Ranking',
-    'nav.social': 'Social',
-    'nav.messenger': 'Messenger',
-    'nav.comunidades': 'Comunidades',
-    'nav.meu-painel': 'Meu painel',
-    'nav.minha-filiacao': 'Minha filiação',
-    'nav.meu-historico': 'Meu histórico',
-    'nav.admin': 'Painel',
-    'nav.admin/eventos': 'Eventos',
-    'nav.admin/inscricoes': 'Inscrições',
-    'nav.admin/solicitacoes': 'Solicitações',
-    'nav.admin/checkin': 'Check-in',
-    'nav.admin/pesagem': 'Pesagem',
-    'nav.admin/credenciamento': 'Credenciamento',
-    'nav.admin/palco': 'Palco',
-    'nav.admin/resultados': 'Resultados',
-    'nav.admin/ranking': 'Ranking',
-    'nav.admin/overall': 'Overall',
-    'nav.admin/lancamentos': 'Lançamentos',
-    'nav.admin/musclewar': 'MuscleWare',
-    'nav.admin/auditoria': 'Auditoria',
-    'nav.admin/configuracoes': 'Configurações',
-    'grupo.plataforma': 'Plataforma',
-    'grupo.administracao': 'Administração',
-    'navegacao.principal': 'Navegação principal',
-    'navegacao.abrirMenu': 'Abrir menu',
-    'navegacao.fecharMenu': 'Fechar menu',
-    'navegacao.inicio': 'Início',
-    'navegacao.campeonatos': 'Campeonatos',
-    'navegacao.ranking': 'Ranking',
-    'navegacao.atletas': 'Atletas',
-    'navegacao.inscricoes': 'Inscrições',
-    'navegacao.resultados': 'Resultados',
-    'navegacao.importacoes': 'Importações',
-    'navegacao.solicitacoes': 'Solicitações',
-    'navegacao.minhaCarreira': 'Minha carreira',
-    'navegacao.configuracoes': 'Configurações',
-
-    'topo.busca': 'Buscar',
-    'topo.somLigado': 'Som ligado',
-    'topo.somDesligado': 'Som desligado',
-    'topo.ligarSom': 'Ligar o som do sistema',
-    'topo.desligarSom': 'Desligar o som do sistema',
-    'topo.notificacoes': 'Notificações',
-    'topo.naoLidas': '{n} não lidas',
-    'topo.meuPerfil': 'Meu perfil social',
-    'topo.sair': 'Sair',
-
-    'acao.aplicar': 'Aplicar',
-    'acao.revisar': 'Revisar',
-    'acao.excluir': 'Excluir',
-    'acao.invalidar': 'Invalidar',
-    'acao.cancelar': 'Cancelar',
-    'acao.confirmar': 'Confirmar',
-    'acao.salvar': 'Salvar',
-    'acao.voltar': 'Voltar',
-    'acao.fechar': 'Fechar',
-    'acao.filtrar': 'Filtrar',
-    'acao.limparFiltros': 'Limpar filtros',
-
-    'estado.carregando': 'Carregando…',
-    'estado.vazio': 'Nada por aqui ainda',
-    'estado.erro': 'Não foi possível carregar',
-    'estado.semPermissao': 'Você não tem permissão para ver isto',
-
-    'pagina.anterior': 'Página anterior',
-    'pagina.proxima': 'Próxima página',
-    'pagina.de': 'Página {atual} de {total}',
-
-    'ranking.geral': 'Ranking Geral',
-    'ranking.superOverall': 'Super Overall',
-    'ranking.equipes': 'Ranking de equipes',
-    'ranking.empresas': 'Ranking de empresas',
-    'ranking.pontos': 'Pontos',
-    'ranking.posicao': 'Posição',
-    'ranking.etapas': 'Etapas',
-    'ranking.empateNaoResolvido': 'Empate não resolvido',
-    'ranking.semCadastro': 'Sem cadastro no MCI',
-
-    'importacao.resumo':
-      '{n} resultados serão adicionados ao histórico/ranking. '
-      + 'Os atletas ainda não cadastrados permanecerão pendentes de vínculo. '
-      + 'Nenhum atleta será criado automaticamente.',
-    'importacao.totalRegistros': 'Registros lidos',
-    'importacao.reconhecidos': 'Reconhecidos',
-    'importacao.pendentes': 'Pendentes de vínculo',
-    'importacao.conflitos': 'Conflitos',
-    'importacao.duplicados': 'Duplicados',
-    'importacao.rejeitados': 'Rejeitados',
-    'importacao.aplicaveis': 'Aplicáveis',
-
-    'vinculo.automatico': 'Vinculado automaticamente',
-    'vinculo.porCpf': 'Vinculado automaticamente por CPF',
-    'vinculo.porMatricula': 'Vinculado automaticamente por filiação + matrícula',
-    'vinculo.pendente': 'Pendente de vínculo',
-    'vinculo.conflito': 'Conflito de identidade',
-    'vinculo.naoIdentificado': 'Não identificado'
-  },
-
-  en: {
-    'idioma.escolher': 'Language',
-    'idioma.pt-BR': 'Português',
-    'idioma.en': 'English',
-    'idioma.es': 'Español',
-
-
-    // Navegação. A CHAVE é a ROTA — o mesmo identificador que o roteador usa.
-    // Derivar a chave do rótulo em português quebraria na primeira renomeação;
-    // derivá-la da rota amarra a tradução ao destino, que é o que não muda.
-    'nav.inicio': 'Home',
-    'nav.campeonatos': 'Championships',
-    'nav.atletas': 'Athletes',
-    'nav.ranking': 'Ranking',
-    'nav.social': 'Social',
-    'nav.messenger': 'Messenger',
-    'nav.comunidades': 'Communities',
-    'nav.meu-painel': 'My dashboard',
-    'nav.minha-filiacao': 'My affiliation',
-    'nav.meu-historico': 'My history',
-    'nav.admin': 'Dashboard',
-    'nav.admin/eventos': 'Events',
-    'nav.admin/inscricoes': 'Registrations',
-    'nav.admin/solicitacoes': 'Requests',
-    'nav.admin/checkin': 'Check-in',
-    'nav.admin/pesagem': 'Weigh-in',
-    'nav.admin/credenciamento': 'Credentialing',
-    'nav.admin/palco': 'Stage',
-    'nav.admin/resultados': 'Results',
-    'nav.admin/ranking': 'Ranking',
-    'nav.admin/overall': 'Overall',
-    'nav.admin/lancamentos': 'Point entries',
-    'nav.admin/musclewar': 'MuscleWare',
-    'nav.admin/auditoria': 'Audit log',
-    'nav.admin/configuracoes': 'Settings',
-    'grupo.plataforma': 'Platform',
-    'grupo.administracao': 'Administration',
-    'navegacao.principal': 'Main navigation',
-    'navegacao.abrirMenu': 'Open menu',
-    'navegacao.fecharMenu': 'Close menu',
-    'navegacao.inicio': 'Home',
-    'navegacao.campeonatos': 'Championships',
-    'navegacao.ranking': 'Ranking',
-    'navegacao.atletas': 'Athletes',
-    'navegacao.inscricoes': 'Registrations',
-    'navegacao.resultados': 'Results',
-    'navegacao.importacoes': 'Imports',
-    'navegacao.solicitacoes': 'Requests',
-    'navegacao.minhaCarreira': 'My career',
-    'navegacao.configuracoes': 'Settings',
-
-    'topo.busca': 'Search',
-    'topo.somLigado': 'Sound on',
-    'topo.somDesligado': 'Sound off',
-    'topo.ligarSom': 'Turn system sound on',
-    'topo.desligarSom': 'Turn system sound off',
-    'topo.notificacoes': 'Notifications',
-    'topo.naoLidas': '{n} unread',
-    'topo.meuPerfil': 'My social profile',
-    'topo.sair': 'Sign out',
-
-    'acao.aplicar': 'Apply',
-    'acao.revisar': 'Review',
-    'acao.excluir': 'Delete',
-    'acao.invalidar': 'Void',
-    'acao.cancelar': 'Cancel',
-    'acao.confirmar': 'Confirm',
-    'acao.salvar': 'Save',
-    'acao.voltar': 'Back',
-    'acao.fechar': 'Close',
-    'acao.filtrar': 'Filter',
-    'acao.limparFiltros': 'Clear filters',
-
-    'estado.carregando': 'Loading…',
-    'estado.vazio': 'Nothing here yet',
-    'estado.erro': 'Could not load',
-    'estado.semPermissao': 'You do not have permission to see this',
-
-    'pagina.anterior': 'Previous page',
-    'pagina.proxima': 'Next page',
-    'pagina.de': 'Page {atual} of {total}',
-
-    'ranking.geral': 'Overall Ranking',
-    'ranking.superOverall': 'Super Overall',
-    'ranking.equipes': 'Team ranking',
-    'ranking.empresas': 'Company ranking',
-    'ranking.pontos': 'Points',
-    'ranking.posicao': 'Position',
-    'ranking.etapas': 'Stages',
-    'ranking.empateNaoResolvido': 'Unresolved tie',
-    'ranking.semCadastro': 'Not registered with MCI',
-
-    'importacao.resumo':
-      '{n} results will be added to the history/ranking. '
-      + 'Athletes who are not yet registered will remain pending linkage. '
-      + 'No athlete will be created automatically.',
-    'importacao.totalRegistros': 'Records read',
-    'importacao.reconhecidos': 'Recognized',
-    'importacao.pendentes': 'Pending linkage',
-    'importacao.conflitos': 'Conflicts',
-    'importacao.duplicados': 'Duplicates',
-    'importacao.rejeitados': 'Rejected',
-    'importacao.aplicaveis': 'Applicable',
-
-    'vinculo.automatico': 'Automatically linked',
-    'vinculo.porCpf': 'Automatically linked by CPF',
-    'vinculo.porMatricula': 'Automatically linked by affiliation + member number',
-    'vinculo.pendente': 'Pending linkage',
-    'vinculo.conflito': 'Identity conflict',
-    'vinculo.naoIdentificado': 'Not identified'
-  },
-
-  es: {
-    'idioma.escolher': 'Idioma',
-    'idioma.pt-BR': 'Português',
-    'idioma.en': 'English',
-    'idioma.es': 'Español',
-
-
-    // Navegação. A CHAVE é a ROTA — o mesmo identificador que o roteador usa.
-    // Derivar a chave do rótulo em português quebraria na primeira renomeação;
-    // derivá-la da rota amarra a tradução ao destino, que é o que não muda.
-    'nav.inicio': 'Inicio',
-    'nav.campeonatos': 'Campeonatos',
-    'nav.atletas': 'Atletas',
-    'nav.ranking': 'Ranking',
-    'nav.social': 'Social',
-    'nav.messenger': 'Messenger',
-    'nav.comunidades': 'Comunidades',
-    'nav.meu-painel': 'Mi panel',
-    'nav.minha-filiacao': 'Mi afiliación',
-    'nav.meu-historico': 'Mi historial',
-    'nav.admin': 'Panel',
-    'nav.admin/eventos': 'Eventos',
-    'nav.admin/inscricoes': 'Inscripciones',
-    'nav.admin/solicitacoes': 'Solicitudes',
-    'nav.admin/checkin': 'Check-in',
-    'nav.admin/pesagem': 'Pesaje',
-    'nav.admin/credenciamento': 'Acreditación',
-    'nav.admin/palco': 'Escenario',
-    'nav.admin/resultados': 'Resultados',
-    'nav.admin/ranking': 'Ranking',
-    'nav.admin/overall': 'Overall',
-    'nav.admin/lancamentos': 'Asientos de puntos',
-    'nav.admin/musclewar': 'MuscleWare',
-    'nav.admin/auditoria': 'Auditoría',
-    'nav.admin/configuracoes': 'Configuración',
-    'grupo.plataforma': 'Plataforma',
-    'grupo.administracao': 'Administración',
-    'navegacao.principal': 'Navegación principal',
-    'navegacao.abrirMenu': 'Abrir menú',
-    'navegacao.fecharMenu': 'Cerrar menú',
-    'navegacao.inicio': 'Inicio',
-    'navegacao.campeonatos': 'Campeonatos',
-    'navegacao.ranking': 'Ranking',
-    'navegacao.atletas': 'Atletas',
-    'navegacao.inscricoes': 'Inscripciones',
-    'navegacao.resultados': 'Resultados',
-    'navegacao.importacoes': 'Importaciones',
-    'navegacao.solicitacoes': 'Solicitudes',
-    'navegacao.minhaCarreira': 'Mi carrera',
-    'navegacao.configuracoes': 'Configuración',
-
-    'topo.busca': 'Buscar',
-    'topo.somLigado': 'Sonido activado',
-    'topo.somDesligado': 'Sonido desactivado',
-    'topo.ligarSom': 'Activar el sonido del sistema',
-    'topo.desligarSom': 'Desactivar el sonido del sistema',
-    'topo.notificacoes': 'Notificaciones',
-    'topo.naoLidas': '{n} sin leer',
-    'topo.meuPerfil': 'Mi perfil social',
-    'topo.sair': 'Salir',
-
-    'acao.aplicar': 'Aplicar',
-    'acao.revisar': 'Revisar',
-    'acao.excluir': 'Eliminar',
-    'acao.invalidar': 'Anular',
-    'acao.cancelar': 'Cancelar',
-    'acao.confirmar': 'Confirmar',
-    'acao.salvar': 'Guardar',
-    'acao.voltar': 'Volver',
-    'acao.fechar': 'Cerrar',
-    'acao.filtrar': 'Filtrar',
-    'acao.limparFiltros': 'Limpiar filtros',
-
-    'estado.carregando': 'Cargando…',
-    'estado.vazio': 'Todavía no hay nada aquí',
-    'estado.erro': 'No se pudo cargar',
-    'estado.semPermissao': 'No tienes permiso para ver esto',
-
-    'pagina.anterior': 'Página anterior',
-    'pagina.proxima': 'Página siguiente',
-    'pagina.de': 'Página {atual} de {total}',
-
-    'ranking.geral': 'Ranking General',
-    'ranking.superOverall': 'Super Overall',
-    'ranking.equipes': 'Ranking de equipos',
-    'ranking.empresas': 'Ranking de empresas',
-    'ranking.pontos': 'Puntos',
-    'ranking.posicao': 'Posición',
-    'ranking.etapas': 'Etapas',
-    'ranking.empateNaoResolvido': 'Empate no resuelto',
-    'ranking.semCadastro': 'Sin registro en el MCI',
-
-    'importacao.resumo':
-      'Se agregarán {n} resultados al historial/ranking. '
-      + 'Los atletas que aún no estén registrados permanecerán pendientes de vinculación. '
-      + 'No se creará ningún atleta automáticamente.',
-    'importacao.totalRegistros': 'Registros leídos',
-    'importacao.reconhecidos': 'Reconocidos',
-    'importacao.pendentes': 'Pendientes de vinculación',
-    'importacao.conflitos': 'Conflictos',
-    'importacao.duplicados': 'Duplicados',
-    'importacao.rejeitados': 'Rechazados',
-    'importacao.aplicaveis': 'Aplicables',
-
-    'vinculo.automatico': 'Vinculado automáticamente',
-    'vinculo.porCpf': 'Vinculado automáticamente por CPF',
-    'vinculo.porMatricula': 'Vinculado automáticamente por afiliación + matrícula',
-    'vinculo.pendente': 'Pendiente de vinculación',
-    'vinculo.conflito': 'Conflicto de identidad',
-    'vinculo.naoIdentificado': 'No identificado'
-  }
+  'pt-BR': ptBR,
+  en,
+  es
 };
 
 export const CHAVES = Object.freeze(Object.keys(DICIONARIO[IDIOMA_PADRAO]));
@@ -465,6 +145,31 @@ export function ProvedorDeIdioma({ children, inicial }) {
  * Fora do provedor devolve o padrão em vez de lançar: um componente isolado
  * num teste, ou uma tela de erro montada antes da árvore, precisa renderizar.
  */
+// NEGRITO DENTRO DE UMA FRASE, SEM INJETAR HTML.
+//
+// Algumas frases têm um trecho em destaque no meio ("abriremos a página
+// **Minha solicitação**, onde você informa..."). Quebrá-las em três chaves
+// obrigaria cada idioma a manter a mesma ORDEM de palavras — e não mantém:
+// em inglês o destaque cai antes do substantivo que em português vem depois.
+//
+// Então a frase fica inteira, com `<b>` marcando o trecho, e este componente
+// a converte em nós React. NÃO é `dangerouslySetInnerHTML`: o texto é
+// FATIADO, só `<b>` vira elemento, e qualquer outra marcação que entrasse na
+// tradução sairia como texto literal na tela — visível, e inofensiva.
+export function TextoRico({ chave, valores }) {
+  const { t } = useIdioma();
+
+  return (
+    <>
+      {t(chave, valores).split(/(<b>.*?<\/b>)/g).filter(Boolean).map((pedaco, indice) => (
+        pedaco.startsWith('<b>') && pedaco.endsWith('</b>')
+          ? <strong key={`${indice}:${pedaco}`}>{pedaco.slice(3, -4)}</strong>
+          : <span key={`${indice}:${pedaco}`}>{pedaco}</span>
+      ))}
+    </>
+  );
+}
+
 export function useIdioma() {
   return useContext(ContextoDeIdioma) ?? {
     idioma: IDIOMA_PADRAO,

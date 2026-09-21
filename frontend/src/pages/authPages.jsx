@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '../AuthContext';
 import { Field, MarcaMci } from '../components/ui';
 import CadastroWizard from './cadastroWizard';
+import { useIdioma } from '../lib/idioma';
 
 // Entrada do sistema.
 //
@@ -14,6 +15,7 @@ import CadastroWizard from './cadastroWizard';
 // num `z.enum` e é reconferido em authService.register).
 
 export default function Auth({ entradaContinua = false }) {
+  const { t } = useIdioma();
   const { login } = useAuth();
   const [modo, setModo] = useState('login');
   const [form, setForm] = useState({ email: '', password: '' });
@@ -42,14 +44,14 @@ export default function Auth({ entradaContinua = false }) {
       <div className="auth-card">
         <MarcaMci largura={168} className="marca-na-entrada" />
         <span className="eyebrow">MCI Platform</span>
-        <h1>Entrar</h1>
+        <h1>{t('login.entrar')}</h1>
         <p>Campeonato Brasileiro Muscle Contest</p>
 
         <form onSubmit={enviar}>
-          <Field label="Email" required>
+          <Field label={t('login.email')} required>
             <input type="email" value={form.email} onChange={evento => setForm({ ...form, email: evento.target.value })} required autoComplete="email" />
           </Field>
-          <Field label="Senha" required>
+          <Field label={t('login.senha')} required>
             <input
               type="password"
               value={form.password}
@@ -65,18 +67,18 @@ export default function Auth({ entradaContinua = false }) {
           {erro && <div className="alert alert-erro" role="alert" style={{ marginBottom: 14 }}><div><strong>{erro}</strong></div></div>}
 
           <button type="submit" className="button button-primary" style={{ width: '100%' }} disabled={enviando}>
-            {enviando ? 'Aguarde…' : 'Entrar'}
+            {enviando ? t('estado.aguarde') : t('login.entrar')}
           </button>
         </form>
 
         <div className="auth-foot">
-          <span>Não tem conta?</span>
+          <span>{t('login.semConta')}</span>
           <button
             type="button"
             className="button button-ghost button-sm link-inline"
             onClick={() => { setModo('registro'); setErro(null); }}
           >
-            Criar conta
+            {t('login.criarConta')}
           </button>
         </div>
       </div>

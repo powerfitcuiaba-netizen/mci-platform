@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { createRequire } from 'node:module';
 import {
   api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, unico, comoAtor, gerarCpf
+  vincular, unico, comoAtor, gerarCpf,
+  comMatriculaDuplicadaPermitida
 } from './helpers.mjs';
 
 // ==========================================================================
@@ -357,29 +358,36 @@ describe('CENÁRIO 7 — conflito de identidade não se resolve no chute', () =>
   it('matrícula que aponta para mais de um atleta vira CONFLICT e não pontua', async () => {
     // Dois atletas da MESMA federação e filiação com a MESMA matrícula: a
     // chave deixa de identificar, e escolher um dos dois seria arbitrário.
-    await comoAtor(A.operador, tx => tx.athlete.create({
-      data: {
-        organizationId: A.org, fullName: 'HOMONIMO UM', sex: 'MALE',
-        affiliationId: A.filiacao.id, affiliationNumber: '55555',
-        identity: { create: { organizationId: A.org, cpf: gerarCpf(774) } }
-      }
-    }));
-    await comoAtor(A.operador, tx => tx.athlete.create({
-      data: {
-        organizationId: A.org, fullName: 'HOMONIMO DOIS', sex: 'MALE',
-        affiliationId: A.filiacao.id, affiliationNumber: '55555',
-        identity: { create: { organizationId: A.org, cpf: gerarCpf(775) } }
-      }
-    }));
+    //
+    // Este estado é DADO LEGADO desde a migration que tornou a matrícula única
+    // por (organização, filiação): ele não nasce mais pela porta da frente. A
+    // defesa do importador continua valendo para a base que já o carrega, e
+    // medi-la exige montá-lo com o índice fora — ver `helpers.mjs`.
+    await comMatriculaDuplicadaPermitida(async () => {
+      await comoAtor(A.operador, tx => tx.athlete.create({
+        data: {
+          organizationId: A.org, fullName: 'HOMONIMO UM', sex: 'MALE',
+          affiliationId: A.filiacao.id, affiliationNumber: '55555',
+          identity: { create: { organizationId: A.org, cpf: gerarCpf(774) } }
+        }
+      }));
+      await comoAtor(A.operador, tx => tx.athlete.create({
+        data: {
+          organizationId: A.org, fullName: 'HOMONIMO DOIS', sex: 'MALE',
+          affiliationId: A.filiacao.id, affiliationNumber: '55555',
+          identity: { create: { organizationId: A.org, cpf: gerarCpf(775) } }
+        }
+      }));
 
-    const lote = (await A.lote(csv([linha('55555', 1)]), { eventId: A.eventoA.id })).body.import;
-    const [item] = (await A.previa(lote.id)).body.items;
-    expect(item.matchStatus).toBe('CONFLICT');
-    expect(item.athleteId ?? null).toBeNull();
-    expect(item.matchCandidates.length).toBeGreaterThanOrEqual(2);
+      const lote = (await A.lote(csv([linha('55555', 1)]), { eventId: A.eventoA.id })).body.import;
+      const [item] = (await A.previa(lote.id)).body.items;
+      expect(item.matchStatus).toBe('CONFLICT');
+      expect(item.athleteId ?? null).toBeNull();
+      expect(item.matchCandidates.length).toBeGreaterThanOrEqual(2);
 
-    await A.aplicar(lote.id);
-    expect(await pontosDe(A.admin)).toHaveLength(0);
+      await A.aplicar(lote.id);
+      expect(await pontosDe(A.admin)).toHaveLength(0);
+    });
   }, 60_000);
 });
 

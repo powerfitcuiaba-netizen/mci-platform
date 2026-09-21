@@ -3,6 +3,7 @@ import api from '../services/api';
 import { useFetch, useListaPaginada } from '../lib/hooks';
 import { AsyncSection, Badge, EmptyState, Metric, PageHead } from '../components/ui';
 import { formatarData } from '../lib/format';
+import { useIdioma } from '../lib/idioma';
 
 // ==========================================================================
 // MINHA FILIAÇÃO E MEU HISTÓRICO.
@@ -19,14 +20,15 @@ import { formatarData } from '../lib/format';
 // ==========================================================================
 
 export function MinhaFiliacao() {
+  const { t } = useIdioma();
   const estado = useFetch(() => api.me.affiliation(), []);
 
   return (
     <div className="page">
       <PageHead
-        eyebrow="Meu espaço"
-        title="Minha filiação"
-        description="A entidade pela qual você compete e o seu número de registro nela."
+        eyebrow={t('carreira.meuEspaco')}
+        title={t('carreira.minhaFiliacao')}
+        description={t('carreira.minhaFiliacaoDescricao')}
       />
 
       <AsyncSection state={estado} linhas={3}>
@@ -34,8 +36,8 @@ export function MinhaFiliacao() {
           if (!dados.athlete) {
             return (
               <EmptyState
-                title="Você ainda não tem perfil de atleta"
-                description="Competir exige filiação confirmada pela federação. Envie sua solicitação com CPF, entidade de filiação e número de registro — um operador analisa."
+                title={t('carreira.semPerfil')}
+                description={t('carreira.semPerfilDescricao')}
               />
             );
           }
@@ -45,8 +47,10 @@ export function MinhaFiliacao() {
             // branco parece erro de carregamento, e a pessoa fica esperando.
             return (
               <EmptyState
-                title="Sem filiação registrada"
-                description={`Seu perfil existe em ${dados.organization?.name || 'sua organização'}, mas nenhuma entidade de filiação está vinculada a ele. A federação é quem registra o vínculo e o número.`}
+                title={t('carreira.semFiliacao')}
+                description={t('carreira.semFiliacaoDescricao', {
+                  organizacao: dados.organization?.name || t('carreira.suaOrganizacao')
+                })}
               />
             );
           }
@@ -57,24 +61,23 @@ export function MinhaFiliacao() {
                 <div className="panel-head">
                   <h2>{dados.affiliation.name}</h2>
                   <Badge tom={dados.affiliation.active ? 'ok' : 'neutro'}>
-                    {dados.affiliation.active ? 'Ativa' : 'Inativa'}
+                    {t(dados.affiliation.active ? 'carreira.ativa' : 'carreira.inativa')}
                   </Badge>
                 </div>
 
                 <div className="grid grid-3" style={{ padding: '4px 0 12px' }}>
-                  <Metric label="Código da entidade" value={dados.affiliation.code || '—'} />
+                  <Metric label={t('carreira.codigoDaEntidade')} value={dados.affiliation.code || '—'} />
                   {/* A MATRÍCULA. É o "Member Number" dos resultados oficiais —
                       a metade da filiação pela qual o resultado reconhece a
                       pessoa. Não confundir com o número de atleta. */}
-                  <Metric label="Minha matrícula" value={dados.affiliationNumber || '—'} destaque />
-                  <Metric label="UF" value={dados.affiliation.state || '—'} />
+                  <Metric label={t('carreira.minhaMatricula')} value={dados.affiliationNumber || '—'} destaque />
+                  <Metric label={t('carreira.uf')} value={dados.affiliation.state || '—'} />
                 </div>
 
                 <p className="hint" style={{ margin: 0 }}>
                   <IdCard size={14} style={{ verticalAlign: '-2px' }} />{' '}
-                  Organização: <strong>{dados.organization?.name || '—'}</strong>.
-                  {' '}A entidade e o número são registrados pela federação — se algo estiver
-                  errado, fale com um operador.
+                  {t('carreira.organizacao')}: <strong>{dados.organization?.name || '—'}</strong>.
+                  {' '}{t('carreira.organizacaoNota')}
                 </p>
               </section>
             </>
@@ -88,6 +91,7 @@ export function MinhaFiliacao() {
 const POR_PAGINA = 20;
 
 export function MeuHistorico() {
+  const { t } = useIdioma();
   const lista = useListaPaginada(
     cursor => api.me.history({ limit: POR_PAGINA, cursor: cursor || undefined }),
     []
@@ -96,9 +100,9 @@ export function MeuHistorico() {
   return (
     <div className="page">
       <PageHead
-        eyebrow="Meu espaço"
-        title="Meu histórico"
-        description="Cada participação que pontuou, com a conta aberta: colocação, bônus de Overall e total."
+        eyebrow={t('carreira.meuEspaco')}
+        title={t('carreira.meuHistorico')}
+        description={t('carreira.meuHistoricoDescricao')}
       />
 
       <AsyncSection state={lista} linhas={4}>
@@ -106,8 +110,8 @@ export function MeuHistorico() {
           if (!dados.items.length) {
             return (
               <EmptyState
-                title="Você ainda não pontuou"
-                description="Assim que um resultado for publicado e a etapa estiver vinculada a uma temporada, sua participação aparece aqui."
+                title={t('carreira.semPontos')}
+                description={t('carreira.semPontosDescricao')}
               />
             );
           }
@@ -131,16 +135,18 @@ export function MeuHistorico() {
               {porCategoria.length > 0 && (
                 <section className="panel">
                   <div className="panel-head">
-                    <h2>Desempenho por categoria</h2>
-                    <span className="muted">Cada categoria tem ranking próprio</span>
+                    <h2>{t('carreira.porCategoria')}</h2>
+                    <span className="muted">{t('carreira.porCategoriaNota')}</span>
                   </div>
                   <div className="grid grid-3" style={{ padding: 'var(--e3)' }}>
                     {porCategoria.map(linha => (
                       <Metric
                         key={linha.category?.id ?? 'sem-categoria'}
-                        label={linha.category?.name || linha.category?.code || 'Sem categoria'}
+                        label={linha.category?.name || linha.category?.code || t('carreira.semCategoria')}
                         value={linha.points}
-                        hint={`${linha.participations} participaç${linha.participations === 1 ? 'ão' : 'ões'}`}
+                        hint={t(linha.participations === 1
+                          ? 'carreira.participacaoContagem'
+                          : 'carreira.participacoesContagem', { n: linha.participations })}
                       />
                     ))}
                   </div>
@@ -150,27 +156,27 @@ export function MeuHistorico() {
               {/* O CONSOLIDADO, com o nome do que ele é. Ele não alimenta
                   ranking nenhum: nenhuma categoria recebe este número. */}
               <div className="grid grid-4" style={{ marginTop: porCategoria.length ? 18 : 0 }}>
-                <Metric label="Participações" value={totais.participations ?? dados.total} />
-                <Metric label="Pontos de colocação" value={totais.placementPoints ?? 0} />
-                <Metric label="Bônus Overall" value={totais.overallBonus ?? 0} />
-                <Metric label="Total geral" value={totais.points ?? 0} destaque
-                  hint="Soma de todas as categorias" />
+                <Metric label={t('carreira.participacoes')} value={totais.participations ?? dados.total} />
+                <Metric label={t('carreira.pontosDeColocacao')} value={totais.placementPoints ?? 0} />
+                <Metric label={t('carreira.bonusOverall')} value={totais.overallBonus ?? 0} />
+                <Metric label={t('carreira.totalGeral')} value={totais.points ?? 0} destaque
+                  hint={t('carreira.totalGeralNota')} />
               </div>
 
               <section className="panel" style={{ marginTop: 18 }}>
-                <div className="panel-head"><h2>Participações</h2></div>
+                <div className="panel-head"><h2>{t('carreira.participacoes')}</h2></div>
 
                 <div className="table-wrap">
                   <table className="table historico-tabela">
                     <thead>
                       <tr>
-                        <th>Campeonato</th>
-                        <th>Categoria · classe</th>
-                        <th className="num">Col.</th>
-                        <th className="num">Colocação</th>
-                        <th className="num">Overall</th>
-                        <th className="num">Total</th>
-                        <th>Filiação na época</th>
+                        <th>{t('carreira.colunaCampeonato')}</th>
+                        <th>{t('carreira.colunaCategoriaClasse')}</th>
+                        <th className="num">{t('carreira.colunaColocacaoCurta')}</th>
+                        <th className="num">{t('carreira.colunaColocacao')}</th>
+                        <th className="num">{t('carreira.colunaOverall')}</th>
+                        <th className="num">{t('carreira.colunaTotal')}</th>
+                        <th>{t('carreira.colunaFiliacaoNaEpoca')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -182,30 +188,30 @@ export function MeuHistorico() {
                               {formatarData(ponto.event?.startDate || ponto.externalResult?.eventDate) || ponto.season?.name || '—'}
                             </small>
                           </td>
-                          <td data-rotulo="Categoria">
+                          <td data-rotulo={t('carreira.colunaCategoria')}>
                             {ponto.category?.name || '—'}
                             <small style={{ display: 'block', color: 'var(--cinza-fraco)' }}>
                               {ponto.competitionClass?.name || ponto.competitionClass?.code || '—'}
                             </small>
                           </td>
-                          <td className="num" data-rotulo="Colocação">{ponto.placing ?? '—'}</td>
-                          <td className="num" data-rotulo="Pts colocação">{ponto.placementPoints}</td>
+                          <td className="num" data-rotulo={t('carreira.colunaColocacao')}>{ponto.placing ?? '—'}</td>
+                          <td className="num" data-rotulo={t('carreira.colunaPtsColocacao')}>{ponto.placementPoints}</td>
                           {/* O bônus é do CAMPEÃO DA ABSOLUTA e de mais ninguém.
                               Numa participação sem título a célula fica em
                               zero discreto — mostrar "+10" aqui seria afirmar
                               um título que não existe. */}
-                          <td className="num" data-rotulo="Overall">
+                          <td className="num" data-rotulo={t('carreira.colunaOverall')}>
                             {ponto.overallBonus > 0
                               ? (
-                                <span title="Campeão Overall">
+                                <span title={t('carreira.campeaoOverall')}>
                                   <strong>+{ponto.overallBonus}</strong>{' '}
-                                  <Trophy size={13} style={{ verticalAlign: '-2px' }} aria-label="Campeão Overall" />
+                                  <Trophy size={13} style={{ verticalAlign: '-2px' }} aria-label={t('carreira.campeaoOverall')} />
                                 </span>
                               )
                               : <span style={{ color: 'var(--cinza-fraco)' }}>0</span>}
                           </td>
-                          <td className="num" data-rotulo="Total"><strong>{ponto.points}</strong></td>
-                          <td data-rotulo="Filiação">
+                          <td className="num" data-rotulo={t('carreira.colunaTotal')}><strong>{ponto.points}</strong></td>
+                          <td data-rotulo={t('carreira.colunaFiliacao')}>
                             {/* Filiação DA ÉPOCA, gravada no ponto. Nula quando
                                 o lançamento é anterior ao registro do snapshot:
                                 aí a tela diz que não há retrato, em vez de
@@ -217,12 +223,12 @@ export function MeuHistorico() {
                                   {ponto.affiliation.name}
                                   {ponto.affiliationNumber && (
                                     <small style={{ display: 'block', color: 'var(--cinza-fraco)' }}>
-                                      nº {ponto.affiliationNumber}
+                                      {t('carreira.numeroAbreviado', { numero: ponto.affiliationNumber })}
                                     </small>
                                   )}
                                 </>
                               )
-                              : <span style={{ color: 'var(--cinza-fraco)' }}>não registrada</span>}
+                              : <span style={{ color: 'var(--cinza-fraco)' }}>{t('carreira.filiacaoNaoRegistrada')}</span>}
                           </td>
                         </tr>
                       ))}
@@ -238,15 +244,15 @@ export function MeuHistorico() {
                       onClick={lista.carregarMais}
                       disabled={lista.carregandoMais}
                     >
-                      {lista.carregandoMais ? 'Carregando…' : 'Carregar mais'}
+                      {t(lista.carregandoMais ? 'estado.carregando' : 'ui.carregarMais')}
                     </button>
                   </div>
                 )}
 
                 <p className="hint" style={{ margin: '10px 0 0' }}>
                   <BadgeCheck size={14} style={{ verticalAlign: '-2px' }} />{' '}
-                  Mostrando {dados.items.length} de {dados.total} participação(ões).
-                  O bônus de Overall é da classe absoluta e vale uma vez por título.
+                  {t('carreira.rodapeContagem', { mostrando: dados.items.length, total: dados.total })}
+                  {' '}{t('carreira.rodapeOverall')}
                 </p>
               </section>
             </>

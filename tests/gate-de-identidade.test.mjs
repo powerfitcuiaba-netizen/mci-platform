@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import {
   api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, comoAtor, gerarCpf
+  vincular, comoAtor, gerarCpf,
+  comMatriculaDuplicadaPermitida
 } from './helpers.mjs';
 
 const require = createRequire(import.meta.url);
@@ -140,19 +141,26 @@ describe('matrícula em filiação errada', () => {
 
 describe('matrícula duplicada', () => {
   it('duas pessoas com a mesma matrícula é CONFLICT, e o gate não escolhe', async () => {
-    await cadastrar('88281', 'YURI SANTINELLI', npc.id, 506);
-    await cadastrar('88281', 'OUTRO HOMONIMO', npc.id, 507);
+    // DADO LEGADO, e o cenário precisa dizer isso. A matrícula repetida deixou
+    // de nascer — o serviço recusa e o índice único fecha a corrida —, mas ela
+    // existe em base que rodou anos sem a trava, e é para esse dado que o gate
+    // continua marcando conflito em vez de escolher. Ver
+    // `comMatriculaDuplicadaPermitida` em tests/helpers.mjs.
+    await comMatriculaDuplicadaPermitida(async () => {
+      await cadastrar('88281', 'YURI SANTINELLI', npc.id, 506);
+      await cadastrar('88281', 'OUTRO HOMONIMO', npc.id, 507);
 
-    const { linhas, resumo } = await rodar(csv([linha('88281', 'Yuri', 'Santinelli')]));
+      const { linhas, resumo } = await rodar(csv([linha('88281', 'Yuri', 'Santinelli')]));
 
-    expect(linhas[0].status).toBe('CONFLICT');
-    expect(linhas[0].motivo).toMatch(/duplicada/i);
-    // Os dois candidatos aparecem: sem isso, "conflito" é uma frase.
-    expect(linhas[0].motivo).toMatch(/YURI SANTINELLI/);
-    expect(linhas[0].motivo).toMatch(/OUTRO HOMONIMO/);
-    expect(linhas[0].athleteId).toBeNull();
-    expect(resumo.matriculasDuplicadas).toBe(1);
-    expect(aprovado(resumo)).toBe(false);
+      expect(linhas[0].status).toBe('CONFLICT');
+      expect(linhas[0].motivo).toMatch(/duplicada/i);
+      // Os dois candidatos aparecem: sem isso, "conflito" é uma frase.
+      expect(linhas[0].motivo).toMatch(/YURI SANTINELLI/);
+      expect(linhas[0].motivo).toMatch(/OUTRO HOMONIMO/);
+      expect(linhas[0].athleteId).toBeNull();
+      expect(resumo.matriculasDuplicadas).toBe(1);
+      expect(aprovado(resumo)).toBe(false);
+    });
   });
 });
 
@@ -278,25 +286,29 @@ describe('os status particionam o conjunto', () => {
   // trancada aqui, um caminho novo de saída sem status passaria despercebido e
   // o gate aprovaria um lote com pendências.
   it('MATCHED + PENDING + CONFLICT + UNKNOWN sempre soma o total', async () => {
-    await cadastrar('88281', 'YURI SANTINELLI', npc.id, 517);        // MATCHED
-    await cadastrar('147986', 'KANANDA AZEVEDO', outraFiliacao.id, 518); // CONFLICT (filiação)
-    await cadastrar('155494', 'CAROLINA MARTINS', npc.id, 519);      // duplicada abaixo
-    await cadastrar('155494', 'CAROLINA HOMONIMA', npc.id, 520);     // CONFLICT (duplicada)
+    // Uma das quatro linhas depende de matrícula duplicada, que hoje só existe
+    // como dado legado — daí o cenário ser montado com o índice fora.
+    await comMatriculaDuplicadaPermitida(async () => {
+      await cadastrar('88281', 'YURI SANTINELLI', npc.id, 517);        // MATCHED
+      await cadastrar('147986', 'KANANDA AZEVEDO', outraFiliacao.id, 518); // CONFLICT (filiação)
+      await cadastrar('155494', 'CAROLINA MARTINS', npc.id, 519);      // duplicada abaixo
+      await cadastrar('155494', 'CAROLINA HOMONIMA', npc.id, 520);     // CONFLICT (duplicada)
 
-    const { resumo } = await rodar(csv([
-      linha('88281', 'Yuri', 'Santinelli', 1),
-      linha('147986', 'Kananda', 'Azevedo', 2),
-      linha('155494', 'Carolina', 'Martins', 3),
-      linha('99999', 'Nao', 'Cadastrado', 4),
-      `5,Men's Bodybuilding - Novice,Sem,Matricula,,1`
-    ]));
+      const { resumo } = await rodar(csv([
+        linha('88281', 'Yuri', 'Santinelli', 1),
+        linha('147986', 'Kananda', 'Azevedo', 2),
+        linha('155494', 'Carolina', 'Martins', 3),
+        linha('99999', 'Nao', 'Cadastrado', 4),
+        `5,Men's Bodybuilding - Novice,Sem,Matricula,,1`
+      ]));
 
-    const soma = resumo.MATCHED + resumo.MATCH_PENDING + resumo.CONFLICT + resumo.UNKNOWN;
-    expect(soma).toBe(resumo.atletasDistintos);
-    expect(resumo).toMatchObject({
-      atletasDistintos: 5, MATCHED: 1, MATCH_PENDING: 1, CONFLICT: 2, UNKNOWN: 1
+      const soma = resumo.MATCHED + resumo.MATCH_PENDING + resumo.CONFLICT + resumo.UNKNOWN;
+      expect(soma).toBe(resumo.atletasDistintos);
+      expect(resumo).toMatchObject({
+        atletasDistintos: 5, MATCHED: 1, MATCH_PENDING: 1, CONFLICT: 2, UNKNOWN: 1
+      });
+      expect(aprovado(resumo)).toBe(false);
     });
-    expect(aprovado(resumo)).toBe(false);
   });
 });
 

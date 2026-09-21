@@ -90,6 +90,7 @@ function rotaAtiva(itens, rota) {
 }
 
 function BuscaGlobal({ navegar }) {
+  const { t } = useIdioma();
   const [termo, setTermo] = useState('');
   const busca = useDebounce(termo, 400);
   const [aberto, setAberto] = useState(false);
@@ -130,8 +131,8 @@ function BuscaGlobal({ navegar }) {
           onChange={evento => { setTermo(evento.target.value); setAberto(true); }}
           onFocus={() => setAberto(true)}
           onBlur={() => setTimeout(() => setAberto(false), 160)}
-          placeholder="Buscar atleta, evento, perfil, comunidade…"
-          aria-label="Busca global"
+          placeholder={t('busca.placeholder')}
+          aria-label={t('busca.rotulo')}
           ref={campo}
         />
         <kbd className="atalho" aria-hidden="true">Ctrl K</kbd>
@@ -139,18 +140,18 @@ function BuscaGlobal({ navegar }) {
 
       {aberto && busca.trim().length >= 2 && (
         <div className="panel" style={{ position: 'absolute', top: 46, left: 0, right: 0, zIndex: 8, maxHeight: 380, overflowY: 'auto' }}>
-          {!temResultado && <p style={{ fontSize: 12.5, color: 'var(--cinza-fraco)', margin: 0 }}>Nada encontrado.</p>}
+          {!temResultado && <p style={{ fontSize: 12.5, color: 'var(--cinza-fraco)', margin: 0 }}>{t('busca.nadaEncontrado')}</p>}
 
           {(resultados.athletes || []).map(atleta => (
             <button key={atleta.id} type="button" className="list-row" style={{ width: '100%', background: 'transparent', border: 0, textAlign: 'left' }} onClick={() => navegar(`atletas/${atleta.id}`)}>
               <Avatar name={atleta.fullName} size="avatar-sm" />
-              <span className="info"><strong>{atleta.stageName || atleta.fullName}</strong><small>Atleta</small></span>
+              <span className="info"><strong>{atleta.stageName || atleta.fullName}</strong><small>{t('busca.atleta')}</small></span>
             </button>
           ))}
           {(resultados.events || []).map(evento => (
             <button key={evento.id} type="button" className="list-row" style={{ width: '100%', background: 'transparent', border: 0, textAlign: 'left' }} onClick={() => navegar(`campeonatos/${evento.slug}`)}>
               <span className="avatar avatar-sm"><Trophy size={13} /></span>
-              <span className="info"><strong>{evento.name}</strong><small>Campeonato</small></span>
+              <span className="info"><strong>{evento.name}</strong><small>{t('busca.campeonato')}</small></span>
             </button>
           ))}
           {(resultados.profiles || []).map(perfil => (
@@ -162,7 +163,7 @@ function BuscaGlobal({ navegar }) {
           {(resultados.communities || []).map(comunidade => (
             <button key={comunidade.id} type="button" className="list-row" style={{ width: '100%', background: 'transparent', border: 0, textAlign: 'left' }} onClick={() => navegar(`comunidades/${comunidade.slug}`)}>
               <span className="avatar avatar-sm"><Users2 size={13} /></span>
-              <span className="info"><strong>{comunidade.name}</strong><small>Comunidade</small></span>
+              <span className="info"><strong>{comunidade.name}</strong><small>{t('busca.comunidade')}</small></span>
             </button>
           ))}
         </div>
@@ -252,7 +253,7 @@ function Shell() {
   }
 
   if (loading) {
-    return <div className="auth-shell"><div className="auth-card"><p>Carregando…</p></div></div>;
+    return <div className="auth-shell"><div className="auth-card"><p>{t('estado.carregando')}</p></div></div>;
   }
 
   // A primeira tela depois da abertura costuma ser a de ENTRADA, e não o
