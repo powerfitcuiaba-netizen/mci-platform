@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, Fragment, useContext, useEffect, useMemo, useState } from 'react';
 import { definirIdiomaDosRotulos } from './format';
 import ptBR from './idiomas/ptBR';
 import en from './idiomas/en';
@@ -164,7 +164,11 @@ export function TextoRico({ chave, valores }) {
       {t(chave, valores).split(/(<b>.*?<\/b>)/g).filter(Boolean).map((pedaco, indice) => (
         pedaco.startsWith('<b>') && pedaco.endsWith('</b>')
           ? <strong key={`${indice}:${pedaco}`}>{pedaco.slice(3, -4)}</strong>
-          : <span key={`${indice}:${pedaco}`}>{pedaco}</span>
+          // FRAGMENTO, e não `<span>`: o trecho comum tem de continuar sendo
+          // NÓ DE TEXTO dentro do parágrafo. Embrulhá-lo num elemento quebra a
+          // frase em vários elementos, e quem procura a legenda pelo texto
+          // encontra um pedaço dela — foi o que um teste de ranking pegou.
+          : <Fragment key={`${indice}:${pedaco}`}>{pedaco}</Fragment>
       ))}
     </>
   );

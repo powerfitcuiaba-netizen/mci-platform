@@ -5,12 +5,14 @@ import { useDebounce, useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Metric, PageHead, Paginacao } from '../components/ui';
 import { formatarData, formatarDataHora, seloDoEvento, estadoDaBateria, estadoPro } from '../lib/format';
 import { PulsoAoVivo, Revelacao } from '../components/experiencia';
+import { useIdioma, TextoRico } from '../lib/idioma';
 
 // Vitrine pública. Tudo aqui sai da API real; nenhuma métrica é estimada e
 // nenhuma lista é fixa no código.
 
 export function Inicio({ navegar }) {
   const resumo = useFetch(() => api.publicApi.summary(), []);
+  const { t } = useIdioma();
   const ranking = useFetch(() => api.ranking.list({ limit: 10 }), []);
 
   return (
@@ -18,14 +20,11 @@ export function Inicio({ navegar }) {
       <Revelacao as="section" className="hero" indice={0}>
         <span className="eyebrow">Muscle Contest</span>
         <h1>Campeonato Brasileiro Muscle Contest</h1>
-        <p>
-          Gestão de competição, resultados, ranking e a comunidade do
-          fisiculturismo brasileiro em uma única plataforma.
-        </p>
+        <p>{t('publico.subtitulo')}</p>
         <div className="hero-meta">
-          <span><Trophy size={14} /> Onze categorias oficiais</span>
-          <span><Users size={14} /> Atletas, coaches, equipes e academias</span>
-          <span><CalendarDays size={14} /> Temporadas e ranking nacional</span>
+          <span><Trophy size={14} /> {t('publico.onzeCategorias')}</span>
+          <span><Users size={14} /> {t('publico.quemParticipa')}</span>
+          <span><CalendarDays size={14} /> {t('publico.temporadasERanking')}</span>
         </div>
       </Revelacao>
 
@@ -37,10 +36,30 @@ export function Inicio({ navegar }) {
                   botão acessível quando recebe `onClick` — o que faltava era
                   ligar o número ao seu destino. A entrada é em sequência, com
                   atraso calculado pelo motor (teto de 360ms). */}
-              <Revelacao indice={0}><Metric label="Campeonatos" value={dados.events} onClick={() => navegar('campeonatos')} destino="os campeonatos" /></Revelacao>
-              <Revelacao indice={1}><Metric label="Atletas" value={dados.athletes} onClick={() => navegar('atletas')} destino="os atletas" /></Revelacao>
-              <Revelacao indice={2}><Metric label="Atletas PRO" value={dados.proAthletes} destaque onClick={() => navegar('atletas')} destino="os atletas" /></Revelacao>
-              <Revelacao indice={3}><Metric label="Resultados publicados" value={dados.publishedResults} onClick={() => navegar('ranking')} destino="o ranking" /></Revelacao>
+              <Revelacao indice={0}>
+                <Metric
+                  label={t('publico.campeonatos')} value={dados.events}
+                  onClick={() => navegar('campeonatos')} destino={t('publico.destinoCampeonatos')}
+                />
+              </Revelacao>
+              <Revelacao indice={1}>
+                <Metric
+                  label={t('publico.atletas')} value={dados.athletes}
+                  onClick={() => navegar('atletas')} destino={t('publico.destinoAtletas')}
+                />
+              </Revelacao>
+              <Revelacao indice={2}>
+                <Metric
+                  label={t('publico.atletasPro')} value={dados.proAthletes} destaque
+                  onClick={() => navegar('atletas')} destino={t('publico.destinoAtletas')}
+                />
+              </Revelacao>
+              <Revelacao indice={3}>
+                <Metric
+                  label={t('publico.resultadosPublicados')} value={dados.publishedResults}
+                  onClick={() => navegar('ranking')} destino={t('publico.destinoRanking')}
+                />
+              </Revelacao>
             </>
           )}
         </AsyncSection>
@@ -49,9 +68,9 @@ export function Inicio({ navegar }) {
       <div className="grid grid-main" style={{ marginTop: 18 }}>
         <section className="panel">
           <div className="panel-head">
-            <h2>Próximos campeonatos</h2>
+            <h2>{t('publico.proximosCampeonatos')}</h2>
             <button type="button" className="button button-ghost button-sm" onClick={() => navegar('campeonatos')}>
-              Ver todos <ChevronRight size={14} />
+              {t('publico.verTodos')} <ChevronRight size={14} />
             </button>
           </div>
           <AsyncSection state={resumo} linhas={3}>
@@ -67,21 +86,21 @@ export function Inicio({ navegar }) {
                   <span className="avatar"><Trophy size={16} /></span>
                   <span className="info">
                     <strong>{evento.name}</strong>
-                    <small>{formatarData(evento.startDate)} · {evento.city || 'Local a definir'}{evento.state ? `/${evento.state}` : ''}</small>
+                    <small>{formatarData(evento.startDate)} · {evento.city || t('publico.localADefinir')}{evento.state ? `/${evento.state}` : ''}</small>
                   </span>
                   <ChevronRight size={16} color="var(--cinza-fraco)" />
                 </button>
               ))
-              : <EmptyState title="Nenhum campeonato agendado" description="Assim que uma etapa for planejada, ela aparece aqui." />
+              : <EmptyState title={t('publico.nenhumAgendado')} description={t('publico.nenhumAgendadoDescricao')} />
             )}
           </AsyncSection>
         </section>
 
         <section className="panel">
           <div className="panel-head">
-            <h2>Ranking</h2>
+            <h2>{t('overall.ranking')}</h2>
             <button type="button" className="button button-ghost button-sm" onClick={() => navegar('ranking')}>
-              Completo <ChevronRight size={14} />
+              {t('publico.completo')} <ChevronRight size={14} />
             </button>
           </div>
           <AsyncSection state={ranking} linhas={3}>
@@ -91,12 +110,12 @@ export function Inicio({ navegar }) {
                   <span className={`placing placing-${linha.position}`}>{linha.position}</span>
                   <span className="info">
                     <strong>{linha.athlete.stageName || linha.athlete.fullName}</strong>
-                    <small>{linha.category?.name || 'Geral'} · {linha.athlete.state || '—'}</small>
+                    <small>{linha.category?.name || t('publico.geral')} · {linha.athlete.state || '—'}</small>
                   </span>
                   <strong style={{ color: 'var(--vermelho-claro)' }}>{linha.totalPoints}</strong>
                 </div>
               ))
-              : <EmptyState title="Ranking em construção" description="A pontuação aparece após a publicação dos primeiros resultados." />
+              : <EmptyState title={t('publico.rankingEmConstrucao')} description={t('publico.rankingEmConstrucaoDescricao')} />
             )}
           </AsyncSection>
         </section>
@@ -106,6 +125,7 @@ export function Inicio({ navegar }) {
 }
 
 export function Campeonatos({ navegar }) {
+  const { t } = useIdioma();
   const [busca, setBusca] = useState('');
   const termo = useDebounce(busca);
   const [pagina, setPagina] = useState({ items: [], nextCursor: null });
@@ -132,18 +152,24 @@ export function Campeonatos({ navegar }) {
 
   return (
     <div className="page">
-      <PageHead eyebrow="Competições" title="Campeonatos" description="Etapas do Campeonato Brasileiro Muscle Contest." />
+      <PageHead
+        eyebrow={t('publico.competicoes')}
+        title={t('publico.campeonatos')}
+        description={t('publico.etapasDoCampeonato')}
+      />
 
       <div className="toolbar">
         <label className="search-box">
           <Search size={16} />
-          <input value={busca} onChange={evento => setBusca(evento.target.value)} placeholder="Buscar campeonato…" aria-label="Buscar campeonato" />
+          <input value={busca} onChange={evento => setBusca(evento.target.value)} placeholder={t('publico.buscarCampeonato')} aria-label={t('publico.buscarCampeonatoRotulo')} />
         </label>
       </div>
 
       <AsyncSection state={estado} linhas={4}>
         {() => {
-          if (!pagina.items.length) return <EmptyState title="Nenhum campeonato encontrado" description="Ajuste a busca para ver outras etapas." />;
+          if (!pagina.items.length) {
+            return <EmptyState title={t('publico.nenhumEncontrado')} description={t('publico.nenhumEncontradoDescricao')} />;
+          }
 
           const agora = Date.now();
           const proximaEtapaId = (pagina.items.find(item => new Date(item.startDate).getTime() >= agora) || {}).id;
@@ -167,7 +193,7 @@ export function Campeonatos({ navegar }) {
                     style={{ textAlign: 'left', cursor: 'pointer' }}
                     onClick={() => navegar(`campeonatos/${evento.slug}`)}
                   >
-                    {proxima && <span className="eyebrow" style={{ display: 'block', marginBottom: 8 }}>Próxima etapa</span>}
+                    {proxima && <span className="eyebrow" style={{ display: 'block', marginBottom: 8 }}>{t('publico.proximaEtapa')}</span>}
                     {/* Ao vivo de VERDADE: `seloDoEvento` só devolve `aoVivo`
                         quando a etapa acontece hoje E está em estado de piso. */}
                     {estadoEvento.aoVivo
@@ -175,7 +201,7 @@ export function Campeonatos({ navegar }) {
                       : <Badge tom={estadoEvento.tom}>{estadoEvento.rotulo}</Badge>}
                     <h3 className="display" style={{ fontSize: 22, margin: '14px 0 6px' }}>{evento.name}</h3>
                     <p style={{ color: 'var(--cinza)', fontSize: 12.5, margin: 0, minHeight: 34 }}>
-                      {evento.description || 'Etapa do Campeonato Brasileiro Muscle Contest.'}
+                      {evento.description || t('publico.descricaoPadraoDaEtapa')}
                     </p>
                     <div style={{ display: 'flex', gap: 14, marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--linha)', fontSize: 11.5, color: 'var(--cinza-fraco)' }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><CalendarDays size={13} /> {formatarData(evento.startDate)}</span>
@@ -195,13 +221,14 @@ export function Campeonatos({ navegar }) {
 }
 
 export function CampeonatoDetalhe({ slug, navegar }) {
+  const { t } = useIdioma();
   const estado = useFetch(() => api.publicApi.event(slug), [slug]);
   const [aba, setAba] = useState('resultados');
 
   return (
     <div className="page">
       <button type="button" className="button button-ghost button-sm" onClick={() => navegar('campeonatos')} style={{ marginBottom: 14 }}>
-        ← Campeonatos
+        {t('publico.voltarParaCampeonatos')}
       </button>
 
       <AsyncSection state={estado} linhas={5}>
@@ -219,13 +246,24 @@ export function CampeonatoDetalhe({ slug, navegar }) {
                   <span><CalendarDays size={14} /> {formatarData(event.startDate, event.timezone)}{event.endDate ? ` — ${formatarData(event.endDate, event.timezone)}` : ''}</span>
                   {event.venue && <span><MapPin size={14} /> {event.venue}</span>}
                   {event.city && <span><MapPin size={14} /> {event.city}{event.state ? `/${event.state}` : ''}</span>}
-                  <span><Users size={14} /> {athletes.length} atletas</span>
+                  <span><Users size={14} /> {t('publico.atletasContagem', { n: athletes.length })}</span>
                 </div>
               </section>
 
               <div className="chips" style={{ margin: '18px 0' }}>
-                {[['resultados', 'Resultados'], ['categorias', 'Categorias'], ['agenda', 'Agenda'], ['atletas', 'Atletas'], ['patrocinadores', 'Patrocinadores']].map(([chave, rotulo]) => (
-                  <button key={chave} type="button" className={`chip${aba === chave ? ' is-on' : ''}`} onClick={() => setAba(chave)}>{rotulo}</button>
+                {[
+                  ['resultados', 'publico.abaResultados'],
+                  ['categorias', 'publico.abaCategorias'],
+                  ['agenda', 'publico.abaAgenda'],
+                  ['atletas', 'publico.atletas'],
+                  ['patrocinadores', 'publico.abaPatrocinadores']
+                ].map(([chave, rotulo]) => (
+                  <button
+                    key={chave} type="button"
+                    className={`chip${aba === chave ? ' is-on' : ''}`} onClick={() => setAba(chave)}
+                  >
+                    {t(rotulo)}
+                  </button>
                 ))}
               </div>
 
@@ -237,7 +275,7 @@ export function CampeonatoDetalhe({ slug, navegar }) {
                         <h2>
                           {resultado.competitionClass.division.eventCategory.category.name} · {resultado.competitionClass.division.name} · {resultado.competitionClass.name}
                         </h2>
-                        <Badge tom="ok">Publicado</Badge>
+                        <Badge tom="ok">{t('publico.publicado')}</Badge>
                       </div>
                       {resultado.entries.map(entrada => (
                         <div className="list-row" key={entrada.id}>
@@ -245,13 +283,16 @@ export function CampeonatoDetalhe({ slug, navegar }) {
                           <Avatar name={entrada.athlete.fullName} />
                           <span className="info">
                             <strong>{entrada.athlete.stageName || entrada.athlete.fullName}</strong>
-                            <small>{entrada.athlete.team?.name || 'Sem equipe'} · {entrada.athlete.city || '—'}{entrada.athlete.state ? `/${entrada.athlete.state}` : ''}</small>
+                            <small>
+                              {entrada.athlete.team?.name || t('publico.semEquipe')} · {entrada.athlete.city || '—'}
+                              {entrada.athlete.state ? `/${entrada.athlete.state}` : ''}
+                            </small>
                           </span>
                         </div>
                       ))}
                     </section>
                   ))
-                  : <EmptyState title="Resultados ainda não publicados" description="A classificação aparece aqui quando a organização publicar a apuração." />
+                  : <EmptyState title={t('publico.semResultados')} description={t('publico.semResultadosDescricao')} />
               )}
 
               {aba === 'categorias' && (
@@ -265,40 +306,40 @@ export function CampeonatoDetalhe({ slug, navegar }) {
                             <strong style={{ fontSize: 12.5 }}>{divisao.name}</strong>
                             <div className="chips" style={{ marginTop: 6 }}>
                               {divisao.classes.map(classe => <span className="chip" key={classe.id}>{classe.name}</span>)}
-                              {!divisao.classes.length && <span className="chip">Sem classes cadastradas</span>}
+                              {!divisao.classes.length && <span className="chip">{t('publico.semClasses')}</span>}
                             </div>
                           </div>
                         ))}
-                        {!item.divisions.length && <p style={{ color: 'var(--cinza-fraco)', fontSize: 12 }}>Divisões ainda não cadastradas.</p>}
+                        {!item.divisions.length && <p style={{ color: 'var(--cinza-fraco)', fontSize: 12 }}>{t('publico.semDivisoes')}</p>}
                       </section>
                     ))
-                    : <EmptyState title="Categorias não definidas" description="A organização ainda não montou o quadro de categorias." />}
+                    : <EmptyState title={t('publico.semCategorias')} description={t('publico.semCategoriasDescricao')} />}
                 </div>
               )}
 
               {aba === 'agenda' && (
                 <section className="panel">
-                  <div className="panel-head"><h2>Chamadas e baterias</h2></div>
+                  <div className="panel-head"><h2>{t('publico.chamadasEBaterias')}</h2></div>
                   {schedule.length
                     ? schedule.map(bateria => (
                       <div className="list-row" key={bateria.id}>
                         <span className="avatar avatar-sm">{bateria.sortOrder || '·'}</span>
                         <span className="info">
                           <strong>{bateria.name} — {bateria.competitionClass.name}</strong>
-                          <small>{bateria.scheduledAt ? formatarDataHora(bateria.scheduledAt, event.timezone) : 'Horário a definir'}</small>
+                          <small>{bateria.scheduledAt ? formatarDataHora(bateria.scheduledAt, event.timezone) : t('publico.horarioADefinir')}</small>
                         </span>
                         <Badge tom={estadoDaBateria(bateria.status).tom} aoVivo={bateria.status === 'ON_STAGE'}>
                           {estadoDaBateria(bateria.status).rotulo}
                         </Badge>
                       </div>
                     ))
-                    : <EmptyState title="Agenda não publicada" description="As baterias aparecem quando a ordem de palco for montada." />}
+                    : <EmptyState title={t('publico.semAgenda')} description={t('publico.semAgendaDescricao')} />}
                 </section>
               )}
 
               {aba === 'atletas' && (
                 <section className="panel">
-                  <div className="panel-head"><h2>Atletas inscritos</h2></div>
+                  <div className="panel-head"><h2>{t('publico.atletasInscritos')}</h2></div>
                   {athletes.length
                     ? athletes.map(atleta => (
                       <button
@@ -311,18 +352,21 @@ export function CampeonatoDetalhe({ slug, navegar }) {
                         <Avatar name={atleta.fullName} />
                         <span className="info">
                           <strong>{atleta.stageName || atleta.fullName}</strong>
-                          <small>{atleta.team?.name || 'Sem equipe'} · {atleta.city || '—'}{atleta.state ? `/${atleta.state}` : ''}</small>
+                          <small>
+                            {atleta.team?.name || t('publico.semEquipe')} · {atleta.city || '—'}
+                            {atleta.state ? `/${atleta.state}` : ''}
+                          </small>
                         </span>
                         {atleta.proStatus === 'ACTIVE' && <Badge tom="ok">PRO</Badge>}
                       </button>
                     ))
-                    : <EmptyState title="Sem inscritos confirmados" />}
+                    : <EmptyState title={t('publico.semInscritos')} />}
                 </section>
               )}
 
               {aba === 'patrocinadores' && (
                 <section className="panel">
-                  <div className="panel-head"><h2>Patrocinadores e marcas</h2></div>
+                  <div className="panel-head"><h2>{t('publico.patrocinadoresEMarcas')}</h2></div>
                   {sponsors.length
                     ? (
                       <div className="chips">
@@ -331,7 +375,7 @@ export function CampeonatoDetalhe({ slug, navegar }) {
                         ))}
                       </div>
                     )
-                    : <EmptyState title="Sem patrocinadores registrados" description="O apoio institucional do evento aparece aqui." />}
+                    : <EmptyState title={t('publico.semPatrocinadores')} description={t('publico.semPatrocinadoresDescricao')} />}
                 </section>
               )}
             </>
@@ -343,6 +387,7 @@ export function CampeonatoDetalhe({ slug, navegar }) {
 }
 
 export function Atletas({ navegar }) {
+  const { t } = useIdioma();
   const [busca, setBusca] = useState('');
   const termo = useDebounce(busca);
   const [pagina, setPagina] = useState({ items: [], nextCursor: null });
@@ -366,12 +411,16 @@ export function Atletas({ navegar }) {
 
   return (
     <div className="page">
-      <PageHead eyebrow="Comunidade" title="Atletas" description="Perfis públicos dos atletas da plataforma." />
+      <PageHead
+        eyebrow={t('publico.comunidade')}
+        title={t('publico.atletas')}
+        description={t('publico.perfisPublicos')}
+      />
 
       <div className="toolbar">
         <label className="search-box">
           <Search size={16} />
-          <input value={busca} onChange={evento => setBusca(evento.target.value)} placeholder="Buscar por nome ou nome esportivo…" aria-label="Buscar atleta" />
+          <input value={busca} onChange={evento => setBusca(evento.target.value)} placeholder={t('publico.buscarAtleta')} aria-label={t('publico.buscarAtletaRotulo')} />
         </label>
       </div>
 
@@ -403,7 +452,7 @@ export function Atletas({ navegar }) {
                     <span style={{ minWidth: 0 }}>
                       <strong style={{ display: 'block', fontSize: 14 }}>{atleta.stageName || atleta.fullName}</strong>
                       <small style={{ display: 'block', color: 'var(--cinza-fraco)', fontSize: 11.5, marginTop: 3 }}>
-                        {atleta.city || '—'}{atleta.state ? `/${atleta.state}` : ''} · {atleta.team?.name || 'Sem equipe'}
+                        {atleta.city || '—'}{atleta.state ? `/${atleta.state}` : ''} · {atleta.team?.name || t('publico.semEquipe')}
                       </small>
                       {atleta.proStatus !== 'NONE' && (
                         <span style={{ display: 'inline-block', marginTop: 8 }}>
@@ -417,7 +466,7 @@ export function Atletas({ navegar }) {
               <Paginacao nextCursor={pagina.nextCursor} onMore={carregarMais} loading={carregandoMais} />
             </>
           )
-          : <EmptyState title="Nenhum atleta encontrado" description="Ajuste a busca ou aguarde novos cadastros." />
+          : <EmptyState title={t('publico.nenhumAtleta')} description={t('publico.nenhumAtletaDescricao')} />
         )}
       </AsyncSection>
     </div>
@@ -425,11 +474,12 @@ export function Atletas({ navegar }) {
 }
 
 export function AtletaDetalhe({ id, navegar }) {
+  const { t } = useIdioma();
   const estado = useFetch(() => api.publicApi.athlete(id), [id]);
 
   return (
     <div className="page">
-      <button type="button" className="button button-ghost button-sm" onClick={() => navegar('atletas')} style={{ marginBottom: 14 }}>← Atletas</button>
+      <button type="button" className="button button-ghost button-sm" onClick={() => navegar('atletas')} style={{ marginBottom: 14 }}>{t('publico.voltarParaAtletas')}</button>
 
       <AsyncSection state={estado} linhas={4}>
         {dados => {
@@ -439,12 +489,16 @@ export function AtletaDetalhe({ id, navegar }) {
               <Revelacao as="section" indice={0} className="hero" style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
                 <Avatar name={athlete.fullName} size="avatar-lg" />
                 <div>
-                  <span className="eyebrow">{athlete.affiliation?.name || 'Sem filiação'}</span>
+                  <span className="eyebrow">{athlete.affiliation?.name || t('publico.semFiliacao')}</span>
                   <h1 style={{ marginTop: 6 }}>{athlete.stageName || athlete.fullName}</h1>
                   <div className="hero-meta" style={{ marginTop: 10 }}>
                     <span>{athlete.city || '—'}{athlete.state ? `/${athlete.state}` : ''}</span>
-                    <span>{athlete.team?.name || 'Sem equipe'}</span>
-                    <span>{athlete.coach?.name ? `Coach ${athlete.coach.name}` : 'Sem coach'}</span>
+                    <span>{athlete.team?.name || t('publico.semEquipe')}</span>
+                    <span>
+                      {athlete.coach?.name
+                        ? t('publico.comCoach', { nome: athlete.coach.name })
+                        : t('publico.semCoach')}
+                    </span>
                     <Badge tom={estadoPro(athlete.proStatus).tom}>{estadoPro(athlete.proStatus).rotulo}</Badge>
                   </div>
                 </div>
@@ -453,15 +507,18 @@ export function AtletaDetalhe({ id, navegar }) {
               {/* A ordem da revelação É a hierarquia: primeiro quem é a
                   pessoa, depois o que ela conquistou, depois o detalhe. */}
               <Revelacao as="div" indice={1} className="grid grid-4" style={{ marginTop: 18 }}>
-                <Metric label="Títulos" value={titles} destaque />
-                <Metric label="Resultados publicados" value={results.length} />
-                <Metric label="Temporadas no ranking" value={rankings.length} />
-                <Metric label="Pontos somados" value={rankings.reduce((total, linha) => total + linha.totalPoints, 0)} />
+                <Metric label={t('publico.titulos')} value={titles} destaque />
+                <Metric label={t('publico.resultadosPublicados')} value={results.length} />
+                <Metric label={t('publico.temporadasNoRanking')} value={rankings.length} />
+                <Metric
+                  label={t('publico.pontosSomados')}
+                  value={rankings.reduce((total, linha) => total + linha.totalPoints, 0)}
+                />
               </Revelacao>
 
               <Revelacao as="div" indice={2} className="grid grid-main" style={{ marginTop: 18 }}>
                 <section className="panel">
-                  <div className="panel-head"><h2>Histórico esportivo</h2></div>
+                  <div className="panel-head"><h2>{t('publico.historicoEsportivo')}</h2></div>
                   {results.length
                     ? results.map((entrada, indice) => (
                       <div className="list-row" key={`${entrada.event.id}-${indice}`}>
@@ -472,26 +529,26 @@ export function AtletaDetalhe({ id, navegar }) {
                             {entrada.competitionClass.division.eventCategory.category.name} · {entrada.competitionClass.name} · {formatarData(entrada.publishedAt)}
                           </small>
                         </span>
-                        <button type="button" className="button button-ghost button-sm" onClick={() => navegar(`campeonatos/${entrada.event.slug}`)}>Ver etapa</button>
+                        <button type="button" className="button button-ghost button-sm" onClick={() => navegar(`campeonatos/${entrada.event.slug}`)}>{t('publico.verEtapa')}</button>
                       </div>
                     ))
-                    : <EmptyState title="Ainda sem resultados publicados" />}
+                    : <EmptyState title={t('publico.semResultadosDoAtleta')} />}
                 </section>
 
                 <section className="panel">
-                  <div className="panel-head"><h2>Ranking</h2></div>
+                  <div className="panel-head"><h2>{t('overall.ranking')}</h2></div>
                   {rankings.length
                     ? rankings.map(linha => (
                       <div className="list-row" key={linha.id}>
                         <span className={`placing placing-${linha.position}`}>{linha.position ?? '—'}</span>
                         <span className="info">
-                          <strong>{linha.category?.name || 'Geral'}</strong>
-                          <small>{linha.season.name} · {linha.eventCount} participação(ões)</small>
+                          <strong>{linha.category?.name || t('publico.geral')}</strong>
+                          <small>{linha.season.name} · {t('publico.participacoes', { n: linha.eventCount })}</small>
                         </span>
                         <strong style={{ color: 'var(--vermelho-claro)' }}>{linha.totalPoints}</strong>
                       </div>
                     ))
-                    : <EmptyState title="Sem pontuação de ranking" />}
+                    : <EmptyState title={t('publico.semPontuacao')} />}
                 </section>
               </Revelacao>
             </>
@@ -513,13 +570,14 @@ export function AtletaDetalhe({ id, navegar }) {
 // campeonato, e apresentá-los na mesma coluna convidaria a somar um com o
 // outro.
 const ABAS = [
-  { chave: 'atletas', rotulo: 'Campeonato' },
-  { chave: 'superOverall', rotulo: 'Super Overall' },
-  { chave: 'equipes', rotulo: 'Equipes' },
-  { chave: 'empresas', rotulo: 'Empresas' }
+  { chave: 'atletas', rotulo: 'publico.abaCampeonato' },
+  { chave: 'superOverall', rotulo: 'publico.abaSuperOverall' },
+  { chave: 'equipes', rotulo: 'publico.abaEquipes' },
+  { chave: 'empresas', rotulo: 'publico.abaEmpresas' }
 ];
 
 export function Ranking() {
+  const { t } = useIdioma();
   const temporadas = useFetch(() => api.ranking.seasons(), []);
   const [seasonId, setSeasonId] = useState('');
   const [categoryId, setCategoryId] = useState('');
@@ -537,7 +595,11 @@ export function Ranking() {
 
   return (
     <div className="page">
-      <PageHead eyebrow="Temporada" title="Ranking" description="Pontuação por atleta, equipe, empresa e temporada. Cada ponto é rastreável até a sua origem." />
+      <PageHead
+        eyebrow={t('publico.temporada')}
+        title={t('overall.ranking')}
+        description={t('publico.rankingDescricao')}
+      />
 
       <div className="chips" style={{ marginBottom: 14 }}>
         {ABAS.map(item => (
@@ -547,7 +609,7 @@ export function Ranking() {
             className={`chip${aba === item.chave ? ' is-on' : ''}`}
             onClick={() => setAba(item.chave)}
           >
-            {item.rotulo}
+            {t(item.rotulo)}
           </button>
         ))}
       </div>
@@ -555,24 +617,21 @@ export function Ranking() {
       {aba === 'superOverall' && (
         <div className="alert alert-info" style={{ marginBottom: 14 }}>
           <div>
-            <strong>Classificatório anual</strong>
-            <p>
-              Todas as classes pontuam no campeonato, mas somente a <strong>Open</strong>
-              {' '}alimenta o Super Overall. Os números desta aba não se somam aos das outras.
-            </p>
+            <strong>{t('publico.classificatorioAnual')}</strong>
+            <p><TextoRico chave="publico.classificatorioTexto" /></p>
           </div>
         </div>
       )}
 
       <div className="toolbar">
-        <select className="select-control" value={seasonId} onChange={evento => setSeasonId(evento.target.value)} aria-label="Temporada">
-          <option value="">Temporada aberta mais recente</option>
+        <select className="select-control" value={seasonId} onChange={evento => setSeasonId(evento.target.value)} aria-label={t('publico.temporada')}>
+          <option value="">{t('publico.temporadaMaisRecente')}</option>
           {(temporadas.data?.items || []).map(temporada => (
             <option key={temporada.id} value={temporada.id}>{temporada.name} ({temporada.year})</option>
           ))}
         </select>
-        <select className="select-control" value={categoryId} onChange={evento => setCategoryId(evento.target.value)} aria-label="Categoria">
-          <option value="">Todas as categorias</option>
+        <select className="select-control" value={categoryId} onChange={evento => setCategoryId(evento.target.value)} aria-label={t('overall.categoria')}>
+          <option value="">{t('publico.todasAsCategorias')}</option>
           {(categorias.data?.items || []).map(categoria => (
             <option key={categoria.id} value={categoria.id}>{categoria.name}</option>
           ))}
@@ -595,10 +654,10 @@ export function Ranking() {
                 <thead>
                   <tr>
                     <th style={{ width: 60 }}>#</th>
-                    <th>Atleta</th>
-                    <th>Categoria</th>
-                    <th>UF</th>
-                    <th className="num">Etapas</th>
+                    <th>{t('overall.atleta')}</th>
+                    <th>{t('overall.categoria')}</th>
+                    <th>{t('publico.uf')}</th>
+                    <th className="num">{t('publico.etapas')}</th>
                     {/* A COLUNA QUE FALTAVA.
                         Um teste humano leu "Etapas: 2 · Pontos: 30" e não teve
                         como explicar o 30 — porque a tela não dizia que ali
@@ -608,8 +667,8 @@ export function Ranking() {
                         Total que não se explica pela própria tela é total em
                         que ninguém confia. A tabela do Super Overall já trazia
                         esta coluna; a do campeonato, não. */}
-                    <th className="num">Overall</th>
-                    <th className="num">Pontos</th>
+                    <th className="num">{t('carreira.colunaOverall')}</th>
+                    <th className="num">{t('publico.pontos')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -621,11 +680,13 @@ export function Ranking() {
                           <Avatar name={linha.athlete.fullName} size="avatar-sm" />
                           <div>
                             <strong style={{ display: 'block', fontSize: 13 }}>{linha.athlete.stageName || linha.athlete.fullName}</strong>
-                            <small style={{ color: 'var(--cinza-fraco)', fontSize: 11 }}>{linha.athlete.team?.name || 'Sem equipe'}</small>
+                            <small style={{ color: 'var(--cinza-fraco)', fontSize: 11 }}>
+                              {linha.athlete.team?.name || t('publico.semEquipe')}
+                            </small>
                           </div>
                         </div>
                       </td>
-                      <td>{linha.category?.name || 'Geral'}</td>
+                      <td>{linha.category?.name || t('publico.geral')}</td>
                       <td>{linha.state || '—'}</td>
                       <td className="num">{linha.eventCount}</td>
                       <td className="num">
@@ -640,14 +701,10 @@ export function Ranking() {
               </table>
               {/* A conta, por extenso, embaixo da tabela: sem isso a coluna
                   nova é só mais um número. */}
-              <p className="ranking-legenda">
-                Cada colocação vale pela tabela oficial da temporada (1º = 5, 2º = 4, 3º = 3, 4º = 2, 5º = 1).
-                Cada título de <strong>Overall</strong> soma <strong>+10</strong>, uma vez por campeonato —
-                quem venceu o Overall de dois campeonatos soma +20 na temporada.
-              </p>
+              <p className="ranking-legenda"><TextoRico chave="publico.legendaDoRanking" /></p>
             </div>
           )
-          : <EmptyState title="Ranking vazio" description="A pontuação aparece quando resultados forem publicados ou importados." />
+          : <EmptyState title={t('publico.rankingVazio')} description={t('publico.rankingVazioDescricao')} />
         )}
       </AsyncSection>
       )}
@@ -660,17 +717,19 @@ export function Ranking() {
 // desempate. Uma tabela só para os três porque a regra é a mesma — dar a cada
 // um a sua tabela seria convidar as três a divergirem com o tempo.
 function TabelaDeRanking({ estado, modo }) {
-  const titulo = {
-    superOverall: 'Nenhum resultado elegível',
-    equipes: 'Nenhuma equipe pontuou',
-    empresas: 'Nenhuma empresa pontuou'
-  }[modo];
+  const { t } = useIdioma();
 
-  const descricao = {
-    superOverall: 'Só resultados da classe Open publicados alimentam o classificatório anual.',
-    equipes: 'A equipe pontua pelo que os seus atletas conquistam.',
-    empresas: 'A empresa pontua pelo que as suas equipes conquistam.'
-  }[modo];
+  const titulo = t({
+    superOverall: 'publico.semElegiveis',
+    equipes: 'publico.semEquipes',
+    empresas: 'publico.semEmpresas'
+  }[modo]);
+
+  const descricao = t({
+    superOverall: 'publico.semElegiveisDescricao',
+    equipes: 'publico.semEquipesDescricao',
+    empresas: 'publico.semEmpresasDescricao'
+  }[modo]);
 
   return (
     <AsyncSection state={estado} linhas={6}>
@@ -681,15 +740,19 @@ function TabelaDeRanking({ estado, modo }) {
               <thead>
                 <tr>
                   <th style={{ width: 60 }}>#</th>
-                  <th>{modo === 'equipes' ? 'Equipe' : modo === 'empresas' ? 'Empresa' : 'Atleta'}</th>
-                  {modo === 'empresas' && <th className="num">Equipes</th>}
-                  {modo !== 'superOverall' && <th className="num">Atletas</th>}
-                  <th className="num">Etapas</th>
-                  <th className="num" title="Primeiro critério de desempate">Overall</th>
+                  <th>
+                    {t(modo === 'equipes'
+                      ? 'publico.equipe'
+                      : modo === 'empresas' ? 'publico.empresa' : 'overall.atleta')}
+                  </th>
+                  {modo === 'empresas' && <th className="num">{t('publico.abaEquipes')}</th>}
+                  {modo !== 'superOverall' && <th className="num">{t('publico.atletas')}</th>}
+                  <th className="num">{t('publico.etapas')}</th>
+                  <th className="num" title={t('publico.primeiroCriterio')}>{t('carreira.colunaOverall')}</th>
                   <th className="num">1º</th>
                   <th className="num">2º</th>
                   <th className="num">3º</th>
-                  <th className="num">Pontos</th>
+                  <th className="num">{t('publico.pontos')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -704,7 +767,7 @@ function TabelaDeRanking({ estado, modo }) {
                           // Empate que a hierarquia oficial não resolveu: ninguém
                           // recebe a colocação, e a tela diz isso em vez de
                           // inventar uma ordem.
-                          : <Badge tom="alerta">empate</Badge>}
+                          : <Badge tom="alerta">{t('publico.empate')}</Badge>}
                       </td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
