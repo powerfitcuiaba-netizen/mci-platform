@@ -193,13 +193,16 @@ describe('o cadastro chega depois, e o histórico vai atrás dele', () => {
       affiliationNumber: 'NPC-1001'
     });
 
+    // O PRÓPRIO CADASTRO JÁ VINCULOU, e isso mudou nesta fase.
+    //
+    // A chamada manual continua logo abaixo, e continua sendo a que prova
+    // idempotência — mas o UM vínculo efetivo já aconteceu na criação do
+    // atleta. Cobrar `1` do retorno da chamada manual mediria a ordem em que
+    // as coisas acontecem, e não o que o produto promete: que o lançamento da
+    // Maria passe a ter dono, sem lançamento novo.
     const muscleWar = await import('../src/services/muscleWarService.js');
-    const primeira = await comoAtor(gerente, () => muscleWar.vincularPendentesDoAtleta(
-      { ...atleta, organizationId, affiliationId: filiacao.id, affiliationNumber: 'NPC-1001' },
-      { id: gerente.id }
-    ));
-
-    expect(primeira.lancamentosVinculados, 'o lançamento da Maria muda de dono').toBe(1);
+    const comDono = await noLedger(tx => tx.rankingPoint.count({ where: { athleteId: atleta.id } }));
+    expect(comDono, 'o lançamento da Maria muda de dono').toBe(1);
 
     const depois = await noLedger(tx => tx.rankingPoint.findMany({ orderBy: { placing: 'asc' } }));
 
@@ -373,39 +376,40 @@ describe('as guardas que impedem creditar resultado à pessoa errada', () => {
     expect(externo.athleteId).toBeNull();
   });
 
-  it('MATRÍCULA COM DOIS DONOS não entrega o histórico a nenhum dos dois', async () => {
+  it('MATRÍCULA COM DOIS DONOS deixou de ser um estado possível', async () => {
     // MUTANTE 6: remover `homonimosDeMatricula === 0` do vínculo automático.
     //
-    // Havia teste da guarda no caminho do ITEM, mas nenhum no caminho do
-    // LEDGER — e é o ledger que carrega os pontos. Com o mutante, a primeira
-    // das duas a se cadastrar levava o resultado da outra.
+    // Este teste montava duas atletas com a MESMA matrícula na MESMA filiação
+    // e cobrava que o vínculo não escolhesse entre elas. A guarda continua no
+    // código — e continua coberta, em `matricula-identifica-um.test.mjs`, com
+    // dado legado simulado.
+    //
+    // O QUE MUDOU É QUE O CENÁRIO NÃO SE MONTA MAIS. Matrícula repetida na
+    // mesma filiação virou estado IMPOSSÍVEL: há guarda no serviço e índice
+    // único parcial no banco. A ambiguidade não é mais tratada; ela é
+    // impedida, que é a proteção mais forte das duas.
     const lote = await importar(csv(['HX-D,PESSOA AMBIGUA,FED-MT,NPC-DUPLA,BIKINI,OPEN,1,Etapa Histórica']));
     await api().post(`/api/v1/musclewar/imports/${lote.body.import.id}/apply`).set(gerente.auth());
 
-    // As duas se cadastram DEPOIS, com a MESMA matrícula na MESMA filiação.
-    // A matrícula deixa de identificar, e escolher uma delas é arbitrário.
-    const primeira = await criarAtleta(gerente, organizationId, {
+    await criarAtleta(gerente, organizationId, {
       fullName: 'PESSOA AMBIGUA UM', cpf: gerarCpf(818181818),
       affiliationId: filiacao.id, affiliationNumber: 'NPC-DUPLA'
     });
-    await criarAtleta(gerente, organizationId, {
-      fullName: 'PESSOA AMBIGUA DOIS', cpf: gerarCpf(828282829),
+
+    // A segunda é RECUSADA. Antes ela era aceita e a ambiguidade nascia aqui.
+    const segunda = await api().post('/api/v1/athletes').set(gerente.auth()).send({
+      organizationId, fullName: 'PESSOA AMBIGUA DOIS', cpf: gerarCpf(828282829),
+      sex: 'FEMALE', birthDate: '1996-05-10',
       affiliationId: filiacao.id, affiliationNumber: 'NPC-DUPLA'
     });
+    expect(segunda.status).toBe(409);
+    expect(segunda.body.error.code).toBe('AFFILIATION_NUMBER_IN_USE');
 
-    const muscleWar = await import('../src/services/muscleWarService.js');
-    const resultado = await comoAtor(gerente, () => muscleWar.vincularPendentesDoAtleta(
-      { ...primeira, organizationId, affiliationId: filiacao.id, affiliationNumber: 'NPC-DUPLA' },
-      { id: gerente.id }
-    ));
-
-    expect(resultado.lancamentosVinculados, 'impasse de cadastro não se resolve no chute').toBe(0);
-
-    const [ponto] = await noLedger(tx => tx.rankingPoint.findMany());
-    expect(ponto.athleteId, 'o histórico espera decisão humana').toBeNull();
-
-    const [identidade] = await noLedger(tx => tx.externalAthlete.findMany());
-    expect(identidade.athleteId).toBeNull();
+    // E existe UMA dona da matrícula, não duas.
+    const donas = await comoAtor(gerente, tx => tx.athlete.count({
+      where: { organizationId, affiliationId: filiacao.id, affiliationNumber: 'NPC-DUPLA' }
+    }));
+    expect(donas).toBe(1);
   });
 
   it('RESULTADO QUE JÁ TEM DONO não se revincula pela porta da revisão', async () => {

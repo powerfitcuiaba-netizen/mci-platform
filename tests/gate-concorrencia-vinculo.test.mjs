@@ -116,11 +116,20 @@ describe('vínculo tardio sob concorrência', () => {
       .filter(r => r.status === 'fulfilled')
       .map(r => r.value.lancamentosVinculados);
 
-    // EXATAMENTE UM. Dezenove zeros não são "falha silenciosa": são a
-    // repetição não tendo efeito, que é o que idempotência significa.
-    expect(efetivos.filter(n => n > 0)).toHaveLength(1);
-    expect(efetivos.filter(n => n > 0)[0]).toBe(1);
-    expect(efetivos.reduce((s, n) => s + n, 0)).toBe(1);
+    // VINTE ZEROS, E O UM ACONTECEU ANTES.
+    //
+    // O cadastro do atleta passou a disparar o vínculo por conta própria, e é
+    // deliberado — quem entra pela porta do operador também precisa encontrar
+    // o próprio histórico. Então o vínculo efetivo já ocorreu na criação, e as
+    // vinte chamadas disputam uma linha que não está mais em `athleteId: null`.
+    //
+    // O que este gate mede continua sendo o mesmo, e continua sendo o que
+    // importa: vinte execuções simultâneas não produzem vínculo em dobro, não
+    // estouram, e não alteram nada. Cobrar que UMA delas devolvesse 1 mediria a
+    // ordem dos acontecimentos, não a corrida.
+    expect(efetivos.filter(n => n > 0), 'nenhuma das vinte pode ter efeito: o vínculo já existe')
+      .toHaveLength(0);
+    expect(efetivos.reduce((s, n) => s + n, 0)).toBe(0);
 
     const depois = await noLedger(tx => tx.rankingPoint.findMany({ orderBy: { placing: 'asc' } }));
 
@@ -129,7 +138,9 @@ describe('vínculo tardio sob concorrência', () => {
     expect(depois.map(p => p.id).sort()).toEqual(idsAntes);
     expect(depois.reduce((s, p) => s + p.points, 0)).toBe(somaAntes);
 
-    // A Maria ganhou dono; a Joana, que não se cadastrou, continua sem.
+    // A Maria ganhou dono — UMA vez, por uma das vinte e uma execuções —; a
+    // Joana, que não se cadastrou, continua sem. É o estado final que prova a
+    // unicidade do vínculo, e ele não depende de qual chamada chegou primeiro.
     expect(depois.filter(p => p.athleteId === atleta.id)).toHaveLength(1);
     expect(depois.filter(p => p.athleteId === null)).toHaveLength(1);
 

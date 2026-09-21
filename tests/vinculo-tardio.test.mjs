@@ -198,32 +198,27 @@ describe('conflito bloqueia, e o sistema não escolhe', () => {
     expect(item.reason).toMatch(/FED-MT|filia/i);
   });
 
-  it('dois atletas com a mesma matrícula na mesma filiação é CONFLICT', async () => {
-    const { body } = await importar(csv([linha('88281', 'Yuri', 'Santinelli')]));
+  it('dois atletas com a mesma matrícula na mesma filiação é RECUSADO na origem', async () => {
+    // Este caso era CONFLICT: o sistema aceitava os dois cadastros e depois se
+    // recusava a escolher entre eles. A recusa estava certa, e chegava tarde —
+    // a ambiguidade já existia no banco, e bastava alguém decidir errado uma
+    // vez para o histórico ir para a pessoa errada.
+    //
+    // Agora a matrícula identifica UMA pessoa dentro da filiação: o segundo
+    // cadastro não é aceito. A guarda do vínculo continua no código como
+    // defesa para dado legado, e é medida em `matricula-identifica-um`.
+    await pedirECadastrar({ matricula: 'NPC-9090', nome: 'PRIMEIRA PESSOA', semente: 909 });
 
-    // O primeiro entra pela porta da frente e vincula.
-    await pedirECadastrar({ matricula: '88281', nome: 'Yuri Santinelli', semente: 708 });
-    // O segundo é semeado direto: o cadastro normal barraria o duplicado, e o
-    // que está sob teste é o gate reagindo a uma base já inconsistente.
-    await comoAtor(gerente, tx => tx.athlete.create({
-      data: {
-        organizationId, fullName: 'HOMONIMO', sex: 'MALE', affiliationId: npc.id,
-        affiliationNumber: '88281', identity: { create: { organizationId, cpf: gerarCpf(709) } }
-      }
-    }));
-
-    const segundo = await importar(csv([linha('88281', 'Yuri', 'Santinelli', 1, CLASSE, 9)]), {
-      externalIdPrefix: 'SEGUNDA'
+    const segunda = await api().post('/api/v1/athletes').set(admin.auth()).send({
+      organizationId, fullName: 'SEGUNDA PESSOA', cpf: gerarCpf(910),
+      sex: 'MALE', birthDate: '1995-03-10',
+      affiliationId: npc.id, affiliationNumber: 'NPC-9090'
     });
-    const [item] = await itensDoLote(segundo.body.import.id);
-    expect(item.matchStatus).toBe('CONFLICT');
-    expect(item.athleteId).toBeNull();
-    expect(await itensDoLote(body.import.id)).toBeDefined();
-  });
-});
 
-// ------------------------------------------------------------------- 14, 15
-describe('aprovações que não têm o que vincular', () => {
+    expect(segunda.status).toBe(409);
+    expect(segunda.body.error.code).toBe('AFFILIATION_NUMBER_IN_USE');
+  });
+
   it('atleta aprovado sem resultado pendente não altera nada', async () => {
     const antes = await contagens();
     await pedirECadastrar({ matricula: '99999', nome: 'Ninguem Do Arquivo', semente: 710 });

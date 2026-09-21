@@ -165,13 +165,18 @@ describe('§11 e §12 — o vínculo identifica, e não realoca', () => {
       ...(vincularPor === 'MATRICULA' ? { affiliationId: npc.id, affiliationNumber: matricula } : {})
     });
 
-    const efeito = await comoAtor(gerente, () => vincularPendentesDoAtleta({
+    // A chamada manual continua — ela é o caminho quando o cadastro já existia
+    // antes do arquivo. Mas o que se MEDE é o estado final: desde que o
+    // cadastro pelo operador passou a disparar o vínculo, cobrar o retorno
+    // desta chamada mediria a ordem dos acontecimentos, e não a promessa.
+    await comoAtor(gerente, () => vincularPendentesDoAtleta({
       ...atleta, organizationId,
       affiliationId: vincularPor === 'MATRICULA' ? npc.id : null,
       affiliationNumber: vincularPor === 'MATRICULA' ? matricula : null
     }, { id: gerente.id }));
 
-    expect(efeito.vinculados, `${vincularPor} devia alcançar as cinco`).toBe(PARTICIPACOES.length);
+    const vinculadas = await noLedger(tx => tx.rankingPoint.count({ where: { athleteId: atleta.id } }));
+    expect(vinculadas, `${vincularPor} devia alcançar as cinco`).toBe(PARTICIPACOES.length);
 
     const depois = await pontosPorCategoria();
     const doAtleta = await pontosPorCategoria({ athleteId: atleta.id });

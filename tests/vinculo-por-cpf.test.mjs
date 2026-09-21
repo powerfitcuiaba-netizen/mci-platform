@@ -165,9 +165,11 @@ describe('A — CPF e matrícula batem: vincula, e o CPF é quem responde', () =
     const atleta = await cadastrarPorOperador({
       nome: 'MARIA DA SILVA', cpf, matricula: 'NPC-12345'
     });
-    const efeito = await vincularComo(atleta);
-    expect(efeito.vinculados).toBe(1);
-    expect(efeito.conflitos).toBe(0);
+    // O CADASTRO JÁ VINCULA. Medir o retorno de uma chamada manual feita
+    // depois mediria a ORDEM dos acontecimentos; o que o produto promete é o
+    // estado final — o histórico desta pessoa é dela.
+    await vincularComo(atleta);
+    expect(await linhasDe(atleta.id)).toBe(1);
 
     const [item] = await itens(importId);
     expect(item.athleteId).toBe(atleta.id);
@@ -193,7 +195,8 @@ describe('B — atleta com CPF e SEM matrícula: o CPF alcança sozinho', () => 
     const atleta = await cadastrarPorOperador({ nome: 'JOANA SOUZA', cpf });
     expect(atleta.affiliationNumber).toBeNull();
 
-    expect((await vincularComo(atleta)).vinculados).toBe(1);
+    await vincularComo(atleta);
+    expect(await linhasDe(atleta.id)).toBe(1);
 
     const [item] = await itens(importId);
     expect(item.athleteId).toBe(atleta.id);
@@ -216,7 +219,8 @@ describe('C — arquivo SEM CPF: filiação + matrícula continua alcançando', 
     const atleta = await cadastrarPorOperador({
       nome: 'CARLA LIMA', cpf: gerarCpf(333333333), matricula: 'NPC-77777'
     });
-    expect((await vincularComo(atleta)).vinculados).toBe(1);
+    await vincularComo(atleta);
+    expect(await linhasDe(atleta.id)).toBe(1);
     const [item] = await itens(importId);
     expect(item.athleteId).toBe(atleta.id);
     expect(item.matchedBy).toBe('AFFILIATION_NUMBER');
@@ -240,7 +244,8 @@ describe('D — CPF divergente na mesma matrícula: a matrícula NÃO desempata'
     });
     // NÃO VINCULOU. A matrícula bate, o nome bate, e mesmo assim o sistema
     // para — porque os dois lados afirmam CPFs diferentes para a mesma pessoa.
-    expect((await vincularComo(atleta)).vinculados).toBe(0);
+    await vincularComo(atleta);
+    expect(await linhasDe(atleta.id)).toBe(0);
 
     const [item] = await itens(importId);
     expect(item.athleteId).toBeNull();
@@ -293,7 +298,8 @@ describe('E — mesmo nome, CPF diferente: nome não vincula nada', () => {
     const primeira = await cadastrarPorOperador({ nome: 'ANA SILVA', cpf: cpfDaPrimeira });
     // UMA linha, e é a dela. A outra ANA SILVA continua sem dono, porque o
     // que as separa é o CPF e não o nome.
-    expect((await vincularComo(primeira)).vinculados).toBe(1);
+    await vincularComo(primeira);
+    expect(await linhasDe(primeira.id)).toBe(1);
 
     const linhas = await itens(importId);
     const dela = linhas.filter(i => i.athleteId === primeira.id);
@@ -311,7 +317,8 @@ describe('E — mesmo nome, CPF diferente: nome não vincula nada', () => {
     const impostor = await cadastrarPorOperador({
       nome: 'BRUNO CARDOSO', cpf: gerarCpf(999999999), matricula: 'NPC-00000'
     });
-    expect((await vincularComo(impostor)).vinculados).toBe(0);
+    await vincularComo(impostor);
+    expect(await linhasDe(impostor.id)).toBe(0);
     const [item] = await itens(importId);
     expect(item.athleteId).toBeNull();
   });
@@ -319,33 +326,49 @@ describe('E — mesmo nome, CPF diferente: nome não vincula nada', () => {
 
 // --------------------------------------------------------------------- F
 describe('F — dois candidatos para a mesma identidade: conflito, nunca escolha', () => {
-  it('matrícula com dois donos na organização não entrega o histórico a nenhum', async () => {
-    // OS DOIS DONOS EXISTEM ANTES DO HISTÓRICO ENTRAR.
+  it('a matrícula não consegue ter dois donos: o segundo cadastro é recusado', async () => {
+    // ESTE TESTE MUDOU DE FORMA, E A MUDANÇA É O ASSUNTO.
     //
-    // A ordem é a regra sendo medida: com um dono só, a matrícula é chave
-    // inequívoca e o cadastro leva o resultado — correto. A ambiguidade nasce
-    // quando o SEGUNDO aparece. Importar antes de os dois existirem mediria o
-    // caso fácil e chamaria de prova.
+    // Antes, dois atletas podiam nascer com a mesma matrícula e o vínculo
+    // tinha de se recusar a escolher entre eles depois. Continuava correto, e
+    // continuava um banco com duas pessoas carregando o mesmo número de
+    // filiação — ambiguidade permanente, esperando alguém decidir.
+    //
+    // A ambiguidade agora é barrada na porta: a matrícula identifica UM atleta
+    // por (organização, filiação), no serviço e no índice único do banco. O
+    // que este teste mede passou a ser a recusa; a guarda do vínculo continua
+    // de pé para o dado LEGADO, que nasceu antes do índice, e é medida em
+    // tests/matricula-identifica-um.test.mjs com o índice removido de
+    // propósito.
     const primeiro = await cadastrarPorOperador({
       nome: 'DOIS DONOS', cpf: gerarCpf(121212121), matricula: 'NPC-31313'
     });
-    const segundo = await cadastrarPorOperador({
-      nome: 'OUTRO NOME', cpf: gerarCpf(131313131), matricula: 'NPC-31313'
-    });
-    expect(segundo.id).not.toBe(primeiro.id);
 
+    const segundo = await api().post('/api/v1/athletes').set(admin.auth()).send({
+      organizationId, fullName: 'OUTRO NOME', cpf: gerarCpf(131313131),
+      sex: 'MALE', birthDate: '1995-03-10',
+      affiliationId: npc.id, affiliationNumber: 'NPC-31313'
+    });
+    expect(segundo.status).toBe(409);
+    expect(segundo.body.error.code).toBe('AFFILIATION_NUMBER_IN_USE');
+
+    const donos = await noLedger(tx => tx.athlete.count({
+      where: { organizationId, affiliationId: npc.id, affiliationNumber: 'NPC-31313' }
+    }));
+    expect(donos, 'a matrícula tem um dono só').toBe(1);
+
+    // E, sem ambiguidade, o histórico sem CPF chega ao único dono possível —
+    // que é o comportamento correto, e o que o cenário de dois donos impedia.
     const importId = await historicoPendente([
       linha({ n: 1, primeiro: 'DOIS', ultimo: 'DONOS', matricula: 'NPC-31313', cpf: '' })
     ]);
 
     await vincularComo(primeiro);
-    expect(await linhasDe(primeiro.id)).toBe(0);
-    expect(await linhasDe(segundo.id)).toBe(0);
+    expect(await linhasDe(primeiro.id)).toBe(1);
 
     const [item] = await itens(importId);
-    expect(item.athleteId).toBeNull();
-    expect(item.matchStatus).toBe('CONFLICT');
-    expect(item.reason).toContain('mais de um atleta');
+    expect(item.athleteId).toBe(primeiro.id);
+    expect(item.matchedBy).toBe('AFFILIATION_NUMBER');
   });
 
   it('o banco impede dois cadastros com o mesmo CPF na mesma organização', async () => {
@@ -383,7 +406,8 @@ describe('G — sem nenhuma das duas chaves: permanece pendente', () => {
     expect(resolucao.filiacao).toBeNull();
     expect(resolucao.candidatos).toEqual([]);
 
-    expect((await vincularComo(atleta)).vinculados).toBe(0);
+    await vincularComo(atleta);
+    expect(await linhasDe(atleta.id)).toBe(0);
 
     const [item] = await itens(importId);
     expect(item.athleteId, 'o histórico continua existindo, e continua sem dono').toBeNull();
@@ -400,7 +424,7 @@ describe('H — histórico já vinculado: nenhuma duplicação', () => {
     ]);
 
     const atleta = await cadastrarPorOperador({ nome: 'JA VINCULADO', cpf, matricula: 'NPC-50505' });
-    expect((await vincularComo(atleta)).vinculados).toBe(1);
+    expect(await linhasDe(atleta.id)).toBe(1);
 
     const antes = await noLedger(async tx => ({
       pontos: await tx.rankingPoint.count(),
@@ -461,7 +485,7 @@ describe('§5 o CPF nunca é procurado globalmente', () => {
     // vizinho sem barrar o dono — e o cadastro dela em A entra só agora
     // justamente para que a asserção acima seja sobre B, e não sobre ordem.
     const atletaDeA = await cadastrarPorOperador({ nome: 'PESSOA DA A', cpf, matricula: 'NPC-60606' });
-    expect((await vincularComo(atletaDeA)).vinculados).toBe(1);
+    expect(await linhasDe(atletaDeA.id)).toBe(1);
     expect((await itens(importA))[0].athleteId).toBe(atletaDeA.id);
 
     // E as duas identidades cadastrais coexistem, cada uma na sua organização.
@@ -521,7 +545,8 @@ describe('§5 o CPF nunca é procurado globalmente', () => {
     ]);
 
     const estranho = await cadastrarPorOperador({ nome: 'OUTRA PESSOA', cpf: gerarCpf(232323232) });
-    expect((await vincularComo(estranho)).vinculados).toBe(0);
+    await vincularComo(estranho);
+    expect(await linhasDe(estranho.id)).toBe(0);
 
     const [item] = await itens(importId);
     expect(item.athleteId).toBeNull();
@@ -576,7 +601,8 @@ describe('§9 o vínculo preserva a pontuação, número por número', () => {
     // Cada pessoa se cadastra e leva EXATAMENTE o total que já era dela.
     for (const [i, perfil] of PERFIS.entries()) {
       const atleta = await cadastrarPorOperador({ nome: perfil.nome, cpf: cpfs[i] });
-      expect((await vincularComo(atleta)).vinculados,
+      await vincularComo(atleta);
+      expect(await linhasDe(atleta.id),
         `${perfil.nome} devia vincular ${perfil.colocacoes.length} linha(s)`)
         .toBe(perfil.colocacoes.length);
 
@@ -699,7 +725,7 @@ describe('§10 o ranking troca o nome da fonte pelo do cadastro, e nada mais', (
 
 // ------------------------------------------------------------------- §8
 describe('§8 concorrência: vinte aprovações, um vínculo', () => {
-  it('vinte chamadas simultâneas por CPF produzem UM vínculo e nada mais', async () => {
+  it('vinte repetições depois do vínculo não criam ponto, resultado nem identidade', async () => {
     const cpf = gerarCpf(292929292);
     await historicoAplicado([
       // Matrícula no ARQUIVO (o identificador externo é derivado dela), e
@@ -716,11 +742,20 @@ describe('§8 concorrência: vinte aprovações, um vínculo', () => {
     }));
     expect(antes.pontos).toBe(2);
 
-    // O cadastro pelo operador NÃO dispara o vínculo (ver o bloco sobre as
-    // portas): as vinte chamadas abaixo disputam de verdade as mesmas duas
-    // linhas, que é o que este teste existe para medir.
+    // O CADASTRO JÁ VINCULA — e por isso este teste mudou de pergunta.
+    //
+    // Enquanto o cadastro pelo operador não disparava o vínculo, as vinte
+    // chamadas disputavam de verdade as duas linhas e exatamente uma levava.
+    // Agora o vínculo acontece na criação, e cobrar que uma das vinte
+    // devolvesse 2 mediria a ORDEM dos acontecimentos, não a corrida.
+    //
+    // O que este teste passa a medir é a outra metade da idempotência, que não
+    // deixou de valer: repetir vinte vezes, em paralelo, sobre um vínculo que
+    // já existe não duplica nada e não estoura. A corrida de verdade — vinte
+    // chamadas sobre linha AINDA sem dono — é medida no teste seguinte, pelo
+    // caminho que ainda produz esse estado.
     const atleta = await cadastrarPorOperador({ nome: 'CORRIDA POR CPF', cpf });
-    expect(await linhasDe(atleta.id)).toBe(0);
+    expect(await linhasDe(atleta.id), 'o cadastro encontra o próprio histórico').toBe(2);
 
     const respostas = await Promise.allSettled(
       Array.from({ length: 20 }, () => vincularComo(atleta))
@@ -731,11 +766,9 @@ describe('§8 concorrência: vinte aprovações, um vínculo', () => {
       'corrida não pode virar exceção').toEqual([]);
 
     const efetivos = respostas.filter(r => r.status === 'fulfilled').map(r => r.value.vinculados);
-    // As duas linhas desta pessoa, vinculadas UMA vez — por uma das vinte
-    // chamadas. As outras dezenove contam zero, que é o que idempotência
-    // significa: repetir não tem efeito.
-    expect(efetivos.reduce((s, n) => s + n, 0)).toBe(2);
-    expect(efetivos.filter(n => n > 0)).toHaveLength(1);
+    // Vinte zeros: nenhuma tem efeito, porque não há mais o que vincular. É o
+    // que idempotência significa — repetir não tem efeito.
+    expect(efetivos.reduce((s, n) => s + n, 0)).toBe(0);
 
     const depois = await noLedger(async tx => ({
       pontos: await tx.rankingPoint.count(),
@@ -747,6 +780,50 @@ describe('§8 concorrência: vinte aprovações, um vínculo', () => {
 
     const donos = await noLedger(tx => tx.rankingPoint.count({ where: { athleteId: atleta.id } }));
     expect(donos).toBe(2);
+  }, 180_000);
+
+  it('sobre linha AINDA sem dono, exatamente uma das vinte chamadas vincula', async () => {
+    // O CAMINHO QUE AINDA PRODUZ "HISTÓRICO PENDENTE + ATLETA CADASTRADO".
+    //
+    // Com o cadastro vinculando sozinho, e a importação já reconhecendo por
+    // CPF quem existe, a corrida por CPF deixou de ser alcançável — e provar
+    // unicidade sobre um vínculo que já ocorreu não prova unicidade.
+    //
+    // A EDIÇÃO não dispara o vínculo, e é onde o estado continua nascendo de
+    // verdade: o atleta é cadastrado sem filiação, o arquivo antigo não traz
+    // CPF, ninguém se alcança; semanas depois o operador registra a matrícula
+    // dele, e só então a chave existe. As vinte chamadas abaixo disputam
+    // linhas genuinamente sem dono.
+    const importId = await historicoPendente([
+      linha({ n: 1, classe: CLASSES[0], primeiro: 'CORRIDA', ultimo: 'POR MATRICULA', matricula: 'NPC-D1', cpf: '' })
+    ]);
+
+    const atleta = await cadastrarPorOperador({ nome: 'CORRIDA POR MATRICULA', cpf: gerarCpf(303030303) });
+    expect(await linhasDe(atleta.id), 'sem chave em comum, o cadastro não alcança nada').toBe(0);
+
+    const edicao = await api().patch(`/api/v1/athletes/${atleta.id}`).set(admin.auth())
+      .send({ affiliationId: npc.id, affiliationNumber: 'NPC-D1' });
+    expect(edicao.status, JSON.stringify(edicao.body).slice(0, 200)).toBe(200);
+    expect(await linhasDe(atleta.id), 'a edição não vincula por conta própria').toBe(0);
+
+    const comMatricula = { ...atleta, affiliationId: npc.id, affiliationNumber: 'NPC-D1' };
+    const respostas = await Promise.allSettled(
+      Array.from({ length: 20 }, () => vincularComo(comMatricula))
+    );
+
+    expect(respostas.filter(r => r.status === 'rejected')
+      .map(f => String(f.reason?.message ?? f.reason)), 'corrida não pode virar exceção').toEqual([]);
+
+    const efetivos = respostas.filter(r => r.status === 'fulfilled').map(r => r.value.vinculados);
+    // EXATAMENTE UMA. Dezenove zeros não são falha silenciosa: são a repetição
+    // não tendo efeito.
+    expect(efetivos.filter(n => n > 0), 'uma só das vinte pode vincular').toHaveLength(1);
+    expect(efetivos.reduce((s, n) => s + n, 0)).toBe(1);
+
+    expect(await linhasDe(atleta.id)).toBe(1);
+    const [item] = await itens(importId);
+    expect(item.athleteId).toBe(atleta.id);
+    expect(item.matchedBy).toBe('AFFILIATION_NUMBER');
   }, 180_000);
 });
 
@@ -766,8 +843,8 @@ describe('a prioridade em vigor: o que o CPF vence e o que ele não vence', () =
       nome: 'TROCOU DE FEDERACAO', cpf, matricula: 'IFBB-1234', affiliationId: npc.id
     });
 
-    expect((await vincularComo(atleta)).vinculados,
-      'o CPF identifica a pessoa, e ela é a mesma').toBe(1);
+    await vincularComo(atleta);
+    expect(await linhasDe(atleta.id), 'o CPF identifica a pessoa, e ela é a mesma').toBe(1);
 
     const [item] = await itens(importId);
     expect(item.matchedBy).toBe('CPF');
@@ -789,7 +866,8 @@ describe('a prioridade em vigor: o que o CPF vence e o que ele não vence', () =
       matricula: 'NPC-5678', affiliationId: outraFiliacao.id
     });
 
-    expect((await vincularComo(atleta)).vinculados).toBe(0);
+    await vincularComo(atleta);
+    expect(await linhasDe(atleta.id)).toBe(0);
 
     const [item] = await itens(importId);
     expect(item.athleteId).toBeNull();
@@ -806,6 +884,17 @@ describe('a prioridade em vigor: o que o CPF vence e o que ele não vence', () =
     const atleta = await cadastrarPorOperador({
       nome: 'DUAS CHAVES', cpf, matricula: 'NPC-20202'
     });
+    // O cadastro já vinculou — e é justamente por isso que a linha precisa
+    // voltar a ficar SEM DONO para que a resolução tenha o que resolver.
+    //
+    // O estado reposto aqui não é artificial: é o dado que existe hoje em
+    // produção. Campeonatos aplicados anos antes desta fase deixaram linhas
+    // sem dono no ledger, e há atletas já cadastrados entre elas — é para esse
+    // conjunto que `vincularPendentesDoAtleta` continua existindo como
+    // operação própria, e é sobre ele que a deduplicação abaixo vale.
+    await comoAtor(gerente, tx => tx.muscleWarImportItem.updateMany({
+      where: { importId }, data: { athleteId: null }
+    }));
 
     const resolucao = await comoAtor(gerente, () => resolverIdentidadeDoAtleta(atleta));
     // UM candidato, não dois: a linha é a mesma, alcançada por dois caminhos.
@@ -814,7 +903,8 @@ describe('a prioridade em vigor: o que o CPF vence e o que ele não vence', () =
     expect(resolucao.candidatos).toHaveLength(1);
     expect(resolucao.candidatos[0].chave).toBe('CPF');
 
-    expect((await vincularComo(atleta)).vinculados).toBe(1);
+    await vincularComo(atleta);
+    expect(await linhasDe(atleta.id)).toBe(1);
     const [item] = await itens(importId);
     expect(item.athleteId).toBe(atleta.id);
   });
@@ -873,37 +963,77 @@ describe('por onde o vínculo automático é disparado', () => {
     expect(item.matchedBy).toBe('CPF');
   });
 
-  it('o cadastro feito pelo OPERADOR não dispara — e isso é lacuna conhecida', async () => {
+  it('o cadastro feito pelo OPERADOR também dispara — a lacuna foi fechada', async () => {
     const cpf = gerarCpf(363636363);
     const importId = await historicoAplicado([
       linha({ n: 1, primeiro: 'CADASTRO', ultimo: 'PELO OPERADOR', matricula: 'NPC-70001', cpf })
     ]);
 
-    // `POST /athletes` cria o atleta e NÃO procura o histórico dele. Quem entra
-    // por aqui — o atleta antigo que a federação cadastra em lote, o que
-    // perdeu o acesso, o que nunca usou o aplicativo — fica com o resultado no
-    // ranking sem dono até alguém agir.
+    // ESTE TESTE MEDIA A LACUNA. AGORA MEDE O FECHAMENTO DELA.
     //
-    // ISTO ESTÁ MEDIDO E NÃO CORRIGIDO, DE PROPÓSITO. A correção óbvia —
-    // disparar o vínculo na criação — foi implementada, medida, e REVERTIDA:
-    // ela reprovou `historico-antes-do-cadastro > MATRÍCULA COM DOIS DONOS`.
-    // O motivo é a regra que o projeto trata como absoluta: no instante da
-    // criação a matrícula tem um dono só, o vínculo parece inequívoco e
-    // acontece; o segundo dono aparece depois e o histórico já foi creditado.
-    // Vínculo por ordem de chegada, que é o que nunca se pode fazer.
+    // `POST /athletes` criava o atleta e não procurava o histórico dele. Quem
+    // entrava por aqui — o atleta antigo que a federação cadastra em lote, o
+    // que perdeu o acesso, o que nunca usou o aplicativo — ficava com o
+    // resultado no ranking sem dono até alguém agir.
     //
-    // O teste fica aqui fixando o comportamento REAL, para que a lacuna seja
-    // visível e a decisão sobre ela seja de quem revisa — não uma surpresa.
+    // A correção óbvia já tinha sido tentada e REVERTIDA numa fase anterior,
+    // por um motivo que não era detalhe: enquanto a matrícula podia ter dois
+    // donos, vincular no instante da criação era vínculo por ORDEM DE CHEGADA.
+    // O primeiro cadastrado levava o histórico porque naquele momento era dono
+    // único; o segundo aparecia depois e o ponto já estava somando no ranking
+    // de quem talvez não tivesse competido.
+    //
+    // O que destravou não foi o gancho: foi a matrícula passar a identificar
+    // UM atleta por filiação, no serviço e no índice único do banco. Sem
+    // ambiguidade possível no futuro, vincular na criação deixa de escolher e
+    // volta a apenas reconhecer. A guarda de dois donos continua no vínculo,
+    // para o dado legado — medida em tests/matricula-identifica-um.test.mjs.
     const atleta = await criarAtleta(admin, organizationId, {
       fullName: 'CADASTRO PELO OPERADOR', cpf, sex: 'MALE', birthDate: '1995-03-10'
     });
 
-    expect(await linhasDe(atleta.id), 'o cadastro pelo operador não vincula sozinho').toBe(0);
+    // NINGUÉM CHAMOU O VÍNCULO NA MÃO.
+    expect(await linhasDe(atleta.id), 'o cadastro pelo operador encontra o histórico').toBe(1);
 
-    // E o vínculo continua disponível: chamado, ele funciona.
-    await vincularComo(atleta);
     const [item] = await itens(importId);
     expect(item.athleteId).toBe(atleta.id);
     expect(item.matchedBy).toBe('CPF');
+
+    // E O PONTO TROCOU DE DONO SEM MUDAR DE VALOR.
+    const pontos = await noLedger(tx => tx.rankingPoint.findMany({ where: { athleteId: atleta.id } }));
+    expect(pontos).toHaveLength(1);
+    expect(pontos[0].points).toBe(5);
+  });
+
+  it('o vínculo na criação não impede o cadastro quando falha', async () => {
+    // O GANCHO ESTÁ FORA DA TRANSAÇÃO, E ISSO É A REGRA.
+    //
+    // Se a busca por histórico falhar — banco lento, lote corrompido, qualquer
+    // coisa —, o atleta continua criado e correto. Um cadastro válido não pode
+    // ser desfeito por um resultado antigo, e o vínculo é idempotente: basta
+    // chamá-lo de novo.
+    const cpf = gerarCpf(383838383);
+    const original = muscleWar.vincularPendentesDoAtleta;
+    let chamado = false;
+    muscleWar.vincularPendentesDoAtleta = async () => {
+      chamado = true;
+      throw new Error('falha simulada no vínculo');
+    };
+    let atleta;
+    try {
+      atleta = await criarAtleta(admin, organizationId, {
+        fullName: 'CADASTRO SOBREVIVE', cpf, sex: 'MALE', birthDate: '1995-03-10'
+      });
+    } finally {
+      muscleWar.vincularPendentesDoAtleta = original;
+    }
+
+    // Sem esta conferência o teste passaria de graça: se o serviço tivesse
+    // guardado a função em vez de chamá-la pelo módulo, a falha nunca
+    // aconteceria e o cadastro sobreviveria por não ter sido ameaçado.
+    expect(chamado, 'a falha precisa ter sido realmente disparada').toBe(true);
+    expect(atleta.id).toBeTruthy();
+    const existe = await noLedger(tx => tx.athlete.count({ where: { id: atleta.id } }));
+    expect(existe, 'o cadastro não pode ser desfeito pela falha do vínculo').toBe(1);
   });
 });
