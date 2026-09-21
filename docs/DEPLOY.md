@@ -195,7 +195,38 @@ npx prisma migrate deploy
 npx prisma migrate status   # precisa dizer que nada ficou pendente
 ```
 
-Duas migrations: o baseline do domínio e as políticas de RLS.
+As migrations são *forward-only*: o baseline do domínio, as políticas de RLS e
+a evolução do domínio esportivo desde então.
+
+#### Preflight obrigatório em base que já tem dado
+
+A migration `20260921120000_matricula_identifica_um_atleta` cria um índice
+único e **aborta inteira** se a base já contiver dois cadastros com a mesma
+matrícula na mesma filiação. Abortar é o comportamento correto — mas descobrir
+isso no meio da janela de deploy não é. Em base que já tem atleta cadastrado,
+rode o diagnóstico **antes**:
+
+```bash
+psql "<conexao>" -v ON_ERROR_STOP=1 -f scripts/preflight-matricula.sql
+```
+
+O arquivo é somente leitura: não tem `INSERT`, `UPDATE`, `DELETE` nem DDL.
+
+**Rode como `mci_backup` ou como o administrador do banco — nunca como o papel
+da aplicação.** `Athlete` está sob `FORCE ROW LEVEL SECURITY`: lido pelo papel
+da aplicação sem contexto de usuário, o diagnóstico devolveria zero linhas, e
+"0 duplicidades" seria uma resposta falsa indistinguível da verdadeira. Por
+isso a PARTE 0 do arquivo emite um veredito explícito sobre a própria leitura.
+Se ele disser `LEITURA NAO CONFIAVEL` ou `LEITURA PARCIAL`, **pare**: o resto
+da saída não significa nada.
+
+Com a leitura confiável, `pares_duplicados = 0` pré-valida a migration para
+essa condição. Qualquer número maior é decisão humana — a PARTE 2 lista quem
+está envolvido, com o histórico de cada cadastro (pontos válidos, resultados
+importados e oficiais, títulos Overall, inscrições, vínculos de equipe) para
+que alguém decida qual cadastro é o da pessoa. O diagnóstico não escolhe
+proprietário, não apaga atleta e não altera matrícula. E não mostra CPF: a
+coluna `tem_cpf_cadastrado` diz apenas **se** existe identidade cadastrada.
 
 ### 3.3 Provisionar o papel de aplicação
 
