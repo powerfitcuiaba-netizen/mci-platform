@@ -3,7 +3,7 @@ import { permissoesDe } from './lib/permissoes';
 import {
   Bell, ClipboardCheck, History, Home, IdCard, LayoutDashboard, LogOut, Menu, MessageSquare,
   PencilLine, QrCode, Scale, Search, Settings, ShieldCheck, Trophy, Upload, UserCircle, Users, Users2,
-  Volume2, VolumeX, Zap
+  Volume2, VolumeX, X, Zap
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './AuthContext';
 import api from './services/api';
@@ -89,11 +89,26 @@ function rotaAtiva(itens, rota) {
   return melhor;
 }
 
-function BuscaGlobal({ navegar }) {
+// Exportada com nome para que o comportamento da busca no celular — abrir,
+// focar, fechar por X e por Escape — seja medido sem montar a aplicação
+// inteira. `App` continua sendo o export padrão.
+export function BuscaGlobal({ navegar }) {
   const { t } = useIdioma();
   const [termo, setTermo] = useState('');
   const busca = useDebounce(termo, 400);
   const [aberto, setAberto] = useState(false);
+  // NO CELULAR A BUSCA É UM BOTÃO ATÉ ALGUÉM PEDIR POR ELA.
+  //
+  // A barra superior tem 356px de custo fixo — padding 32, botão de menu 44,
+  // vãos 24 e as ações 256 — numa viewport de 360. Não sobra largura para um
+  // campo de busca, e medido em Chromium real o documento ganhava 33px de
+  // rolagem horizontal em 360x800 e 19px em 390x844.
+  //
+  // Encolher os botões resolveria a aritmética e quebraria o piso de 40px de
+  // alvo de toque que a suíte já protege. Esconder a busca resolveria também,
+  // e tiraria uma função de quem usa telefone. O botão preserva as duas
+  // coisas: ocupa 44px fechado, e aberto toma a barra inteira.
+  const [expandida, setExpandida] = useState(false);
   const campo = useRef(null);
 
   // Ctrl+K / Cmd+K leva o foco para a busca, e Esc devolve. Operação de piso
@@ -108,6 +123,7 @@ function BuscaGlobal({ navegar }) {
       } else if (evento.key === 'Escape' && document.activeElement === campo.current) {
         campo.current.blur();
         setAberto(false);
+        setExpandida(false);
       }
     };
     window.addEventListener('keydown', aoTeclar);
@@ -122,8 +138,27 @@ function BuscaGlobal({ navegar }) {
   const resultados = estado.data?.results || {};
   const temResultado = Object.values(resultados).some(lista => lista?.length);
 
+  const fechar = () => { setExpandida(false); setAberto(false); setTermo(''); };
+
   return (
-    <div style={{ position: 'relative', flex: '1 1 260px', maxWidth: 420 }}>
+    <>
+      {/* Só existe no celular. Fora dele o campo já está à vista e um botão
+          para abrir o que está aberto seria ruído para o leitor de tela. */}
+      <button
+        type="button"
+        className="icon-button busca-abrir"
+        aria-label={t('busca.abrir')}
+        aria-expanded={expandida}
+        onClick={() => { setExpandida(true); setTimeout(() => campo.current?.focus(), 0); }}
+      >
+        <Search size={16} />
+      </button>
+
+      {/* O ESTILO SAIU DO `style` INLINE E FOI PARA O CSS.
+          Este `div` é o item flex da barra — e enquanto ele carregou
+          `flex: '1 1 260px'` inline, nenhuma regra de faixa de tela alcançava
+          o item que precisava encolher: estilo inline vence folha de estilo. */}
+      <div className={`busca-global${expandida ? ' is-expandida' : ''}`}>
       <label className="search-box">
         <Search size={15} />
         <input
@@ -137,6 +172,12 @@ function BuscaGlobal({ navegar }) {
         />
         <kbd className="atalho" aria-hidden="true">Ctrl K</kbd>
       </label>
+
+      {/* Fechar só aparece quando a busca foi aberta no celular: no desktop o
+          campo é permanente e não há o que fechar. */}
+      <button type="button" className="icon-button busca-fechar" aria-label={t('busca.fechar')} onClick={fechar}>
+        <X size={16} />
+      </button>
 
       {aberto && busca.trim().length >= 2 && (
         <div className="panel" style={{ position: 'absolute', top: 46, left: 0, right: 0, zIndex: 8, maxHeight: 380, overflowY: 'auto' }}>
@@ -168,7 +209,8 @@ function BuscaGlobal({ navegar }) {
           ))}
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }
 

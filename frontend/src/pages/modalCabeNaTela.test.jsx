@@ -51,25 +51,53 @@ const dentroDaMedia = condicao => {
 };
 
 describe('o diálogo cabe na viewport', () => {
-  it('o modal tem teto de altura e de largura em unidades de viewport', () => {
+  // O CONTRATO MUDOU, E FICOU MAIS FORTE.
+  //
+  // Até aqui o teto era `min(80vh, 80dvh)`: um número escolhido à mão, três
+  // vezes (92, depois 88, depois 80), sempre pelo mesmo motivo — o rodapé
+  // saindo da tela. Escolher 80 não garantia nada; garantia que naquele
+  // conteúdo, naquele idioma e naquele zoom o rodapé tinha cabido.
+  //
+  // Agora quem define o espaço é a CAMADA, e o diálogo ocupa o que ela deixa:
+  // `max-height: 100%` resolve contra a área de grade, que já é a viewport
+  // menos o padding da camada. Muda o padding numa faixa de tela e a conta
+  // acompanha sozinha. Não há mais número a escolher.
+  it('o diálogo ocupa o espaço que a camada deixa, sem número escolhido à mão', () => {
     const modal = regra('.modal');
-    // 80vh: o teto homologado para a revisão. Veio de 92 para 88 e de 88 para
-    // 80 pelo mesmo motivo a cada vez — a moldura que distingue o diálogo da
-    // página, e o rodapé que tem de caber sem rolagem.
+    // DOIS tetos, e o menor vence: `100%` é a área de grade da camada — a
+    // conta certa; `100dvh` é o cinto para o dia em que a camada voltar a
+    // ficar presa a um ancestral com `transform`, quando o `%` passa a mentir.
+    expect(modal, 'sem max-height o diálogo cresce com o conteúdo').toMatch(/max-height:\s*min\(100%,\s*calc\(100dvh/);
+    expect(modal, 'o teto em unidade de viewport é o que sobrevive a um ancestral transformado').toMatch(/dvh/);
+    expect(modal, 'sem max-width o diálogo passa da largura da tela').toMatch(/max-width:\s*96vw/);
     // `dvh` acompanha a barra de endereço do celular que aparece e some; `vh`
     // sozinho mede a tela com a barra recolhida e joga o rodapé para baixo dela.
-    expect(modal, 'sem max-height o diálogo cresce com o conteúdo').toMatch(/max-height:\s*min\(80vh,\s*80dvh\)/);
-    expect(modal, 'sem max-width o diálogo passa da largura da tela').toMatch(/max-width:\s*96vw/);
+    expect(regra('.modal-layer'), 'a camada precisa medir a viewport dinâmica').toMatch(/max-height:\s*100dvh/);
   });
 
-  it('o modal rola só na vertical — quem rola na horizontal é a tabela', () => {
-    // `overflow: hidden auto` é o que impede uma tabela larga de empurrar o
-    // diálogo para fora da viewport lateralmente.
-    expect(regra('.modal')).toMatch(/overflow:\s*hidden auto/);
+  it('o diálogo NÃO é o contêiner de rolagem — quem rola é o corpo', () => {
+    // Enquanto o diálogo inteiro rolava, a altura do miolo era o que sobrava
+    // de um cabeçalho e um rodapé medidos à mão. Separando as faixas, o miolo
+    // passa a ser calculado pelo navegador, não anotado por alguém.
+    expect(regra('.modal'), 'o diálogo não pode rolar').toMatch(/overflow:\s*hidden/);
+    expect(regra('.modal'), 'as três faixas exigem coluna flex').toMatch(/flex-direction:\s*column/);
+    // `hidden auto`: vertical rola, horizontal não — é o que impede uma tabela
+    // larga de empurrar o diálogo para fora da viewport lateralmente.
+    expect(regra('.modal-body'), 'o corpo é quem rola').toMatch(/overflow:\s*hidden auto/);
+    // Sem `min-height: 0` o flex não deixa o item encolher abaixo do conteúdo,
+    // e o miolo volta a empurrar o rodapé para fora. É a linha que sustenta
+    // tudo o que este arquivo protege.
+    expect(regra('.modal-body'), 'sem min-height:0 o rodapé sai da tela').toMatch(/min-height:\s*0/);
   });
 
-  it('cabeçalho e rodapé ficam grudados, e não rolam com o conteúdo', () => {
-    expect(regra('.modal-head'), 'cabeçalho precisa ser sticky').toMatch(/position:\s*sticky/);
+  it('cabeçalho e rodapé não rolam com o conteúdo', () => {
+    // O cabeçalho deixou de ser `sticky`: virou faixa própria do flex, que é
+    // mais forte — `sticky` só não rola enquanto a âncora segura; `flex: 0 0
+    // auto` está fora da área de rolagem e não rola nunca.
+    expect(regra('.modal-head'), 'cabeçalho precisa ser faixa fixa do flex').toMatch(/flex:\s*0 0 auto/);
+    // O rodapé continua `sticky`, agora ancorado ao corpo: ele nasce dentro do
+    // `<form>` de cada tela, aninhado, e não há como içá-lo para fora sem
+    // mudar as 73 chamadas do diálogo.
     expect(regra('.modal-actions'), 'rodapé precisa ser sticky').toMatch(/position:\s*sticky/);
     // Fundo opaco: sem ele o conteúdo passa por baixo e fica ilegível.
     expect(regra('.modal-head')).toMatch(/background:\s*var\(--superficie-3\)/);
@@ -78,14 +106,36 @@ describe('o diálogo cabe na viewport', () => {
 
   it('a tabela do diálogo tem altura proporcional à tela, nunca um número fixo', () => {
     const tabela = regra('.tabela-em-modal');
-    expect(tabela).toMatch(/max-height:\s*clamp\([^)]*vh[^)]*\)/);
+    expect(tabela).toMatch(/max-height:\s*min\([^)]*dvh[^)]*\)/);
     expect(tabela).toMatch(/overflow:\s*auto/);
+  });
+
+  // A REGRESSÃO QUE ESTA CORREÇÃO EXISTE PARA IMPEDIR QUE VOLTE.
+  it('nenhuma faixa de tela reintroduz um custo do resto medido à mão', () => {
+    // Eram cinco: 450, 566, 292, 345 e 620 pixels, um por viewport, cada um
+    // válido só para o conteúdo e o idioma em que foi medido. Em inglês e
+    // espanhol os rótulos são mais longos, o cabeçalho cresce, e a conta
+    // passava a cortar exatamente o que deveria proteger.
+    const declaracoes = css.match(/--custo-do-resto\s*:/g) || [];
+    expect(declaracoes, 'o número medido à mão voltou ao CSS').toHaveLength(0);
   });
 
   it('nenhuma tabela de diálogo voltou a usar altura fixa em pixels', () => {
     const pagina = ler('pages/adminPlatform.jsx');
     // Era exatamente esta a forma do defeito: `style={{ maxHeight: 340 }}`.
     expect(pagina, 'altura fixa inline voltou ao diálogo').not.toMatch(/maxHeight:\s*\d+/);
+  });
+
+  // O QUE O PORTAL GARANTE, E POR QUE ELE É OBRIGATÓRIO.
+  it('o diálogo é montado no body, fora da árvore da página', () => {
+    const fonte = ler('components/ui.jsx');
+    // `position: fixed` só mede a viewport enquanto NENHUM ancestral tiver
+    // `transform`, `filter`, `perspective`, `contain` ou `will-change`. Medido
+    // na aplicação real: `.page` carrega `transform: matrix(1,0,0,1,0,0)` —
+    // identidade, sem efeito visual — e isso bastava para a camada medir
+    // 390x442 em vez de 390x844.
+    expect(fonte, 'sem portal a camada volta a ficar presa a um ancestral transformado').toMatch(/createPortal\(/);
+    expect(fonte, 'o destino precisa ser o body').toMatch(/document\.body/);
   });
 
   it('a camada do diálogo prende a rolagem', () => {

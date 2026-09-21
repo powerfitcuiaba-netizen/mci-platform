@@ -40,7 +40,15 @@ beforeEach(() => {
 afterEach(cleanup);
 
 async function preencher(usuario, { prefixo, filiacao } = {}) {
-  const { container } = render(<NovaImportacao notificar={vi.fn()} onClose={vi.fn()} onCriada={vi.fn()} />);
+  // O DIÁLOGO NÃO ESTÁ NO CONTAINER: ele é montado em `document.body`.
+  //
+  // `Modal` usa `createPortal` porque `position: fixed` só mede a viewport
+  // enquanto nenhum ancestral tiver `transform` — e `.page` tem. Fora do
+  // portal, o diálogo ficava preso à caixa do `.page`, descentrado e com a
+  // altura travada. O efeito colateral aqui é que `container` fica vazio, e
+  // uma busca por ele devolveria null em silêncio.
+  render(<NovaImportacao notificar={vi.fn()} onClose={vi.fn()} onCriada={vi.fn()} />);
+  const container = document.body;
 
   await usuario.selectOptions(await screen.findByRole('combobox', { name: /organização/i }), 'org1');
 
@@ -144,7 +152,15 @@ describe('B1–B4 — seleção do evento', () => {
 
   it('o eventId escolhido viaja no corpo da criação do lote', async () => {
     const usuario = userEvent.setup();
-    const { container } = render(<NovaImportacao notificar={vi.fn()} onClose={vi.fn()} onCriada={vi.fn()} />);
+    // O DIÁLOGO NÃO ESTÁ NO CONTAINER: ele é montado em `document.body`.
+  //
+  // `Modal` usa `createPortal` porque `position: fixed` só mede a viewport
+  // enquanto nenhum ancestral tiver `transform` — e `.page` tem. Fora do
+  // portal, o diálogo ficava preso à caixa do `.page`, descentrado e com a
+  // altura travada. O efeito colateral aqui é que `container` fica vazio, e
+  // uma busca por ele devolveria null em silêncio.
+  render(<NovaImportacao notificar={vi.fn()} onClose={vi.fn()} onCriada={vi.fn()} />);
+  const container = document.body;
     await usuario.selectOptions(await screen.findByRole('combobox', { name: /organização/i }), 'org1');
     await usuario.selectOptions(await screen.findByRole('combobox', { name: /evento/i }), 'ev1');
 
@@ -159,7 +175,15 @@ describe('B1–B4 — seleção do evento', () => {
 
   it('sem evento escolhido o campo NÃO viaja — ausência não é string vazia', async () => {
     const usuario = userEvent.setup();
-    const { container } = render(<NovaImportacao notificar={vi.fn()} onClose={vi.fn()} onCriada={vi.fn()} />);
+    // O DIÁLOGO NÃO ESTÁ NO CONTAINER: ele é montado em `document.body`.
+  //
+  // `Modal` usa `createPortal` porque `position: fixed` só mede a viewport
+  // enquanto nenhum ancestral tiver `transform` — e `.page` tem. Fora do
+  // portal, o diálogo ficava preso à caixa do `.page`, descentrado e com a
+  // altura travada. O efeito colateral aqui é que `container` fica vazio, e
+  // uma busca por ele devolveria null em silêncio.
+  render(<NovaImportacao notificar={vi.fn()} onClose={vi.fn()} onCriada={vi.fn()} />);
+  const container = document.body;
     await usuario.selectOptions(await screen.findByRole('combobox', { name: /organização/i }), 'org1');
 
     await usuario.upload(container.querySelector('input[type="file"]'),
@@ -176,7 +200,15 @@ describe('B1–B4 — seleção do evento', () => {
       { id: 'org1', name: 'MCI Brasil' }, { id: 'org2', name: 'Federacao Sul' }
     ] });
     const usuario = userEvent.setup();
-    const { container } = render(<NovaImportacao notificar={vi.fn()} onClose={vi.fn()} onCriada={vi.fn()} />);
+    // O DIÁLOGO NÃO ESTÁ NO CONTAINER: ele é montado em `document.body`.
+  //
+  // `Modal` usa `createPortal` porque `position: fixed` só mede a viewport
+  // enquanto nenhum ancestral tiver `transform` — e `.page` tem. Fora do
+  // portal, o diálogo ficava preso à caixa do `.page`, descentrado e com a
+  // altura travada. O efeito colateral aqui é que `container` fica vazio, e
+  // uma busca por ele devolveria null em silêncio.
+  render(<NovaImportacao notificar={vi.fn()} onClose={vi.fn()} onCriada={vi.fn()} />);
+  const container = document.body;
     await usuario.selectOptions(await screen.findByRole('combobox', { name: /organização/i }), 'org1');
     await usuario.selectOptions(await screen.findByRole('combobox', { name: /evento/i }), 'ev1');
 

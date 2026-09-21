@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertTriangle, Check, Info, Loader2, RefreshCw, X } from 'lucide-react';
 import { iniciais } from '../lib/format';
 import { fetchMediaObjectUrl, releaseMediaObjectUrl } from '../services/api';
@@ -250,7 +251,7 @@ const FOCALIZAVEIS = [
   'select:not([disabled])', 'textarea:not([disabled])', '[tabindex]:not([tabindex="-1"])'
 ].join(',');
 
-export function Modal({ title, description, wide = false, onClose, children }) {
+export function Modal({ title, description, wide = false, variante = '', onClose, children }) {
   const { t } = useIdioma();
   const caixa = useRef(null);
 
@@ -309,13 +310,31 @@ export function Modal({ title, description, wide = false, onClose, children }) {
     };
   }, [onClose]);
 
-  return (
+  // O DIÁLOGO SAI DA ÁRVORE DA PÁGINA E VAI PARA O `body`.
+  //
+  // `position: fixed` promete medir a VIEWPORT — e a promessa é quebrada por
+  // qualquer ancestral com `transform`, `filter`, `perspective`, `contain` ou
+  // `will-change`: o elemento vira bloco de contenção, e o "fixo" passa a
+  // medir a caixa DELE.
+  //
+  // Medido na aplicação real, em 390x844: `.page` carrega
+  // `transform: matrix(1,0,0,1,0,0)` — identidade, sem efeito visual nenhum, e
+  // mesmo assim suficiente. A camada, declarada `fixed`, media 390x442 a
+  // partir de y=60 em vez da viewport inteira. O diálogo ficava descentrado em
+  // todo o desktop e parava de crescer em 418px de altura com o conteúdo
+  // pedindo 909px — rolava no corpo com 400px de tela sobrando embaixo.
+  //
+  // Usar `vh`/`dvh` esconderia a altura, e foi o que a versão anterior fazia
+  // sem saber. Não corrige a centralização, e volta a quebrar no dia em que
+  // outro ancestral ganhar uma animação. O portal corrige a causa: no `body`
+  // não há ancestral nenhum entre a camada e a viewport.
+  return createPortal((
     <div className="modal-layer" role="dialog" aria-modal="true" aria-label={title}>
       {/* O fundo fecha ao clique, mas fica FORA da ordem de tabulação: ele
           duplicaria o botão de fechar do cabeçalho e seria o primeiro alvo do
           Tab — pressionar Enter logo ao abrir descartaria o diálogo. */}
       <button type="button" className="modal-scrim" tabIndex={-1} aria-hidden="true" onClick={onClose} />
-      <div className={`modal${wide ? ' modal-wide' : ''}`} ref={caixa} tabIndex={-1}>
+      <div className={`modal${wide ? ' modal-wide' : ''}${variante ? ` ${variante}` : ''}`} ref={caixa} tabIndex={-1}>
         <div className="modal-head">
           <div>
             <h2>{title}</h2>
@@ -323,10 +342,17 @@ export function Modal({ title, description, wide = false, onClose, children }) {
           </div>
           <button type="button" className="icon-button" onClick={onClose} aria-label={t('acao.fechar')}><X size={16} /></button>
         </div>
-        {children}
+        {/* O CORPO É QUEM ROLA, E O DIÁLOGO NÃO.
+            Antes o diálogo inteiro era o container de rolagem e o cabeçalho e o
+            rodapé se seguravam com `position: sticky` mais margem negativa para
+            cancelar o padding. Funcionava enquanto a altura do miolo fosse a
+            prevista — e ela nunca é: muda com o idioma, com o zoom e com o
+            conteúdo. Com o corpo isolado, a altura do miolo deixa de ser um
+            número a adivinhar e passa a ser o que sobra. */}
+        <div className="modal-body">{children}</div>
       </div>
     </div>
-  );
+  ), document.body);
 }
 
 // O RÓTULO PADRÃO NÃO PODE SER LITERAL NO PARÂMETRO: valor padrão é avaliado
