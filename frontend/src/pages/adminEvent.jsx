@@ -4,6 +4,7 @@ import api, { refreshData } from '../services/api';
 import { useFetch, useListaPaginada } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, CodigoQr, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead, Paginacao } from '../components/ui';
 import { anunciar, MCIEvento } from '../lib/experiencia';
+import { useIdioma } from '../lib/idioma';
 
 // O tamanho da PÁGINA, não o teto da lista. Enquanto era teto, a operação
 // enxergava 100 de 280 inscritos; agora é de quanto em quanto a tela pede.
@@ -29,6 +30,7 @@ import {
 // evento sumiu do sistema quando o que caiu foi a rede, e vai procurar o
 // problema no lugar errado enquanto a fila cresce.
 export function SeletorDeEvento({ eventId, onChange, filtroStatus }) {
+  const { t } = useIdioma();
   const estado = useFetch(() => api.events.list({ limit: 50 }), []);
   // `Array.isArray` e não `|| []`: um `items` que veio como texto passa pelo
   // `||` e quebra no `.filter`. A normalização no cliente da API já defende o
@@ -51,11 +53,11 @@ export function SeletorDeEvento({ eventId, onChange, filtroStatus }) {
         className="select-control"
         value={eventId || ''}
         onChange={evento => onChange(evento.target.value)}
-        aria-label="Selecionar evento"
+        aria-label={t('evento.selecionarEvento')}
         // Escolher numa lista que não carregou não significaria nada.
         disabled={falhou}
       >
-        <option value="">{falhou ? 'Lista indisponível' : 'Selecione o evento…'}</option>
+        <option value="">{falhou ? t('evento.listaIndisponivel') : t('evento.selecioneOEvento')}</option>
         {lista.map(evento => (
           <option key={evento.id} value={evento.id}>
             {evento.name} — {(ESTADO_EVENTO[evento.status] || {}).rotulo || evento.status}
@@ -65,9 +67,9 @@ export function SeletorDeEvento({ eventId, onChange, filtroStatus }) {
 
       {falhou && (
         <span className="alert alert-erro" role="alert" style={{ padding: '6px 10px', margin: 0, fontSize: 12 }}>
-          <span style={{ flex: 1 }}>Não foi possível carregar os eventos. {estado.error}</span>
+          <span style={{ flex: 1 }}>{t('evento.falhaAoCarregarEventos')} {estado.error}</span>
           <button type="button" className="button button-secondary button-sm" onClick={estado.reload}>
-            Tentar de novo
+            {t('ui.tentarDeNovo')}
           </button>
         </span>
       )}
@@ -76,6 +78,7 @@ export function SeletorDeEvento({ eventId, onChange, filtroStatus }) {
 }
 
 export function AdminEventos({ notificar, navegar }) {
+  const { t } = useIdioma();
   const [criando, setCriando] = useState(false);
   const [status, setStatus] = useState('');
   const estado = useFetch(() => api.events.list({ limit: 50, status: status || undefined }), [status]);
@@ -83,15 +86,15 @@ export function AdminEventos({ notificar, navegar }) {
   return (
     <div className="page">
       <PageHead
-        eyebrow="Administração"
-        title="Eventos"
-        description="Etapas, quadro de categorias e estados da competição."
-        actions={<button type="button" className="button button-primary" onClick={() => setCriando(true)}><Plus size={15} /> Novo evento</button>}
+        eyebrow={t('evento.administracao')}
+        title={t('evento.eventos')}
+        description={t('evento.eventosDescricao')}
+        actions={<button type="button" className="button button-primary" onClick={() => setCriando(true)}><Plus size={15} />{t('evento.novoEvento')}</button>}
       />
 
       <div className="toolbar">
-        <select className="select-control" value={status} onChange={evento => setStatus(evento.target.value)} aria-label="Filtrar por estado">
-          <option value="">Todos os estados</option>
+        <select className="select-control" value={status} onChange={evento => setStatus(evento.target.value)} aria-label={t('evento.filtrarPorEstado')}>
+          <option value="">{t('evento.todosOsEstados')}</option>
           {Object.entries(ESTADO_EVENTO).map(([chave, valor]) => <option key={chave} value={chave}>{valor.rotulo}</option>)}
         </select>
       </div>
@@ -102,7 +105,7 @@ export function AdminEventos({ notificar, navegar }) {
             <div className="table-wrap">
               <table className="table">
                 <thead>
-                  <tr><th>Evento</th><th>Estado</th><th>Data</th><th>Local</th><th className="num">Inscritos</th><th /></tr>
+                  <tr><th>{t('evento.colunaEvento')}</th><th>{t('evento.colunaEstado')}</th><th>{t('evento.colunaData')}</th><th>{t('evento.local')}</th><th className="num">{t('evento.inscritos')}</th><th /></tr>
                 </thead>
                 <tbody>
                   {dados.items.map(evento => {
@@ -115,7 +118,7 @@ export function AdminEventos({ notificar, navegar }) {
                         <td>{evento.city || '—'}{evento.state ? `/${evento.state}` : ''}</td>
                         <td className="num">{evento._count.registrations}</td>
                         <td style={{ textAlign: 'right' }}>
-                          <button type="button" className="button button-secondary button-sm" onClick={() => navegar(`admin/eventos/${evento.id}`)}>Abrir</button>
+                          <button type="button" className="button button-secondary button-sm" onClick={() => navegar(`admin/eventos/${evento.id}`)}>{t('evento.abrir')}</button>
                         </td>
                       </tr>
                     );
@@ -124,7 +127,7 @@ export function AdminEventos({ notificar, navegar }) {
               </table>
             </div>
           )
-          : <EmptyState title="Nenhum evento" description="Crie a primeira etapa para começar." action={<button type="button" className="button button-primary" onClick={() => setCriando(true)}>Novo evento</button>} />
+          : <EmptyState title={t('evento.nenhumEvento')} description={t('evento.nenhumEventoDescricao')} action={<button type="button" className="button button-primary" onClick={() => setCriando(true)}>{t('evento.novoEvento')}</button>} />
         )}
       </AsyncSection>
 
@@ -134,6 +137,7 @@ export function AdminEventos({ notificar, navegar }) {
 }
 
 function NovoEvento({ notificar, onClose, onCriado }) {
+  const { t } = useIdioma();
   const organizacoes = useFetch(() => api.organizations.list(), []);
   const temporadas = useFetch(() => api.ranking.seasons(), []);
   const [form, setForm] = useState({ organizationId: '', name: '', slug: '', description: '', startDate: '', endDate: '', venue: '', city: '', state: '', seasonId: '' });
@@ -164,7 +168,7 @@ function NovoEvento({ notificar, onClose, onCriado }) {
         state: form.state || null,
         seasonId: form.seasonId || null
       });
-      notificar('Evento criado como rascunho.');
+      notificar(t('evento.criadoRascunho'));
       refreshData();
       onCriado();
     } catch (erro) {
@@ -174,39 +178,39 @@ function NovoEvento({ notificar, onClose, onCriado }) {
   };
 
   return (
-    <Modal title="Novo evento" description="O evento nasce em rascunho e só aceita inscrição depois de aberto." onClose={onClose}>
+    <Modal title={t('evento.novoEvento')} description={t('evento.novoEventoDescricao')} onClose={onClose}>
       <form onSubmit={salvar}>
-        <Field label="Organização" required>
+        <Field label={t('evento.organizacao')} required>
           <select value={form.organizationId} onChange={evento => setForm({ ...form, organizationId: evento.target.value })} required>
-            <option value="">Selecione…</option>
+            <option value="">{t('evento.selecione')}</option>
             {(organizacoes.data?.items || []).map(organizacao => <option key={organizacao.id} value={organizacao.id}>{organizacao.name}</option>)}
           </select>
         </Field>
-        <Field label="Nome" required>
-          <input value={form.name} onChange={evento => definirNome(evento.target.value)} required minLength={3} maxLength={160} placeholder="Ex: Etapa Cuiabá 2026" />
+        <Field label={t('evento.nome')} required>
+          <input value={form.name} onChange={evento => definirNome(evento.target.value)} required minLength={3} maxLength={160} placeholder={t('evento.exemploNome')} />
         </Field>
-        <Field label="Identificador na URL" required hint="Minúsculas, números e hífen.">
+        <Field label={t('evento.identificadorNaUrl')} required hint={t('evento.identificadorHint')}>
           <input value={form.slug} onChange={evento => setForm({ ...form, slug: evento.target.value.toLowerCase(), slugEditado: true })} required pattern="[a-z0-9\-]{3,80}" />
         </Field>
-        <Field label="Descrição">
+        <Field label={t('evento.descricao')}>
           <textarea value={form.description} onChange={evento => setForm({ ...form, description: evento.target.value })} maxLength={4000} />
         </Field>
         <div className="field-row">
-          <Field label="Início"><input type="date" value={form.startDate} onChange={evento => setForm({ ...form, startDate: evento.target.value })} /></Field>
-          <Field label="Término"><input type="date" value={form.endDate} onChange={evento => setForm({ ...form, endDate: evento.target.value })} /></Field>
+          <Field label={t('evento.inicio')}><input type="date" value={form.startDate} onChange={evento => setForm({ ...form, startDate: evento.target.value })} /></Field>
+          <Field label={t('evento.termino')}><input type="date" value={form.endDate} onChange={evento => setForm({ ...form, endDate: evento.target.value })} /></Field>
         </div>
         <div className="field-row">
-          <Field label="Cidade"><input value={form.city} onChange={evento => setForm({ ...form, city: evento.target.value })} maxLength={90} /></Field>
+          <Field label={t('evento.cidade')}><input value={form.city} onChange={evento => setForm({ ...form, city: evento.target.value })} maxLength={90} /></Field>
           <Field label="UF"><input value={form.state} onChange={evento => setForm({ ...form, state: evento.target.value.toUpperCase().slice(0, 2) })} maxLength={2} /></Field>
         </div>
-        <Field label="Local"><input value={form.venue} onChange={evento => setForm({ ...form, venue: evento.target.value })} maxLength={160} /></Field>
-        <Field label="Temporada" hint="Vincular a uma temporada é o que faz o resultado pontuar no ranking.">
+        <Field label={t('evento.local')}><input value={form.venue} onChange={evento => setForm({ ...form, venue: evento.target.value })} maxLength={160} /></Field>
+        <Field label={t('evento.temporada')} hint={t('evento.temporadaHint')}>
           <select value={form.seasonId} onChange={evento => setForm({ ...form, seasonId: evento.target.value })}>
-            <option value="">Sem temporada</option>
+            <option value="">{t('evento.semTemporada')}</option>
             {(temporadas.data?.items || []).map(temporada => <option key={temporada.id} value={temporada.id}>{temporada.name} ({temporada.year})</option>)}
           </select>
         </Field>
-        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Criar evento" />
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('evento.criarEvento')} />
       </form>
     </Modal>
   );
@@ -234,6 +238,7 @@ function NovoEvento({ notificar, onClose, onCriado }) {
 // Exportado para o teste montar o editor isolado, sem precisar navegar a tela
 // inteira do evento só para chegar ao formulário.
 export function EditarEvento({ evento, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const temporadas = useFetch(() => api.ranking.seasons(), []);
   // `<input type="date">` fala YYYY-MM-DD; o que vem da API é ISO completo.
   const soData = valor => (valor ? String(valor).slice(0, 10) : '');
@@ -264,7 +269,7 @@ export function EditarEvento({ evento, notificar, onClose, onSalvo }) {
         state: form.state || null,
         seasonId: form.seasonId || null
       });
-      notificar('Evento atualizado.');
+      notificar(t('evento.atualizado'));
       refreshData();
       onSalvo();
     } catch (erro) {
@@ -275,39 +280,40 @@ export function EditarEvento({ evento, notificar, onClose, onSalvo }) {
 
   return (
     <Modal
-      title="Editar evento"
-      description="Endereço na URL, federação e estado do evento não mudam por aqui."
+      title={t('evento.editarEvento')}
+      description={t('evento.editarDescricao')}
       onClose={onClose}
     >
       <form onSubmit={salvar}>
-        <Field label="Nome" required>
+        <Field label={t('evento.nome')} required>
           <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required minLength={3} maxLength={160} />
         </Field>
-        <Field label="Descrição">
+        <Field label={t('evento.descricao')}>
           <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} maxLength={4000} />
         </Field>
         <div className="field-row">
-          <Field label="Início"><input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} /></Field>
-          <Field label="Término"><input type="date" value={form.endDate} min={form.startDate || undefined} onChange={e => setForm({ ...form, endDate: e.target.value })} /></Field>
+          <Field label={t('evento.inicio')}><input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} /></Field>
+          <Field label={t('evento.termino')}><input type="date" value={form.endDate} min={form.startDate || undefined} onChange={e => setForm({ ...form, endDate: e.target.value })} /></Field>
         </div>
         <div className="field-row">
-          <Field label="Cidade"><input value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} maxLength={90} /></Field>
+          <Field label={t('evento.cidade')}><input value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} maxLength={90} /></Field>
           <Field label="UF"><input value={form.state} onChange={e => setForm({ ...form, state: e.target.value.toUpperCase().slice(0, 2) })} maxLength={2} /></Field>
         </div>
-        <Field label="Local"><input value={form.venue} onChange={e => setForm({ ...form, venue: e.target.value })} maxLength={160} /></Field>
-        <Field label="Temporada" hint="Vincular a uma temporada é o que faz o resultado pontuar no ranking.">
+        <Field label={t('evento.local')}><input value={form.venue} onChange={e => setForm({ ...form, venue: e.target.value })} maxLength={160} /></Field>
+        <Field label={t('evento.temporada')} hint={t('evento.temporadaHint')}>
           <select value={form.seasonId} onChange={e => setForm({ ...form, seasonId: e.target.value })}>
-            <option value="">Sem temporada</option>
+            <option value="">{t('evento.semTemporada')}</option>
             {(temporadas.data?.items || []).map(t => <option key={t.id} value={t.id}>{t.name} ({t.year})</option>)}
           </select>
         </Field>
-        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Salvar alterações" />
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('evento.salvarAlteracoes')} />
       </form>
     </Modal>
   );
 }
 
 export function AdminEventoDetalhe({ eventId, notificar, navegar }) {
+  const { t } = useIdioma();
   const estado = useFetch(() => api.events.findOne(eventId), [eventId]);
   const operacao = useFetch(() => api.events.operations(eventId), [eventId]);
   const [modal, setModal] = useState(null);
@@ -345,7 +351,7 @@ export function AdminEventoDetalhe({ eventId, notificar, navegar }) {
                   <span>{evento.city || '—'}{evento.state ? `/${evento.state}` : ''}</span>
                   <span>Fuso {evento.timezone}</span>
                   <span>{evento.organization.name}</span>
-                  <span>{evento.season ? `Temporada ${evento.season.name}` : 'Sem temporada'}</span>
+                  <span>{evento.season ? t('evento.temporadaDe', { nome: evento.season.name }) : t('evento.semTemporada')}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
                   {/* Evento encerrado ou cancelado não se edita: o registro
@@ -354,8 +360,7 @@ export function AdminEventoDetalhe({ eventId, notificar, navegar }) {
                       botão, para a pessoa não descobrir isso por erro. */}
                   {!['CLOSED', 'CANCELLED'].includes(evento.status) && (
                     <button type="button" className="button button-sm button-primary" onClick={() => setEditando(true)}>
-                      <Pencil size={14} /> Editar
-                    </button>
+                      <Pencil size={14} />{t('evento.editar')}</button>
                   )}
                   {proximos.length
                     ? proximos.map(status => (
@@ -368,7 +373,7 @@ export function AdminEventoDetalhe({ eventId, notificar, navegar }) {
                         {(ESTADO_EVENTO[status] || {}).rotulo || status}
                       </button>
                     ))
-                    : <span style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>Estado final: não há transição disponível.</span>}
+                    : <span style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>{t('evento.estadoFinal')}</span>}
                 </div>
               </section>
 
@@ -376,10 +381,10 @@ export function AdminEventoDetalhe({ eventId, notificar, navegar }) {
                 <AsyncSection state={operacao} linhas={1}>
                   {dados => (
                     <>
-                      <Metric label="Inscritos" value={dados.registrations} />
-                      <Metric label="Check-in feito" value={dados.checkedIn} hint={`${dados.pendingCheckIn} pendente(s)`} />
-                      <Metric label="Pesagens" value={dados.weighedIn} />
-                      <Metric label="Credenciais ativas" value={dados.credentials} />
+                      <Metric label={t('evento.inscritos')} value={dados.registrations} />
+                      <Metric label={t('evento.checkInFeito')} value={dados.checkedIn} hint={`${dados.pendingCheckIn} pendente(s)`} />
+                      <Metric label={t('evento.pesagens')} value={dados.weighedIn} />
+                      <Metric label={t('evento.credenciaisAtivas')} value={dados.credentials} />
                     </>
                   )}
                 </AsyncSection>
@@ -387,10 +392,9 @@ export function AdminEventoDetalhe({ eventId, notificar, navegar }) {
 
               <section className="panel" style={{ marginTop: 18 }}>
                 <div className="panel-head">
-                  <h2>Quadro de categorias</h2>
+                  <h2>{t('evento.quadroDeCategorias')}</h2>
                   <button type="button" className="button button-secondary button-sm" onClick={() => setModal({ tipo: 'categoria' })}>
-                    <Plus size={13} /> Categoria
-                  </button>
+                    <Plus size={13} />{t('evento.categoria')}</button>
                 </div>
 
                 {evento.eventCategories.length
@@ -398,7 +402,7 @@ export function AdminEventoDetalhe({ eventId, notificar, navegar }) {
                     <div key={eventCategory.id} style={{ borderBottom: '1px solid var(--linha)', padding: '12px 0' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <strong style={{ fontSize: 13.5 }}>{eventCategory.category.name}</strong>
-                        <Badge tom="info">{eventCategory.category.sex === 'MALE' ? 'Masculina' : 'Feminina'}</Badge>
+                        <Badge tom="info">{eventCategory.category.sex === 'MALE' ? t('evento.masculina') : t('evento.feminina')}</Badge>
                         <button
                           type="button"
                           className="button button-ghost button-sm"
@@ -424,14 +428,14 @@ export function AdminEventoDetalhe({ eventId, notificar, navegar }) {
                           </div>
                           <div className="chips" style={{ marginTop: 6 }}>
                             {divisao.classes.map(classe => <span className="chip" key={classe.id}>{classe.name}</span>)}
-                            {!divisao.classes.length && <span style={{ fontSize: 11.5, color: 'var(--cinza-fraco)' }}>Nenhuma classe.</span>}
+                            {!divisao.classes.length && <span style={{ fontSize: 11.5, color: 'var(--cinza-fraco)' }}>{t('evento.nenhumaClasse')}</span>}
                           </div>
                         </div>
                       ))}
-                      {!eventCategory.divisions.length && <p style={{ fontSize: 12, color: 'var(--cinza-fraco)', marginTop: 8 }}>Sem divisões.</p>}
+                      {!eventCategory.divisions.length && <p style={{ fontSize: 12, color: 'var(--cinza-fraco)', marginTop: 8 }}>{t('evento.semDivisoes')}</p>}
                     </div>
                   ))
-                  : <EmptyState title="Sem categorias" description="Adicione as categorias oficiais que este evento vai disputar." />}
+                  : <EmptyState title={t('evento.semCategorias')} description={t('evento.semCategoriasDescricao')} />}
               </section>
             </>
           );
@@ -457,8 +461,8 @@ export function AdminEventoDetalhe({ eventId, notificar, navegar }) {
       )}
       {transicao && (
         <ConfirmDialog
-          title="Mudar o estado do evento"
-          message={`Mover o evento para "${(ESTADO_EVENTO[transicao] || {}).rotulo || transicao}"? ${transicao === 'RESULTS_PUBLISHED' ? 'Resultados publicados ficam visíveis ao público.' : ''}`}
+          title={t('evento.mudarEstado')}
+          message={`${t('evento.moverPara', { estado: (ESTADO_EVENTO[transicao] || {}).rotulo || transicao })} ${transicao === 'RESULTS_PUBLISHED' ? t('evento.resultadosVisiveis') : ''}`}
           confirmLabel="Confirmar"
           onConfirm={() => aplicarTransicao(transicao)}
           onClose={() => setTransicao(null)}
@@ -469,6 +473,7 @@ export function AdminEventoDetalhe({ eventId, notificar, navegar }) {
 }
 
 function AdicionarCategoria({ eventId, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const catalogo = useFetch(() => api.categories.list(), []);
   const [categoryId, setCategoryId] = useState('');
   const [salvando, setSalvando] = useState(false);
@@ -478,7 +483,7 @@ function AdicionarCategoria({ eventId, notificar, onClose, onSalvo }) {
     setSalvando(true);
     try {
       await api.events.addCategory(eventId, { categoryId });
-      notificar('Categoria adicionada ao evento.');
+      notificar(t('evento.categoriaAdicionada'));
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -487,23 +492,24 @@ function AdicionarCategoria({ eventId, notificar, onClose, onSalvo }) {
   };
 
   return (
-    <Modal title="Adicionar categoria" description="Catálogo oficial do Campeonato Brasileiro Muscle Contest." onClose={onClose}>
+    <Modal title={t('evento.adicionarCategoria')} description={t('evento.catalogoOficial')} onClose={onClose}>
       <form onSubmit={salvar}>
-        <Field label="Categoria" required>
+        <Field label={t('evento.categoria')} required>
           <select value={categoryId} onChange={evento => setCategoryId(evento.target.value)} required>
-            <option value="">Selecione…</option>
+            <option value="">{t('evento.selecione')}</option>
             {(catalogo.data?.items || []).map(categoria => (
               <option key={categoria.id} value={categoria.id}>{categoria.name} ({categoria.sex === 'MALE' ? 'M' : 'F'})</option>
             ))}
           </select>
         </Field>
-        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Adicionar" />
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('evento.adicionar')} />
       </form>
     </Modal>
   );
 }
 
 function AdicionarDivisao({ eventCategoryId, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const [form, setForm] = useState({ name: '', code: '' });
   const [salvando, setSalvando] = useState(false);
 
@@ -512,7 +518,7 @@ function AdicionarDivisao({ eventCategoryId, notificar, onClose, onSalvo }) {
     setSalvando(true);
     try {
       await api.events.addDivision(eventCategoryId, form);
-      notificar('Divisão criada.');
+      notificar(t('evento.divisaoCriada'));
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -521,17 +527,18 @@ function AdicionarDivisao({ eventCategoryId, notificar, onClose, onSalvo }) {
   };
 
   return (
-    <Modal title="Nova divisão" description="Ex.: faixa de altura, faixa de peso ou recorte definido pelo regulamento." onClose={onClose}>
+    <Modal title={t('evento.novaDivisao')} description={t('evento.novaDivisaoDescricao')} onClose={onClose}>
       <form onSubmit={salvar}>
-        <Field label="Nome" required><input value={form.name} onChange={evento => setForm({ ...form, name: evento.target.value })} required maxLength={90} placeholder="Ex: Até 163 cm" /></Field>
-        <Field label="Código" required><input value={form.code} onChange={evento => setForm({ ...form, code: evento.target.value.toUpperCase() })} required pattern="[A-Z0-9_\-]{1,40}" placeholder="ATE163" /></Field>
-        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Criar divisão" />
+        <Field label={t('evento.nome')} required><input value={form.name} onChange={evento => setForm({ ...form, name: evento.target.value })} required maxLength={90} placeholder={t('evento.exemploDivisao')} /></Field>
+        <Field label={t('evento.codigo')} required><input value={form.code} onChange={evento => setForm({ ...form, code: evento.target.value.toUpperCase() })} required pattern="[A-Z0-9_\-]{1,40}" placeholder="ATE163" /></Field>
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('evento.criarDivisao')} />
       </form>
     </Modal>
   );
 }
 
 function AdicionarClasse({ divisionId, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const [form, setForm] = useState({ name: 'Open', code: 'OPEN', minAge: '', maxAge: '', minWeightGrams: '', maxWeightGrams: '' });
   const [salvando, setSalvando] = useState(false);
 
@@ -551,7 +558,7 @@ function AdicionarClasse({ divisionId, notificar, onClose, onSalvo }) {
         minWeightGrams: form.minWeightGrams === '' ? null : Math.round(Number(form.minWeightGrams) * 1000),
         maxWeightGrams: form.maxWeightGrams === '' ? null : Math.round(Number(form.maxWeightGrams) * 1000)
       });
-      notificar('Classe criada.');
+      notificar(t('evento.classeCriada'));
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -560,21 +567,21 @@ function AdicionarClasse({ divisionId, notificar, onClose, onSalvo }) {
   };
 
   return (
-    <Modal title="Nova classe" description="Classes iniciais: Junior, Novice, Open e Master. A estrutura aceita outras." onClose={onClose}>
+    <Modal title={t('evento.novaClasse')} description={t('evento.novaClasseDescricao')} onClose={onClose}>
       <form onSubmit={salvar}>
         <div className="field-row">
-          <Field label="Nome" required><input value={form.name} onChange={evento => setForm({ ...form, name: evento.target.value })} required maxLength={90} /></Field>
-          <Field label="Código" required><input value={form.code} onChange={evento => setForm({ ...form, code: evento.target.value.toUpperCase() })} required pattern="[A-Z0-9_\-]{1,40}" /></Field>
+          <Field label={t('evento.nome')} required><input value={form.name} onChange={evento => setForm({ ...form, name: evento.target.value })} required maxLength={90} /></Field>
+          <Field label={t('evento.codigo')} required><input value={form.code} onChange={evento => setForm({ ...form, code: evento.target.value.toUpperCase() })} required pattern="[A-Z0-9_\-]{1,40}" /></Field>
         </div>
         <div className="field-row">
-          <Field label="Idade mínima"><input type="number" min="0" max="120" value={form.minAge} onChange={evento => setForm({ ...form, minAge: evento.target.value })} /></Field>
-          <Field label="Idade máxima"><input type="number" min="0" max="120" value={form.maxAge} onChange={evento => setForm({ ...form, maxAge: evento.target.value })} /></Field>
+          <Field label={t('evento.idadeMinima')}><input type="number" min="0" max="120" value={form.minAge} onChange={evento => setForm({ ...form, minAge: evento.target.value })} /></Field>
+          <Field label={t('evento.idadeMaxima')}><input type="number" min="0" max="120" value={form.maxAge} onChange={evento => setForm({ ...form, maxAge: evento.target.value })} /></Field>
         </div>
         <div className="field-row">
-          <Field label="Peso mínimo (kg)"><input type="number" step="0.1" min="0" value={form.minWeightGrams} onChange={evento => setForm({ ...form, minWeightGrams: evento.target.value })} /></Field>
-          <Field label="Peso máximo (kg)"><input type="number" step="0.1" min="0" value={form.maxWeightGrams} onChange={evento => setForm({ ...form, maxWeightGrams: evento.target.value })} /></Field>
+          <Field label={t('evento.pesoMinimo')}><input type="number" step="0.1" min="0" value={form.minWeightGrams} onChange={evento => setForm({ ...form, minWeightGrams: evento.target.value })} /></Field>
+          <Field label={t('evento.pesoMaximo')}><input type="number" step="0.1" min="0" value={form.maxWeightGrams} onChange={evento => setForm({ ...form, maxWeightGrams: evento.target.value })} /></Field>
         </div>
-        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Criar classe" />
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('evento.criarClasse')} />
       </form>
     </Modal>
   );
@@ -582,6 +589,7 @@ function AdicionarClasse({ divisionId, notificar, onClose, onSalvo }) {
 
 // ============================================================== INSCRIÇÕES
 export function AdminInscricoes({ notificar }) {
+  const { t } = useIdioma();
   const [eventId, setEventId] = useState('');
   const [busca, setBusca] = useState('');
   const [inscrevendo, setInscrevendo] = useState(false);
@@ -597,22 +605,22 @@ export function AdminInscricoes({ notificar }) {
   return (
     <div className="page">
       <PageHead
-        eyebrow="Operação"
-        title="Inscrições"
+        eyebrow={t('evento.operacao')}
+        title={t('evento.inscricoes')}
         description="Reconhecimento por CPF, confirmação de filiação e escolha de categoria, divisão e classe. Não existe pagamento neste fluxo."
-        actions={eventId && <button type="button" className="button button-primary" onClick={() => setInscrevendo(true)}><Plus size={15} /> Nova inscrição</button>}
+        actions={eventId && <button type="button" className="button button-primary" onClick={() => setInscrevendo(true)}><Plus size={15} />{t('evento.novaInscricao')}</button>}
       />
 
       <div className="toolbar">
         <SeletorDeEvento eventId={eventId} onChange={setEventId} />
         <label className="search-box">
           <Search size={16} />
-          <input value={busca} onChange={evento => setBusca(evento.target.value)} placeholder="Buscar atleta…" aria-label="Buscar inscrito" />
+          <input value={busca} onChange={evento => setBusca(evento.target.value)} placeholder={t('evento.buscarAtleta')} aria-label={t('evento.buscarInscrito')} />
         </label>
       </div>
 
       {!eventId
-        ? <EmptyState title="Selecione um evento" description="As inscrições são sempre de um evento específico." />
+        ? <EmptyState title={t('evento.selecioneUmEvento')} description={t('evento.inscricoesPorEvento')} />
         : (
           <AsyncSection state={estado} linhas={4}>
             {dados => (dados.items.length
@@ -625,7 +633,7 @@ export function AdminInscricoes({ notificar }) {
                     <div className="filtro-ativo">
                       <span className="chip">
                         Filtrando por “{busca}”
-                        <button type="button" onClick={() => setBusca('')} aria-label="Limpar filtro">×</button>
+                        <button type="button" onClick={() => setBusca('')} aria-label={t('evento.limparFiltro')}>×</button>
                       </span>
                       <small>{dados.items.length} resultado(s)</small>
                     </div>
@@ -638,14 +646,14 @@ export function AdminInscricoes({ notificar }) {
                     <div className="alert alert-info" style={{ marginBottom: 16 }}>
                       <div>
                         <strong>Mostrando as primeiras {dados.items.length} inscrições</strong>
-                        <p>Há mais registros neste evento. Use “Carregar mais” no fim da lista, ou a busca pelo nome do atleta.</p>
+                        <p>{t('evento.maisRegistros')}</p>
                       </div>
                     </div>
                   )}
 
                 <div className="table-wrap">
                   <table className="table">
-                    <thead><tr><th>Atleta</th><th>Filiação</th><th>Classes</th><th>Situação</th><th>Check-in</th><th /></tr></thead>
+                    <thead><tr><th>{t('evento.atleta')}</th><th>{t('evento.filiacao')}</th><th>{t('evento.classes')}</th><th>{t('evento.situacao')}</th><th>{t('evento.checkIn')}</th><th /></tr></thead>
                     <tbody>
                       {dados.items.map((inscricao, indice) => (
                         <tr key={inscricao.id} className={`revela ${recem.classeDeLinhaDeTabela(inscricao.id)}`.trim()} style={estiloDaSequencia(indice)}>
@@ -667,10 +675,10 @@ export function AdminInscricoes({ notificar }) {
                           <td>
                             <Badge tom={estadoDaInscricao(inscricao.status).tom}>{estadoDaInscricao(inscricao.status).rotulo}</Badge>
                           </td>
-                          <td>{inscricao.checkIn?.status === 'CHECKED_IN' ? <Badge tom="ok">Feito</Badge> : <Badge tom="neutro">Pendente</Badge>}</td>
+                          <td>{inscricao.checkIn?.status === 'CHECKED_IN' ? <Badge tom="ok">{t('evento.feito')}</Badge> : <Badge tom="neutro">{t('evento.pendente')}</Badge>}</td>
                           <td style={{ textAlign: 'right' }}>
                             {inscricao.status !== 'CANCELLED' && (
-                              <button type="button" className="button button-danger button-sm" onClick={() => setCancelando(inscricao)}>Cancelar</button>
+                              <button type="button" className="button button-danger button-sm" onClick={() => setCancelando(inscricao)}>{t('evento.cancelar')}</button>
                             )}
                           </td>
                         </tr>
@@ -682,8 +690,8 @@ export function AdminInscricoes({ notificar }) {
                 </>
               )
               : busca
-                ? <EmptyState title="Nada encontrado" description={`Nenhuma inscrição corresponde a “${busca}”. Verifique o nome ou limpe o filtro.`} />
-                : <EmptyState title="Nenhuma inscrição" description="Use “Nova inscrição” para registrar o primeiro atleta." />
+                ? <EmptyState title={t('evento.nadaEncontrado')} description={`Nenhuma inscrição corresponde a “${busca}”. Verifique o nome ou limpe o filtro.`} />
+                : <EmptyState title={t('evento.nenhumaInscricao')} description={t('evento.nenhumaInscricaoDescricao')} />
             )}
           </AsyncSection>
         )}
@@ -701,6 +709,7 @@ export function AdminInscricoes({ notificar }) {
 }
 
 function NovaInscricao({ eventId, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const evento = useFetch(() => api.events.findOne(eventId), [eventId]);
   const filiacoes = useFetch(
     () => (evento.data?.organizationId ? api.affiliations.list({ organizationId: evento.data.organizationId }) : Promise.resolve({ items: [] })),
@@ -756,12 +765,12 @@ function NovaInscricao({ eventId, notificar, onClose, onSalvo }) {
         affiliationId: affiliationId || null,
         classIds
       });
-      notificar(resposta.athleteRecognized ? 'Atleta reconhecido e inscrito.' : 'Perfil criado e atleta inscrito.');
+      notificar(resposta.athleteRecognized ? t('evento.atletaReconhecido') : t('evento.perfilCriado'));
       // Inscrever é nível EVENTO: confirma na linha, sem tomar o centro da
       // tela — numa abertura de inscrições isto se repete o dia inteiro.
       anunciar(MCIEvento.SUCESSO, {
-        titulo: 'Inscrição realizada',
-        descricao: resposta.athleteRecognized ? 'Atleta reconhecido pelo CPF.' : 'Perfil criado e atleta inscrito.'
+        titulo: t('evento.inscricaoRealizada'),
+        descricao: resposta.athleteRecognized ? t('evento.reconhecidoPeloCpf') : t('evento.perfilCriado')
       });
       refreshData();
       onSalvo(resposta.id);
@@ -774,13 +783,13 @@ function NovaInscricao({ eventId, notificar, onClose, onSalvo }) {
   const sexoDoAtleta = reconhecido?.found ? reconhecido.athlete.sex : novoAtleta.sex;
 
   return (
-    <Modal title="Nova inscrição" description="CPF → perfil → filiação → categoria, divisão e classe." wide onClose={onClose}>
+    <Modal title={t('evento.novaInscricao')} description={t('evento.novaInscricaoDescricao')} wide onClose={onClose}>
       <form onSubmit={salvar}>
-        <Field label="CPF do atleta" required hint="A plataforma reconhece o atleta pelo CPF antes de criar qualquer perfil.">
+        <Field label={t('evento.cpfDoAtleta')} required hint={t('evento.cpfHint')}>
           <div style={{ display: 'flex', gap: 8 }}>
             <input value={cpf} onChange={evt => { setCpf(mascararCpf(evt.target.value)); setReconhecido(null); }} required inputMode="numeric" placeholder="000.000.000-00" />
             <button type="button" className="button button-secondary" onClick={consultar} disabled={consultando || somenteDigitos(cpf).length !== 11}>
-              {consultando ? 'Consultando…' : 'Consultar'}
+              {consultando ? t('evento.consultando') : t('evento.consultar')}
             </button>
           </div>
         </Field>
@@ -788,7 +797,7 @@ function NovaInscricao({ eventId, notificar, onClose, onSalvo }) {
         {reconhecido?.found && (
           <div className="alert alert-info" style={{ marginBottom: 14 }}>
             <div>
-              <strong>Atleta reconhecido</strong>
+              <strong>{t('evento.atletaReconhecidoTitulo')}</strong>
               <p>{reconhecido.athlete.fullName} · {reconhecido.athlete.city || '—'}{reconhecido.athlete.state ? `/${reconhecido.athlete.state}` : ''} · {reconhecido.athlete.sex === 'MALE' ? 'Masculino' : 'Feminino'}</p>
             </div>
           </div>
@@ -797,23 +806,23 @@ function NovaInscricao({ eventId, notificar, onClose, onSalvo }) {
         {reconhecido && !reconhecido.found && (
           <>
             <div className="alert alert-alerta" style={{ marginBottom: 14 }}>
-              <div><strong>CPF não cadastrado</strong><p>Informe os dados para criar o perfil do atleta.</p></div>
+              <div><strong>{t('evento.cpfNaoCadastrado')}</strong><p>{t('evento.informeOsDados')}</p></div>
             </div>
             <div className="field-row">
-              <Field label="Nome completo" required><input value={novoAtleta.fullName} onChange={evt => setNovoAtleta({ ...novoAtleta, fullName: evt.target.value })} required minLength={2} maxLength={160} /></Field>
-              <Field label="Nome esportivo"><input value={novoAtleta.stageName} onChange={evt => setNovoAtleta({ ...novoAtleta, stageName: evt.target.value })} maxLength={80} /></Field>
+              <Field label={t('evento.nomeCompleto')} required><input value={novoAtleta.fullName} onChange={evt => setNovoAtleta({ ...novoAtleta, fullName: evt.target.value })} required minLength={2} maxLength={160} /></Field>
+              <Field label={t('evento.nomeEsportivo')}><input value={novoAtleta.stageName} onChange={evt => setNovoAtleta({ ...novoAtleta, stageName: evt.target.value })} maxLength={80} /></Field>
             </div>
             <div className="field-row">
-              <Field label="Sexo" required>
+              <Field label={t('evento.sexo')} required>
                 <select value={novoAtleta.sex} onChange={evt => setNovoAtleta({ ...novoAtleta, sex: evt.target.value })} required>
-                  <option value="FEMALE">Feminino</option>
-                  <option value="MALE">Masculino</option>
+                  <option value="FEMALE">{t('evento.feminino')}</option>
+                  <option value="MALE">{t('evento.masculino')}</option>
                 </select>
               </Field>
-              <Field label="Nascimento" hint="Necessário para classes com faixa etária."><input type="date" value={novoAtleta.birthDate} onChange={evt => setNovoAtleta({ ...novoAtleta, birthDate: evt.target.value })} /></Field>
+              <Field label={t('evento.nascimento')} hint={t('evento.nascimentoHint')}><input type="date" value={novoAtleta.birthDate} onChange={evt => setNovoAtleta({ ...novoAtleta, birthDate: evt.target.value })} /></Field>
             </div>
             <div className="field-row">
-              <Field label="Cidade"><input value={novoAtleta.city} onChange={evt => setNovoAtleta({ ...novoAtleta, city: evt.target.value })} maxLength={90} /></Field>
+              <Field label={t('evento.cidade')}><input value={novoAtleta.city} onChange={evt => setNovoAtleta({ ...novoAtleta, city: evt.target.value })} maxLength={90} /></Field>
               <Field label="UF"><input value={novoAtleta.state} onChange={evt => setNovoAtleta({ ...novoAtleta, state: evt.target.value.toUpperCase().slice(0, 2) })} maxLength={2} /></Field>
             </div>
           </>
@@ -821,14 +830,14 @@ function NovaInscricao({ eventId, notificar, onClose, onSalvo }) {
 
         {reconhecido && (
           <>
-            <Field label="Filiação" hint="Vínculo esportivo do atleta. Também é chave de conferência na importação MuscleWare.">
+            <Field label={t('evento.filiacao')} hint={t('evento.filiacaoHint')}>
               <select value={affiliationId} onChange={evt => setAffiliationId(evt.target.value)}>
-                <option value="">Sem filiação</option>
+                <option value="">{t('evento.semFiliacao')}</option>
                 {(filiacoes.data?.items || []).map(filiacao => <option key={filiacao.id} value={filiacao.id}>{filiacao.name} ({filiacao.code})</option>)}
               </select>
             </Field>
 
-            <Field label="Categorias, divisões e classes" required>
+            <Field label={t('evento.categoriasDivisoesClasses')} required>
               <div style={{ display: 'grid', gap: 6, maxHeight: 210, overflowY: 'auto', border: '1px solid var(--linha)', borderRadius: 4, padding: 10 }}>
                 {classes.length
                   ? classes.map(classe => {
@@ -847,7 +856,7 @@ function NovaInscricao({ eventId, notificar, onClose, onSalvo }) {
                       </label>
                     );
                   })
-                  : <span style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>Este evento ainda não tem classes cadastradas.</span>}
+                  : <span style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>{t('evento.semClassesCadastradas')}</span>}
               </div>
             </Field>
           </>
@@ -856,19 +865,20 @@ function NovaInscricao({ eventId, notificar, onClose, onSalvo }) {
         {erros.length > 0 && (
           <div className="alert alert-erro" style={{ marginBottom: 12 }}>
             <div>
-              <strong>Inscrição recusada</strong>
+              <strong>{t('evento.inscricaoRecusada')}</strong>
               <ul>{erros.map((mensagem, indice) => <li key={indice}>{mensagem}</li>)}</ul>
             </div>
           </div>
         )}
 
-        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Registrar inscrição" disabled={!reconhecido || !classIds.length} />
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('evento.registrarInscricao')} disabled={!reconhecido || !classIds.length} />
       </form>
     </Modal>
   );
 }
 
 function CancelarInscricao({ inscricao, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const [reason, setReason] = useState('');
   const [salvando, setSalvando] = useState(false);
 
@@ -877,10 +887,10 @@ function CancelarInscricao({ inscricao, notificar, onClose, onSalvo }) {
     setSalvando(true);
     try {
       await api.registrations.cancel(inscricao.id, { reason });
-      notificar('Inscrição cancelada.');
+      notificar(t('evento.inscricaoCancelada'));
       // Cancelar NÃO é conquista. O operador acabou de tirar um atleta da
       // competição — o gesto certo aqui é confirmar e sair do caminho.
-      anunciar(MCIEvento.AVISO, { titulo: 'Inscrição cancelada', descricao: inscricao.athlete.fullName });
+      anunciar(MCIEvento.AVISO, { titulo: t('evento.inscricaoCanceladaTitulo'), descricao: inscricao.athlete.fullName });
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -889,12 +899,12 @@ function CancelarInscricao({ inscricao, notificar, onClose, onSalvo }) {
   };
 
   return (
-    <Modal title="Cancelar inscrição" description={inscricao.athlete.fullName} onClose={onClose}>
+    <Modal title={t('evento.cancelarInscricao')} description={inscricao.athlete.fullName} onClose={onClose}>
       <form onSubmit={salvar}>
-        <Field label="Motivo" required hint="Fica registrado na auditoria.">
+        <Field label={t('evento.motivo')} required hint={t('evento.motivoHint')}>
           <textarea value={reason} onChange={evento => setReason(evento.target.value)} required minLength={3} maxLength={300} />
         </Field>
-        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Cancelar inscrição" />
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('evento.cancelarInscricao')} />
       </form>
     </Modal>
   );
@@ -902,6 +912,7 @@ function CancelarInscricao({ inscricao, notificar, onClose, onSalvo }) {
 
 // ============================================================ CHECK-IN
 export function AdminCheckin({ notificar }) {
+  const { t } = useIdioma();
   const [eventId, setEventId] = useState('');
   const [busca, setBusca] = useState('');
   const recem = useRecemAfetado();
@@ -928,12 +939,12 @@ export function AdminCheckin({ notificar }) {
     try {
       if (cancelar) await api.operations.cancelCheckIn(inscricao.id);
       else await api.operations.checkIn(inscricao.id, { device: navigator.userAgent.slice(0, 100) });
-      notificar(cancelar ? 'Check-in cancelado.' : 'Check-in confirmado.');
+      notificar(cancelar ? t('evento.checkInCancelado') : t('evento.checkInConfirmado'));
       recem.marcar(inscricao.id);
       // Desfazer é correção, não conquista: confirma sem celebrar.
       if (!cancelar) {
         anunciar(MCIEvento.CHECKIN, {
-          titulo: 'Check-in confirmado',
+          titulo: t('evento.checkInConfirmadoTitulo'),
           descricao: inscricao.athlete.stageName || inscricao.athlete.fullName
         });
       }
@@ -947,18 +958,18 @@ export function AdminCheckin({ notificar }) {
 
   return (
     <div className="page">
-      <PageHead eyebrow="Operação" title="Check-in" description="Conferência de atleta, inscrição e elegibilidade no dia do evento." />
+      <PageHead eyebrow={t('evento.operacao')} title={t('evento.checkIn')} description={t('evento.checkInDescricao')} />
 
       <div className="toolbar">
         <SeletorDeEvento eventId={eventId} onChange={setEventId} filtroStatus={['REGISTRATIONS_CLOSED', 'IN_OPERATION', 'IN_JUDGING']} />
         <label className="search-box">
           <Search size={16} />
-          <input value={busca} onChange={evento => setBusca(evento.target.value)} placeholder="Nome ou número do atleta…" aria-label="Buscar atleta" />
+          <input value={busca} onChange={evento => setBusca(evento.target.value)} placeholder={t('evento.nomeOuNumero')} aria-label={t('publico.buscarAtletaRotulo')} />
         </label>
       </div>
 
       {!eventId
-        ? <EmptyState title="Selecione um evento em operação" description="O check-in só acontece com o evento em janela operacional." />
+        ? <EmptyState title={t('evento.selecioneEventoEmOperacao')} description={t('evento.janelaOperacional')} />
         : (
           <AsyncSection state={estado} linhas={4}>
             {dados => (
@@ -966,12 +977,12 @@ export function AdminCheckin({ notificar }) {
                 {dados.summary && (
                   <>
                     <div className="toolbar-ao-vivo">
-                      <PulsoAoVivo rotulo="Atualizando ao vivo" />
+                      <PulsoAoVivo rotulo={t('evento.atualizandoAoVivo')} />
                     </div>
                     <div className="grid grid-3" style={{ marginBottom: 16 }}>
-                      <Metric label="Inscritos" value={dados.summary.total} />
-                      <ContadorVivo label="Check-in feito" value={dados.summary.checkedIn} destaque />
-                      <ContadorVivo label="Pendentes" value={dados.summary.pending} />
+                      <Metric label={t('evento.inscritos')} value={dados.summary.total} />
+                      <ContadorVivo label={t('evento.checkInFeito')} value={dados.summary.checkedIn} destaque />
+                      <ContadorVivo label={t('evento.pendentes')} value={dados.summary.pending} />
                     </div>
 
                     {/* Agora a lista não para: diz onde está e continua. O
@@ -981,7 +992,7 @@ export function AdminCheckin({ notificar }) {
                       <div className="alert alert-info" style={{ marginBottom: 16 }}>
                         <div>
                           <strong>Mostrando {dados.items.length} de {dados.summary.total} inscritos</strong>
-                          <p>Use “Carregar mais” no fim da lista, ou a busca pelo nome ou número do atleta.</p>
+                          <p>{t('evento.maisRegistrosCheckIn')}</p>
                         </div>
                       </div>
                     )}
@@ -1000,7 +1011,7 @@ export function AdminCheckin({ notificar }) {
                             <strong>{inscricao.athlete.stageName || inscricao.athlete.fullName}</strong>
                             <small>
                               {inscricao.athlete.athleteNumber ? `Nº ${inscricao.athlete.athleteNumber} · ` : ''}
-                              {inscricao.items.map(item => item.competitionClass.name).join(', ') || 'Sem classe'}
+                              {inscricao.items.map(item => item.competitionClass.name).join(', ') || t('evento.semClasse')}
                               {inscricao.weighIns[0] ? ` · ${pesoEmKg(inscricao.weighIns[0].weightGrams)}` : ''}
                             </small>
                           </span>
@@ -1009,19 +1020,19 @@ export function AdminCheckin({ notificar }) {
                               <>
                                 <Badge tom="ok"><ClipboardCheck size={12} /> {formatarDataHora(inscricao.checkIn.checkedInAt)}</Badge>
                                 <button type="button" className="button button-secondary button-sm" disabled={ocupada} onClick={() => operar(inscricao, true)}>
-                                  {ocupada ? 'Desfazendo…' : 'Desfazer'}
+                                  {ocupada ? t('evento.desfazendo') : t('evento.desfazer')}
                                 </button>
                               </>
                             )
                             : (
                               <button type="button" className="button button-primary button-sm" disabled={ocupada} onClick={() => operar(inscricao, false)}>
-                                {ocupada ? 'Confirmando…' : 'Fazer check-in'}
+                                {ocupada ? t('evento.confirmando') : t('evento.fazerCheckIn')}
                               </button>
                             )}
                         </Revelacao>
                       );
                     })
-                    : <EmptyState title="Nenhum inscrito confirmado" />}
+                    : <EmptyState title={t('evento.nenhumConfirmado')} />}
                 </section>
                 <Paginacao nextCursor={estado.nextCursor} onMore={estado.carregarMais} loading={estado.carregandoMais} />
               </>
@@ -1034,6 +1045,7 @@ export function AdminCheckin({ notificar }) {
 
 // ============================================================== PESAGEM
 export function AdminPesagem({ notificar }) {
+  const { t } = useIdioma();
   const [eventId, setEventId] = useState('');
   const [busca, setBusca] = useState('');
   const [pesando, setPesando] = useState(null);
@@ -1047,18 +1059,18 @@ export function AdminPesagem({ notificar }) {
 
   return (
     <div className="page">
-      <PageHead eyebrow="Operação" title="Pesagem" description="Registro auditável de peso e altura, com operador, momento e observação." />
+      <PageHead eyebrow={t('evento.operacao')} title={t('evento.pesagem')} description={t('evento.pesagemDescricao')} />
 
       <div className="toolbar">
         <SeletorDeEvento eventId={eventId} onChange={setEventId} filtroStatus={['REGISTRATIONS_CLOSED', 'IN_OPERATION', 'IN_JUDGING']} />
         <label className="search-box">
           <Search size={16} />
-          <input value={busca} onChange={evento => setBusca(evento.target.value)} placeholder="Nome ou número do atleta…" aria-label="Buscar atleta" />
+          <input value={busca} onChange={evento => setBusca(evento.target.value)} placeholder={t('evento.nomeOuNumero')} aria-label={t('publico.buscarAtletaRotulo')} />
         </label>
       </div>
 
       {!eventId
-        ? <EmptyState title="Selecione um evento em operação" />
+        ? <EmptyState title={t('evento.selecioneEventoEmOperacao')} />
         : (
           <AsyncSection state={estado} linhas={4}>
             {dados => (
@@ -1072,15 +1084,14 @@ export function AdminPesagem({ notificar }) {
                         <small>
                           {inscricao.weighIns[0]
                             ? `Última pesagem: ${pesoEmKg(inscricao.weighIns[0].weightGrams)} em ${formatarDataHora(inscricao.weighIns[0].measuredAt)}`
-                            : 'Sem pesagem registrada'}
+                            : t('evento.semPesagem')}
                         </small>
                       </span>
                       <button type="button" className="button button-primary button-sm" onClick={() => setPesando(inscricao)}>
-                        <Scale size={13} /> Registrar
-                      </button>
+                        <Scale size={13} />{t('evento.registrar')}</button>
                     </Revelacao>
                   ))
-                  : <EmptyState title="Nenhum inscrito confirmado" />}
+                  : <EmptyState title={t('evento.nenhumConfirmado')} />}
                 <Paginacao nextCursor={estado.nextCursor} onMore={estado.carregarMais} loading={estado.carregandoMais} />
               </section>
             )}
@@ -1096,6 +1107,7 @@ export function AdminPesagem({ notificar }) {
 }
 
 function RegistrarPesagem({ inscricao, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const [form, setForm] = useState({ peso: '', altura: '', notes: '' });
   const [salvando, setSalvando] = useState(false);
   const [foraDeFaixa, setForaDeFaixa] = useState(null);
@@ -1116,17 +1128,17 @@ function RegistrarPesagem({ inscricao, notificar, onClose, onSalvo }) {
       // organização, com base no regulamento.
       if (resposta.outOfRange?.length) {
         setForaDeFaixa(resposta.outOfRange);
-        notificar('Pesagem registrada. Há classe fora da faixa de peso.', 'info');
+        notificar(t('evento.pesagemForaDaFaixa'), 'info');
         // O peso ENTROU, mas há classe fora da faixa e a reclassificação é
         // decisão da organização. Confirmar com ar de "deu tudo certo" aqui
         // faria o operador passar batido pelo caso que precisa de decisão.
         anunciar(MCIEvento.AVISO, {
-          titulo: 'Peso fora da faixa',
-          descricao: 'A pesagem foi gravada. A reclassificação é decisão da organização.'
+          titulo: t('evento.pesoForaDaFaixa'),
+          descricao: t('evento.reclassificacaoEDaOrganizacao')
         });
       } else {
-        notificar('Pesagem registrada.');
-        anunciar(MCIEvento.PESAGEM, { titulo: 'Pesagem registrada', descricao: inscricao.athlete.fullName });
+        notificar(t('evento.pesagemRegistrada'));
+        anunciar(MCIEvento.PESAGEM, { titulo: t('evento.pesagemRegistradaTitulo'), descricao: inscricao.athlete.fullName });
         onSalvo();
       }
     } catch (erro) {
@@ -1148,19 +1160,19 @@ function RegistrarPesagem({ inscricao, notificar, onClose, onSalvo }) {
   };
 
   return (
-    <Modal title="Registrar pesagem" description={inscricao.athlete.fullName} onClose={onClose}>
+    <Modal title={t('evento.registrarPesagem')} description={inscricao.athlete.fullName} onClose={onClose}>
       {foraDeFaixa
         ? (
           <>
             <div className="alert alert-alerta">
               <div>
-                <strong>Peso fora da faixa</strong>
-                <p>A pesagem foi gravada. As classes abaixo estão fora da faixa cadastrada — a reclassificação é decisão da organização.</p>
+                <strong>{t('evento.pesoForaDaFaixa')}</strong>
+                <p>{t('evento.pesoForaDaFaixaTexto')}</p>
                 <ul>{foraDeFaixa.map(item => <li key={item.classId}>{item.className}</li>)}</ul>
               </div>
             </div>
             <div className="modal-actions">
-              <button type="button" className="button button-primary" onClick={onSalvo}>Entendi</button>
+              <button type="button" className="button button-primary" onClick={onSalvo}>{t('evento.entendi')}</button>
             </div>
           </>
         )
@@ -1171,22 +1183,22 @@ function RegistrarPesagem({ inscricao, notificar, onClose, onSalvo }) {
             {falha && (
               <div className="alert alert-erro" style={{ marginBottom: 14 }}>
                 <div>
-                  <strong>Pesagem não registrada</strong>
+                  <strong>{t('evento.pesagemNaoRegistrada')}</strong>
                   <p>{falha}</p>
-                  <p>Confira o valor e registre de novo. Nada foi gravado.</p>
+                  <p>{t('evento.confiraOValor')}</p>
                 </div>
               </div>
             )}
             <div className="field-row">
-              <Field label="Peso (kg)" required>
+              <Field label={t('evento.pesoKg')} required>
                 <input type="number" step="0.01" min="20" max="400" value={form.peso} onChange={evento => setForm({ ...form, peso: evento.target.value })} required autoFocus />
               </Field>
-              <Field label="Altura (cm)">
+              <Field label={t('evento.alturaCm')}>
                 <input type="number" min="100" max="260" value={form.altura} onChange={evento => setForm({ ...form, altura: evento.target.value })} />
               </Field>
             </div>
-            <Field label="Observação"><textarea value={form.notes} onChange={evento => setForm({ ...form, notes: evento.target.value })} maxLength={300} /></Field>
-            <ModalActions onClose={onClose} saving={salvando} confirmLabel="Registrar" />
+            <Field label={t('evento.observacao')}><textarea value={form.notes} onChange={evento => setForm({ ...form, notes: evento.target.value })} maxLength={300} /></Field>
+            <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('evento.registrar')} />
           </form>
         )}
     </Modal>
@@ -1195,6 +1207,7 @@ function RegistrarPesagem({ inscricao, notificar, onClose, onSalvo }) {
 
 // ======================================================== CREDENCIAMENTO
 export function AdminCredenciamento({ notificar }) {
+  const { t } = useIdioma();
   const [eventId, setEventId] = useState('');
   const [emitindo, setEmitindo] = useState(false);
   const [codigo, setCodigo] = useState('');
@@ -1217,7 +1230,11 @@ export function AdminCredenciamento({ notificar }) {
     if (!codigo.trim() || lendo) return;
     setLendo(true);
     try {
-      const resposta = await api.operations.scanCredential(eventId, { code: codigo.trim(), gate: 'Portaria' });
+      const resposta = await api.operations.scanCredential(eventId, { code: codigo.trim(), // 'Portaria' AQUI É DADO, e não rótulo: vai gravado no registro de
+        // leitura da credencial, e é por ele que se sabe depois por qual
+        // portão a pessoa entrou. Traduzir criaria três valores diferentes
+        // para o mesmo portão, conforme o idioma de quem estava no posto.
+        gate: 'Portaria' });
       setLeitura(resposta);
       setCodigo('');
       recem.marcar(resposta.credential?.id ?? null);
@@ -1227,8 +1244,8 @@ export function AdminCredenciamento({ notificar }) {
       anunciar(
         resposta.accepted ? MCIEvento.CREDENCIADO : MCIEvento.ERRO,
         resposta.accepted
-          ? { titulo: 'Acesso liberado', descricao: `${resposta.credential.holderName} · ${tipoDeCredencial(resposta.credential.type).rotulo}` }
-          : { titulo: 'Acesso recusado', descricao: resposta.reason || resposta.credential?.holderName || 'Credencial não aceita.' }
+          ? { titulo: t('evento.acessoLiberado'), descricao: `${resposta.credential.holderName} · ${tipoDeCredencial(resposta.credential.type).rotulo}` }
+          : { titulo: t('evento.acessoRecusado'), descricao: resposta.reason || resposta.credential?.holderName || t('evento.credencialNaoAceita') }
       );
       estado.reload();
     } catch (erro) {
@@ -1242,10 +1259,10 @@ export function AdminCredenciamento({ notificar }) {
   return (
     <div className="page">
       <PageHead
-        eyebrow="Operação"
-        title="Credenciamento"
-        description="Emissão e leitura de credenciais de atleta, coach, staff, juiz, imprensa, fotógrafo, patrocinador e convidado."
-        actions={eventId && <button type="button" className="button button-primary" onClick={() => setEmitindo(true)}><Plus size={15} /> Emitir credencial</button>}
+        eyebrow={t('evento.operacao')}
+        title={t('evento.credenciamento')}
+        description={t('evento.credenciamentoDescricao')}
+        actions={eventId && <button type="button" className="button button-primary" onClick={() => setEmitindo(true)}><Plus size={15} />{t('evento.emitirCredencial')}</button>}
       />
 
       <div className="toolbar">
@@ -1253,11 +1270,11 @@ export function AdminCredenciamento({ notificar }) {
       </div>
 
       {!eventId
-        ? <EmptyState title="Selecione um evento" />
+        ? <EmptyState title={t('evento.selecioneUmEvento')} />
         : (
           <div className="grid grid-main">
             <section className="panel">
-              <div className="panel-head"><h2>Credenciais emitidas</h2></div>
+              <div className="panel-head"><h2>{t('evento.credenciaisEmitidas')}</h2></div>
               <AsyncSection state={estado} linhas={4}>
                 {dados => (dados.items.length
                   ? dados.items.map((credencial, indice) => (
@@ -1272,7 +1289,7 @@ export function AdminCredenciamento({ notificar }) {
                         <strong>{credencial.holderName}</strong>
                         <small>{tipoDeCredencial(credencial.type).rotulo} · {credencial.code} · {credencial._count.scans} leitura(s)</small>
                       </span>
-                      <Badge tom={credencial.status === 'ACTIVE' ? 'ok' : 'perigo'}>{credencial.status === 'ACTIVE' ? 'Ativa' : 'Revogada'}</Badge>
+                      <Badge tom={credencial.status === 'ACTIVE' ? 'ok' : 'perigo'}>{credencial.status === 'ACTIVE' ? t('evento.ativa') : t('evento.revogada')}</Badge>
                       {credencial.status === 'ACTIVE' && (
                         <button
                           type="button"
@@ -1280,30 +1297,28 @@ export function AdminCredenciamento({ notificar }) {
                           onClick={async () => {
                             try {
                               await api.operations.revokeCredential(credencial.id);
-                              notificar('Credencial revogada.');
+                              notificar(t('evento.credencialRevogada'));
                               estado.reload();
                             } catch (erro) { notificar(erro.message, 'erro'); }
                           }}
-                        >
-                          Revogar
-                        </button>
+                        >{t('evento.revogar')}</button>
                       )}
                     </Revelacao>
                   ))
-                  : <EmptyState title="Nenhuma credencial emitida" />
+                  : <EmptyState title={t('evento.nenhumaCredencial')} />
                 )}
               </AsyncSection>
               <Paginacao nextCursor={estado.nextCursor} onMore={estado.carregarMais} loading={estado.carregandoMais} />
             </section>
 
             <section className="panel">
-              <div className="panel-head"><h2>Leitura</h2></div>
+              <div className="panel-head"><h2>{t('evento.leitura')}</h2></div>
               <form onSubmit={ler}>
-                <Field label="Código da credencial" hint="Conteúdo do QR Code impresso.">
+                <Field label={t('evento.codigoDaCredencial')} hint={t('evento.conteudoDoQr')}>
                   <input value={codigo} onChange={evento => setCodigo(evento.target.value.toUpperCase())} placeholder="MCI-XXXXXXXXXXXX" />
                 </Field>
                 <button type="submit" className="button button-primary" style={{ width: '100%' }} disabled={lendo || !codigo.trim()}>
-                  {lendo ? 'Validando…' : 'Validar'}
+                  {lendo ? t('evento.validando') : t('evento.validar')}
                 </button>
               </form>
 
@@ -1313,11 +1328,11 @@ export function AdminCredenciamento({ notificar }) {
                    distinguíveis de relance, sem ler. */
                 <div className={`alert ${leitura.accepted ? 'alert-ok' : 'alert-erro'} varredura`} style={{ marginTop: 14 }}>
                   <div>
-                    <strong>{leitura.accepted ? 'Acesso liberado' : 'Acesso recusado'}</strong>
+                    <strong>{leitura.accepted ? t('evento.acessoLiberado') : t('evento.acessoRecusado')}</strong>
                     <p>{leitura.credential.holderName} · {tipoDeCredencial(leitura.credential.type).rotulo}</p>
                     {leitura.reason && <p>{leitura.reason}</p>}
                     {leitura.credential.athlete && (
-                      <p>{leitura.credential.checkedIn ? 'Check-in confirmado.' : 'Atleta ainda sem check-in.'}</p>
+                      <p>{leitura.credential.checkedIn ? t('evento.checkInConfirmado') : t('evento.semCheckIn')}</p>
                     )}
                   </div>
                 </div>
@@ -1334,6 +1349,7 @@ export function AdminCredenciamento({ notificar }) {
 }
 
 function EmitirCredencial({ eventId, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   // Dentro de um <select> não cabe "carregar mais". O botão fica logo abaixo
   // do campo: sem ele, o atleta nº 101 simplesmente não existia para quem
   // emite credencial, e a tela não dava sinal nenhum disso.
@@ -1354,7 +1370,7 @@ function EmitirCredencial({ eventId, notificar, onClose, onSalvo }) {
         registrationId: form.registrationId || null
       });
       notificar(`Credencial ${credencial.code} emitida.`);
-      anunciar(MCIEvento.SUCESSO, { titulo: 'Credencial emitida', descricao: form.holderName });
+      anunciar(MCIEvento.SUCESSO, { titulo: t('evento.credencialEmitida'), descricao: form.holderName });
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -1363,18 +1379,18 @@ function EmitirCredencial({ eventId, notificar, onClose, onSalvo }) {
   };
 
   return (
-    <Modal title="Emitir credencial" onClose={onClose}>
+    <Modal title={t('evento.emitirCredencial')} onClose={onClose}>
       <form onSubmit={salvar}>
-        <Field label="Tipo" required>
+        <Field label={t('evento.tipo')} required>
           <select value={form.type} onChange={evento => setForm({ ...form, type: evento.target.value })} required>
             {['ATHLETE', 'COACH', 'STAFF', 'JUDGE', 'MEDIA', 'PHOTOGRAPHER', 'SPONSOR', 'GUEST'].map(tipo => <option key={tipo} value={tipo}>{tipoDeCredencial(tipo).rotulo}</option>)}
           </select>
         </Field>
-        <Field label="Nome do portador" required>
+        <Field label={t('evento.nomeDoPortador')} required>
           <input value={form.holderName} onChange={evento => setForm({ ...form, holderName: evento.target.value })} required minLength={2} maxLength={140} />
         </Field>
         {form.type === 'ATHLETE' && (
-          <Field label="Inscrição vinculada" hint="Vincular permite conferir o check-in na leitura.">
+          <Field label={t('evento.inscricaoVinculada')} hint={t('evento.inscricaoVinculadaHint')}>
             <select
               value={form.registrationId}
               onChange={evento => {
@@ -1382,7 +1398,7 @@ function EmitirCredencial({ eventId, notificar, onClose, onSalvo }) {
                 setForm({ ...form, registrationId: evento.target.value, holderName: inscricao?.athlete.fullName || form.holderName });
               }}
             >
-              <option value="">Sem vínculo</option>
+              <option value="">{t('evento.semVinculo')}</option>
               {inscritos.items.map(inscricao => <option key={inscricao.id} value={inscricao.id}>{inscricao.athlete.fullName}</option>)}
             </select>
           </Field>
@@ -1390,7 +1406,7 @@ function EmitirCredencial({ eventId, notificar, onClose, onSalvo }) {
         {form.type === 'ATHLETE' && (
           <Paginacao nextCursor={inscritos.nextCursor} onMore={inscritos.carregarMais} loading={inscritos.carregandoMais} />
         )}
-        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Emitir" />
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('evento.emitir')} />
       </form>
     </Modal>
   );
@@ -1398,6 +1414,7 @@ function EmitirCredencial({ eventId, notificar, onClose, onSalvo }) {
 
 // ================================================================ PALCO
 export function AdminPalco({ notificar }) {
+  const { t } = useIdioma();
   const [eventId, setEventId] = useState('');
   const [criando, setCriando] = useState(false);
   const [ordenando, setOrdenando] = useState(null);
@@ -1417,7 +1434,7 @@ export function AdminPalco({ notificar }) {
     setMudando(bateria.id);
     try {
       await api.operations.setBatchStatus(bateria.id, { status });
-      notificar(status === 'CALLED' ? 'Bateria chamada. Os atletas foram notificados.' : 'Bateria atualizada.');
+      notificar(status === 'CALLED' ? t('evento.bateriaChamada') : t('evento.bateriaAtualizada'));
       recem.marcar(bateria.id);
 
       // Só DUAS transições ganham gesto, porque só duas mudam o mundo do
@@ -1425,11 +1442,11 @@ export function AdminPalco({ notificar }) {
       // "Encerrar" é fim de expediente da bateria — confirma e segue.
       if (status === 'CALLED') {
         anunciar(MCIEvento.NOVIDADE, {
-          titulo: 'Bateria chamada',
+          titulo: t('evento.bateriaChamadaTitulo'),
           descricao: `${bateria.name} · ${bateria._count.orders} atleta(s) notificado(s)`
         });
       } else if (status === 'ON_STAGE') {
-        anunciar(MCIEvento.AO_VIVO, { titulo: 'No palco', descricao: bateria.name });
+        anunciar(MCIEvento.AO_VIVO, { titulo: t('evento.noPalco'), descricao: bateria.name });
       }
       estado.reload();
     } catch (erro) {
@@ -1442,16 +1459,16 @@ export function AdminPalco({ notificar }) {
   return (
     <div className="page">
       <PageHead
-        eyebrow="Operação"
-        title="Ordem de palco"
-        description="Baterias, chamadas e ordem de entrada por classe."
-        actions={eventId && <button type="button" className="button button-primary" onClick={() => setCriando(true)}><Plus size={15} /> Nova bateria</button>}
+        eyebrow={t('evento.operacao')}
+        title={t('evento.ordemDePalco')}
+        description={t('evento.ordemDePalcoDescricao')}
+        actions={eventId && <button type="button" className="button button-primary" onClick={() => setCriando(true)}><Plus size={15} />{t('evento.novaBateria')}</button>}
       />
 
       <div className="toolbar"><SeletorDeEvento eventId={eventId} onChange={setEventId} /></div>
 
       {!eventId
-        ? <EmptyState title="Selecione um evento" />
+        ? <EmptyState title={t('evento.selecioneUmEvento')} />
         : (
           <AsyncSection state={estado} linhas={4}>
             {dados => (dados.items.length
@@ -1476,29 +1493,29 @@ export function AdminPalco({ notificar }) {
                           está no palco agora. Por isso o pulso aqui é honesto:
                           não é enfeite fingindo tempo real. */}
                       {bateria.status === 'ON_STAGE'
-                        ? <PulsoAoVivo rotulo="No palco" />
+                        ? <PulsoAoVivo rotulo={t('evento.noPalco')} />
                         : <Badge tom={estadoDaBateria(bateria.status).tom}>{estadoDaBateria(bateria.status).rotulo}</Badge>}
-                      <button type="button" className="button button-secondary button-sm" onClick={() => setOrdenando(bateria)}>Ordem</button>
+                      <button type="button" className="button button-secondary button-sm" onClick={() => setOrdenando(bateria)}>{t('evento.ordem')}</button>
                       {bateria.status === 'SCHEDULED' && (
                         <button type="button" className="button button-primary button-sm" disabled={mudando === bateria.id} onClick={() => mudarStatus(bateria, 'CALLED')}>
-                          {mudando === bateria.id ? 'Chamando…' : 'Chamar'}
+                          {mudando === bateria.id ? t('evento.chamando') : t('evento.chamar')}
                         </button>
                       )}
                       {bateria.status === 'CALLED' && (
                         <button type="button" className="button button-primary button-sm" disabled={mudando === bateria.id} onClick={() => mudarStatus(bateria, 'ON_STAGE')}>
-                          {mudando === bateria.id ? 'Entrando…' : 'No palco'}
+                          {mudando === bateria.id ? t('evento.entrando') : t('evento.noPalco')}
                         </button>
                       )}
                       {bateria.status === 'ON_STAGE' && (
                         <button type="button" className="button button-secondary button-sm" disabled={mudando === bateria.id} onClick={() => mudarStatus(bateria, 'DONE')}>
-                          {mudando === bateria.id ? 'Encerrando…' : 'Encerrar'}
+                          {mudando === bateria.id ? t('evento.encerrando') : t('evento.encerrar')}
                         </button>
                       )}
                     </div>
                   </div>
                 </Revelacao>
               ))
-              : <EmptyState title="Nenhuma bateria" description="Crie a primeira bateria para montar a ordem de palco." />
+              : <EmptyState title={t('evento.nenhumaBateria')} description={t('evento.nenhumaBateriaDescricao')} />
             )}
           </AsyncSection>
         )}
@@ -1510,6 +1527,7 @@ export function AdminPalco({ notificar }) {
 }
 
 function NovaBateria({ eventId, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const evento = useFetch(() => api.events.findOne(eventId), [eventId]);
   const [form, setForm] = useState({ classId: '', name: '', scheduledAt: '' });
   const [salvando, setSalvando] = useState(false);
@@ -1529,7 +1547,7 @@ function NovaBateria({ eventId, notificar, onClose, onSalvo }) {
         name: form.name,
         scheduledAt: form.scheduledAt ? new Date(form.scheduledAt).toISOString() : null
       });
-      notificar('Bateria criada.');
+      notificar(t('evento.bateriaCriada'));
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -1538,23 +1556,24 @@ function NovaBateria({ eventId, notificar, onClose, onSalvo }) {
   };
 
   return (
-    <Modal title="Nova bateria" onClose={onClose}>
+    <Modal title={t('evento.novaBateria')} onClose={onClose}>
       <form onSubmit={salvar}>
-        <Field label="Classe" required>
+        <Field label={t('evento.classe')} required>
           <select value={form.classId} onChange={evt => setForm({ ...form, classId: evt.target.value })} required>
-            <option value="">Selecione…</option>
+            <option value="">{t('evento.selecione')}</option>
             {classes.map(classe => <option key={classe.id} value={classe.id}>{classe.rotulo}</option>)}
           </select>
         </Field>
-        <Field label="Nome" required><input value={form.name} onChange={evt => setForm({ ...form, name: evt.target.value })} required maxLength={90} placeholder="Ex: Bateria 1" /></Field>
-        <Field label="Horário"><input type="datetime-local" value={form.scheduledAt} onChange={evt => setForm({ ...form, scheduledAt: evt.target.value })} /></Field>
-        <ModalActions onClose={onClose} saving={salvando} confirmLabel="Criar bateria" />
+        <Field label={t('evento.nome')} required><input value={form.name} onChange={evt => setForm({ ...form, name: evt.target.value })} required maxLength={90} placeholder={t('evento.exemploBateria')} /></Field>
+        <Field label={t('evento.horario')}><input type="datetime-local" value={form.scheduledAt} onChange={evt => setForm({ ...form, scheduledAt: evt.target.value })} /></Field>
+        <ModalActions onClose={onClose} saving={salvando} confirmLabel={t('evento.criarBateria')} />
       </form>
     </Modal>
   );
 }
 
 function OrdemDePalco({ bateria, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
   const ordem = useFetch(() => api.operations.stageOrder(bateria.id), [bateria.id]);
   const inscritos = useListaPaginada(
     cursor => api.registrations.listByEvent(bateria.eventId, { limit: POR_PAGINA, status: 'CONFIRMED', classId: bateria.classId, cursor: cursor || undefined }),
@@ -1588,7 +1607,7 @@ function OrdemDePalco({ bateria, notificar, onClose, onSalvo }) {
       await api.operations.setStageOrder(bateria.id, {
         items: listaAtual.map((item, indice) => ({ registrationItemId: item.registrationItemId, position: indice + 1 }))
       });
-      notificar('Ordem de palco salva.');
+      notificar(t('evento.ordemSalva'));
       onSalvo();
     } catch (erro) {
       notificar(erro.message, 'erro');
@@ -1597,33 +1616,33 @@ function OrdemDePalco({ bateria, notificar, onClose, onSalvo }) {
   };
 
   return (
-    <Modal title={`Ordem — ${bateria.name}`} description="Posição de entrada dos atletas nesta bateria." wide onClose={onClose}>
+    <Modal title={`Ordem — ${bateria.name}`} description={t('evento.posicaoDeEntrada')} wide onClose={onClose}>
       <div className="grid grid-2">
         <section>
-          <h3 style={{ fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--cinza-fraco)', marginBottom: 10 }}>Ordem definida</h3>
+          <h3 style={{ fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--cinza-fraco)', marginBottom: 10 }}>{t('evento.ordemDefinida')}</h3>
           {listaAtual.length
             ? listaAtual.map((item, indice) => (
               <div className="judge-row" key={item.registrationItemId} style={{ marginBottom: 6 }}>
                 <span className="placing">{indice + 1}</span>
                 <span className="info"><strong>{item.nome}</strong></span>
-                <button type="button" className="button button-secondary button-sm" onClick={() => mover(indice, -1)} aria-label="Subir">↑</button>
-                <button type="button" className="button button-secondary button-sm" onClick={() => mover(indice, 1)} aria-label="Descer">↓</button>
+                <button type="button" className="button button-secondary button-sm" onClick={() => mover(indice, -1)} aria-label={t('evento.subir')}>↑</button>
+                <button type="button" className="button button-secondary button-sm" onClick={() => mover(indice, 1)} aria-label={t('evento.descer')}>↓</button>
                 <button type="button" className="button button-danger button-sm" onClick={() => setItens(listaAtual.filter((_, posicao) => posicao !== indice))}>×</button>
               </div>
             ))
-            : <p style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>Nenhum atleta na ordem.</p>}
+            : <p style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>{t('evento.nenhumAtletaNaOrdem')}</p>}
         </section>
 
         <section>
-          <h3 style={{ fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--cinza-fraco)', marginBottom: 10 }}>Disponíveis</h3>
+          <h3 style={{ fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--cinza-fraco)', marginBottom: 10 }}>{t('evento.disponiveis')}</h3>
           {disponiveis.length
             ? disponiveis.map(candidato => (
               <div className="judge-row" key={candidato.registrationItemId} style={{ marginBottom: 6 }}>
                 <span className="info"><strong>{candidato.nome}</strong></span>
-                <button type="button" className="button button-secondary button-sm" onClick={() => setItens([...listaAtual, candidato])}>Adicionar</button>
+                <button type="button" className="button button-secondary button-sm" onClick={() => setItens([...listaAtual, candidato])}>{t('evento.adicionar')}</button>
               </div>
             ))
-            : <p style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>Todos os inscritos já estão na ordem.</p>}
+            : <p style={{ fontSize: 12, color: 'var(--cinza-fraco)' }}>{t('evento.todosNaOrdem')}</p>}
           {/* "Todos os inscritos já estão na ordem" é uma frase perigosa quando
               a lista parou na página 1: ela afirma uma coisa que o sistema não
               sabe. Enquanto houver página seguinte, há para onde ir. */}
@@ -1632,8 +1651,8 @@ function OrdemDePalco({ bateria, notificar, onClose, onSalvo }) {
       </div>
 
       <div className="modal-actions">
-        <button type="button" className="button button-secondary" onClick={onClose}>Fechar</button>
-        <button type="button" className="button button-primary" onClick={salvar} disabled={salvando || !listaAtual.length}>Salvar ordem</button>
+        <button type="button" className="button button-secondary" onClick={onClose}>{t('evento.fechar')}</button>
+        <button type="button" className="button button-primary" onClick={salvar} disabled={salvando || !listaAtual.length}>{t('evento.salvarOrdem')}</button>
       </div>
     </Modal>
   );
