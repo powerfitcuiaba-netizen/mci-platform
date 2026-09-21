@@ -66,6 +66,11 @@ jobs:
       JWT_SECRET: ci-secret-apenas-para-a-pipeline-com-tamanho-suficiente
       BCRYPT_ROUNDS: '4'
       LOG_LEVEL: silent
+      # Senha EFÊMERA de papel de TESTE, num banco de descarte que morre com o
+      # job. Não é segredo: está aqui, à vista, pelo mesmo motivo que as
+      # outras senhas desta pipeline — para que o arquivo descreva por inteiro
+      # o ambiente que ele monta.
+      BYPASSRLS_TEST_PASSWORD: teste_bypassrls_efemero
 
     steps:
       - uses: actions/checkout@v4
@@ -176,6 +181,20 @@ jobs:
           # de restauração.
           psql -h localhost -U mci -d mci_test -v ON_ERROR_STOP=1 \
                -c "ALTER ROLE mci_owner CREATEDB"
+
+      # OS PAPÉIS DO TESTE DE BYPASSRLS SÃO PROVISIONADOS POR QUEM PODE.
+      #
+      # O teste criava o papel sozinho e a CI reprovava: conceder BYPASSRLS
+      # exige já tê-lo, e `mci_owner` não tem — nem pode ter, porque é o papel
+      # da aplicação. Aqui quem cria é o usuário de bootstrap, exatamente como
+      # em produção seria o DBA, e o teste apenas se conecta por eles.
+      - name: Provisionar os papéis do teste de BYPASSRLS
+        env:
+          PGPASSWORD: mci_ci
+        run: |
+          psql -h localhost -U mci -d mci_test -v ON_ERROR_STOP=1 \
+               -v senha="'${BYPASSRLS_TEST_PASSWORD}'" \
+               -f scripts/provision-bypassrls-test-roles.sql
 
       - name: Popular o catálogo oficial
         run: node prisma/seed.js

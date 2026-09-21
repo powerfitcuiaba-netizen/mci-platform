@@ -30,62 +30,69 @@ const { inspecionar, assertRlsEfetivo } = require('../src/config/rlsGuard.js');
 // Sem a primeira, a segunda não significa nada: estaríamos provando que a
 // barreira recusa um estado que talvez fosse inofensivo.
 //
-// ONDE ELE RODA
+// ONDE ELE RODA, E POR QUE ELE NÃO CRIA MAIS O PAPEL
 //
-// Só onde a conexão tem `CREATEROLE` — na CI, onde `mci_owner` o recebe para
-// que a pipeline se baste. E a CI tem passo próprio que reprova se este
-// arquivo tiver pulado: suíte que pula em silêncio é suíte que não existe, e
-// esta em particular é a única prova de que o perigo é real.
+// A primeira versão criava o papel aqui mesmo, condicionada a `CREATEROLE`. Na
+// CI isso REPROVOU, e a mensagem do PostgreSQL é a regra que faltava:
+//
+//   ERROR: permission denied to create role
+//   DETAIL: Only roles with the BYPASSRLS attribute may create roles with the
+//           BYPASSRLS attribute.
+//
+// Quem cria um papel com BYPASSRLS precisa ter o atributo. `mci_owner` tem
+// CREATEROLE na CI, mas NÃO tem BYPASSRLS — e não pode ter: dá-lo à aplicação
+// é exatamente o que a barreira existe para impedir. A condição antiga
+// (`CREATEROLE`) era, portanto, a condição errada: ela dizia "sim" num
+// ambiente onde a criação ia falhar.
+//
+// Agora os dois papéis são PROVISIONADOS por quem em produção os provisionaria
+// — o administrador do banco, fora do caminho da aplicação —, em
+// `scripts/provision-bypassrls-test-roles.sql`. Este arquivo só se conecta por
+// eles e mede. A condição passou a ser "os papéis existem".
+//
+// A CI tem passo próprio que reprova se este arquivo tiver pulado: suíte que
+// pula em silêncio é suíte que não existe, e esta em particular é a única
+// prova de que o perigo é real.
 // ============================================================================
 
 const URL_BASE = process.env.DATABASE_URL || '';
 const PAPEL = 'mci_teste_bypassrls';
-const SENHA = 'teste_bypassrls_efemero';
+const PAPEL_MEMBRO = `${PAPEL}_membro`;
+const SENHA = process.env.BYPASSRLS_TEST_PASSWORD || 'teste_bypassrls_efemero';
 
-// `CREATEROLE` é a condição, e ela é consultada no banco — não deduzida do
-// nome do ambiente.
-const podeCriarPapel = await (async () => {
+// A condição é a EXISTÊNCIA dos papéis, consultada no banco — não o nome do
+// ambiente, nem um privilégio que não garante o que se pretendia garantir.
+const papeisProvisionados = await (async () => {
   if (!URL_BASE) return false;
   try {
-    const [linha] = await prisma.$queryRaw`
-      SELECT rolcreaterole AS pode FROM pg_roles WHERE rolname = current_user`;
-    return Boolean(linha?.pode);
+    const [linha] = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS n FROM pg_roles WHERE rolname IN ('${PAPEL}', '${PAPEL_MEMBRO}')`);
+    return linha?.n === 2;
   } catch {
     return false;
   }
 })();
 
-const urlDoPapel = () => {
+const urlDoPapel = nome => {
   const url = new URL(URL_BASE);
-  url.username = PAPEL;
+  url.username = nome;
   url.password = SENHA;
   return url.toString();
 };
 
-describe.skipIf(!podeCriarPapel)('um papel com BYPASSRLS, de verdade', () => {
+describe.skipIf(!papeisProvisionados)('um papel com BYPASSRLS, de verdade', () => {
   let clienteComBypass = null;
 
   beforeAll(async () => {
-    await prisma.$executeRawUnsafe(`DROP ROLE IF EXISTS ${PAPEL}`);
-    await prisma.$executeRawUnsafe(
-      `CREATE ROLE ${PAPEL} LOGIN PASSWORD '${SENHA}' NOSUPERUSER NOCREATEDB NOCREATEROLE BYPASSRLS`);
-    // Privilégio de tabela é OUTRA coisa que RLS: sem SELECT concedido, a
-    // leitura falharia por permissão e o teste estaria medindo a permissão, e
-    // não o atributo.
-    await prisma.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO ${PAPEL}`);
-    await prisma.$executeRawUnsafe(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${PAPEL}`);
-
-    clienteComBypass = new PrismaClient({ datasources: { db: { url: urlDoPapel() } } });
+    clienteComBypass = new PrismaClient({ datasources: { db: { url: urlDoPapel(PAPEL) } } });
     await clienteComBypass.$connect();
   }, 60_000);
 
   afterAll(async () => {
+    // O papel NÃO é derrubado aqui: quem o criou foi o provisionamento, e
+    // derrubá-lo daqui deixaria a suíte dependente da ordem em que os
+    // arquivos rodam. O banco da CI é de descarte.
     if (clienteComBypass) await clienteComBypass.$disconnect();
-    try {
-      await prisma.$executeRawUnsafe(`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${PAPEL}`);
-      await prisma.$executeRawUnsafe(`REVOKE ALL ON SCHEMA public FROM ${PAPEL}`);
-      await prisma.$executeRawUnsafe(`DROP ROLE IF EXISTS ${PAPEL}`);
-    } catch { /* o papel some com o banco de descarte de qualquer jeito */ }
   }, 60_000);
 
   it('o atributo é real: o papel existe com rolbypassrls', async () => {
@@ -154,17 +161,9 @@ describe.skipIf(!podeCriarPapel)('um papel com BYPASSRLS, de verdade', () => {
     // sim. Quem pode se tornar um papel com BYPASSRLS alcança o privilégio sem
     // trocar de conexão, e por isso `pg_has_role(..., 'MEMBER')` é o predicado
     // certo — `USAGE` deixaria este caso passar.
-    const papelIntermediario = `${PAPEL}_membro`;
-    await prisma.$executeRawUnsafe(`DROP ROLE IF EXISTS ${papelIntermediario}`);
-    await prisma.$executeRawUnsafe(
-      `CREATE ROLE ${papelIntermediario} LOGIN PASSWORD '${SENHA}' NOSUPERUSER NOBYPASSRLS`);
-    await prisma.$executeRawUnsafe(`GRANT ${PAPEL} TO ${papelIntermediario}`);
-    await prisma.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO ${papelIntermediario}`);
-
-    const url = new URL(URL_BASE);
-    url.username = papelIntermediario;
-    url.password = SENHA;
-    const clienteMembro = new PrismaClient({ datasources: { db: { url: url.toString() } } });
+    const clienteMembro = new PrismaClient({
+      datasources: { db: { url: urlDoPapel(PAPEL_MEMBRO) } }
+    });
 
     try {
       await clienteMembro.$connect();
@@ -172,7 +171,7 @@ describe.skipIf(!podeCriarPapel)('um papel com BYPASSRLS, de verdade', () => {
 
       // O papel EM SI não tem o atributo...
       const [proprio] = await prisma.$queryRawUnsafe(
-        `SELECT rolbypassrls AS bypass FROM pg_roles WHERE rolname = '${papelIntermediario}'`);
+        `SELECT rolbypassrls AS bypass FROM pg_roles WHERE rolname = '${PAPEL_MEMBRO}'`);
       expect(proprio.bypass, 'o papel intermediário não carrega o atributo').toBe(false);
 
       // ...e mesmo assim a barreira recusa, porque ele PODE assumir quem tem.
@@ -180,8 +179,6 @@ describe.skipIf(!podeCriarPapel)('um papel com BYPASSRLS, de verdade', () => {
       expect(estado.ok).toBe(false);
     } finally {
       await clienteMembro.$disconnect();
-      await prisma.$executeRawUnsafe(`REVOKE ALL ON SCHEMA public FROM ${papelIntermediario}`);
-      await prisma.$executeRawUnsafe(`DROP ROLE IF EXISTS ${papelIntermediario}`);
     }
   }, 60_000);
 });
