@@ -162,6 +162,29 @@ jobs:
             exit 1
           fi
 
+      # O MESMO CUIDADO PARA O ÚNICO TESTE QUE SÓ RODA AQUI.
+      #
+      # `bypassrls-real` cria um papel com BYPASSRLS, conecta por ele e mede
+      # duas coisas: que o atributo DERRUBA FORCE ROW LEVEL SECURITY, e que a
+      # barreira de partida recusa essa conexão. Ele exige CREATEROLE, que só
+      # existe nesta pipeline — no ambiente de desenvolvimento ele pula, e
+      # pular é o comportamento correto lá.
+      #
+      # Aqui, pular seria perder a única prova de que o perigo é real. Este
+      # passo reprova se isso acontecer.
+      - name: Conferir que o teste real de BYPASSRLS não foi pulado
+        run: |
+          set -e
+          SAIDA=$(npx vitest run tests/bypassrls-real.test.mjs --reporter=json 2>/dev/null | tail -1)
+          PULADOS=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPendingTests+r.numTodoTests)" <<< "$SAIDA")
+          PASSOU=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPassedTests)" <<< "$SAIDA")
+          echo "bypassrls real: $PASSOU passaram, $PULADOS pulados"
+          # 5 do papel com BYPASSRLS + 1 do papel de backup.
+          if [ "$PULADOS" != "0" ] || [ "$PASSOU" -lt 6 ]; then
+            echo "O teste real de BYPASSRLS não rodou. Sem ele, a barreira está afirmada e não medida."
+            exit 1
+          fi
+
   frontend:
     name: Frontend — testes e build
     runs-on: ubuntu-latest

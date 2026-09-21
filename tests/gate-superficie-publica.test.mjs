@@ -459,10 +459,24 @@ describe('§9 a superfície pública não depende de privilégio', () => {
     // décima política incondicional passa a exigir decisão consciente, em vez
     // de entrar junto com outra mudança qualquer.
     //
-    // As quatro de `qual=true` são tabelas de referência lidas pela
-    // superfície pública (catálogo de classes, empresas, vínculos de equipe,
-    // títulos Overall). As cinco de `check=true` restringem a LEITURA por
-    // `USING` e deixam a escrita para o serviço decidir.
+    // A LISTA ENCOLHEU DE NOVE PARA SETE, e o encolhimento é o ponto.
+    //
+    // `AthleteTeamMembership.vinculo_leitura` era `USING (true)`: o histórico
+    // de equipe inteiro — datas, motivo de saída, quem registrou — legível por
+    // qualquer um. `AuditLog.auditoria_restrita` era `WITH CHECK (true)`: a
+    // leitura restrita e a ESCRITA sem predicado, então uma linha podia ser
+    // gravada com o `userId` de outra pessoa. As duas foram fechadas.
+    //
+    // A asserção pinça a lista EXATA, e não um teto. Isso a faz falhar nos
+    // dois sentidos, de propósito: uma política incondicional a mais passa a
+    // exigir decisão consciente, e uma a menos obriga a registrar aqui por que
+    // saiu. Lista que só barra crescimento deixa de contar a história quando o
+    // trabalho é de redução.
+    //
+    // As três de `qual=true` que sobram são tabelas de referência lidas pela
+    // superfície pública: catálogo de classes, empresas e títulos Overall. As
+    // quatro de `check=true` restringem a LEITURA por `USING` e deixam a
+    // escrita para o serviço decidir.
     const abertas = await prisma.$queryRaw`
       SELECT tablename::text AS tabela, policyname::text AS politica
       FROM pg_policies
@@ -470,8 +484,6 @@ describe('§9 a superfície pública não depende de privilégio', () => {
       ORDER BY tablename, policyname`;
 
     expect(abertas.map(l => `${l.tabela}.${l.politica}`)).toEqual([
-      'AthleteTeamMembership.vinculo_leitura',
-      'AuditLog.auditoria_restrita',
       'ClassCatalog.catalogo_leitura',
       'Comment.comentario_alteracao',
       'Company.empresa_leitura',

@@ -332,7 +332,19 @@ describe('o calendário não pede migration nenhuma', () => {
       // `athleteId` nulo NÃO passa — e há teste dedicado a isso, porque o
       // resultado histórico sem dono não pode virar visível a qualquer
       // pessoa autenticada.
-      '20260920120000_o_dono_le_o_proprio_historico'
+      '20260920120000_o_dono_le_o_proprio_historico',
+      // Duas cláusulas incondicionais fechadas, e nenhuma coluna tocada.
+      //
+      // `AthleteTeamMembership` tinha `USING (true)` na leitura: o histórico de
+      // equipe inteiro — datas, motivo de saída, quem registrou — era legível
+      // por qualquer um, anônimo inclusive. `AuditLog` tinha `WITH CHECK
+      // (true)`: a leitura era restrita e a ESCRITA não era conferida, então
+      // uma linha podia ser gravada com o `userId` de outra pessoa.
+      //
+      // A auditoria também virou append-only: sem política de UPDATE e sem
+      // política de DELETE, e sob FORCE RLS comando sem política é comando
+      // negado — para o dono do schema inclusive.
+      '20260921000000_vinculo_privado_e_auditoria_inforjavel'
     ]);
   });
 });
