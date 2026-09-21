@@ -3,6 +3,7 @@
 
 export default {
   'idioma.escolher': 'Language',
+  'idioma.abrirMenu': 'Choose language',
   'idioma.pt-BR': 'Português',
   'idioma.en': 'English',
   'idioma.es': 'Español',
@@ -130,6 +131,8 @@ export default {
   // Busca global do topo.
   'busca.placeholder': 'Search athlete, event, profile, community…',
   'busca.rotulo': 'Global search',
+  'busca.abrir': 'Open search',
+  'busca.fechar': 'Close search',
   'busca.nadaEncontrado': 'Nothing found.',
   'busca.atleta': 'Athlete',
   'busca.campeonato': 'Championship',

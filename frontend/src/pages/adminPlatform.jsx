@@ -756,7 +756,12 @@ export function NovaImportacao({ notificar, onClose, onCriada }) {
   };
 
   return (
-    <Modal title={t('plataforma.importarResultados')} description={t('plataforma.arquivoEConferido')} onClose={onClose}>
+    <Modal
+      title={t('plataforma.importarResultados')}
+      description={t('plataforma.arquivoEConferido')}
+      variante="modal-formulario"
+      onClose={onClose}
+    >
       <form onSubmit={enviar}>
         <Field label={t('evento.organizacao')} required>
           <select value={form.organizationId} onChange={evt => escolherOrganizacao(evt.target.value)} required>

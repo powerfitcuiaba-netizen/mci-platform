@@ -92,6 +92,45 @@ function linhas() {
 
 const metrica = (rotulo, valor) => `<div class="metric"><span>${rotulo}</span><strong>${valor}</strong></div>`;
 
+const campo = (rotulo, controle, dica) => `<label class="field"><span>${rotulo}</span>${controle}${dica ? `<small>${dica}</small>` : ''}</label>`;
+const selecao = texto => `<select><option>${texto}</option></select>`;
+
+// O FORMULÁRIO DE CRIAÇÃO — a tela que o operador vê ao clicar "Importar
+// resultados". Sete campos, e as dicas longas de propósito: é o comprimento
+// real do texto em produção que faz a coluna crescer, e era ele que empurrava
+// o rodapé para fora da tela antes da correção.
+function htmlDoFormulario() {
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Importar resultados — medição de QA</title>
+<link rel="stylesheet" href="styles.css"></head>
+<body><div class="shell"><div class="main"><main><div class="page">
+<header class="page-head"><h1>Importações MuscleWare</h1></header></div></main></div></div>
+
+<div class="modal-layer" role="dialog" aria-modal="true" aria-label="Importar resultados">
+<button type="button" class="modal-scrim" tabindex="-1" aria-hidden="true"></button>
+<div class="modal modal-formulario" tabindex="-1">
+<div class="modal-head"><div><h2>Importar resultados MuscleWare</h2>
+<p>O arquivo é conferido antes de qualquer coisa entrar no ranking.</p></div>
+<button type="button" class="icon-button" aria-label="Fechar">X</button></div>
+<div class="modal-body">
+<form>
+${campo('Organização <em>*</em>', selecao('Selecione'))}
+${campo('Evento', selecao('Sem evento'), 'É o evento onde os resultados serão publicados. Escolher aqui é o que permite responder depois de qual etapa veio cada ponto do ranking. Sem evento, o resultado entra no histórico sem etapa.')}
+${campo('Temporada', selecao('Sem temporada'), 'Sem temporada não há tabela de pontos, e a importação entra sem pontuar.')}
+${campo('Arquivo <em>*</em>', '<input type="file">', 'CSV ou JSON. Reconhece nome inteiro ou First Name + Last Name, e Member Number como matrícula. Total Score não é lido como pontuação: a colocação é que pontua.')}
+${campo('Filiação da etapa', '<input type="text" placeholder="NPC">', 'Para arquivos sem coluna de filiação. O reconhecimento por matrícula exige as duas juntas — matrícula sozinha não identifica ninguém. Linha que já traz a sua própria filiação não é sobrescrita.')}
+${campo('Prefixo do identificador', '<input type="text" placeholder="IPIRANGA">', 'Só para arquivos que não trazem identificador de resultado. A chave fica prefixo + matrícula + classe, e é ela que impede que importar duas vezes some os pontos duas vezes. Em branco, um arquivo sem identificador é recusado em vez de importado.')}
+<div class="alert alert-info" style="margin-bottom:12px"><div>
+<strong>ipiranga_importacao_6_colunas.csv</strong><p>CSV · 12.150 caracteres lidos.</p></div></div>
+<div class="modal-actions">
+<button type="button" class="button button-secondary">Cancelar</button>
+<button type="submit" class="button button-primary">Pré-visualizar</button></div>
+</form>
+</div></div></div></body></html>
+`;
+}
+
 export function gerarFixture(destino) {
   mkdirSync(destino, { recursive: true });
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
@@ -108,6 +147,7 @@ export function gerarFixture(destino) {
 <p>Confira os totais antes de aplicar. Linhas pendentes podem ser vinculadas manualmente.</p></div>
 <button type="button" class="icon-button" aria-label="Fechar">X</button></div>
 
+<div class="modal-body">
 <div class="alert alert-info" style="margin-bottom:14px"><div>
 <strong>Etapa de QA</strong><p>12/09/2026 · Cuiabá/MT · Temporada 2026</p></div></div>
 
@@ -144,9 +184,11 @@ ${linhas()}
 <div class="modal-actions">
 <button type="button" class="button button-secondary">Cancelar</button>
 <button type="button" class="button button-primary">Aplicar importação</button></div>
+</div>
 </div></div></body></html>
 `;
   writeFileSync(resolve(destino, 'revisao.html'), html);
+  writeFileSync(resolve(destino, 'formulario.html'), htmlDoFormulario());
   copyFileSync(resolve(RAIZ, 'frontend/src/styles.css'), resolve(destino, 'styles.css'));
   return destino;
 }

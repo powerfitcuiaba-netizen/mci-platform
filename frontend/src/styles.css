@@ -391,6 +391,14 @@ h1, h2, h3 { margin: 0; }
 
 .toolbar { display: flex; gap: var(--e2); flex-wrap: wrap; margin-bottom: var(--e4); align-items: center; }
 
+/* O ITEM FLEX DA BARRA SUPERIOR.
+   Estes valores moravam num `style` inline no componente, e por isso nenhuma
+   faixa de tela conseguia alcançá-los: estilo inline vence folha de estilo.
+   Era essa a razão de a busca não ceder largura no celular. */
+.busca-global { position: relative; flex: 1 1 260px; max-width: 420px; min-width: 0; }
+/* Fora do celular a busca é permanente e não há botão para abrir nem fechar. */
+.busca-abrir, .busca-fechar { display: none; }
+
 .search-box {
   display: flex; align-items: center; gap: var(--e2);
   background: var(--superficie); border: 1px solid var(--linha-forte);
@@ -504,19 +512,52 @@ h1, h2, h3 { margin: 0; }
    Em 1366x768 o operador precisava rolar DENTRO do diálogo para reencontrar
    "Aplicar", e a tabela — presa a 340px fixos — somava altura que a viewport
    não tinha. Três áreas resolvem: topo e rodapé grudados, miolo rolando. */
-.modal-layer { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: var(--e6); overflow: hidden; }
+/* A CAMADA É QUEM DEFINE O ESPAÇO DISPONÍVEL, E O DIÁLOGO SÓ O OCUPA.
+   ---------------------------------------------------------------------------
+   `place-items: center` faz da área de grade — viewport menos o padding desta
+   camada — a caixa de referência do diálogo. Por isso `max-height: 100%` lá
+   embaixo já significa "tudo o que sobra depois da margem", em qualquer tela,
+   sem ninguém repetir a conta. `dvh` acompanha a barra de endereço que aparece
+   e some no celular; `vh` sozinho mede a tela com a barra recolhida. */
+.modal-layer {
+  position: fixed; inset: 0; z-index: 20; display: grid; place-items: center;
+  padding: var(--e6); overflow: hidden;
+  max-height: 100dvh;
+  padding-bottom: max(var(--e6), env(safe-area-inset-bottom));
+}
 .modal-scrim { position: absolute; inset: 0; background: rgba(3,5,8,.72); border: 0; backdrop-filter: blur(3px); animation: surge var(--t-base) ease-out; }
+/* TRÊS FAIXAS: topo fixo, miolo que rola, rodapé fixo.
+   ---------------------------------------------------------------------------
+   O diálogo NÃO rola — quem rola é `.modal-body`. A diferença não é estética:
+   enquanto o container de rolagem era o diálogo inteiro, a altura do miolo
+   dependia de o cabeçalho e o rodapé medirem o que alguém mediu uma vez, à mão,
+   numa viewport. Mudava o idioma, o zoom ou o conteúdo e a conta saía errada —
+   ora sobrava faixa vazia, ora o rodapé descia para fora da tela.
+   Com `flex: 1` e `min-height: 0`, o miolo passa a ser O QUE SOBRA. */
 .modal {
   position: relative; width: min(100%, 560px); max-width: 96vw;
   background: var(--superficie-3); border: 1px solid var(--linha-forte);
-  border-radius: var(--raio-2); padding: var(--e6);
-  /* `dvh` acompanha a barra de endereço que aparece e some no celular; `vh`
-     sozinho mede a tela com a barra recolhida e deixa o rodapé embaixo dela. */
-  max-height: min(80vh, 80dvh);
-  /* `hidden` no eixo horizontal é o que impede a tabela larga de empurrar o
-     diálogo para fora da viewport: quem rola na horizontal é `.table-wrap`. */
-  overflow: hidden auto; overscroll-behavior: contain;
+  border-radius: var(--raio-2);
+  /* DOIS TETOS, E O MENOR VENCE.
+     `100%` é a área de grade da camada — a conta certa, que acompanha o
+     padding de cada faixa de tela sem ninguém repetir número. `100dvh` é o
+     cinto: se algum dia a camada voltar a ficar presa a um ancestral com
+     `transform`, o `%` mente e o `dvh` não. Medido: sem o segundo teto, o
+     diálogo parava em 418px de altura numa tela de 844. */
+  max-height: min(100%, calc(100dvh - var(--e6) * 2));
+  display: flex; flex-direction: column;
+  /* `hidden` aqui protege os cantos arredondados e impede que a tabela larga
+     empurre o diálogo para fora da viewport: quem rola na horizontal é
+     `.table-wrap`, e quem rola na vertical é `.modal-body`. */
+  overflow: hidden;
   box-shadow: var(--sombra-3); animation: sobe var(--t-calmo) var(--mola);
+}
+/* `min-height: 0` é o que permite o item encolher abaixo do conteúdo: sem ele
+   o padrão `auto` do flex faz o miolo crescer e empurrar o rodapé para fora. */
+.modal-body {
+  flex: 1 1 auto; min-height: 0;
+  overflow: hidden auto; overscroll-behavior: contain;
+  padding: var(--e5) var(--e6) var(--e6);
 }
 /* LARGURA CONTROLADA, E NÃO "o máximo que couber".
    ---------------------------------------------------------------------------
@@ -530,18 +571,23 @@ h1, h2, h3 { margin: 0; }
    redefine só este número; a conta da altura mora num lugar só, mais abaixo.
    Declarado aqui, antes de qualquer @media, porque as faixas têm a mesma
    especificidade e quem vence entre iguais é a última do arquivo. */
-.modal-wide { --custo-do-resto: 450px; }
+
 /* Grudados nas bordas do próprio diálogo. O deslocamento negativo cancela o
    padding do modal, senão sobraria uma faixa de conteúdo aparecendo por baixo. */
+/* Faixa própria do flex: não precisa mais de `sticky` nem de margem negativa
+   para cancelar padding que o diálogo já não tem. */
 .modal-head {
-  position: sticky; top: calc(var(--e6) * -1); z-index: 2;
+  flex: 0 0 auto; z-index: 2;
   background: var(--superficie-3);
   display: flex; align-items: flex-start; justify-content: space-between;
-  gap: var(--e4); margin: calc(var(--e6) * -1) calc(var(--e6) * -1) var(--e5);
+  gap: var(--e4); margin: 0;
   padding: var(--e6) var(--e6) var(--e3); border-bottom: 1px solid var(--linha);
 }
 .modal-head h2 { font: 400 24px var(--fonte-display); letter-spacing: 1.1px; }
 .modal-head p { margin: var(--e1) 0 0; font-size: 12.5px; color: var(--cinza); }
+/* Continua `sticky`, mas agora ancorado ao corpo rolante: fica colado no fim
+   da área visível do miolo, e as margens negativas cancelam o padding DO CORPO.
+   Por ser o último filho, `bottom: 0` o prende na borda inferior do diálogo. */
 .modal-actions {
   position: sticky; bottom: calc(var(--e6) * -1); z-index: 2;
   background: var(--superficie-3);
@@ -549,6 +595,23 @@ h1, h2, h3 { margin: 0; }
   border-top: 1px solid var(--linha);
   margin: var(--e5) calc(var(--e6) * -1) calc(var(--e6) * -1);
   padding: var(--e4) var(--e6) var(--e6); flex-wrap: wrap;
+}
+/* VARIANTE DO FORMULÁRIO DE IMPORTAÇÃO.
+   Sete campos numa coluna de 560px viravam uma tira alta e estreita: o diálogo
+   batia no teto da viewport e o operador rolava para achar o botão. Em tela
+   larga eles cabem em duas colunas, e aí o diálogo tem metade da altura. */
+.modal-formulario { width: min(100%, clamp(560px, 76vw, 1040px)); }
+.modal-formulario .modal-body > form {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--e5); align-items: start;
+}
+/* O que não é campo atravessa as duas colunas. */
+.modal-formulario .modal-body > form > .alert,
+.modal-formulario .modal-body > form > .modal-actions { grid-column: 1 / -1; }
+/* Abaixo disto duas colunas apertariam os selects; uma só respira melhor. */
+@media (max-width: 860px) {
+  .modal-formulario { width: min(100%, 560px); }
+  .modal-formulario .modal-body > form { grid-template-columns: minmax(0, 1fr); }
 }
 @keyframes sobe  { from { opacity: 0; transform: translateY(8px) scale(.99); } to { opacity: 1; transform: none; } }
 @keyframes surge { from { opacity: 0; } to { opacity: 1; } }
@@ -816,7 +879,6 @@ h1, h2, h3 { margin: 0; }
   .import-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   /* Quatro colunas significam DUAS linhas de métrica, e a segunda custa
      ~60px que saíam da tabela. */
-  .modal-wide { --custo-do-resto: 566px; }
 }
 
 /* LINHAS MAIS BAIXAS DENTRO DO DIÁLOGO.
@@ -973,16 +1035,8 @@ h1, h2, h3 { margin: 0; }
      número saiu de medir, não de estimar: em 1280x720 a moldura custava 360 e
      sobravam 216px de tabela — 2 linhas de 65px. O teto de 80vh é intocável,
      então o que cede é a moldura. */
-  .modal-wide { --custo-do-resto: 292px; }
 }
 
-/* A FAIXA ONDE AS DUAS COISAS ACONTECEM AO MESMO TEMPO: tela baixa (a moldura
-   compacta, economizando ~90px) E largura de notebook pequeno (as métricas em
-   duas linhas, custando ~60px). Sem esta regra, a faixa herdava só um dos dois
-   ajustes e a paginação voltava para trás do rodapé em 1024x768. */
-@media (max-height: 940px) and (min-width: 901px) and (max-width: 1100px) {
-  .modal-wide { --custo-do-resto: 345px; }
-}
 
 /* Recorte da revisão. Em 320px o seletor e a contagem empilham: o seletor tem
    min-width: auto por ser item de flex, e sem a quebra ele empurra a largura
@@ -1010,10 +1064,16 @@ h1, h2, h3 { margin: 0; }
 
    Os números saíram de medir o excesso real do diálogo em cada viewport, não
    de estimativa. */
-.tabela-em-modal {
-  max-height: clamp(150px, calc(80vh - var(--custo-do-resto, 450px)), 520px);
-  overflow: auto;
-}
+/* SEM NÚMERO MEDIDO À MÃO.
+   Este recorte já foi `calc(80vh - var(--custo-do-resto))`, com o custo do
+   resto do diálogo anotado viewport a viewport: 450, 566, 292, 345, 620. Cada
+   número valia para o conteúdo, o idioma e o zoom em que foi medido, e para
+   mais nada — em inglês e espanhol os rótulos são mais longos, o cabeçalho
+   cresce, e a conta passa a cortar exatamente o que deveria proteger.
+   Agora quem garante que o rodapé não sai da tela é o flex de `.modal`, e este
+   teto só evita que a tabela vire uma faixa longa demais para varrer com os
+   olhos. Se ainda assim não couber, o corpo rola — nada é cortado. */
+.tabela-em-modal { max-height: min(56dvh, 520px); overflow: auto; }
 /* Lista de resultados de busca dentro de diálogo — mesma razão da tabela: a
    altura tem de ceder quando a tela é baixa, senão empurra o rodapé. */
 .lista-em-modal {
@@ -1169,6 +1229,30 @@ h1, h2, h3 { margin: 0; }
 }
 
 @media (max-width: 560px) {
+  /* NO CELULAR A BUSCA É UM BOTÃO, E VIRA CAMPO QUANDO ALGUÉM PEDE.
+     -------------------------------------------------------------------------
+     A barra tem 356px de custo fixo — padding 32, menu 44, vãos 24 e ações 256
+     — numa viewport de 360. Nenhum campo de busca cabe no que sobra, e medido
+     em Chromium real o documento ganhava 33px de rolagem horizontal em 360x800
+     e 19px em 390x844.
+     Encolher os botões resolveria a conta e quebraria o piso de 40px de alvo
+     de toque. Esconder a busca resolveria também, e tiraria a função de quem
+     usa telefone. O botão custa os mesmos 44px dos vizinhos; aberto, a busca
+     cobre a barra inteira e tem por onde fechar. */
+  .busca-global { display: none; }
+  .busca-abrir { display: grid; }
+
+  .busca-global.is-expandida {
+    display: flex; align-items: center; gap: var(--e2);
+    /* Cobre a barra toda: `inset` com o mesmo padding dela, e nunca além. */
+    position: absolute; inset: 0 var(--e4); z-index: 4;
+    max-width: none; background: var(--superficie);
+  }
+  .busca-global.is-expandida .search-box { flex: 1 1 auto; min-width: 0; }
+  .busca-global.is-expandida .busca-fechar { display: grid; }
+  /* O painel de resultados acompanha a busca expandida, sem passar da tela. */
+  .busca-global.is-expandida .panel { left: 0; right: 0; }
+
   .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .field-row { grid-template-columns: minmax(0, 1fr); }
   .page-head { display: block; }
@@ -1176,8 +1260,11 @@ h1, h2, h3 { margin: 0; }
   .page-head h1 { font-size: 30px; }
   .toast-stack { left: var(--e4); right: var(--e4); bottom: var(--e4); }
   .toast { max-width: none; }
-  .modal { padding: var(--e4); max-width: none; width: 100%; }
-  .modal-head { top: calc(var(--e4) * -1); margin: calc(var(--e4) * -1) calc(var(--e4) * -1) var(--e4); padding: var(--e4) var(--e4) var(--e3); }
+  /* No telefone o diálogo é praticamente a tela: ocupa a largura toda que a
+     margem da camada deixa, e a altura toda que couber. */
+  .modal, .modal-wide, .modal-formulario { max-width: none; width: 100%; }
+  .modal-body { padding: var(--e4) var(--e4) var(--e4); }
+  .modal-head { margin: 0; padding: var(--e4) var(--e4) var(--e3); }
   .modal-head h2 { font-size: 20px; }
   .modal-actions {
     bottom: calc(var(--e4) * -1); justify-content: stretch;
@@ -1188,7 +1275,6 @@ h1, h2, h3 { margin: 0; }
   .modal-layer { padding: var(--e3); }
   /* Em tela baixa o recorte da tabela encolhe junto: o rodapé tem prioridade. */
   /* Sete métricas em quatro linhas de duas: o resto custa o dobro. */
-  .modal-wide { --custo-do-resto: 620px; }
   .lista-em-modal { max-height: clamp(120px, 26vh, 240px); }
   .import-contagem { margin-left: 0; }
   .metric { padding: var(--e3) var(--e4); }
@@ -2263,6 +2349,12 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
    O foco é visível de propósito e não é o contorno padrão do navegador: o
    cabeçalho é escuro, e o contorno fino some nele.
    ========================================================================== */
+/* A raiz ancora o popover do celular; em tela larga ela é só um invólucro. */
+.seletor-idioma-raiz { position: relative; display: inline-flex; }
+/* Fora do celular o botão e o menu não existem: as três já estão à vista, e um
+   botão para abrir o que está aberto seria ruído para o leitor de tela. */
+.seletor-idioma-botao, .seletor-idioma-menu { display: none; }
+
 .seletor-idioma {
   display: inline-flex;
   align-items: center;
@@ -2313,6 +2405,47 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
      tocável, sem empurrar a busca para fora da barra. */
   .seletor-idioma-sigla { display: none; }
   .seletor-idioma-opcao { padding: 4px 6px; }
+}
+
+/* ORDEM IMPORTA, E ESTE ARQUIVO JÁ FOI MORDIDO POR ISSO.
+   ---------------------------------------------------------------------------
+   As regras base do seletor moram AQUI, no fim do arquivo. A primeira versão
+   desta correção pôs o bloco de celular no `@media (max-width: 560px)` lá de
+   cima, a mil linhas de distância — e com a mesma especificidade quem vence é
+   a ÚLTIMA do arquivo. `display: inline-flex` anulava o `display: none`, e o
+   botão novo nunca aparecia. Medido: o seletor continuava com 100px e as três
+   opções de 31px seguiam na tela, com a correção inteira sem efeito. */
+@media (max-width: 560px) {
+  /* O IDIOMA VIRA UM BOTÃO, PELA MESMA ARITMÉTICA DA BUSCA.
+     -------------------------------------------------------------------------
+     Três opções lado a lado custavam 100px e mediam 31x32 — abaixo do piso de
+     40px de alvo de toque. Aumentá-las para 44 resolveria o toque e levaria o
+     seletor a 132px, PIORANDO a largura. Um botão de 44px resolve os dois:
+     as ações caem de 256 para 200 e a barra fecha em 356 numa viewport de 360.
+     Nenhuma língua sai: as três moram no menu, a um toque. */
+  .seletor-idioma { display: none; }
+  .seletor-idioma-botao { display: inline-flex; align-items: center; gap: 2px; width: auto; min-width: 44px; padding: 0 6px; }
+  .seletor-idioma-atual { font-size: 13px; line-height: 1; }
+
+  .seletor-idioma-menu {
+    display: grid; gap: 2px; position: absolute; top: calc(100% + 6px); right: 0; z-index: 12;
+    padding: var(--e2); min-width: 168px;
+    background: var(--superficie-3); border: 1px solid var(--linha-forte);
+    border-radius: var(--raio); box-shadow: var(--sombra-3);
+  }
+  /* 44px de altura: o piso de toque vale para cada opção do menu, não só para
+     o botão que o abre. */
+  .seletor-idioma-item {
+    display: flex; align-items: center; gap: var(--e3);
+    min-height: 44px; padding: 0 var(--e3);
+    border: 0; border-radius: var(--raio); background: transparent;
+    color: var(--cinza); font: 600 13px var(--fonte-corpo); text-align: left; cursor: pointer;
+  }
+  .seletor-idioma-item:hover { background: var(--superficie-2); color: var(--branco); }
+  .seletor-idioma-item.is-active { background: var(--superficie-2); color: var(--ciano); }
+  .seletor-idioma-item .seletor-idioma-bandeira { font-size: 17px; }
+  /* No menu a sigla VOLTA: aqui há largura, e ela diz o que a bandeira não diz. */
+  .seletor-idioma-item .seletor-idioma-sigla { display: inline; letter-spacing: 0.04em; }
 }
 
 @media (prefers-reduced-motion: no-preference) {
