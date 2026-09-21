@@ -5,6 +5,7 @@ import { useFetch } from '../lib/hooks';
 import { SeletorDeEvento } from './adminEvent';
 import { AsyncSection, Badge, EmptyState, Field, Modal, PageHead } from '../components/ui';
 import { formatarData } from '../lib/format';
+import { useIdioma } from '../lib/idioma';
 
 // ==========================================================================
 // CORREÇÃO ADMINISTRATIVA DO RANKING PUBLICADO.
@@ -34,6 +35,7 @@ const rotuloDaColocacao = ponto => {
 };
 
 export function AdminLancamentos({ notificar }) {
+  const { t } = useIdioma();
   const [eventId, setEventId] = useState(null);
   const [corrigindo, setCorrigindo] = useState(null);
   const [invalidando, setInvalidando] = useState(null);
@@ -51,9 +53,9 @@ export function AdminLancamentos({ notificar }) {
   return (
     <div className="page">
       <PageHead
-        eyebrow="Ranking"
-        title="Lançamentos do campeonato"
-        description="Correção e invalidação de resultado já publicado. Toda alteração exige motivo e fica na auditoria."
+        eyebrow={t('overall.ranking')}
+        title={t('lancamento.titulo')}
+        description={t('lancamento.descricao')}
       />
 
       <div className="toolbar">
@@ -63,8 +65,8 @@ export function AdminLancamentos({ notificar }) {
       {!eventId
         ? (
           <EmptyState
-            title="Escolha um campeonato"
-            description="A correção é feita com a súmula do campeonato na mão, lançamento por lançamento."
+            title={t('overall.escolhaCampeonato')}
+            description={t('lancamento.escolhaCampeonato')}
           />
         )
         : (
@@ -77,16 +79,16 @@ export function AdminLancamentos({ notificar }) {
                     <div className="panel-head"><h2>{dados.event.name}</h2></div>
                     <div className="hero-meta" style={{ padding: '0 0 10px' }}>
                       <span>{formatarData(dados.event.startDate)}</span>
-                      <span>{dados.items.length} lançamento(s)</span>
-                      <span>{dados.items.filter(p => p.voidedAt).length} invalidado(s)</span>
+                      <span>{t('lancamento.contagem', { n: dados.items.length })}</span>
+                      <span>{t('lancamento.invalidados', { n: dados.items.filter(p => p.voidedAt).length })}</span>
                     </div>
                   </section>
 
                   {!dados.items.length
                     ? (
                       <EmptyState
-                        title="Nenhum lançamento neste campeonato"
-                        description="Os lançamentos aparecem depois que uma importação é aplicada ou um resultado é publicado."
+                        title={t('lancamento.nenhum')}
+                        description={t('lancamento.nenhumDescricao')}
                       />
                     )
                     : (
@@ -95,14 +97,14 @@ export function AdminLancamentos({ notificar }) {
                           <table className="table lancamentos-tabela">
                             <thead>
                               <tr>
-                                <th>Atleta</th>
-                                <th>Categoria</th>
-                                <th>Classe</th>
-                                <th className="num">Col.</th>
-                                <th className="num">Colocação</th>
-                                <th className="num">Overall</th>
-                                <th className="num">Pontos</th>
-                                <th>Situação</th>
+                                <th>{t('overall.atleta')}</th>
+                                <th>{t('overall.categoria')}</th>
+                                <th>{t('lancamento.classe')}</th>
+                                <th className="num">{t('overall.colocacaoCurta')}</th>
+                                <th className="num">{t('overall.colocacao')}</th>
+                                <th className="num">{t('overall.bonusOverall')}</th>
+                                <th className="num">{t('lancamento.pontos')}</th>
+                                <th>{t('conta.situacao')}</th>
                                 <th />
                               </tr>
                             </thead>
@@ -158,50 +160,51 @@ export function AdminLancamentos({ notificar }) {
 }
 
 function LinhaDeLancamento({ ponto, onCorrigir, onInvalidar, onRestaurar }) {
+  const { t } = useIdioma();
   const invalidado = Boolean(ponto.voidedAt);
 
   return (
     <tr className={invalidado ? 'linha-invalidada' : undefined}>
-      <td data-rotulo="Atleta">
+      <td data-rotulo={t('overall.atleta')}>
         {ponto.athlete?.fullName || '—'}
         {ponto.athlete?.affiliationNumber && (
           <small style={{ display: 'block', color: 'var(--cinza-fraco)' }}>
-            Matrícula {ponto.athlete.affiliationNumber}
+            {t('lancamento.matricula', { numero: ponto.athlete.affiliationNumber })}
           </small>
         )}
       </td>
-      <td data-rotulo="Categoria">{ponto.category?.name || '—'}</td>
-      <td data-rotulo="Classe">{ponto.competitionClass?.name || '—'}</td>
-      <td className="num" data-rotulo="Colocação">{rotuloDaColocacao(ponto)}</td>
-      <td className="num" data-rotulo="Pontos da colocação">{ponto.placementPoints}</td>
-      <td className="num" data-rotulo="Bônus Overall">{ponto.overallBonus ? `+${ponto.overallBonus}` : '—'}</td>
-      <td className="num" data-rotulo="Total"><strong>{ponto.points}</strong></td>
-      <td data-rotulo="Situação">
+      <td data-rotulo={t('overall.categoria')}>{ponto.category?.name || '—'}</td>
+      <td data-rotulo={t('lancamento.classe')}>{ponto.competitionClass?.name || '—'}</td>
+      <td className="num" data-rotulo={t('overall.colocacao')}>{rotuloDaColocacao(ponto)}</td>
+      <td className="num" data-rotulo={t('overall.pontosDaColocacao')}>{ponto.placementPoints}</td>
+      <td className="num" data-rotulo={t('overall.bonusOverall')}>{ponto.overallBonus ? `+${ponto.overallBonus}` : '—'}</td>
+      <td className="num" data-rotulo={t('carreira.colunaTotal')}><strong>{ponto.points}</strong></td>
+      <td data-rotulo={t('conta.situacao')}>
         {invalidado
           ? (
             <>
-              <Badge tom="perigo">Invalidado</Badge>
+              <Badge tom="perigo">{t('lancamento.invalidado')}</Badge>
               {/* O motivo fica À VISTA, e não escondido atrás de um clique: é
                   ele que distingue correção de adulteração seis meses depois. */}
               <small style={{ display: 'block', color: 'var(--cinza-fraco)' }}>{ponto.voidReason}</small>
             </>
           )
-          : <Badge tom="ok">Válido</Badge>}
+          : <Badge tom="ok">{t('lancamento.valido')}</Badge>}
       </td>
       <td className="acoes-da-linha">
         {invalidado
           ? (
             <button type="button" className="button button-secondary button-sm" onClick={onRestaurar}>
-              <RotateCcw size={14} /> Restaurar
+              <RotateCcw size={14} /> {t('lancamento.restaurar')}
             </button>
           )
           : (
             <>
               <button type="button" className="button button-secondary button-sm" onClick={onCorrigir}>
-                <PencilLine size={14} /> Corrigir
+                <PencilLine size={14} /> {t('lancamento.corrigir')}
               </button>
               <button type="button" className="button button-secondary button-sm" onClick={onInvalidar}>
-                <Ban size={14} /> Invalidar
+                <Ban size={14} /> {t('acao.invalidar')}
               </button>
             </>
           )}
@@ -214,6 +217,7 @@ function LinhaDeLancamento({ ponto, onCorrigir, onInvalidar, onRestaurar }) {
 // calculasse, passaria a existir uma segunda implementação da regra de
 // pontuação, e as duas divergiriam no dia em que a tabela da temporada mudasse.
 function DialogoDeCorrecao({ ponto, notificar, onClose, onPronto }) {
+  const { t } = useIdioma();
   const [naoCompareceu, setNaoCompareceu] = useState(Boolean(ponto.didNotShow));
   const [colocacao, setColocacao] = useState(ponto.placing != null ? String(ponto.placing) : '');
   const [motivo, setMotivo] = useState('');
@@ -231,33 +235,33 @@ function DialogoDeCorrecao({ ponto, notificar, onClose, onPronto }) {
     setEnviando(true);
     try {
       await api.ranking.editPoint(ponto.id, { ...params, reason: motivo.trim() });
-      notificar?.('Lançamento corrigido.');
+      notificar?.(t('lancamento.corrigidoAviso'));
       onPronto();
     } catch (erro) {
-      notificar?.(erro.message || 'Não foi possível corrigir.', 'erro');
+      notificar?.(erro.message || t('lancamento.falhaAoCorrigir'), 'erro');
       setEnviando(false);
     }
   };
 
   return (
     <Modal
-      title="Corrigir lançamento"
-      description={`${ponto.athlete?.fullName || 'Atleta'} · ${ponto.competitionClass?.name || ''}`}
+      title={t('lancamento.corrigirLancamento')}
+      description={`${ponto.athlete?.fullName || t('overall.atleta')} · ${ponto.competitionClass?.name || ''}`}
       onClose={onClose}
     >
-      <Field label="Não compareceu (NS)">
+      <Field label={t('lancamento.naoCompareceu')}>
         <label className="escolha">
           <input
             type="checkbox"
             checked={naoCompareceu}
             onChange={evento => setNaoCompareceu(evento.target.checked)}
           />
-          <span>O atleta não subiu ao palco nesta classe</span>
+          <span>{t('lancamento.naoSubiuAoPalco')}</span>
         </label>
       </Field>
 
       {!naoCompareceu && (
-        <Field label="Colocação" required hint="A pontuação é calculada pelo servidor. Do 6º em diante vale zero.">
+        <Field label={t('overall.colocacao')} required hint={t('lancamento.colocacaoHint')}>
           <input
             type="number"
             min="1"
@@ -273,18 +277,18 @@ function DialogoDeCorrecao({ ponto, notificar, onClose, onPronto }) {
         </AsyncSection>
       )}
 
-      <Field label="Motivo da correção" required>
+      <Field label={t('lancamento.motivoDaCorrecao')} required>
         <textarea
           value={motivo}
           onChange={evento => setMotivo(evento.target.value)}
           rows={3}
-          placeholder="Ex.: súmula oficial da organização corrigida"
+          placeholder={t('lancamento.exemploCorrecao')}
         />
       </Field>
 
       <div className="modal-actions">
         <button type="button" className="button button-secondary" onClick={onClose} disabled={enviando}>
-          Cancelar
+          {t('acao.cancelar')}
         </button>
         <button
           type="button"
@@ -292,7 +296,7 @@ function DialogoDeCorrecao({ ponto, notificar, onClose, onPronto }) {
           onClick={confirmar}
           disabled={enviando || !colocacaoValida || motivo.trim().length < MOTIVO_MINIMO}
         >
-          {enviando ? 'Corrigindo…' : 'Confirmar correção'}
+          {t(enviando ? 'lancamento.corrigindo' : 'lancamento.confirmarCorrecao')}
         </button>
       </div>
     </Modal>
@@ -300,14 +304,16 @@ function DialogoDeCorrecao({ ponto, notificar, onClose, onPronto }) {
 }
 
 function TabelaDoImpacto({ previa }) {
+  const { t } = useIdioma();
+
   return (
     <dl className="definicoes">
-      <div><dt>Colocação antes</dt><dd>{rotuloDaColocacao(previa.atual)}</dd></div>
-      <div><dt>Colocação depois</dt><dd>{rotuloDaColocacao(previa.novo)}</dd></div>
-      <div><dt>Pontos antes</dt><dd>{previa.atual.points}</dd></div>
-      <div><dt>Pontos depois</dt><dd><strong>{previa.novo.points}</strong></dd></div>
+      <div><dt>{t('lancamento.colocacaoAntes')}</dt><dd>{rotuloDaColocacao(previa.atual)}</dd></div>
+      <div><dt>{t('lancamento.colocacaoDepois')}</dt><dd>{rotuloDaColocacao(previa.novo)}</dd></div>
+      <div><dt>{t('lancamento.pontosAntes')}</dt><dd>{previa.atual.points}</dd></div>
+      <div><dt>{t('lancamento.pontosDepois')}</dt><dd><strong>{previa.novo.points}</strong></dd></div>
       <div>
-        <dt>Diferença</dt>
+        <dt>{t('lancamento.diferenca')}</dt>
         <dd><strong>{previa.diferenca > 0 ? `+${previa.diferenca}` : previa.diferenca}</strong></dd>
       </div>
     </dl>
@@ -317,6 +323,7 @@ function TabelaDoImpacto({ previa }) {
 // INVALIDAR. O texto do diálogo diz o que a operação faz E o que ela não faz:
 // sem isso o operador supõe que está apagando, e escolhe errado.
 function DialogoDeInvalidacao({ ponto, notificar, onClose, onPronto }) {
+  const { t } = useIdioma();
   const [motivo, setMotivo] = useState('');
   const [enviando, setEnviando] = useState(false);
 
@@ -324,43 +331,40 @@ function DialogoDeInvalidacao({ ponto, notificar, onClose, onPronto }) {
     setEnviando(true);
     try {
       await api.ranking.voidPoint(ponto.id, { reason: motivo.trim() });
-      notificar?.('Lançamento invalidado.');
+      notificar?.(t('lancamento.invalidadoAviso'));
       onPronto();
     } catch (erro) {
-      notificar?.(erro.message || 'Não foi possível invalidar.', 'erro');
+      notificar?.(erro.message || t('lancamento.falhaAoInvalidar'), 'erro');
       setEnviando(false);
     }
   };
 
   return (
     <Modal
-      title="Invalidar lançamento"
-      description={`${ponto.athlete?.fullName || 'Atleta'} · ${ponto.competitionClass?.name || ''}`}
+      title={t('lancamento.invalidarLancamento')}
+      description={`${ponto.athlete?.fullName || t('overall.atleta')} · ${ponto.competitionClass?.name || ''}`}
       onClose={onClose}
     >
       <div className="alert alert-alerta" style={{ marginBottom: 14 }}>
         <AlertTriangle size={16} />
         <div>
-          <strong>A participação NÃO é apagada.</strong>
-          <p>
-            Ela continua no histórico do atleta valendo zero, marcada como invalidada e com este
-            motivo à vista. Perde os {ponto.points} ponto(s) e o bônus de Overall, se houver.
-          </p>
+          <strong>{t('lancamento.naoEApagada')}</strong>
+          <p>{t('lancamento.naoEApagadaTexto', { pontos: ponto.points })}</p>
         </div>
       </div>
 
-      <Field label="Motivo da invalidação" required>
+      <Field label={t('lancamento.motivoDaInvalidacao')} required>
         <textarea
           value={motivo}
           onChange={evento => setMotivo(evento.target.value)}
           rows={3}
-          placeholder="Ex.: atleta desclassificado pela comissão técnica"
+          placeholder={t('lancamento.exemploInvalidacao')}
         />
       </Field>
 
       <div className="modal-actions">
         <button type="button" className="button button-secondary" onClick={onClose} disabled={enviando}>
-          Cancelar
+          {t('acao.cancelar')}
         </button>
         <button
           type="button"
@@ -368,7 +372,7 @@ function DialogoDeInvalidacao({ ponto, notificar, onClose, onPronto }) {
           onClick={invalidar}
           disabled={enviando || motivo.trim().length < MOTIVO_MINIMO}
         >
-          {enviando ? 'Invalidando…' : 'Invalidar lançamento'}
+          {t(enviando ? 'lancamento.invalidando' : 'lancamento.invalidarLancamento')}
         </button>
       </div>
     </Modal>
@@ -376,6 +380,7 @@ function DialogoDeInvalidacao({ ponto, notificar, onClose, onPronto }) {
 }
 
 function DialogoDeRestauracao({ ponto, notificar, onClose, onPronto }) {
+  const { t } = useIdioma();
   const [motivo, setMotivo] = useState('');
   const [enviando, setEnviando] = useState(false);
 
@@ -383,50 +388,47 @@ function DialogoDeRestauracao({ ponto, notificar, onClose, onPronto }) {
     setEnviando(true);
     try {
       await api.ranking.restorePoint(ponto.id, { reason: motivo.trim() });
-      notificar?.('Lançamento restaurado.');
+      notificar?.(t('lancamento.restauradoAviso'));
       onPronto();
     } catch (erro) {
-      notificar?.(erro.message || 'Não foi possível restaurar.', 'erro');
+      notificar?.(erro.message || t('lancamento.falhaAoRestaurar'), 'erro');
       setEnviando(false);
     }
   };
 
   return (
     <Modal
-      title="Restaurar lançamento"
-      description={`${ponto.athlete?.fullName || 'Atleta'} · ${ponto.competitionClass?.name || ''}`}
+      title={t('lancamento.restaurarLancamento')}
+      description={`${ponto.athlete?.fullName || t('overall.atleta')} · ${ponto.competitionClass?.name || ''}`}
       onClose={onClose}
     >
       <div className="alert alert-ok" style={{ marginBottom: 14 }}>
         <History size={16} />
         <div>
-          <strong>Volta ao estado de antes da invalidação.</strong>
-          <p>
-            A colocação {rotuloDaColocacao(ponto)} volta a pontuar pela tabela vigente da temporada,
-            e não por um total congelado no momento da invalidação.
-          </p>
+          <strong>{t('lancamento.voltaAoEstado')}</strong>
+          <p>{t('lancamento.voltaAoEstadoTexto', { colocacao: rotuloDaColocacao(ponto) })}</p>
         </div>
       </div>
 
       <div className="alert alert-alerta" style={{ marginBottom: 14 }}>
         <AlertTriangle size={16} />
         <div>
-          <strong>Invalidado por: {ponto.voidReason}</strong>
+          <strong>{t('lancamento.invalidadoPor', { motivo: ponto.voidReason })}</strong>
         </div>
       </div>
 
-      <Field label="Motivo da restauração" required>
+      <Field label={t('lancamento.motivoDaRestauracao')} required>
         <textarea
           value={motivo}
           onChange={evento => setMotivo(evento.target.value)}
           rows={3}
-          placeholder="Ex.: desclassificação revertida pela comissão"
+          placeholder={t('lancamento.exemploRestauracao')}
         />
       </Field>
 
       <div className="modal-actions">
         <button type="button" className="button button-secondary" onClick={onClose} disabled={enviando}>
-          Cancelar
+          {t('acao.cancelar')}
         </button>
         <button
           type="button"
@@ -434,7 +436,7 @@ function DialogoDeRestauracao({ ponto, notificar, onClose, onPronto }) {
           onClick={restaurar}
           disabled={enviando || motivo.trim().length < MOTIVO_MINIMO}
         >
-          {enviando ? 'Restaurando…' : 'Restaurar lançamento'}
+          {t(enviando ? 'lancamento.restaurando' : 'lancamento.restaurarLancamento')}
         </button>
       </div>
     </Modal>
