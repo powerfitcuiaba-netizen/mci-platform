@@ -271,6 +271,30 @@ jobs:
             exit 1
           fi
 
+      # A MESMA GUARDA PARA A TAXONOMIA DE CATEGORIA E CLASSE.
+      #
+      # `taxonomia-de-classe` é a suíte que prova que "Women's Physique -
+      # Masters 35+" vira categoria MAIS classe, que as quatro classes
+      # genéricas continuam intactas, que as duas regras de unicidade existem
+      # NO BANCO — índice parcial não é expresso pelo Prisma e some no
+      # primeiro `db push` — e que nada disso moveu a pontuação.
+      #
+      # Ela depende de estado do banco. Pulá-la em silêncio devolveria um CI
+      # verde sobre um recorte que não funciona mais.
+      - name: Conferir que as suítes de taxonomia e de ajuste não foram puladas
+        run: |
+          set -e
+          SAIDA=$(npx vitest run tests/taxonomia-de-classe.test.mjs tests/diagnostico-classe.test.mjs tests/ajuste-de-pontos.test.mjs tests/temporada-sem-tabela-de-pontos.test.mjs --reporter=json 2>/dev/null | tail -1)
+          PULADOS=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPendingTests+r.numTodoTests)" <<< "$SAIDA")
+          PASSOU=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPassedTests)" <<< "$SAIDA")
+          echo "taxonomia, ajuste e diagnóstico: $PASSOU passaram, $PULADOS pulados"
+          # 16 da taxonomia + 6 do diagnóstico somente-leitura + 16 do ajuste
+          # administrativo + 4 da temporada sem tabela de pontos.
+          if [ "$PULADOS" != "0" ] || [ "$PASSOU" -lt 42 ]; then
+            echo "A suíte da taxonomia/ajuste não rodou por inteiro."
+            exit 1
+          fi
+
   frontend:
     name: Frontend — testes e build
     runs-on: ubuntu-latest

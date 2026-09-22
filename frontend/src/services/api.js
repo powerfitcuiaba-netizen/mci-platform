@@ -287,6 +287,10 @@ export const api = {
     // Estreante, Novice e Master do pódio do campeonato.
     list: params => get('/ranking', params),
     superOverall: params => get('/ranking/super-overall', params),
+    // Classes para montar o filtro. A lista é DADO da organização e vem do
+    // servidor — nenhuma tela pode trazê-la escrita no código, porque
+    // classe nova entra por importação e a tela não ficaria sabendo.
+    classes: params => get('/ranking/classes', params),
 
     // Título Overall do evento. O critério de determinação NÃO é do sistema: o
     // título é declarado pela organização, e o servidor registra em auditoria
@@ -308,6 +312,11 @@ export const api = {
     eventPoints: eventId => get(`/events/${eventId}/ranking-points`),
     previewPoint: (pointId, params) => get(`/ranking/points/${pointId}/preview`, params),
     editPoint: (pointId, dados) => patch(`/ranking/points/${pointId}`, dados),
+    // AJUSTE ADMINISTRATIVO: rota própria, e não mais um campo do PATCH.
+    // Corrigir colocação e ajustar pontuação são decisões diferentes, com
+    // justificativas diferentes, e a auditoria precisa saber qual foi qual.
+    adjustPoint: (pointId, dados) => post(`/ranking/points/${pointId}/adjust`, dados),
+    pointAdjustments: pointId => get(`/ranking/points/${pointId}/adjustments`),
     voidPoint: (pointId, dados) => post(`/ranking/points/${pointId}/void`, dados),
     restorePoint: (pointId, dados) => post(`/ranking/points/${pointId}/restore`, dados),
     seasons: params => get('/seasons', params),

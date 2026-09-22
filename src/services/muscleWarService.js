@@ -8,6 +8,7 @@ const logger = require('../utils/logger');
 const notifications = require('./notificationService');
 const ranking = require('./rankingService');
 const { pontuarResultado, conferirPontuacaoImportada } = require('../utils/rankingScoring');
+const { nomeDeExibicaoDaClasse, resolverClasseDoCatalogo } = require('../utils/classeDoCatalogo');
 
 const SOURCE = 'MUSCLEWAR';
 
@@ -851,6 +852,21 @@ async function preview(importId, actor, { limit, offset = 0, matchStatus = null,
     by: ['categoryCode'], where: { importId }, _count: { _all: true }
   });
 
+  // TEMPORADA SEM TABELA DE PONTOS: O VERDE FALSO MAIS CARO DESTA BASE.
+  //
+  // `pontuarResultado` procura a colocação na tabela da temporada e, não
+  // achando, devolve zero — que é o comportamento certo do 6º lugar em
+  // diante. Numa temporada SEM TABELA NENHUMA, porém, não se acha colocação
+  // alguma: todo primeiro lugar vale zero, a aplicação anuncia
+  // "191 aplicados / 0 conflitos", e o defeito só aparece quando alguém abre
+  // o ranking e vê um campeonato inteiro zerado.
+  //
+  // O aviso vem junto do resumo que o operador já lê ANTES de aplicar. A
+  // recusa está em `apply`.
+  const semTabelaDePontos = lote.seasonId
+    ? (await prisma.rankingPointsRule.count({ where: { seasonId: lote.seasonId } })) === 0
+    : false;
+
   return {
     import: lote,
     summary: {
@@ -877,7 +893,11 @@ async function preview(importId, actor, { limit, offset = 0, matchStatus = null,
       pendingLink: totais.MATCH_PENDING,
       // Mantido pelo nome antigo para não quebrar quem já lê `valid`, mas com
       // o significado novo: o que entra.
-      valid: totais.MATCHED + totais.MATCH_PENDING
+      valid: totais.MATCHED + totais.MATCH_PENDING,
+      // A temporada do lote não tem tabela de pontos homologada. Aplicar
+      // assim gravaria o campeonato inteiro valendo zero — ver o comentário
+      // acima. `apply` recusa; aqui o operador fica sabendo antes.
+      seasonWithoutPointsTable: semTabelaDePontos
     },
     // O recorte que esta resposta representa. Sem isto a tela não tem como
     // dizer "mostrando 200 de 10.000" — e mostrar 200 calada é pior do que
@@ -1515,6 +1535,31 @@ async function apply(importId, actor) {
 
   assertCan(actor, 'musclewar.apply', lote.organizationId);
 
+  // A RECUSA FICA AQUI, NA PORTA DO OPERADOR.
+  //
+  // Sem tabela de pontos a temporada não sabe quanto vale um primeiro lugar,
+  // e `pontuarResultado` devolve zero para toda colocação. Aplicar gravaria o
+  // campeonato inteiro valendo zero, com o resumo anunciando sucesso — e
+  // desfazer isso depois custa muito mais do que recusar agora.
+  //
+  // A plataforma NÃO inventa a tabela: quem a homologa é a organização, em
+  // `PUT /seasons/:id/points-rules`.
+  //
+  // Não está em `aplicarLote` porque lá passa também o caminho do SISTEMA —
+  // o vínculo tardio de um cadastro recém-aprovado, que é consequência de uma
+  // aprovação já autorizada. Derrubar a aprovação de um atleta por causa de
+  // uma configuração de temporada seria punir a pessoa errada.
+  if (lote.seasonId) {
+    const regras = await prisma.rankingPointsRule.count({ where: { seasonId: lote.seasonId } });
+    if (!regras) {
+      throw new AppError(
+        422, 'SEASON_WITHOUT_POINTS_TABLE',
+        'A temporada deste lote não tem tabela de pontos homologada. '
+        + 'Sem ela toda colocação valeria zero. Configure a tabela da temporada antes de aplicar.'
+      );
+    }
+  }
+
   return aplicarLote(lote, actor);
 }
 
@@ -1833,6 +1878,29 @@ async function aplicarLote(lote, actor) {
             ? await tx.category.findUnique({ where: { code: item.categoryCode.toUpperCase() } })
             : null;
 
+          // A CLASSE VIRA ENTIDADE, E O PONTO PASSA A SABER QUAL É.
+          //
+          // Até aqui a classe sobrevivia só como texto — em
+          // `ExternalResult.className` e nos campos do item. `classId` aponta
+          // para `CompetitionClass`, que existe por divisão DE UM EVENTO do
+          // MCI, e resultado histórico não tem evento do MCI: nascia nulo e
+          // ficava nulo, e o recorte por classe nunca devolveu uma linha
+          // importada.
+          //
+          // `catalogClassId` é o recorte que funciona nos dois caminhos.
+          // Resolvido contra o catálogo DA ORGANIZAÇÃO, preferindo a classe
+          // da categoria e caindo na genérica quando ela não existe.
+          //
+          // ISTO NÃO TOCA EM PONTUAÇÃO. `superOverallEligible` já foi
+          // resolvido acima, pela DIVISÃO contra o catálogo, e continua sendo
+          // ele que decide o bônus. Esta resolução acrescenta uma referência;
+          // não opina sobre quanto a linha vale.
+          const classeDoCatalogo = await resolverClasseDoCatalogo(tx, {
+            organizationId: lote.organizationId,
+            categoryId: categoria?.id ?? null,
+            displayName: nomeDeExibicaoDaClasse(item)
+          });
+
           // Na ausência de equipe no arquivo, o vínculo registrado responde —
           // é o mesmo fato, vindo da fonte que a plataforma controla.
           const equipeDoItem = equipeDeclarada
@@ -1845,6 +1913,11 @@ async function aplicarLote(lote, actor) {
               athleteId: item.athleteId ?? null,
               externalAthleteId: identidadeDoItem(item).id,
               categoryId: categoria?.id ?? null,
+              // A classe do catálogo acompanha o ponto INCLUSIVE quando
+              // `athleteId` é nulo — o resultado histórico importado antes do
+              // cadastro é o caso normal, não a exceção, e é justamente ele
+              // que o recorte por classe precisava enxergar.
+              catalogClassId: classeDoCatalogo?.id ?? null,
               source: 'MUSCLEWAR',
               // O EVENTO ACOMPANHA O PONTO.
               //

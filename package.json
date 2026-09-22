@@ -22,7 +22,10 @@
     "qa:carga": "node scripts/qa/carga.mjs",
     "qa:dataset": "node scripts/qa/dataset.mjs",
     "qa:demo": "node scripts/qa/demo.mjs",
-    "qa:carga:importador": "node scripts/qa/carga-importador.mjs"
+    "qa:carga:importador": "node scripts/qa/carga-importador.mjs",
+    "qa:mutantes": "node scripts/qa/mutantes-taxonomia.mjs",
+    "diagnostico:classe": "node scripts/backfill-classe-do-catalogo.js",
+    "qa:mutantes:ajuste": "node scripts/qa/mutantes-ajuste.mjs"
   },
   "keywords": [],
   "author": "",

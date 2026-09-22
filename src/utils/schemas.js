@@ -436,8 +436,21 @@ const pointsRuleSet = z.object({
 
 const classCatalogUpsert = z.object({
   organizationId: id,
-  code: z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]{1,40}$/),
+  // A CATEGORIA DA CLASSE, OPCIONAL.
+  //
+  // Ausente = classe GENÉRICA da organização, que é o que ESTREANTE, NOVICE,
+  // OPEN e MASTER sempre foram: divisões que valem em qualquer categoria.
+  // Presente = classe daquela categoria e só dela — "Masters 35+" de Women's
+  // Physique não é a mesma que a de Bikini.
+  categoryId: id.optional(),
+  // 60, e não 40: "OPEN_LIGHT_HEAVYWEIGHT" tem 22, mas o código é gerado a
+  // partir do nome da origem e o teto precisa ser o mesmo que o normalizador
+  // usa, ou o operador não conseguiria editar uma classe que a importação
+  // criou sozinha.
+  code: z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]{1,60}$/),
   name: opcional(texto(1, 90)),
+  // O texto como a origem escreveu. `code` é identidade; este é apresentação.
+  displayName: opcional(texto(1, 120)),
   // REGRA HOMOLOGADA: só as classes marcadas alimentam o Super Overall anual.
   superOverallEligible: booleano.optional(),
   active: booleano.optional(),
@@ -509,6 +522,29 @@ const rankingPointPreviewQuery = z.object({
 
 const rankingPointReason = z.object({ reason: texto(5, 500) });
 
+// AJUSTE ADMINISTRATIVO DA PONTUAÇÃO.
+//
+// `points` é o total novo, e `expectedPoints` é o total que o operador tinha
+// NA TELA quando decidiu. O segundo não é redundante: é a guarda de
+// concorrência, e é ela que transforma "dois operadores editando ao mesmo
+// tempo" e "duplo clique" no mesmo caso tratado — a segunda gravação chega
+// com um valor que já não vale e é recusada.
+//
+// `reason` é OBRIGATÓRIO e tem piso de 5 caracteres. Ajuste sem justificativa
+// é alteração silenciosa com outro nome.
+//
+// Não há `placing`, `categoryId`, `catalogClassId`, `eventId`, `seasonId` nem
+// `athleteId` aqui — o Zod descarta chave não declarada, então o que vier a
+// mais no corpo some antes de o serviço existir. É a primeira das duas
+// camadas; a segunda é o serviço, que só escreve pontuação.
+const rankingPointAdjust = z.object({
+  // Piso zero: pontuação negativa não existe na regra homologada. Teto de
+  // 100000 acompanha o da tabela da temporada.
+  points: z.coerce.number().int().min(0).max(100000),
+  expectedPoints: z.coerce.number().int().min(0).max(100000),
+  reason: texto(5, 500)
+});
+
 const teamRankingQuery = z.object({
   seasonId: id.optional(),
   categoryId: id.optional(),
@@ -531,8 +567,26 @@ const rankingQuery = paginacao.extend({
   // silêncio.
   organizationId: id.optional(),
   categoryId: id.optional(),
+  // Recorte por CLASSE DO CATÁLOGO. Não é `classId`: aquele é a classe de um
+  // evento do MCI e é nulo em todo resultado histórico importado.
+  catalogClassId: id.optional(),
   state: z.string().trim().length(2).optional(),
   country: z.string().trim().min(2).max(3).optional()
+});
+
+// Classes disponíveis para montar o filtro do ranking. Sem `categoryId` a
+// lista é a da organização inteira; com ele, a da categoria mais as
+// genéricas, que valem em todas.
+// Catálogo do operador. `categoryId` recorta a lista; ausente, vem inteira.
+const classCatalogQuery = paginacao.extend({
+  organizationId: id.optional(),
+  categoryId: id.optional()
+});
+
+const classesParaFiltroQuery = z.object({
+  organizationId: id.optional(),
+  seasonId: id.optional(),
+  categoryId: id.optional()
 });
 
 // Recortes derivados de RankingPoint: classe, evento e divisão. Exatamente um
@@ -542,12 +596,13 @@ const rankingCutQuery = z.object({
   seasonId: id,
   categoryId: id.optional(),
   classId: id.optional(),
+  catalogClassId: id.optional(),
   eventId: id.optional(),
   divisionId: id.optional(),
   ...recorteDeLista
 }).refine(
-  d => [d.classId, d.eventId, d.divisionId].filter(Boolean).length === 1,
-  { message: 'Informe exatamente um recorte: classId, eventId ou divisionId' }
+  d => [d.classId, d.catalogClassId, d.eventId, d.divisionId].filter(Boolean).length === 1,
+  { message: 'Informe exatamente um recorte: classId, catalogClassId, eventId ou divisionId' }
 );
 
 // ----------------------------------------------------------------- MuscleWar
@@ -810,9 +865,9 @@ module.exports = {
   paramsComTitulo, paramsComPonto,
   seasonCreate, pointsRuleSet, rankingQuery, rankingCutQuery, overallDeclare,
   overallPreviewQuery, overallRevoke, teamRankingQuery,
-  classCatalogUpsert, superOverallQuery,
+  classCatalogUpsert, classCatalogQuery, classesParaFiltroQuery, superOverallQuery,
   muscleWarImportCreate, muscleWarLink, muscleWarPreviewQuery,
-  rankingPointEdit, rankingPointPreviewQuery, rankingPointReason,
+  rankingPointEdit, rankingPointPreviewQuery, rankingPointReason, rankingPointAdjust,
   teamCreate, companyCreate, coachCreate, gymCreate, brandCreate, sponsorCreate, sponsorshipCreate,
   partnershipCreate, partnershipStatus,
   profileCreate, profileUpdateSocial, postCreate, commentCreate, shareCreate, storyCaption, feedQuery,

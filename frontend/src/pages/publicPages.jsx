@@ -581,9 +581,34 @@ export function Ranking() {
   const temporadas = useFetch(() => api.ranking.seasons(), []);
   const [seasonId, setSeasonId] = useState('');
   const [categoryId, setCategoryId] = useState('');
+  const [catalogClassId, setCatalogClassId] = useState('');
   const [aba, setAba] = useState('atletas');
   const categorias = useFetch(() => api.categories.list(), []);
-  const estado = useFetch(() => api.ranking.list({ seasonId: seasonId || undefined, categoryId: categoryId || undefined, limit: 50 }), [seasonId, categoryId]);
+
+  // AS CLASSES VÊM DO SERVIDOR, RECORTADAS PELA CATEGORIA ESCOLHIDA.
+  //
+  // Nada de lista escrita aqui: classe nova entra pela importação de um
+  // campeonato, e uma lista no código só saberia das que existiam no dia em
+  // que alguém a digitou. O endpoint devolve as classes DAQUELA categoria
+  // mais as genéricas, que valem em todas.
+  const classes = useFetch(
+    () => (aba === 'atletas' && categoryId
+      ? api.ranking.classes({ seasonId: seasonId || undefined, categoryId })
+      : Promise.resolve({ items: [] })),
+    [seasonId, categoryId, aba]
+  );
+
+  // Trocar de categoria zera a classe. Sem isto a tela ficaria pedindo o
+  // cruzamento de uma classe de Women's Physique com Figure — que o servidor
+  // recusa, e com razão, mas o operador veria um erro que ele não causou.
+  const escolherCategoria = valor => { setCategoryId(valor); setCatalogClassId(''); };
+
+  const estado = useFetch(() => api.ranking.list({
+    seasonId: seasonId || undefined,
+    categoryId: categoryId || undefined,
+    catalogClassId: catalogClassId || undefined,
+    limit: 50
+  }), [seasonId, categoryId, catalogClassId]);
 
   const filtros = { seasonId: seasonId || undefined, categoryId: categoryId || undefined };
   // Mesmo teto do ranking do campeonato, logo acima: a lista cresce com a
@@ -630,12 +655,40 @@ export function Ranking() {
             <option key={temporada.id} value={temporada.id}>{temporada.name} ({temporada.year})</option>
           ))}
         </select>
-        <select className="select-control" value={categoryId} onChange={evento => setCategoryId(evento.target.value)} aria-label={t('overall.categoria')}>
+        <select className="select-control" value={categoryId} onChange={evento => escolherCategoria(evento.target.value)} aria-label={t('overall.categoria')}>
           <option value="">{t('publico.todasAsCategorias')}</option>
           {(categorias.data?.items || []).map(categoria => (
             <option key={categoria.id} value={categoria.id}>{categoria.name}</option>
           ))}
         </select>
+        {/* SÓ NA ABA DO CAMPEONATO.
+            O recorte por classe é do ranking do campeonato, que é derivado
+            lançamento a lançamento. Super Overall, equipes e empresas agregam
+            por outro caminho e não aceitam esse recorte — deixar o seletor à
+            vista neles seria oferecer um filtro que não filtra.
+
+            A CLASSE SÓ EXISTE DENTRO DE UMA CATEGORIA.
+            Com "Todas as categorias" o seletor fica desabilitado em vez de
+            sumir: escondê-lo faria a terceira etapa do filtro aparecer e
+            desaparecer conforme a segunda, e quem não viu o seletor não
+            descobre que ele existe. Desabilitado ele continua dizendo
+            "aqui dá para recortar por classe — escolha uma categoria". */}
+        {aba === 'atletas' && (
+          <select
+            className="select-control"
+            value={catalogClassId}
+            disabled={!categoryId}
+            onChange={evento => setCatalogClassId(evento.target.value)}
+            aria-label={t('publico.classe')}
+          >
+            <option value="">{t('publico.todasAsClasses')}</option>
+            {(classes.data?.items || []).map(classe => (
+              /* `displayName` é o que se lê — "Masters 35+". O código
+                 (MASTERS_35) é identidade técnica e não aparece na tela. */
+              <option key={classe.id} value={classe.id}>{classe.displayName || classe.name}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {aba !== 'atletas' && (
@@ -650,7 +703,13 @@ export function Ranking() {
         {dados => (dados.items.length
           ? (
             <div className="table-wrap">
-              <table className="table">
+              {/* `ranking-tabela` liga o mesmo tratamento de cartão que a tela
+                  de lançamentos já usa: no telefone cada coluna vira uma linha
+                  rotulada por `data-rotulo`, em vez de a tabela rolar de lado.
+                  Medido em Chromium: 611px de tabela dentro de 286 a 396 de
+                  viewport — o visitante arrastava de lado para ver quantos
+                  pontos alguém tem, que é a única coisa que ele foi ver. */}
+              <table className="table ranking-tabela">
                 <thead>
                   <tr>
                     <th style={{ width: 60 }}>#</th>
@@ -674,8 +733,8 @@ export function Ranking() {
                 <tbody>
                   {dados.items.map(linha => (
                     <tr key={linha.id}>
-                      <td><span className={`placing placing-${linha.position}`}>{linha.position}</span></td>
-                      <td>
+                      <td data-rotulo="#"><span className={`placing placing-${linha.position}`}>{linha.position}</span></td>
+                      <td data-rotulo={t('overall.atleta')}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                           <Avatar name={linha.athlete.fullName} size="avatar-sm" />
                           <div>
@@ -686,15 +745,15 @@ export function Ranking() {
                           </div>
                         </div>
                       </td>
-                      <td>{linha.category?.name || t('publico.geral')}</td>
-                      <td>{linha.state || '—'}</td>
-                      <td className="num">{linha.eventCount}</td>
-                      <td className="num">
+                      <td data-rotulo={t('overall.categoria')}>{linha.category?.name || t('publico.geral')}</td>
+                      <td data-rotulo={t('publico.uf')}>{linha.state || '—'}</td>
+                      <td className="num" data-rotulo={t('publico.etapas')}>{linha.eventCount}</td>
+                      <td className="num" data-rotulo={t('carreira.colunaOverall')}>
                         {linha.overallWins
                           ? <Badge tom="ok">{linha.overallWins}</Badge>
                           : <span style={{ color: 'var(--cinza-fraco)' }}>—</span>}
                       </td>
-                      <td className="num"><strong style={{ color: 'var(--vermelho-claro)' }}>{linha.totalPoints}</strong></td>
+                      <td className="num" data-rotulo={t('publico.pontos')}><strong style={{ color: 'var(--vermelho-claro)' }}>{linha.totalPoints}</strong></td>
                     </tr>
                   ))}
                 </tbody>
