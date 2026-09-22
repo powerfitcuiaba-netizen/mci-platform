@@ -159,7 +159,24 @@ existe para mostrar. Corrigido e preso por teste.
 ## Os 191 do Ipiranga
 
 `scripts/backfill-classe-do-catalogo.js` reconstitui `catalogClassId` a partir
-do texto já gravado em `ExternalResult.className`.
+do que já está gravado no `ExternalResult` daquele lançamento.
+
+**A categoria vem de `ExternalResult.categoryCode`, e não do lançamento.**
+Medido na base real da federação: os 191 estão com `RankingPoint.categoryId`
+**nulo**. A primeira versão do script lia essa coluna — e teria resolvido as
+191 linhas como classe **genérica** da organização. "Masters 35+" de Bikini e
+"Masters 35+" de Men's Physique virariam a **mesma** classe, somando
+participações de categorias diferentes sob um rótulo que não é de nenhuma das
+duas.
+
+O `Category.id` resolvido serve para uma coisa só: encontrar a classe certa no
+catálogo da organização. Ele **não** é escrito em `RankingPoint.categoryId` —
+reconstituir aquela coluna é outra decisão, com outro alcance.
+
+O que não dá para resolver **fica pendente e aparece no relatório**, em vez de
+cair na genérica: código de categoria fora do catálogo oficial vira
+`CONFLITOS DE CATEGORIA`, e origem sem código de categoria é listada à parte.
+Resolver qualquer um dos dois como genérico seria inventar.
 
 - **Sem `--aplicar` nada é escrito.** A execução padrão é diagnóstico e imprime
   a quantidade exata que seria alterada, por categoria e por classe.
