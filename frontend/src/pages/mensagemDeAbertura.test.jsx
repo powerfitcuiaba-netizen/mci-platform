@@ -29,7 +29,7 @@ const api = {
 };
 vi.mock('../services/api', () => ({ default: api, api, refreshData: vi.fn(), fetchMediaObjectUrl: vi.fn(), releaseMediaObjectUrl: vi.fn() }));
 vi.mock('../AuthContext', () => ({
-  useAuth: () => ({ usuario: { id: 'u1', role: 'ADMIN', organizations: [{ organizationId: 'o1', role: 'ADMIN' }] } })
+  useAuth: () => ({ user: { id: 'u1', role: 'ADMIN', organizations: [{ organizationId: 'o1', role: 'ADMIN' }] } })
 }));
 
 const MensagemDaFederacao = (await import('../components/mensagemDaFederacao')).default;

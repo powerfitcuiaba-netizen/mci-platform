@@ -469,9 +469,21 @@ const TRANSICOES = Object.freeze({
 // quem decide é aqui, nunca o frontend:
 //
 //   * `athletes.read_sensitive` dá acesso ao perfil restrito;
-//   * `search.sensitive` é o que libera o DOCUMENTO em si. São permissões
-//     diferentes de propósito: quem opera o balcão vê o cadastro, quem
-//     responde por dado pessoal vê o documento.
+//   * `search.sensitive` é o que libera o DOCUMENTO em si.
+//
+// AS DUAS SÃO CONFERIDAS, e hoje a segunda não recusa ninguém que a primeira
+// tenha deixado passar: na matriz atual, TODO papel com
+// `athletes.read_sensitive` também tem `search.sensitive` — e é coerente que
+// seja assim, porque quem opera check-in, pesagem e inscrição confere
+// documento na porta. `tests/revelar-cpf.test.mjs` fixa esse fato, e reprova
+// no dia em que ele mudar.
+//
+// A segunda conferência fica porque é ela que EXPRESSA a regra: ver o cadastro
+// restrito e ver o documento são autorizações distintas. No dia em que a
+// matriz criar um papel que separe as duas, esta linha passa a morder sem que
+// ninguém precise lembrar de acrescentá-la. Tirá-la agora não mudaria nenhum
+// comportamento observável — e essa é exatamente a razão de o mutante que a
+// remove ser declarado equivalente, com o teste da matriz como contrapeso.
 //
 // O CPF NUNCA entra na URL nem em parâmetro de consulta — o id do atleta vai
 // no caminho, e o número volta no CORPO da resposta. Em URL ele ficaria no

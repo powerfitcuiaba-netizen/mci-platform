@@ -10,16 +10,23 @@ import {
 // A tela administrativa mostra o CPF MASCARADO. Quando o operador precisa do
 // inteiro, ele PEDE — e quem decide é o servidor, nunca o frontend.
 //
-// A separação entre as duas permissões é o coração desta suíte:
+// Duas permissões governam a resposta:
 //
 //   `athletes.read_sensitive`  abre o cadastro restrito (nascimento, telefone,
 //                              e-mail, matrícula) e o CPF MASCARADO;
 //   `search.sensitive`         é o que libera o DOCUMENTO em si.
 //
-// Elas são diferentes de propósito: quem opera o balcão de inscrição precisa
-// conferir o cadastro; quem responde por dado pessoal é que lê o documento.
-// Colapsar as duas transformaria todo operador de check-in num leitor de CPF
-// de toda a base.
+// O QUE O MUTATION TESTING MOSTROU, e que esta suíte agora registra: na matriz
+// ATUAL as duas andam sempre juntas. Todo papel que tem a primeira tem a
+// segunda — e é coerente que tenha, porque quem opera inscrição, check-in e
+// pesagem confere documento na porta do evento. Removendo o `assertCan` de
+// `search.sensitive`, nenhum teste de caixa-preta muda de cor, porque não
+// existe ator que as separe.
+//
+// Isso não torna a segunda conferência decorativa: ela EXPRESSA a regra, e
+// passa a morder no dia em que a matriz criar um papel que veja o cadastro
+// sem ver o documento. O último teste desta suíte fixa o fato — e reprova
+// nesse dia, apontando o que fazer.
 //
 // E o número nunca entra em URL nem em parâmetro de consulta — ali ele ficaria
 // no histórico do navegador, no cabeçalho Referer e no log de acesso do
@@ -156,5 +163,35 @@ describe('o perfil continua mascarando por conta própria', () => {
     expect(resposta.status).toBe(200);
     expect(resposta.body.athlete.cpfMasked).toBeTruthy();
     expect(resposta.body.athlete.cpfMasked).not.toBe(formatado(cpfDoAtleta));
+  });
+});
+
+// ------------------------------------------------------- a matriz de papéis
+
+describe('a matriz de papéis, fixada por escrito', () => {
+  it('hoje nenhum papel vê o cadastro restrito sem ver também o documento', async () => {
+    // Quando este teste reprovar, é porque alguém criou um papel que separa as
+    // duas permissões — o que é legítimo e provavelmente desejado. O que fazer
+    // então: acrescentar a este arquivo um caso que use esse papel novo contra
+    // `POST /athletes/:id/cpf` e exija 403, e tirar da declaração de
+    // equivalência, em `scripts/qa/mutantes-atleta.mjs`, o mutante
+    // "revelar o CPF deixa de exigir search.sensitive" — que a partir daí
+    // passa a morrer.
+    const { ROLE_PERMISSIONS, permissionsForRole } = await import('../src/utils/permissions.js');
+
+    const separam = Object.keys(ROLE_PERMISSIONS).filter(papel => {
+      const permissoes = permissionsForRole(papel);
+      return permissoes.has('athletes.read_sensitive') && !permissoes.has('search.sensitive');
+    });
+
+    expect(separam, `papéis que separam as duas permissões: ${separam.join(', ')}`).toEqual([]);
+
+    // E o outro lado do fato: existe pelo menos um papel com as duas, senão a
+    // rota seria inalcançável e a suíte inteira estaria medindo o vazio.
+    const comAsDuas = Object.keys(ROLE_PERMISSIONS).filter(papel => {
+      const permissoes = permissionsForRole(papel);
+      return permissoes.has('athletes.read_sensitive') && permissoes.has('search.sensitive');
+    });
+    expect(comAsDuas.length).toBeGreaterThan(0);
   });
 });

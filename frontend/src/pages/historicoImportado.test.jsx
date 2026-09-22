@@ -28,7 +28,7 @@ const api = {
   affiliations: { list: vi.fn() }
 };
 vi.mock('../services/api', () => ({ default: api, api, refreshData: vi.fn(), fetchMediaObjectUrl: vi.fn(), releaseMediaObjectUrl: vi.fn() }));
-vi.mock('../AuthContext', () => ({ useAuth: () => ({ usuario: { id: 'u1', role: 'ADMIN' } }) }));
+vi.mock('../AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1', role: 'ADMIN', organizations: [{ organizationId: 'o1', role: 'ADMIN' }] } }) }));
 
 const { AdminAtleta } = await import('./adminAtleta');
 

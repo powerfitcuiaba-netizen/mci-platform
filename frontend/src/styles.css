@@ -2525,3 +2525,19 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
   font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
   color: var(--cinza-fraco) !important; margin-bottom: var(--e3) !important;
 }
+
+/* ==========================================================================
+   PANEL-HEAD EM TELA ESTREITA.
+   Medido no gate em Chromium: no perfil do atleta, em 320px, o bloco do nome
+   empurrava o selo de estado para fora da viewport (scrollWidth 340 > 320).
+   `.badge` é `white-space: nowrap` de propósito — quebrar "ARQUIVADO" no meio
+   seria pior —, então quem tem de ceder é a linha. Abaixo de 560px o
+   cabeçalho passa a quebrar, e o bloco de texto passa a poder encolher
+   (`min-width: 0`), sem o que o `flex` se recusa a reduzi-lo abaixo do
+   conteúdo.
+   ========================================================================== */
+@media (max-width: 560px) {
+  .panel-head { flex-wrap: wrap; }
+  .panel-head > div { min-width: 0; }
+  .panel-head h2 { overflow-wrap: anywhere; }
+}

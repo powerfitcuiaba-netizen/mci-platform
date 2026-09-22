@@ -399,3 +399,60 @@ describe('o vínculo manual deixa autor e data', () => {
     expect(marcada.linkedAt).toBeTruthy();
   });
 });
+
+// --------------------------------------------------------- concorrência
+
+describe('dois operadores ao mesmo tempo', () => {
+  it('a mesma identidade não vai parar em dois atletas', async () => {
+    const primeiro = await criarAtleta();
+    const segundo = await criarAtleta({ fullName: NOME_DA_ATLETA });
+    const identidade = await identidadeDe(MATRICULA_DA_FONTE);
+
+    // Duas reivindicações simultâneas da MESMA carreira. A guarda é o
+    // compare-and-set de `adotarLedger` (`athleteId: null` no `where`) somada
+    // à conferência de dono: uma passa, a outra encontra a identidade já
+    // vinculada.
+    const respostas = await Promise.all([
+      vincularIdentidade(primeiro, identidade.id),
+      vincularIdentidade(segundo, identidade.id)
+    ]);
+
+    const aceitas = respostas.filter(r => r.status === 200 && r.body.lancamentos > 0);
+    expect(aceitas).toHaveLength(1);
+
+    const dono = (await identidadeDe(MATRICULA_DA_FONTE)).athleteId;
+    expect([primeiro, segundo]).toContain(dono);
+
+    // E os dois lançamentos foram para o MESMO atleta — nenhum ficou partido
+    // entre os dois cadastros.
+    const donos = await donosDaIdentidade(identidade.id);
+    expect(donos).toHaveLength(2);
+    expect(donos.every(ponto => ponto.athleteId === dono)).toBe(true);
+
+    // O perdedor não ficou com nada.
+    const perdedor = dono === primeiro ? segundo : primeiro;
+    const doPerdedor = await comoAtor(gerente, tx => tx.rankingPoint.count({ where: { athleteId: perdedor } }));
+    expect(doPerdedor).toBe(0);
+  });
+
+  it('três chamadas seguidas para o mesmo atleta somam um vínculo só', async () => {
+    const athleteId = await criarAtleta();
+    const identidade = await identidadeDe(MATRICULA_DA_FONTE);
+
+    const respostas = await Promise.all([
+      vincularIdentidade(athleteId, identidade.id),
+      vincularIdentidade(athleteId, identidade.id),
+      vincularIdentidade(athleteId, identidade.id)
+    ]);
+    expect(respostas.every(r => r.status === 200)).toBe(true);
+
+    // A soma dos lançamentos reivindicados por todas as chamadas é 2 — os dois
+    // que a identidade tem. Se o compare-and-set falhasse, alguma chamada
+    // contaria os mesmos dois de novo.
+    const somados = respostas.reduce((total, r) => total + r.body.lancamentos, 0);
+    expect(somados).toBe(2);
+
+    const donos = await donosDaIdentidade(identidade.id);
+    expect(donos.every(ponto => ponto.athleteId === athleteId)).toBe(true);
+  });
+});

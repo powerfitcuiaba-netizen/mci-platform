@@ -41,12 +41,16 @@ const paraApi = valor => (valor ? new Date(valor).toISOString() : null);
 
 export function AdminMensagens({ notificar }) {
   const { t } = useIdioma();
-  const { usuario } = useAuth();
+  const { user } = useAuth();
   const [recarga, setRecarga] = useState(0);
   const [editando, setEditando] = useState(null);
   const [excluindo, setExcluindo] = useState(null);
 
-  const organizationId = usuario?.organizations?.[0]?.organizationId ?? null;
+  // `user`, e não `usuario`: o contexto expõe `user`. O nome errado devolvia
+  // `undefined` em silêncio, a organização saía nula e a publicação era
+  // recusada com 400 — sem que nenhum teste de unidade acusasse, porque o
+  // mock devolvia o nome que a tela pedia. Foi o gate no navegador que viu.
+  const organizationId = user?.organizations?.[0]?.organizationId ?? null;
 
   const estado = useFetch(
     () => api.athleteNotices.list(organizationId ? { organizationId, limit: 50 } : { limit: 50 }),

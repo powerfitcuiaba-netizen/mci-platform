@@ -22,7 +22,7 @@ const api = {
   organizations: { list: vi.fn(), setSelfRegistration: vi.fn(), create: vi.fn() }
 };
 vi.mock('../services/api', () => ({ default: api, refreshData: vi.fn(), fetchMediaObjectUrl: vi.fn(), releaseMediaObjectUrl: vi.fn() }));
-vi.mock('../AuthContext', () => ({ useAuth: () => ({ usuario: { id: 'u1', role: 'SUPER_ADMIN' } }) }));
+vi.mock('../AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1', role: 'SUPER_ADMIN', organizations: [] } }) }));
 
 const { AdminConfiguracoes } = await import('./adminPlatform');
 
