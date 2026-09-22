@@ -43,7 +43,7 @@ beforeEach(async () => {
 });
 
 describe('FORCE ROW LEVEL SECURITY — o dono da tabela também é filtrado', () => {
-  it('as 28 tabelas protegidas estão com FORCE ligado', async () => {
+  it('as 30 tabelas protegidas estão com FORCE ligado', async () => {
     const linhas = await prisma.$queryRaw`
       SELECT c.relname::text AS tabela, c.relforcerowsecurity AS forcado
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -78,7 +78,23 @@ describe('FORCE ROW LEVEL SECURITY — o dono da tabela também é filtrado', ()
     // com a mesma política do lançamento que ela ajusta: só operador da
     // organização enxerga, e não há política de DELETE nenhuma, porque ajuste
     // se invalida e não se apaga.
-    expect(linhas.length).toBe(28);
+    //
+    // E de 28 para 30 com a MENSAGEM DE ABERTURA: `AthleteNotice` e
+    // `AthleteNoticeRead`.
+    //
+    // O recado é interno da federação aos SEUS atletas, e não vitrine: a
+    // política de leitura não tem o ramo anônimo que as tabelas públicas têm.
+    // Ela precisou de um predicado que o conjunto não tinha —
+    // `mci_atleta_da_organizacao` —, porque atleta não é MEMBRO da
+    // organização: ele tem CADASTRO nela, que é outra relação, e
+    // `mci_member_of` responderia não a todos eles.
+    //
+    // `AthleteNoticeRead` é a mais estreita das duas: a política de INSERT
+    // exige que o usuário da linha seja o da sessão, e não há política de
+    // UPDATE nem de DELETE. Numa federação, "eu não fui avisado" é disputa
+    // real — fabricar a prova de que alguém foi comunicado, ou apagá-la, não
+    // pode ser possível nem para quem opera.
+    expect(linhas.length).toBe(30);
     const semForce = linhas.filter(linha => !linha.forcado).map(linha => linha.tabela);
     expect(semForce, 'tabela com RLS mas sem FORCE volta a isentar o dono').toEqual([]);
   });

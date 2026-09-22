@@ -378,7 +378,23 @@ describe('o calendário não pede migration nenhuma', () => {
       // circulação era APAGAR — que leva o histórico esportivo junto.
       // Aditiva: `status` nasce ATIVO por default, sem UPDATE, e nenhum
       // cadastro existente muda de comportamento.
-      '20260922234500_estado_do_atleta'
+      '20260922234500_estado_do_atleta',
+      // A MENSAGEM DE ABERTURA DA FEDERAÇÃO AOS SEUS ATLETAS. ADITIVA: duas
+      // tabelas NOVAS — `AthleteNotice` e `AthleteNoticeRead` —, seus índices,
+      // suas chaves estrangeiras e suas políticas de RLS, mais um helper novo
+      // (`mci_atleta_da_organizacao`), que o conjunto não tinha: atleta não é
+      // MEMBRO da organização, ele tem CADASTRO nela, e `mci_member_of` não
+      // responde essa pergunta.
+      //
+      // Nenhuma coluna alterada, nenhuma linha tocada, nenhuma política
+      // existente mexida. Tudo com IF NOT EXISTS, porque
+      // `prisma migrate deploy` é o único passo do deploy em produção e rodar
+      // duas vezes não pode quebrar.
+      //
+      // As duas tabelas nascem com ENABLE + FORCE ROW LEVEL SECURITY — e é por
+      // isso que a contagem de `tests/rls-runtime` subiu de 28 para 30, no
+      // mesmo commit e pela mesma razão.
+      '20260923010000_mensagem_de_abertura_ao_atleta'
     ]);
   });
 });
