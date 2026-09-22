@@ -14,6 +14,7 @@ const results = require('../services/resultService');
 const ranking = require('../services/rankingService');
 const meService = require('../services/meService');
 const muscleWar = require('../services/muscleWarService');
+const athleteNotices = require('../services/athleteNoticeService');
 const partners = require('../services/partnerService');
 const social = require('../services/socialService');
 const messenger = require('../services/messengerService');
@@ -104,7 +105,17 @@ module.exports = {
   // de cliente entra na identificação de quem está perguntando.
   me: {
     affiliation: async (req, res) => res.json(await meService.affiliation(req.user)),
-    history: async (req, res) => res.json(await meService.history(req.user, req.query))
+    history: async (req, res) => res.json(await meService.history(req.user, req.query)),
+    // Os recados da federação para este atleta, e a marcação de leitura.
+    notices: async (req, res) => res.json(await athleteNotices.paraOAtleta(req.user)),
+    readNotice: async (req, res) => res.json(await athleteNotices.marcarLido(req.params.id, req.user))
+  },
+
+  athleteNotices: {
+    list: async (req, res) => res.json(await athleteNotices.list(req.query, req.user)),
+    create: async (req, res) => res.status(201).json(await athleteNotices.create(req.body, req.user)),
+    update: async (req, res) => res.json(await athleteNotices.update(req.params.id, req.body, req.user)),
+    remove: async (req, res) => res.json(await athleteNotices.remove(req.params.id, req.user))
   },
 
   organizations: {

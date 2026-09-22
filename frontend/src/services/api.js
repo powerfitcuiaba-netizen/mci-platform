@@ -293,7 +293,19 @@ export const api = {
   // passar errado.
   me: {
     affiliation: () => get('/me/affiliation'),
-    history: params => get('/me/history', params)
+    history: params => get('/me/history', params),
+    // Os recados da federação para este atleta. `deveExibir` vem pronto do
+    // servidor: a regra de "uma vez só" não é recalculada aqui.
+    notices: () => get('/me/notices'),
+    readNotice: id => post(`/me/notices/${id}/read`)
+  },
+
+  // A mensagem de abertura, do lado de quem a escreve.
+  athleteNotices: {
+    list: params => get('/athlete-notices', params),
+    create: dados => post('/athlete-notices', dados),
+    update: (id, dados) => patch(`/athlete-notices/${id}`, dados),
+    remove: id => remove(`/athlete-notices/${id}`)
   },
 
   ranking: {

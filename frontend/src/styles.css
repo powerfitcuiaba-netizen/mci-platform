@@ -2512,3 +2512,16 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
 @media (max-width: 720px) {
   .comparacao { grid-template-columns: 1fr; }
 }
+
+/* ==========================================================================
+   O RECADO DA FEDERAÇÃO — o corpo do aviso dentro do modal de abertura.
+   O remetente vem antes do texto porque a primeira pergunta de quem vê um
+   aviso por cima da tela é "quem está falando comigo?".
+   ========================================================================== */
+.recado-da-federacao p { margin: 0 0 var(--e3); color: var(--cinza); line-height: 1.6; }
+.recado-da-federacao p:last-child { margin-bottom: 0; }
+.recado-remetente {
+  display: flex; align-items: center; gap: var(--e2);
+  font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+  color: var(--cinza-fraco) !important; margin-bottom: var(--e3) !important;
+}

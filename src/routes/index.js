@@ -92,6 +92,21 @@ router.get('/athlete-requests/me', requireAuth, wrap(c.athleteRequests.meus));
 // parâmetro capaz de apontar para outra pessoa. Ver src/services/meService.js.
 router.get('/me/affiliation', requireAuth, wrap(c.me.affiliation));
 router.get('/me/history', requireAuth, validate(s.meuHistoricoQuery, 'query'), wrap(c.me.history));
+
+// A MENSAGEM DE ABERTURA, do lado de quem a recebe. Não tem `perm()`: o
+// escopo é o CADASTRO DE ATLETA do próprio usuário, que o serviço resolve —
+// não existe parâmetro por onde pedir os recados de outra pessoa.
+router.get('/me/notices', requireAuth, wrap(c.me.notices));
+router.post('/me/notices/:id/read', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.me.readNotice));
+
+// E do lado de quem a escreve. `athletes.manage` porque o destinatário é a
+// base de atletas da federação, e publicar um recado para todos eles é ato de
+// quem responde por ela.
+router.route('/athlete-notices')
+  .get(requireAuth, validate(s.athleteNoticeQuery, 'query'), wrap(c.athleteNotices.list))
+  .post(requireAuth, perm('athletes.manage', orgDoCorpo), validate(s.athleteNoticeCreate), wrap(c.athleteNotices.create));
+router.patch('/athlete-notices/:id', requireAuth, validate(s.paramsWithId, 'params'), validate(s.athleteNoticeUpdate), wrap(c.athleteNotices.update));
+router.delete('/athlete-notices/:id', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.athleteNotices.remove));
 router.post('/athlete-requests/:id/cancel', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.athleteRequests.cancelar));
 // A foto sobe PELO SERVIDOR (multipart), como todo upload daqui: nenhuma
 // credencial de armazenamento chega ao navegador. `uploadAvatar` já aplica o

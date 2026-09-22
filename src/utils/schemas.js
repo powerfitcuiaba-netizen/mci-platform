@@ -837,6 +837,32 @@ const adminUserQuery = paginacao.extend({
 
 // Listagem simples com busca e escopo de organização, usada por filiações,
 // equipes, academias, coaches, marcas e patrocinadores.
+// ------------------------------------------- mensagem de abertura ao atleta
+//
+// O corpo tem 4000 caracteres de teto porque isto é um RECADO, e não um
+// regulamento: um texto que não cabe numa tela por cima do aplicativo não vai
+// ser lido, e o lugar dele é um documento com link.
+const athleteNoticeCreate = z.object({
+  organizationId: id,
+  title: texto(3, 140),
+  body: texto(3, 4000),
+  // A janela é opcional dos dois lados. Nulo significa "desde já" e "até
+  // segunda ordem", que é o caso comum.
+  startsAt: opcional(dataIso),
+  endsAt: opcional(dataIso),
+  showOnce: booleano.optional(),
+  active: booleano.optional()
+});
+
+// `organizationId` fica FORA: mudar o recado de federação depois de publicado
+// mudaria quem o recebe, e isso não é edição — é outro recado.
+const athleteNoticeUpdate = athleteNoticeCreate.partial().omit({ organizationId: true });
+
+const athleteNoticeQuery = paginacao.extend({
+  organizationId: id.optional(),
+  active: booleano.optional()
+});
+
 const scopedListQuery = paginacao.extend({
   organizationId: id.optional(),
   search: z.string().trim().max(120).optional()
@@ -907,5 +933,6 @@ module.exports = {
   conversationCreate, messageCreate, reactionCreate, conversationMembers,
   searchQuery, notificationQuery, auditQuery,
   documentUpload, eventDocumentUpload,
-  adminUserUpdate, adminUserQuery
+  adminUserUpdate, adminUserQuery,
+  athleteNoticeCreate, athleteNoticeUpdate, athleteNoticeQuery
 };

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { permissoesDe } from './lib/permissoes';
 import {
-  Bell, ClipboardCheck, History, Home, IdCard, LayoutDashboard, LogOut, Menu, MessageSquare,
+  Bell, ClipboardCheck, History, Home, IdCard, LayoutDashboard, LogOut, Megaphone, Menu, MessageSquare,
   PencilLine, QrCode, Scale, Search, Settings, ShieldCheck, Trophy, Upload, UserCircle, Users, Users2,
   Volume2, VolumeX, X, Zap
 } from 'lucide-react';
@@ -33,6 +33,8 @@ import MinhaSolicitacao from './pages/minhaSolicitacao';
 import AdminSolicitacoes from './pages/adminSolicitacoes';
 import { AdminAtletas } from './pages/adminAtletas';
 import { AdminAtleta } from './pages/adminAtleta';
+import { AdminMensagens } from './pages/adminMensagens';
+import MensagemDaFederacao from './components/mensagemDaFederacao';
 
 // A navegação é montada a partir das permissões efetivas do usuário: um item
 // que a API recusaria não aparece no menu. A autoridade continua no servidor —
@@ -64,6 +66,10 @@ const NAVEGACAO_ADMIN = [
   // pedidos esvazia, o cadastro de atletas não. Quem precisa suspender alguém
   // ou conferir um histórico não está olhando para uma fila.
   { rota: 'admin/atletas', rotulo: 'Atletas', icone: Users, permissao: 'athletes.manage' },
+  // A mensagem de abertura da federação aos seus atletas. Item próprio porque
+  // é comunicação para TODA a base — não é uma configuração escondida numa
+  // aba, e quem precisa publicá-la costuma estar com pressa.
+  { rota: 'admin/mensagens', rotulo: 'Mensagens', icone: Megaphone, permissao: 'athletes.manage' },
   { rota: 'admin/checkin', rotulo: 'Check-in', icone: ClipboardCheck, permissao: 'checkin.operate' },
   { rota: 'admin/pesagem', rotulo: 'Pesagem', icone: Scale, permissao: 'weighin.operate' },
   { rota: 'admin/credenciamento', rotulo: 'Credenciamento', icone: QrCode, permissao: 'credentials.read' },
@@ -360,6 +366,7 @@ function Shell() {
         if (segundo === 'overall') return <AdminOverall notificar={notificar} />;
         if (segundo === 'lancamentos') return <AdminLancamentos notificar={notificar} />;
         if (segundo === 'musclewar') return <AdminMuscleWar notificar={notificar} />;
+        if (segundo === 'mensagens') return <AdminMensagens notificar={notificar} />;
         if (segundo === 'auditoria') return <AdminAuditoria />;
         if (segundo === 'configuracoes') return <AdminConfiguracoes notificar={notificar} />;
         return <AdminPainel navegar={navegar} />;
@@ -467,6 +474,12 @@ function Shell() {
           os toasts: o feedback funcional continua igual, e a celebração entra
           por cima apenas quando o motor libera o nível. */}
       <PalcoDaExperiencia />
+
+      {/* O RECADO DA FEDERAÇÃO, por cima de tudo — e só para quem tem cadastro
+          de atleta. Quem decide se ele abre é o servidor (`deveExibir`), que
+          já conferiu a janela de validade e a leitura desta pessoa. */}
+      {user?.athleteId && <MensagemDaFederacao />}
+
       <Toasts toasts={toasts} onDismiss={remover} />
     </div>
   );
