@@ -361,7 +361,13 @@ describe('o calendário não pede migration nenhuma', () => {
       // escolher.
       '20260921120000_matricula_identifica_um_atleta',
       '20260922120000_taxonomia_de_categoria_e_classe',
-      '20260922180000_ajuste_administrativo_de_pontos'
+      '20260922180000_ajuste_administrativo_de_pontos',
+      // O CATÁLOGO OFICIAL DE CATEGORIAS. Ele estava só no seed, e `render.yaml`
+      // roda `prisma migrate deploy` no pre-deploy — o seed nunca rodou em
+      // produção, e `Category` nasceu vazia lá. A migration é `INSERT ... ON
+      // CONFLICT DO NOTHING` com id fixo: não apaga, não reescreve, não toca
+      // `RankingPoint`, e rodar de novo não duplica.
+      '20260922210000_catalogo_oficial_de_categorias'
     ]);
   });
 });
