@@ -360,8 +360,8 @@ jobs:
           PULADOS=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPendingTests+r.numTodoTests)" <<< "$SAIDA")
           PASSOU=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPassedTests)" <<< "$SAIDA")
           echo "motor de pontuação e Overall: $PASSOU passaram, $PULADOS pulados"
-          # 11 do motor + 16 do Overall do histórico.
-          if [ "$PULADOS" != "0" ] || [ "$PASSOU" -lt 27 ]; then
+          # 12 do motor + 16 do Overall do histórico.
+          if [ "$PULADOS" != "0" ] || [ "$PASSOU" -lt 28 ]; then
             echo "As suítes do motor/Overall não rodaram por inteiro."
             exit 1
           fi

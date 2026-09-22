@@ -224,6 +224,41 @@ describe('cadastrar a tabela e recalcular alcança o histórico', () => {
     expect(depois.points).toBe(0);
   });
 
+  it('lançamento SEM colocação e SEM ausência não é tocado', async () => {
+    // O TESTE DE CARGA DO SUPER OVERALL PEGOU ESTE CASO, e ele é real.
+    //
+    // A importação aceita a linha que traz PONTOS e não traz colocação: não há
+    // regra a aplicar, e o número do arquivo é o único dado disponível. O
+    // lançamento fica no ledger com `placing` nulo, `didNotShow` falso e a
+    // pontuação vinda da origem.
+    //
+    // Reaplicar a tabela aqui consultaria uma colocação que não existe, não
+    // acharia regra, e gravaria ZERO — apagando um número que a plataforma
+    // aceitou e que ninguém mandou revogar.
+    const alvo = await noLedger(tx => tx.rankingPoint.findFirst({
+      where: { seasonId, placing: 3 }, select: { id: true }
+    }));
+    await comoAtor(gerente, tx => tx.rankingPoint.update({
+      where: { id: alvo.id },
+      data: {
+        placing: null, didNotShow: false,
+        placementPoints: 7, points: 7, superOverallPoints: 7
+      }
+    }));
+
+    expect((await definirTabela(TABELA)).status).toBe(200);
+    expect((await recalcular()).status).toBe(200);
+
+    const depois = await noLedger(tx => tx.rankingPoint.findUnique({
+      where: { id: alvo.id },
+      select: { placing: true, didNotShow: true, placementPoints: true, points: true }
+    }));
+    expect(depois.placing).toBeNull();
+    expect(depois.didNotShow).toBe(false);
+    expect(depois.placementPoints, 'os pontos da origem ficam onde estavam').toBe(7);
+    expect(depois.points).toBe(7);
+  });
+
   it('a tabela é a do administrador, e não 5/4/3/2/1 embutido', async () => {
     // Uma tabela deliberadamente diferente da oficial: se houvesse número
     // embutido no motor, este teste o encontraria.

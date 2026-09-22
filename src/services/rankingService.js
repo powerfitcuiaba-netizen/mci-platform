@@ -700,15 +700,36 @@ async function reconciliarPontuacao(tx, seasonId) {
   let alterados = 0;
 
   for (const ponto of pontos) {
+    // ===================================================================
+    // SEM COLOCAÇÃO E SEM AUSÊNCIA, A TABELA NÃO TEM O QUE APLICAR.
+    // ===================================================================
+    //
+    // A importação aceita a linha que traz PONTOS e não traz colocação: não
+    // há regra a aplicar, e o número do arquivo é o único dado disponível
+    // (ver `apply` em muscleWarService). Esse lançamento existe no ledger com
+    // `placing` nulo, `didNotShow` falso e pontuação vinda da origem.
+    //
+    // Reaplicar a tabela aqui significaria consultá-la por uma colocação que
+    // não existe, não achar regra, e gravar ZERO — apagando um número que a
+    // plataforma aceitou e que ninguém mandou revogar. Foi o que o teste de
+    // carga do Super Overall pegou: centenas de lançamentos legítimos
+    // zerados, todos empatados, ranking inteiro sem colocação.
+    //
+    // A linha fica como está. Recalcular corrige o que DERIVA da tabela; o
+    // que nunca derivou dela não é dela para mexer.
+    if (ponto.placing == null && !ponto.didNotShow) continue;
+
     // A MESMA função que a apuração e a importação usam. Reimplementar a
     // consulta à tabela aqui criaria um segundo lugar onde a regra mora, e
     // dois lugares divergem.
     //
-    // Ausência vale ZERO pela regra homologada: `didNotShow` entra como
-    // colocação nula, e nula não acha regra.
-    const { placementPoints } = pontuarResultado(
-      ponto.didNotShow ? null : ponto.placing, tabela
-    );
+    // NÃO COMPARECEU VALE ZERO, E O ARQUIVO NÃO OPINA — é a mesma regra que a
+    // importação aplica, e a razão pela qual `didNotShow` não passa pela
+    // tabela: um arquivo declarando `NS` com pontos é a fraude mais barata
+    // que existe.
+    const { placementPoints } = ponto.didNotShow
+      ? { placementPoints: 0 }
+      : pontuarResultado(ponto.placing, tabela);
 
     // O BÔNUS NÃO É DECIDIDO AQUI. Quem o atribui é `normalizarBonusOverall`,
     // a partir dos títulos DECLARADOS pela organização — e ela roda logo

@@ -29,20 +29,29 @@ const MUTANTES = [
   {
     nome: 'a tabela da temporada deixa de ser aplicada',
     arquivo: SERVICO,
-    de: '    const { placementPoints } = pontuarResultado(\n      ponto.didNotShow ? null : ponto.placing, tabela\n    );',
-    para: '    const placementPoints = ponto.placementPoints;'
+    de: '      : pontuarResultado(ponto.placing, tabela);',
+    para: '      : { placementPoints: ponto.placementPoints };'
   },
   {
     nome: 'ignorar o placing ao consultar a tabela',
     arquivo: SERVICO,
-    de: '      ponto.didNotShow ? null : ponto.placing, tabela\n    );',
-    para: '      null, tabela\n    );'
+    de: '      : pontuarResultado(ponto.placing, tabela);\n',
+    para: '      : pontuarResultado(null, tabela);\n'
   },
   {
     nome: 'o não comparecimento passa a pontuar',
     arquivo: SERVICO,
-    de: '      ponto.didNotShow ? null : ponto.placing, tabela',
-    para: '      ponto.placing, tabela'
+    de: "    const { placementPoints } = ponto.didNotShow\n      ? { placementPoints: 0 }\n      : pontuarResultado(ponto.placing, tabela);",
+    para: '    const { placementPoints } = pontuarResultado(ponto.placing, tabela);'
+  },
+  {
+    // O CASO QUE O TESTE DE CARGA PEGOU: linha sem colocação e sem ausência
+    // carrega os pontos que o arquivo declarou, porque não havia regra a
+    // aplicar. Reaplicar a tabela nela grava ZERO e apaga o número.
+    nome: 'zerar o lançamento cuja pontuação veio do arquivo',
+    arquivo: SERVICO,
+    de: '    if (ponto.placing == null && !ponto.didNotShow) continue;',
+    para: '    if (false) continue;'
   },
   {
     nome: 'usar os pontos antigos como fonte, em vez das parcelas',
