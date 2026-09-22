@@ -2291,36 +2291,51 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
 .escolha span { line-height: 1.35; }
 
 /* No telefone a tabela vira cartão, com as MESMAS regras já provadas na
-   homologação. São nove colunas: mantê-las como tabela empurraria a rolagem
-   horizontal para dentro de `.table-wrap` e o operador teria de arrastar de
-   lado para ver a situação do lançamento e o botão de agir sobre ele. Nenhuma
-   coluna é escondida — cada uma vira uma linha do cartão, com o rótulo que já
-   viaja em `data-rotulo`. */
+   homologação. Mantê-la como tabela empurraria a rolagem horizontal para
+   dentro de `.table-wrap` e alguém teria de arrastar de lado para ver o que
+   importa. Nenhuma coluna é escondida — cada uma vira uma linha do cartão,
+   com o rótulo que já viaja em `data-rotulo`.
+
+   DUAS TABELAS USAM ESTE BLOCO. A de lançamentos, com nove colunas, e a do
+   RANKING PÚBLICO, com sete: medida em Chromium, ela pedia 611px dentro de
+   286 a 396 — o visitante de telefone arrastava de lado para descobrir quantos
+   pontos alguém tem, que é a única coisa que ele foi ver. */
 @media (max-width: 760px) {
-  .lancamentos-tabela thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .lancamentos-tabela thead,
+  .ranking-tabela thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .lancamentos-tabela,
   .lancamentos-tabela tbody,
   .lancamentos-tabela tr,
-  .lancamentos-tabela td { display: block; width: 100%; }
-  .lancamentos-tabela tr {
+  .lancamentos-tabela td,
+  .ranking-tabela,
+  .ranking-tabela tbody,
+  .ranking-tabela tr,
+  .ranking-tabela td { display: block; width: 100%; }
+  .lancamentos-tabela tr,
+  .ranking-tabela tr {
     border: 1px solid var(--linha); border-radius: var(--raio-caixa, 12px);
     padding: 12px 14px; margin-bottom: 10px;
   }
-  .lancamentos-tabela td {
+  .lancamentos-tabela td,
+  .ranking-tabela td {
     display: flex; justify-content: space-between; align-items: baseline;
     gap: 14px; padding: 4px 0; border: 0; text-align: left;
   }
-  .lancamentos-tabela td::before {
+  .lancamentos-tabela td::before,
+  .ranking-tabela td::before {
     content: attr(data-rotulo); color: var(--cinza-fraco); font-size: 11px;
     letter-spacing: 0.04em; text-transform: uppercase; flex: 0 0 auto;
   }
   /* A primeira célula é o título do cartão: o nome do atleta, sem rótulo. */
-  .lancamentos-tabela td:first-child {
+  .lancamentos-tabela td:first-child,
+  .ranking-tabela td:first-child {
     display: block; padding-bottom: 8px; margin-bottom: 4px;
     border-bottom: 1px solid var(--linha); font-weight: 600;
   }
-  .lancamentos-tabela td:first-child::before { content: none; }
-  .lancamentos-tabela td.num { text-align: right; }
+  .lancamentos-tabela td:first-child::before,
+  .ranking-tabela td:first-child::before { content: none; }
+  .lancamentos-tabela td.num,
+  .ranking-tabela td.num { text-align: right; }
 
   /* Botões em largura cheia, e não lado a lado: "Corrigir" e "Invalidar"
      espremidos num cartão de 390px viram dois alvos pequenos e vizinhos, e
@@ -2450,4 +2465,26 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
 
 @media (prefers-reduced-motion: no-preference) {
   .seletor-idioma-opcao { transition: background 140ms ease, color 140ms ease; }
+}
+
+/* ==========================================================================
+   TELEFONE PEQUENO — 320px, que ainda existe.
+   --------------------------------------------------------------------------
+   Medido em Chromium: a barra superior pedia 332px numa viewport de 320, e o
+   documento ganhava rolagem horizontal em TODAS as telas. Os 12px que faltam
+   não podem sair dos botões — eles estão no piso de 44px de alvo de toque, e
+   encolhê-los trocaria um defeito visível por um defeito de uso.
+   Saem do respiro lateral da barra, que a 320px é luxo: 24px de cada lado
+   viram 8. Sobra folga, e nenhum alvo muda de tamanho.
+
+   Este bloco vem DEPOIS do de 560px de propósito. Mesma especificidade: vence
+   a última regra do arquivo. A fase anterior colocou um bloco equivalente mil
+   linhas antes da base e a correção inteira ficou sem efeito — medida em
+   Chromium, com o elemento ainda no tamanho antigo.
+   ========================================================================== */
+@media (max-width: 360px) {
+  .topbar { padding: 0 var(--e2); gap: var(--e2); }
+  .topbar-actions { gap: var(--e1); }
+  /* A busca expandida acompanha o novo respiro, e não sobra para fora. */
+  .busca-global.is-expandida { inset: 0 var(--e2); }
 }

@@ -727,8 +727,8 @@ export function Ranking() {
                 <tbody>
                   {dados.items.map(linha => (
                     <tr key={linha.id}>
-                      <td><span className={`placing placing-${linha.position}`}>{linha.position}</span></td>
-                      <td>
+                      <td data-rotulo="#"><span className={`placing placing-${linha.position}`}>{linha.position}</span></td>
+                      <td data-rotulo={t('overall.atleta')}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                           <Avatar name={linha.athlete.fullName} size="avatar-sm" />
                           <div>
@@ -739,15 +739,15 @@ export function Ranking() {
                           </div>
                         </div>
                       </td>
-                      <td>{linha.category?.name || t('publico.geral')}</td>
-                      <td>{linha.state || '—'}</td>
-                      <td className="num">{linha.eventCount}</td>
-                      <td className="num">
+                      <td data-rotulo={t('overall.categoria')}>{linha.category?.name || t('publico.geral')}</td>
+                      <td data-rotulo={t('publico.uf')}>{linha.state || '—'}</td>
+                      <td className="num" data-rotulo={t('publico.etapas')}>{linha.eventCount}</td>
+                      <td className="num" data-rotulo={t('carreira.colunaOverall')}>
                         {linha.overallWins
                           ? <Badge tom="ok">{linha.overallWins}</Badge>
                           : <span style={{ color: 'var(--cinza-fraco)' }}>—</span>}
                       </td>
-                      <td className="num"><strong style={{ color: 'var(--vermelho-claro)' }}>{linha.totalPoints}</strong></td>
+                      <td className="num" data-rotulo={t('publico.pontos')}><strong style={{ color: 'var(--vermelho-claro)' }}>{linha.totalPoints}</strong></td>
                     </tr>
                   ))}
                 </tbody>
