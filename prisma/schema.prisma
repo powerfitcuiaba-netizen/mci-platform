@@ -91,6 +91,17 @@ model OrganizationMember {
 // USUÁRIOS E ACESSO
 // ============================================================================
 
+/// O ESTADO DO ATLETA.
+///
+/// SUSPENSO e ARQUIVADO não apagam nada: o histórico esportivo, a pontuação e
+/// os vínculos continuam inteiros. O estado diz o que o atleta PODE FAZER
+/// daqui para frente, nunca o que já aconteceu no palco.
+enum AthleteStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
 enum UserRole {
   SUPER_ADMIN
   ADMIN
@@ -189,6 +200,7 @@ model User {
   rankingPointAdjustmentsMade   RankingPointAdjustment[] @relation("RankingPointAdjustmentCreatedBy")
   rankingPointAdjustmentsVoided RankingPointAdjustment[] @relation("RankingPointAdjustmentVoidedBy")
   overallTitlesDeclared         EventOverallTitle[]      @relation("OverallDeclaredBy")
+  athleteStatusChanges          Athlete[]                @relation("AthleteStatusChangedBy")
   membershipsCreated            AthleteTeamMembership[]  @relation("MembershipCreatedBy")
   membershipsEnded              AthleteTeamMembership[]  @relation("MembershipEndedBy")
 
@@ -292,6 +304,14 @@ model Athlete {
   gymId             String?
   proStatus         ProStatus @default(NONE)
   proSince          DateTime?
+
+  /// ESTADO ADMINISTRATIVO. Nasce ATIVO e só muda por ato registrado.
+  /// O motivo fica NA LINHA, e não só na auditoria: a trilha guarda o evento,
+  /// a linha precisa carregar o estado corrente para a tela poder explicá-lo.
+  status            AthleteStatus @default(ACTIVE)
+  statusReason      String?
+  statusChangedAt   DateTime?
+  statusChangedById String?
   createdById       String?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
@@ -303,6 +323,7 @@ model Athlete {
   coach        Coach?       @relation(fields: [coachId], references: [id], onDelete: SetNull)
   gym          Gym?         @relation(fields: [gymId], references: [id], onDelete: SetNull)
   createdBy    User?        @relation("AthleteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  statusChangedBy User?     @relation("AthleteStatusChangedBy", fields: [statusChangedById], references: [id], onDelete: SetNull)
 
   registrations          Registration[]
   documents              AthleteDocument[]

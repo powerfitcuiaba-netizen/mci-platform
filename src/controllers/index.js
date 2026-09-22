@@ -146,7 +146,11 @@ module.exports = {
     update: async (req, res) => res.json(await athletes.update(req.params.id, req.body, req.user)),
     lookup: async (req, res) => res.json(await athletes.lookup(req.body, req.user)),
     setProStatus: async (req, res) => res.json(await athletes.setProStatus(req.params.id, req.body, req.user)),
-    listPro: async (req, res) => res.json(await athletes.listPro(req.query, req.user))
+    listPro: async (req, res) => res.json(await athletes.listPro(req.query, req.user)),
+    suspend: async (req, res) => res.json(await athletes.setStatus(req.params.id, { status: 'SUSPENDED', reason: req.body.reason }, req.user)),
+    archive: async (req, res) => res.json(await athletes.setStatus(req.params.id, { status: 'ARCHIVED', reason: req.body.reason }, req.user)),
+    reactivate: async (req, res) => res.json(await athletes.setStatus(req.params.id, { status: 'ACTIVE', reason: req.body.reason ?? null }, req.user)),
+    remove: async (req, res) => res.json(await athletes.remove(req.params.id, req.user))
   },
 
   events: {

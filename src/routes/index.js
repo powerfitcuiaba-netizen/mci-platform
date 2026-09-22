@@ -118,6 +118,18 @@ router.route('/athletes/:id')
   .patch(requireAuth, validate(s.paramsWithId, 'params'), validate(s.athleteUpdate), wrap(c.athletes.update));
 router.post('/athletes/:id/pro-status', requireAuth, validate(s.paramsWithId, 'params'), validate(s.proStatusUpdate), wrap(c.athletes.setProStatus));
 
+// O ESTADO DO ATLETA. Suspender e arquivar EXIGEM motivo; reativar aceita um.
+// Nada aqui toca histórico esportivo: pontuação, resultado, inscrição e título
+// continuam inteiros nos três estados.
+router.post('/athletes/:id/suspend', requireAuth, validate(s.paramsWithId, 'params'), validate(s.athleteStatusReason), wrap(c.athletes.suspend));
+router.post('/athletes/:id/archive', requireAuth, validate(s.paramsWithId, 'params'), validate(s.athleteStatusReason), wrap(c.athletes.archive));
+router.post('/athletes/:id/reactivate', requireAuth, validate(s.paramsWithId, 'params'), validate(s.athleteStatusOptionalReason), wrap(c.athletes.reactivate));
+
+// A EXCLUSÃO FÍSICA SÓ PASSA SEM HISTÓRICO ESPORTIVO. O serviço confere
+// lançamento, ranking, projeção, resultado, inscrição, resultado importado e
+// título — havendo qualquer um, responde 409 e aponta o arquivamento.
+router.delete('/athletes/:id', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.athletes.remove));
+
 router.route('/athletes/:id/documents')
   .get(requireAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.listAthlete))
   .post(requireAuth, limiteUpload, validate(s.paramsWithId, 'params'), uploadDocumento, validate(s.documentUpload), wrap(c.documents.uploadAthlete));

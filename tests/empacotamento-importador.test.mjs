@@ -372,7 +372,13 @@ describe('o calendário não pede migration nenhuma', () => {
       // a aceitar nulo, entra `externalAthleteId`, e um CHECK exige
       // EXATAMENTE UM dos dois. Aditiva e reversível: nenhum DROP, nenhum
       // DELETE, e todo título já gravado satisfaz o CHECK.
-      '20260922230000_overall_do_historico_importado'
+      '20260922230000_overall_do_historico_importado',
+      // O ESTADO DO ATLETA: ATIVO, SUSPENSO, ARQUIVADO. `Athlete` não tinha
+      // coluna de estado nenhuma, e a única forma de tirar alguém de
+      // circulação era APAGAR — que leva o histórico esportivo junto.
+      // Aditiva: `status` nasce ATIVO por default, sem UPDATE, e nenhum
+      // cadastro existente muda de comportamento.
+      '20260922234500_estado_do_atleta'
     ]);
   });
 });

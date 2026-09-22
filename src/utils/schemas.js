@@ -139,6 +139,14 @@ const cadastroCompleto = z.object({
 // resto, e nada mais deste corpo chega ao serviço.
 const organizationSelfRegistration = z.object({ open: z.boolean() });
 
+// MUDANÇA DE ESTADO DO ATLETA.
+//
+// O motivo tem PISO de tamanho pelo mesmo raciocínio da invalidação de
+// lançamento: "ok" não é motivo, e seis meses depois a diferença entre
+// decisão administrativa e arbítrio está exatamente aí.
+const athleteStatusReason = z.object({ reason: texto(3, 500) });
+const athleteStatusOptionalReason = z.object({ reason: opcional(texto(3, 500)) });
+
 const athleteRequestCreate = z.object({
   fullName: texto(2, 160),
   cpf: z.string().trim().min(11).max(14),
@@ -871,6 +879,7 @@ module.exports = {
   athleteRequestCreate, athleteRequestReject, athleteRequestQuery,
   organizationCreate, organizationMemberCreate, organizationSelfRegistration,
   affiliationCreate,
+  athleteStatusReason, athleteStatusOptionalReason,
   athleteCreate, athleteUpdate, athleteTeamLink, athleteTeamTransfer, athleteTeamUnlink, athleteQuery, athleteLookup, proStatusUpdate,
   eventCreate, eventUpdate, eventTransition, eventQuery,
   categoryCreate, eventCategoryCreate, divisionCreate, classCreate,

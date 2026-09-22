@@ -436,4 +436,134 @@ async function listPro(filtros, actor) {
   return { items: items.map(item => ({ ...athletePublic(item), proHistory: item.proHistory })) };
 }
 
-module.exports = { findByCpf, lookup, create, update, list, findById, setProStatus, listPro, INCLUDE_PERFIL };
+// ===========================================================================
+// O ESTADO DO ATLETA — E O QUE ELE NUNCA TOCA.
+// ===========================================================================
+//
+// SUSPENDER e ARQUIVAR são decisões administrativas sobre o que o atleta pode
+// fazer DAQUI PARA FRENTE. Elas não apagam, não escondem e não alteram nada do
+// que já aconteceu no palco: pontuação, colocação, categoria, classe,
+// inscrições, títulos e vínculos históricos continuam inteiros.
+//
+// Isso não é detalhe de implementação — é a razão de o estado existir. Antes,
+// a única forma de tirar alguém de circulação era apagar o cadastro, e apagar
+// leva o histórico esportivo junto.
+//
+// O MOTIVO É OBRIGATÓRIO nas duas transições que restringem. Um ato que muda a
+// situação de um atleta e não diz por quê é, seis meses depois, indefensável.
+const TRANSICOES = Object.freeze({
+  SUSPENDED: { acao: 'ATHLETE_SUSPEND', exigeMotivo: true },
+  ARCHIVED: { acao: 'ATHLETE_ARCHIVE', exigeMotivo: true },
+  ACTIVE: { acao: 'ATHLETE_REACTIVATE', exigeMotivo: false }
+});
+
+async function setStatus(id, { status, reason = null }, actor) {
+  const athlete = await prisma.athlete.findUnique({
+    where: { id },
+    select: { id: true, organizationId: true, status: true, fullName: true }
+  });
+  if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
+
+  // `athletes.manage` e não `athletes.update`: mudar o estado de um atleta não
+  // é editar o cadastro dele. O próprio atleta NUNCA se suspende nem se
+  // reativa — não há caminho de dono aqui, de propósito.
+  assertCan(actor, 'athletes.manage', athlete.organizationId);
+
+  const transicao = TRANSICOES[status];
+  if (!transicao) throw new AppError(422, 'ATHLETE_STATUS_INVALID', 'Estado de atleta inválido');
+
+  if (transicao.exigeMotivo && !String(reason || '').trim()) {
+    throw new AppError(422, 'ATHLETE_STATUS_REASON_REQUIRED',
+      'Informe o motivo: mudar a situação de um atleta sem dizer por quê deixa a decisão sem defesa');
+  }
+
+  // Repetir o MESMO estado é idempotente, e não erro: dois operadores
+  // confirmando o mesmo fato não produzem duas suspensões.
+  if (athlete.status === status) {
+    return prisma.athlete.findUnique({ where: { id }, include: INCLUDE_PERFIL })
+      .then(atual => athleteFor(atual, actor, athlete.organizationId));
+  }
+
+  const atualizado = await prisma.athlete.update({
+    where: { id },
+    data: {
+      status,
+      statusReason: transicao.exigeMotivo ? String(reason).trim() : (reason ? String(reason).trim() : null),
+      statusChangedAt: new Date(),
+      statusChangedById: actor?.id ?? null
+    },
+    include: INCLUDE_PERFIL
+  });
+
+  await audit.record({
+    actor, action: transicao.acao, entity: 'Athlete', entityId: id,
+    organizationId: athlete.organizationId,
+    // SEM nome de pessoa: o log é lido por mais gente e guardado por mais
+    // tempo do que o dado que o originou.
+    metadata: { de: athlete.status, para: status, reason: reason ? String(reason).trim() : null }
+  });
+
+  return athleteFor(atualizado, actor, athlete.organizationId);
+}
+
+// ===========================================================================
+// APAGAR ATLETA COM HISTÓRICO ESPORTIVO NÃO É UMA OPÇÃO.
+// ===========================================================================
+//
+// O `RankingPoint` é o ledger da federação. Apagar o atleta apaga a linha do
+// ranking, a projeção pública, o resultado da súmula e o título que ele
+// levou — e nada disso volta. Nenhuma tela administrativa pode oferecer essa
+// porta, e o backend não pode confiar que a tela a escondeu.
+//
+// A conferência é por CONTAGEM, em cada tabela que guarda fato esportivo.
+// Havendo qualquer um, a resposta nomeia o que impede e aponta o caminho que
+// existe: ARQUIVAR, que tira de circulação e preserva tudo.
+const DEPENDENCIAS_HISTORICAS = Object.freeze([
+  ['rankingPoint', 'lançamento de ranking'],
+  ['ranking', 'linha de ranking'],
+  ['publicRankingEntry', 'linha da projeção pública'],
+  ['resultEntry', 'resultado de campeonato'],
+  ['registration', 'inscrição'],
+  ['externalResult', 'resultado histórico importado'],
+  ['eventOverallTitle', 'título Overall']
+]);
+
+async function remove(id, actor) {
+  const athlete = await prisma.athlete.findUnique({
+    where: { id },
+    select: { id: true, organizationId: true, status: true }
+  });
+  if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
+
+  assertCan(actor, 'athletes.manage', athlete.organizationId);
+
+  const encontradas = [];
+  for (const [modelo, rotulo] of DEPENDENCIAS_HISTORICAS) {
+    const quantos = await prisma[modelo].count({ where: { athleteId: id } });
+    if (quantos) encontradas.push({ rotulo, quantos });
+  }
+
+  if (encontradas.length) {
+    const resumo = encontradas.map(d => `${d.quantos} ${d.rotulo}${d.quantos > 1 ? '(s)' : ''}`).join(', ');
+    throw new AppError(
+      409, 'ATHLETE_HAS_HISTORY',
+      `Este atleta possui histórico esportivo e não pode ser apagado: ${resumo}. `
+      + 'Arquive o atleta — o histórico permanece e ele sai de circulação.'
+    );
+  }
+
+  await prisma.athlete.delete({ where: { id } });
+
+  await audit.record({
+    actor, action: 'ATHLETE_DELETE', entity: 'Athlete', entityId: id,
+    organizationId: athlete.organizationId,
+    metadata: { status: athlete.status, semHistorico: true }
+  });
+
+  return { deleted: true, id };
+}
+
+module.exports = {
+  findByCpf, lookup, create, update, list, findById, setProStatus, listPro,
+  setStatus, remove, INCLUDE_PERFIL
+};
