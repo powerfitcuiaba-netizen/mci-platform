@@ -320,6 +320,28 @@ jobs:
             exit 1
           fi
 
+      # A MESMA GUARDA PARA A CORREÇÃO DE CATEGORIA DOS LANÇAMENTOS.
+      #
+      # `backfill-categoria` roda o SCRIPT como processo e mede o que ele
+      # escreve e, sobretudo, o que ele não escreve: pontuação, classe,
+      # colocação e vínculos saem idênticos, e uma única linha não resolvida
+      # faz a aplicação inteira recusar. Pulá-la em silêncio devolveria um CI
+      # verde sobre a correção que toca o ledger histórico.
+      - name: Conferir que a suíte da correção de categoria não foi pulada
+        run: |
+          set -e
+          SAIDA=$(npx vitest run tests/backfill-categoria.test.mjs --reporter=json 2>/dev/null | tail -1)
+          PULADOS=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPendingTests+r.numTodoTests)" <<< "$SAIDA")
+          PASSOU=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPassedTests)" <<< "$SAIDA")
+          echo "correção de categoria: $PASSOU passaram, $PULADOS pulados"
+          # 13 testes: auditoria, aplicação, preservação, idempotência,
+          # recusa com conflito, recorte por temporada e o recompute depois
+          # da correção (ledger idêntico, projeção com categoria e classe).
+          if [ "$PULADOS" != "0" ] || [ "$PASSOU" -lt 13 ]; then
+            echo "A suíte da correção de categoria não rodou por inteiro."
+            exit 1
+          fi
+
       # O catálogo precisa terminar o job do jeito que o deploy o entrega: a
       # suíte acima apaga `Category` de propósito num dos testes e reprovisiona
       # em seguida. Conferir aqui custa um comando e fecha a janela.
