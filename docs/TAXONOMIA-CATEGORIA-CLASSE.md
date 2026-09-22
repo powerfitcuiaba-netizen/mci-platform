@@ -308,3 +308,71 @@ E `scripts/qa/mutantes-catalogo.mjs` (`npm run qa:mutantes:catalogo`) estraga a
 correção de propósito, uma mudança por vez. O mutante que mais importa é o
 primeiro — `a guarda volta a ficar depois da resolução do atleta` —, que não
 inventa defeito nenhum: recoloca o que a base real tinha.
+
+## A categoria do lançamento histórico
+
+Com o catálogo provisionado e a classe reconstituída, sobrou a última coluna
+que a importação contra catálogo vazio deixou em branco:
+`RankingPoint.categoryId`, nula nos 191 do Ipiranga.
+
+`scripts/backfill-categoria-do-lancamento.js` a reconstitui. O caminho é um
+só, e é exato:
+
+```
+ExternalResult.categoryCode  ->  Category.code  ->  Category.id
+```
+
+Não se usa o nome da classe para descobrir a categoria. Não há fallback
+genérico, não se cria categoria, não se infere e não se aproxima texto. Se o
+código não estiver no catálogo oficial, a linha é conflito — não categoria
+nova.
+
+### A auditoria vem antes, e a aplicação recusa se ela não fechar
+
+Sem `--aplicar` nada é escrito. A execução padrão imprime total analisado,
+resolvidos, não resolvidos, conflitos, categorias encontradas e a quantidade
+por categoria.
+
+Com `--aplicar`, **uma única linha não resolvida interrompe a escrita
+inteira** — inclusive as linhas que resolveram. Não é conservadorismo
+decorativo: gravar só a parte que resolveu deixaria a base em dois estados, e
+o operador teria de descobrir a mão quais ficaram para trás.
+
+Três coisas fazem uma linha não resolver: a origem não declarou código; o
+código não existe no catálogo oficial; ou duas linhas de catálogo respondem
+pelo mesmo código (a unicidade do banco é sobre o texto exato, então dois
+registros que só diferem em caixa passariam por ela — e aí a correspondência
+deixa de ser "exatamente uma").
+
+### O que ele não toca
+
+A única coluna escrita é `categoryId`, e só onde ela está nula. O teste
+compara o **retrato completo** do lançamento antes e depois — todos os campos,
+não uma lista que eu lembrasse de escrever — e exige que só `categoryId`
+mude. Pontuação, colocação, elegibilidade ao Super Overall, `catalogClassId`,
+vínculos de equipe e empresa, filiação e invalidação saem idênticos.
+
+É idempotente: o filtro é `categoryId: null`, repetido no `where` da escrita.
+A segunda execução não encontra mais nada.
+
+### O que a suíte mede
+
+`tests/backfill-categoria.test.mjs` — onze testes, contra o script **como
+processo**, porque é o script que vai rodar contra produção:
+
+| teste | o que prova |
+|---|---|
+| a auditoria relata e não escreve | os números, e o estado intocado |
+| preenche 6/6 pelo código do arquivo | a categoria gravada é a que a origem declarou, linha a linha |
+| a mesma classe em categorias diferentes | "Masters 35+" de Bikini e de Men's Physique vão para categorias distintas |
+| o retrato sai idêntico, menos `categoryId` | nada mais foi tocado |
+| `catalogClassId` preservado, classes intactas | a correção anterior não é desfeita |
+| nada criado ou removido | categoria, atleta, lançamento e `ExternalResult` nas mesmas contagens |
+| idempotência | a segunda execução encontra zero |
+| não sobrescreve categoria já resolvida | história anterior não é reescrita |
+| código fora do catálogo | conflito, `--aplicar` recusa, **nem as linhas boas** são escritas |
+| origem sem código | não resolvido, `--aplicar` recusa |
+| `--temporada` | a temporada vizinha fica como estava |
+
+E `scripts/qa/mutantes-categoria.mjs` (`npm run qa:mutantes:categoria`)
+estraga o script de propósito, uma mudança por vez.

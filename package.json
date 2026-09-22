@@ -27,7 +27,9 @@
     "diagnostico:classe": "node scripts/backfill-classe-do-catalogo.js",
     "qa:mutantes:ajuste": "node scripts/qa/mutantes-ajuste.mjs",
     "qa:mutantes:backfill": "node scripts/qa/mutantes-backfill.mjs",
-    "qa:mutantes:catalogo": "node scripts/qa/mutantes-catalogo.mjs"
+    "qa:mutantes:catalogo": "node scripts/qa/mutantes-catalogo.mjs",
+    "qa:mutantes:categoria": "node scripts/qa/mutantes-categoria.mjs",
+    "auditoria:categoria": "node scripts/backfill-categoria-do-lancamento.js"
   },
   "keywords": [],
   "author": "",
