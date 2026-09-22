@@ -25,7 +25,8 @@
     "qa:carga:importador": "node scripts/qa/carga-importador.mjs",
     "qa:mutantes": "node scripts/qa/mutantes-taxonomia.mjs",
     "diagnostico:classe": "node scripts/backfill-classe-do-catalogo.js",
-    "qa:mutantes:ajuste": "node scripts/qa/mutantes-ajuste.mjs"
+    "qa:mutantes:ajuste": "node scripts/qa/mutantes-ajuste.mjs",
+    "qa:mutantes:backfill": "node scripts/qa/mutantes-backfill.mjs"
   },
   "keywords": [],
   "author": "",
