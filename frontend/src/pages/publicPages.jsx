@@ -703,7 +703,13 @@ export function Ranking() {
         {dados => (dados.items.length
           ? (
             <div className="table-wrap">
-              <table className="table">
+              {/* `ranking-tabela` liga o mesmo tratamento de cartão que a tela
+                  de lançamentos já usa: no telefone cada coluna vira uma linha
+                  rotulada por `data-rotulo`, em vez de a tabela rolar de lado.
+                  Medido em Chromium: 611px de tabela dentro de 286 a 396 de
+                  viewport — o visitante arrastava de lado para ver quantos
+                  pontos alguém tem, que é a única coisa que ele foi ver. */}
+              <table className="table ranking-tabela">
                 <thead>
                   <tr>
                     <th style={{ width: 60 }}>#</th>
