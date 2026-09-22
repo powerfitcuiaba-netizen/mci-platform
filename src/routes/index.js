@@ -125,6 +125,14 @@ router.post('/athletes/:id/suspend', requireAuth, validate(s.paramsWithId, 'para
 router.post('/athletes/:id/archive', requireAuth, validate(s.paramsWithId, 'params'), validate(s.athleteStatusReason), wrap(c.athletes.archive));
 router.post('/athletes/:id/reactivate', requireAuth, validate(s.paramsWithId, 'params'), validate(s.athleteStatusOptionalReason), wrap(c.athletes.reactivate));
 
+// REVELAR O CPF é POST, e não GET, por duas razões que não são de estilo: o
+// ato é auditável (grava `ATHLETE_CPF_VIEW`), e GET convida cache, prefetch e
+// registro em log intermediário para uma resposta que carrega documento. O id
+// do atleta vai no caminho; o número volta no corpo — nunca em URL nem em
+// parâmetro de consulta. A permissão é conferida no serviço, contra a
+// organização DO ATLETA, e não contra nada que o cliente tenha mandado.
+router.post('/athletes/:id/cpf', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.athletes.revealCpf));
+
 // A EXCLUSÃO FÍSICA SÓ PASSA SEM HISTÓRICO ESPORTIVO. O serviço confere
 // lançamento, ranking, projeção, resultado, inscrição, resultado importado e
 // título — havendo qualquer um, responde 409 e aponta o arquivamento.

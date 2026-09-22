@@ -62,6 +62,15 @@ function athleteFor(athlete, viewer, organizationId = null) {
     ...base,
     organizationId: athlete.organizationId,
     userId: athlete.userId ?? null,
+    // O ESTADO ADMINISTRATIVO fica na camada RESTRITA, e não na pública.
+    //
+    // Que um atleta está suspenso é decisão interna da federação: publicá-la
+    // ao lado do nome, na vitrine, seria a plataforma divulgando uma sanção
+    // que a organização não mandou divulgar. Quem opera precisa ver; o
+    // visitante, não.
+    status: athlete.status ?? 'ACTIVE',
+    statusReason: athlete.statusReason ?? null,
+    statusChangedAt: athlete.statusChangedAt ?? null,
     birthDate: athlete.birthDate ?? null,
     phone: athlete.phone ?? null,
     email: athlete.email ?? null,

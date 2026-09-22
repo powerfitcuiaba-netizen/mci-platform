@@ -255,6 +255,9 @@ const athleteQuery = paginacao.extend({
   organizationId: id.optional(),
   search: z.string().trim().max(120).optional(),
   proStatus: z.enum(['NONE', 'ACTIVE', 'INACTIVE', 'SUSPENDED', 'RETIRED']).optional(),
+  // O ESTADO ADMINISTRATIVO, que é outra coisa que o estado PRO. Um atleta
+  // pode ser PRO ativo e estar suspenso pela federação ao mesmo tempo.
+  status: z.enum(['ACTIVE', 'SUSPENDED', 'ARCHIVED']).optional(),
   affiliationId: id.optional(),
   teamId: id.optional()
 });

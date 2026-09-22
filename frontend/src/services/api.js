@@ -208,6 +208,18 @@ export const api = {
     lookup: dados => post('/athletes/lookup', dados),
     listPro: params => get('/athletes/pro', params),
     setProStatus: (id, dados) => post(`/athletes/${id}/pro-status`, dados),
+    // ESTADO ADMINISTRATIVO. Suspender e arquivar exigem motivo; reativar
+    // aceita um. Nada aqui toca histórico esportivo.
+    suspend: (id, reason) => post(`/athletes/${id}/suspend`, { reason }),
+    archive: (id, reason) => post(`/athletes/${id}/archive`, { reason }),
+    reactivate: (id, reason) => post(`/athletes/${id}/reactivate`, reason ? { reason } : {}),
+    // A exclusão física só passa sem histórico esportivo — quem decide é o
+    // backend, e a tela mostra a recusa como ela vem.
+    remove: id => remove(`/athletes/${id}`),
+    // O CPF INTEIRO SÓ SAI POR AQUI, e por POST: o ato é auditado no servidor
+    // e a resposta carrega documento, que não tem por que passar por URL,
+    // cache ou Referer. O id vai no caminho; o número volta no corpo.
+    revealCpf: id => post(`/athletes/${id}/cpf`),
     // Vínculo com equipe. `linkTeam` só vincula atleta livre; tirar de outra
     // equipe é `transferTeam`, ato do operador da Muscle Contest.
     linkTeam: (id, dados) => post(`/athletes/${id}/team`, dados),

@@ -31,6 +31,8 @@ import { AdminOverall } from './pages/adminOverall';
 import { AdminLancamentos } from './pages/adminLancamentos';
 import MinhaSolicitacao from './pages/minhaSolicitacao';
 import AdminSolicitacoes from './pages/adminSolicitacoes';
+import { AdminAtletas } from './pages/adminAtletas';
+import { AdminAtleta } from './pages/adminAtleta';
 
 // A navegação é montada a partir das permissões efetivas do usuário: um item
 // que a API recusaria não aparece no menu. A autoridade continua no servidor —
@@ -58,6 +60,10 @@ const NAVEGACAO_ADMIN = [
   { rota: 'admin/eventos', rotulo: 'Eventos', icone: Trophy, permissao: 'events.update' },
   { rota: 'admin/inscricoes', rotulo: 'Inscrições', icone: ClipboardCheck, permissao: 'registrations.read' },
   { rota: 'admin/solicitacoes', rotulo: 'Solicitações', icone: UserCircle, permissao: 'athletes.manage' },
+  // ATLETAS é item próprio, e não uma aba dentro de Solicitações: a fila de
+  // pedidos esvazia, o cadastro de atletas não. Quem precisa suspender alguém
+  // ou conferir um histórico não está olhando para uma fila.
+  { rota: 'admin/atletas', rotulo: 'Atletas', icone: Users, permissao: 'athletes.manage' },
   { rota: 'admin/checkin', rotulo: 'Check-in', icone: ClipboardCheck, permissao: 'checkin.operate' },
   { rota: 'admin/pesagem', rotulo: 'Pesagem', icone: Scale, permissao: 'weighin.operate' },
   { rota: 'admin/credenciamento', rotulo: 'Credenciamento', icone: QrCode, permissao: 'credentials.read' },
@@ -342,6 +348,9 @@ function Shell() {
         if (segundo === 'eventos') return terceiro ? <AdminEventoDetalhe eventId={terceiro} notificar={notificar} navegar={navegar} /> : <AdminEventos notificar={notificar} navegar={navegar} />;
         if (segundo === 'inscricoes') return <AdminInscricoes notificar={notificar} />;
         if (segundo === 'solicitacoes') return <AdminSolicitacoes notificar={notificar} />;
+        if (segundo === 'atletas') return terceiro
+          ? <AdminAtleta id={terceiro} navegar={navegar} notificar={notificar} />
+          : <AdminAtletas navegar={navegar} />;
         if (segundo === 'checkin') return <AdminCheckin notificar={notificar} />;
         if (segundo === 'pesagem') return <AdminPesagem notificar={notificar} />;
         if (segundo === 'credenciamento') return <AdminCredenciamento notificar={notificar} />;

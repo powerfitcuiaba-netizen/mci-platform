@@ -1,6 +1,6 @@
 const prisma = require('../config/prisma');
 const { AppError } = require('../utils/errors');
-const { normalizeCpf, somenteDigitos } = require('../utils/cpf');
+const { normalizeCpf, somenteDigitos, formatCpf } = require('../utils/cpf');
 const { assertCan, organizationFilter, assertPermission } = require('../utils/tenant');
 const { can } = require('../utils/permissions');
 const { athleteFor, athletePublic } = require('../utils/visibility');
@@ -287,6 +287,10 @@ async function list(filtros, actor) {
   const escopo = organizationFilter(actor, filtros.organizationId);
 
   const where = { ...escopo };
+  // O FILTRO POR ESTADO. Sem ele, a lista de uma federação grande mistura
+  // quem está em circulação com quem foi suspenso ou arquivado — e o operador
+  // não tem como separar.
+  if (filtros.status) where.status = filtros.status;
   if (filtros.proStatus) where.proStatus = filtros.proStatus;
   if (filtros.affiliationId) where.affiliationId = filtros.affiliationId;
   if (filtros.teamId) where.teamId = filtros.teamId;
@@ -457,6 +461,48 @@ const TRANSICOES = Object.freeze({
   ACTIVE: { acao: 'ATHLETE_REACTIVATE', exigeMotivo: false }
 });
 
+// ============================================================================
+// REVELAR O CPF — a única porta pela qual o número inteiro sai por id.
+//
+// A tela administrativa mostra o CPF MASCARADO. Quando o operador precisa do
+// número inteiro — conferir um documento, casar um histórico — ele pede, e
+// quem decide é aqui, nunca o frontend:
+//
+//   * `athletes.read_sensitive` dá acesso ao perfil restrito;
+//   * `search.sensitive` é o que libera o DOCUMENTO em si. São permissões
+//     diferentes de propósito: quem opera o balcão vê o cadastro, quem
+//     responde por dado pessoal vê o documento.
+//
+// O CPF NUNCA entra na URL nem em parâmetro de consulta — o id do atleta vai
+// no caminho, e o número volta no CORPO da resposta. Em URL ele ficaria no
+// histórico do navegador, no cabeçalho Referer e no log de acesso do
+// servidor, que são três lugares fora do alcance do RLS.
+//
+// Toda revelação deixa rastro: `ATHLETE_CPF_VIEW` com quem pediu, qual atleta
+// e quando. Ver documento alheio é ato auditável, e não consulta trivial.
+// ============================================================================
+async function revealCpf(id, actor) {
+  const athlete = await prisma.athlete.findUnique({
+    where: { id },
+    select: { id: true, organizationId: true, identity: { select: { cpf: true } } }
+  });
+  if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
+
+  assertCan(actor, 'athletes.read_sensitive', athlete.organizationId);
+  assertCan(actor, 'search.sensitive', athlete.organizationId);
+
+  await audit.record({
+    actor, action: audit.ACTIONS.ATHLETE_CPF_VIEW, entity: 'Athlete',
+    entityId: athlete.id, organizationId: athlete.organizationId, metadata: { via: 'reveal' }
+  });
+
+  // Ausência de CPF é resposta legítima: a identidade pode nunca ter sido
+  // preenchida, ou o RLS pode não ter devolvido a linha. Nos dois casos a
+  // resposta é `null`, e não erro — inventar 404 aqui ensinaria o operador a
+  // ler "não encontrado" como "não pode", que são coisas diferentes.
+  return { cpf: athlete.identity?.cpf ? formatCpf(athlete.identity.cpf) : null };
+}
+
 async function setStatus(id, { status, reason = null }, actor) {
   const athlete = await prisma.athlete.findUnique({
     where: { id },
@@ -565,5 +611,5 @@ async function remove(id, actor) {
 
 module.exports = {
   findByCpf, lookup, create, update, list, findById, setProStatus, listPro,
-  setStatus, remove, INCLUDE_PERFIL
+  setStatus, remove, revealCpf, INCLUDE_PERFIL
 };
