@@ -155,6 +155,10 @@ describe('§3 a projeção carrega só o que o ranking precisa', () => {
 
     expect(colunas).toEqual([
       'athleteId',          // o dono, quando há — liga a linha ao perfil público
+      'catalogClassId',     // recorte por classe do catálogo da organização —
+                            // é ele que funciona para o histórico importado,
+                            // cujo `classId` é sempre nulo por não haver
+                            // evento do MCI de onde tirar a classe
       'categoryId',         // recorte
       'classId',            // recorte
       'companyId',          // ranking de empresas

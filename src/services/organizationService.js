@@ -47,7 +47,12 @@ async function create(data, actor) {
   // DADO editável — o operador acrescenta, renomeia e desativa classes sem que
   // o motor de pontuação mude.
   await prisma.classCatalog.createMany({
-    data: CLASSES_DO_CAMPEONATO.map(classe => ({ organizationId: organization.id, ...classe }))
+    // `displayName` nasce igual ao nome: `code` é identidade técnica e
+    // `displayName` é o que a tela mostra, e as duas colunas precisam estar
+    // preenchidas desde o primeiro dia para que a tela nunca dependa de um
+    // fallback. As organizações anteriores a esta coluna continuam com ela
+    // nula, e a leitura cai em `name` — não são reescritas.
+    data: CLASSES_DO_CAMPEONATO.map(classe => ({ organizationId: organization.id, displayName: classe.name, ...classe }))
   });
 
   await audit.record({ actor, action: 'ORGANIZATION_CREATE', entity: 'Organization', entityId: organization.id, organizationId: organization.id, metadata: { slug: data.slug } });

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, History, PencilLine, RotateCcw, Ban } from 'lucide-react';
+import { AlertTriangle, Coins, History, PencilLine, RotateCcw, Ban } from 'lucide-react';
 import api from '../services/api';
 import { useFetch } from '../lib/hooks';
 import { SeletorDeEvento } from './adminEvent';
@@ -38,6 +38,7 @@ export function AdminLancamentos({ notificar }) {
   const { t } = useIdioma();
   const [eventId, setEventId] = useState(null);
   const [corrigindo, setCorrigindo] = useState(null);
+  const [ajustando, setAjustando] = useState(null);
   const [invalidando, setInvalidando] = useState(null);
   const [restaurando, setRestaurando] = useState(null);
   const [recarga, setRecarga] = useState(0);
@@ -114,6 +115,7 @@ export function AdminLancamentos({ notificar }) {
                                   key={ponto.id}
                                   ponto={ponto}
                                   onCorrigir={() => setCorrigindo(ponto)}
+                                  onAjustar={() => setAjustando(ponto)}
                                   onInvalidar={() => setInvalidando(ponto)}
                                   onRestaurar={() => setRestaurando(ponto)}
                                 />
@@ -138,6 +140,16 @@ export function AdminLancamentos({ notificar }) {
         />
       )}
 
+      {ajustando && (
+        <DialogoDeAjuste
+          ponto={ajustando}
+          evento={estado.data?.event ?? null}
+          notificar={notificar}
+          onClose={() => setAjustando(null)}
+          onPronto={() => concluir(setAjustando)}
+        />
+      )}
+
       {invalidando && (
         <DialogoDeInvalidacao
           ponto={invalidando}
@@ -159,14 +171,30 @@ export function AdminLancamentos({ notificar }) {
   );
 }
 
-function LinhaDeLancamento({ ponto, onCorrigir, onInvalidar, onRestaurar }) {
+// O NOME DO COMPETIDOR, TENHA ELE CADASTRO OU NÃO.
+//
+// Resultado histórico importado antes do cadastro não tem `athlete` — e é a
+// maior parte do que o operador vem conferir. Mostrar "—" ali deixava a tela
+// inutilizável justamente no caso que ela existe para atender.
+const nomeDoCompetidor = ponto => ponto.athlete?.fullName
+  || ponto.externalAthlete?.displayName
+  || '—';
+
+// A classe do evento quando há evento do MCI; a do catálogo no histórico
+// importado, onde `competitionClass` é sempre nula.
+const nomeDaClasse = ponto => ponto.competitionClass?.name
+  || ponto.catalogClass?.displayName
+  || ponto.catalogClass?.name
+  || '—';
+
+function LinhaDeLancamento({ ponto, onCorrigir, onAjustar, onInvalidar, onRestaurar }) {
   const { t } = useIdioma();
   const invalidado = Boolean(ponto.voidedAt);
 
   return (
     <tr className={invalidado ? 'linha-invalidada' : undefined}>
       <td data-rotulo={t('overall.atleta')}>
-        {ponto.athlete?.fullName || '—'}
+        {nomeDoCompetidor(ponto)}
         {ponto.athlete?.affiliationNumber && (
           <small style={{ display: 'block', color: 'var(--cinza-fraco)' }}>
             {t('lancamento.matricula', { numero: ponto.athlete.affiliationNumber })}
@@ -174,7 +202,7 @@ function LinhaDeLancamento({ ponto, onCorrigir, onInvalidar, onRestaurar }) {
         )}
       </td>
       <td data-rotulo={t('overall.categoria')}>{ponto.category?.name || '—'}</td>
-      <td data-rotulo={t('lancamento.classe')}>{ponto.competitionClass?.name || '—'}</td>
+      <td data-rotulo={t('lancamento.classe')}>{nomeDaClasse(ponto)}</td>
       <td className="num" data-rotulo={t('overall.colocacao')}>{rotuloDaColocacao(ponto)}</td>
       <td className="num" data-rotulo={t('overall.pontosDaColocacao')}>{ponto.placementPoints}</td>
       <td className="num" data-rotulo={t('overall.bonusOverall')}>{ponto.overallBonus ? `+${ponto.overallBonus}` : '—'}</td>
@@ -202,6 +230,14 @@ function LinhaDeLancamento({ ponto, onCorrigir, onInvalidar, onRestaurar }) {
             <>
               <button type="button" className="button button-secondary button-sm" onClick={onCorrigir}>
                 <PencilLine size={14} /> {t('lancamento.corrigir')}
+              </button>
+              {/* CORRIGIR e AJUSTAR são coisas diferentes, e é por isso que
+                  são dois botões. Corrigir conserta a COLOCAÇÃO e deixa o
+                  motor recalcular; ajustar muda a PONTUAÇÃO por decisão de
+                  homologação, com a colocação intacta. Um botão só obrigaria
+                  o operador a escolher no escuro. */}
+              <button type="button" className="button button-secondary button-sm" onClick={onAjustar}>
+                <Coins size={14} /> {t('ajuste.acao')}
               </button>
               <button type="button" className="button button-secondary button-sm" onClick={onInvalidar}>
                 <Ban size={14} /> {t('acao.invalidar')}
@@ -322,6 +358,107 @@ function TabelaDoImpacto({ previa }) {
 
 // INVALIDAR. O texto do diálogo diz o que a operação faz E o que ela não faz:
 // sem isso o operador supõe que está apagando, e escolhe errado.
+// ============================================================================
+// AJUSTE ADMINISTRATIVO DA PONTUAÇÃO.
+//
+// O modal mostra o CONTEXTO INTEIRO antes do campo editável — atleta,
+// categoria, classe, campeonato, temporada e colocação. Não é enfeite: quem
+// vai mudar um número de pontuação precisa ver em qual participação está
+// mexendo, e a linha da tabela some atrás do modal.
+//
+// A confirmação é explícita — "5 → 4", com a diferença — porque o erro que
+// este modal precisa impedir é o de digitar no campo errado, e um número
+// sozinho não denuncia isso.
+//
+// `expectedPoints` viaja com o envio: é o valor que estava na tela quando o
+// operador decidiu. Se outro operador tiver alterado nesse meio-tempo, o
+// servidor recusa e a tela pede atualização, em vez de gravar por cima de uma
+// decisão que ninguém viu.
+// ============================================================================
+function DialogoDeAjuste({ ponto, evento, notificar, onClose, onPronto }) {
+  const { t } = useIdioma();
+  const [valor, setValor] = useState(String(ponto.points));
+  const [motivo, setMotivo] = useState('');
+  const [enviando, setEnviando] = useState(false);
+
+  const novo = Number.parseInt(valor, 10);
+  const valorValido = Number.isInteger(novo) && novo >= 0;
+  const diferenca = valorValido ? novo - ponto.points : 0;
+  const motivoValido = motivo.trim().length >= 5;
+  // Mudar para o mesmo valor não é ajuste: é um registro de auditoria sem
+  // fato por trás.
+  const podeEnviar = valorValido && motivoValido && diferenca !== 0 && !enviando;
+
+  const enviar = async () => {
+    if (!podeEnviar) return;
+    setEnviando(true);
+    try {
+      await api.ranking.adjustPoint(ponto.id, {
+        points: novo,
+        expectedPoints: ponto.points,
+        reason: motivo.trim()
+      });
+      notificar?.({ tom: 'ok', texto: t('ajuste.registrado') });
+      onPronto();
+    } catch (erro) {
+      notificar?.({ tom: 'perigo', texto: erro?.message || t('ajuste.falhou') });
+      setEnviando(false);
+    }
+  };
+
+  return (
+    <Modal title={t('ajuste.titulo')} description={t('ajuste.descricao')} onClose={onClose}>
+      <dl className="lista-revisao">
+        <div><dt>{t('overall.atleta')}</dt><dd>{nomeDoCompetidor(ponto)}</dd></div>
+        <div><dt>{t('overall.categoria')}</dt><dd>{ponto.category?.name || '—'}</dd></div>
+        <div><dt>{t('lancamento.classe')}</dt><dd>{nomeDaClasse(ponto)}</dd></div>
+        <div><dt>{t('publico.campeonato')}</dt><dd>{evento?.name || '—'}</dd></div>
+        <div>
+          <dt>{t('publico.temporada')}</dt>
+          <dd>{evento?.season ? `${evento.season.name} (${evento.season.year})` : '—'}</dd>
+        </div>
+        <div><dt>{t('overall.colocacao')}</dt><dd>{rotuloDaColocacao(ponto)}</dd></div>
+        <div><dt>{t('ajuste.pontosAtuais')}</dt><dd><strong>{ponto.points}</strong></dd></div>
+      </dl>
+
+      <Field label={t('ajuste.novoValor')} required>
+        <input
+          className="input-control"
+          type="number"
+          min="0"
+          value={valor}
+          onChange={evt => setValor(evt.target.value)}
+        />
+      </Field>
+
+      <Field label={t('ajuste.motivo')} required hint={t('ajuste.motivoAjuda')}>
+        <textarea
+          className="input-control"
+          rows={3}
+          value={motivo}
+          onChange={evt => setMotivo(evt.target.value)}
+        />
+      </Field>
+
+      {valorValido && diferenca !== 0 && (
+        <div className="alert alert-info" role="status">
+          <div>
+            <strong>{ponto.points} → {novo}</strong>
+            <p>{t('ajuste.diferenca')}: {diferenca > 0 ? `+${diferenca}` : diferenca}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="modal-actions">
+        <button type="button" className="button button-secondary" onClick={onClose}>{t('acao.cancelar')}</button>
+        <button type="button" className="button" disabled={!podeEnviar} onClick={enviar}>
+          {enviando ? t('ajuste.enviando') : t('ajuste.confirmar')}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 function DialogoDeInvalidacao({ ponto, notificar, onClose, onPronto }) {
   const { t } = useIdioma();
   const [motivo, setMotivo] = useState('');

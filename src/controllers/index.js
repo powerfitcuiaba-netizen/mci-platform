@@ -220,6 +220,7 @@ module.exports = {
     // um booleano.
     by: async (req, res) => declararCorte(req, res, await ranking.athleteRankingBy(req.query.seasonId, {
       classId: req.query.classId ?? null,
+      catalogClassId: req.query.catalogClassId ?? null,
       eventId: req.query.eventId ?? null,
       divisionId: req.query.divisionId ?? null,
       categoryId: req.query.categoryId ?? null,
@@ -237,6 +238,8 @@ module.exports = {
     eventRankingPoints: async (req, res) => res.json(await ranking.eventRankingPoints(req.params.id, req.user)),
     previewRankingPoint: async (req, res) => res.json(await ranking.previewRankingPoint(req.params.pointId, req.query, req.user)),
     editRankingPoint: async (req, res) => res.json(await ranking.editRankingPoint(req.params.pointId, req.body, req.user)),
+    adjustRankingPoint: async (req, res) => res.json(await ranking.adjustRankingPoint(req.params.pointId, req.body, req.user)),
+    listAdjustments: async (req, res) => res.json(await ranking.listAdjustments(req.params.pointId, req.user)),
     voidRankingPoint: async (req, res) => res.json(await ranking.voidRankingPoint(req.params.pointId, req.body, req.user)),
     restoreRankingPoint: async (req, res) => res.json(await ranking.restoreRankingPoint(req.params.pointId, req.body, req.user)),
     revokeOverall: async (req, res) => res.json(await ranking.revokeOverall(req.params.id, req.params.titleId, req.body, req.user)),
@@ -247,7 +250,10 @@ module.exports = {
       limit: req.query.limit ?? null,
       offset: req.query.offset ?? 0
     }, req.user)),
-    listClasses: async (req, res) => res.json({ items: await ranking.listClasses(req.query.organizationId, req.user) }),
+    listClasses: async (req, res) => res.json({ items: await ranking.listClasses(req.query.organizationId, { categoryId: req.query.categoryId ?? null }, req.user) }),
+    // Classes para montar o filtro do ranking. Anônima, como o ranking:
+    // quem vê a tabela precisa ver por onde recortá-la.
+    classesParaFiltro: async (req, res) => res.json(await ranking.listClassesParaFiltro(req.query)),
     upsertClass: async (req, res) => res.status(201).json(await ranking.upsertClass(req.body.organizationId, req.body, req.user)),
     companies: async (req, res) => declararCorte(req, res, await ranking.companyRanking(req.query.seasonId, { categoryId: req.query.categoryId ?? null, organizationId: req.query.organizationId ?? null }, req.user))
   },

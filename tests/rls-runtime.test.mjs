@@ -43,7 +43,7 @@ beforeEach(async () => {
 });
 
 describe('FORCE ROW LEVEL SECURITY — o dono da tabela também é filtrado', () => {
-  it('as 27 tabelas protegidas estão com FORCE ligado', async () => {
+  it('as 28 tabelas protegidas estão com FORCE ligado', async () => {
     const linhas = await prisma.$queryRaw`
       SELECT c.relname::text AS tabela, c.relforcerowsecurity AS forcado
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -71,7 +71,14 @@ describe('FORCE ROW LEVEL SECURITY — o dono da tabela também é filtrado', ()
     // caminho nenhum até um tenant. Por isso as três ganharam
     // `organizationId` próprio e as cinco ganharam política — a proteção
     // deixou de ser deduzida e passou a ser declarada.
-    expect(linhas.length).toBe(27);
+    //
+    // E de 27 para 28 com `RankingPointAdjustment`, o histórico dos ajustes
+    // administrativos de pontuação. Ela diz QUEM alterou a pontuação de quem,
+    // quando e por quê — informação de operação, não de torcida —, e nasceu
+    // com a mesma política do lançamento que ela ajusta: só operador da
+    // organização enxerga, e não há política de DELETE nenhuma, porque ajuste
+    // se invalida e não se apaga.
+    expect(linhas.length).toBe(28);
     const semForce = linhas.filter(linha => !linha.forcado).map(linha => linha.tabela);
     expect(semForce, 'tabela com RLS mas sem FORCE volta a isentar o dono').toEqual([]);
   });

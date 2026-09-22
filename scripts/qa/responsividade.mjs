@@ -37,10 +37,19 @@ const CHROMIUM = arg('chromium', env.PLAYWRIGHT_CHROMIUM || undefined);
 const DATABASE_URL = arg('db', env.QA_DATABASE_URL
   || 'postgresql://mci:mci_local_dev@127.0.0.1:5432/mci_qa_resp?schema=public');
 
-// As seis larguras pedidas. 320 é o piso real de telefone pequeno; 1440 é a
-// mesa de trabalho do operador.
-const LARGURAS = [320, 375, 390, 768, 1024, 1280, 1440];
-const LARGURAS_DE_TOQUE = new Set([320, 375, 390]);
+// AS LARGURAS. 320 é o piso real de telefone pequeno; 1920 é a mesa de
+// trabalho do operador em monitor cheio.
+//
+// 430, 560, 1180, 1366 e 1920 entraram nesta fase, pedidas na homologação: a
+// primeira é o telefone grande atual, 560 é o ponto em que a barra superior
+// troca de arranjo — e portanto o mais provável de quebrar —, 1180 é o tablet
+// deitado, e as duas últimas são as telas que o operador usa de fato.
+const LARGURAS = [320, 375, 390, 430, 560, 768, 1024, 1180, 1280, 1366, 1440, 1920];
+// Alvo de toque só é exigência onde o dedo é o ponteiro. Acima de 430 o mouse
+// assume, e cobrar 40px de um botão de barra de ferramentas de desktop
+// produziria reprovação sem defeito — foi exatamente o erro que a fase
+// anterior cometeu e mediu.
+const LARGURAS_DE_TOQUE = new Set([320, 375, 390, 430]);
 const ALVO_MINIMO = 40;
 
 // `--manter` sobe a pilha com dados de QA e NÃO mede nada: fica de pé para
@@ -391,7 +400,12 @@ try {
 
   const TELAS = [
     { rota: 'minha-filiacao', rotulo: 'Minha filiação', esperado: /matrícula/i },
-    { rota: 'meu-historico', rotulo: 'Meu histórico', esperado: /participaç/i }
+    { rota: 'meu-historico', rotulo: 'Meu histórico', esperado: /participaç/i },
+    // O RANKING PÚBLICO, que ganhou um terceiro seletor nesta fase.
+    // Temporada → Categoria → Classe numa barra que já era apertada em 390:
+    // é o lugar mais provável de a largura estourar, e é justamente o que
+    // nenhum teste de unidade enxerga.
+    { rota: 'ranking', rotulo: 'Ranking público', esperado: /ranking|temporada/i }
   ];
 
   for (const tela of TELAS) {

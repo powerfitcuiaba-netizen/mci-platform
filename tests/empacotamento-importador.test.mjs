@@ -359,7 +359,9 @@ describe('o calendário não pede migration nenhuma', () => {
       // se encontrar alguma. Em base que já carrega ambiguidade, qual dos dois
       // cadastros fica é decisão humana — a migration para e mostra, em vez de
       // escolher.
-      '20260921120000_matricula_identifica_um_atleta'
+      '20260921120000_matricula_identifica_um_atleta',
+      '20260922120000_taxonomia_de_categoria_e_classe',
+      '20260922180000_ajuste_administrativo_de_pontos'
     ]);
   });
 });

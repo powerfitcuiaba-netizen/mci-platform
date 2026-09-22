@@ -13,6 +13,7 @@ const audit = require('./auditService');
 const {
   TABELA_OFICIAL_COLOCACAO, BONUS_OVERALL, pontuarResultado, contadores, classificar
 } = require('../utils/rankingScoring');
+const { resolverClasseDoCatalogo } = require('../utils/classeDoCatalogo');
 
 // Ranking e temporadas.
 //
@@ -335,8 +336,18 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
   // A classe do evento manda; na ausência da marca nela, vale o catálogo da
   // organização, que é onde o operador governa a lista.
   const classe = result.competitionClass;
-  const doCatalogo = await prisma.classCatalog.findUnique({
-    where: { organizationId_code: { organizationId: result.event.organizationId, code: classe.code } },
+  // A MESMA ORDEM DE RESOLUÇÃO DE TODO O RESTO: a classe DAQUELA CATEGORIA
+  // manda; na ausência dela, vale a genérica da organização.
+  //
+  // Deixou de ser `findUnique` porque o par (organização, código) parou de
+  // ser único: a mesma organização pode ter OPEN de Women's Physique e OPEN
+  // de Men's Physique. A unicidade agora são duas — ver a migration
+  // 20260922120000.
+  const doCatalogo = (await prisma.classCatalog.findFirst({
+    where: { organizationId: result.event.organizationId, categoryId, code: classe.code },
+    select: { superOverallEligible: true }
+  })) ?? await prisma.classCatalog.findFirst({
+    where: { organizationId: result.event.organizationId, categoryId: null, code: classe.code },
     select: { superOverallEligible: true }
   });
 
@@ -451,6 +462,26 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
       })).map(ponto => ponto.athleteId)
     );
 
+    // A CLASSE DO EVENTO, TAMBÉM NO CATÁLOGO DA ORGANIZAÇÃO.
+    //
+    // `classId` continua sendo a classe do evento e não muda de significado.
+    // Esta é a mesma classe vista pelo catálogo — resolvida uma vez para o
+    // resultado inteiro, porque um resultado é de uma classe só.
+    //
+    // Existe para que o recorte por classe responda a MESMA pergunta nos dois
+    // caminhos: sem ela, `/ranking?catalogClassId=OPEN` mostraria o histórico
+    // importado e esconderia o campeonato julgado no MCI, o que é pior do que
+    // não ter o filtro.
+    //
+    // Não toca em pontuação: `superOverallEligible` já foi resolvido acima.
+    const classeDoCatalogo = await resolverClasseDoCatalogo(tx, {
+      organizationId: result.event.organizationId,
+      categoryId,
+      displayName: classe.name ?? classe.code,
+      code: classe.code,
+      criar: false
+    });
+
     let total = 0;
     for (const entry of classificados) {
       // Lançamento preservado (invalidado) ou já existente: a decisão
@@ -477,6 +508,7 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
             organizationId: result.event.organizationId,
             source: 'EVENT', eventId: result.eventId, resultId,
             classId: result.classId,
+            catalogClassId: classeDoCatalogo?.id ?? null,
             teamId: vinculos.get(entry.athleteId)?.teamId ?? null,
             companyId: vinculos.get(entry.athleteId)?.companyId ?? null,
             affiliationId: vinculos.get(entry.athleteId)?.affiliationId ?? null,
@@ -574,7 +606,7 @@ async function recomputarEm(tx, seasonId) {
       athleteId: true, externalAthleteId: true, organizationId: true,
       categoryId: true, points: true, placing: true,
       superOverallPoints: true, superOverallEligible: true, didNotShow: true,
-      isOverallChampion: true, eventId: true, classId: true,
+      isOverallChampion: true, eventId: true, classId: true, catalogClassId: true,
       teamId: true, companyId: true, voidedAt: true, externalResultId: true,
       externalAthlete: { select: { id: true, displayName: true } }
     }
@@ -704,6 +736,11 @@ async function republicarProjecao(tx, seasonId, pontos, competidorDe) {
       categoryId: ponto.categoryId ?? null,
       eventId: ponto.eventId ?? null,
       classId: ponto.classId ?? null,
+      // O recorte por classe do PÚBLICO. `classId` é nulo em todo
+      // resultado histórico importado, porque ele aponta para a classe
+      // de um evento do MCI; esta coluna é a do catálogo da organização,
+      // que existe nos dois caminhos.
+      catalogClassId: ponto.catalogClassId ?? null,
       teamId: ponto.teamId ?? null,
       companyId: ponto.companyId ?? null,
       placing: ponto.placing ?? null,
@@ -1428,11 +1465,15 @@ async function companyRanking(seasonId, { categoryId = null, organizationId = nu
  * origem traz a classe como texto, sem vínculo com a classe de um evento do
  * MCI. É limite do dado recebido, não do motor.
  */
-async function athleteRankingBy(seasonId, { classId = null, eventId = null, divisionId = null, categoryId = null, limit = null, offset = 0 } = {}, actor = null) {
+async function athleteRankingBy(seasonId, { classId = null, catalogClassId = null, eventId = null, divisionId = null, categoryId = null, limit = null, offset = 0 } = {}, actor = null) {
   const where = { seasonId, ...(categoryId ? { categoryId } : {}) };
 
   if (eventId) where.eventId = eventId;
   if (classId) where.classId = classId;
+  // O recorte por classe DO CATÁLOGO. `classId` recorta a classe de um
+  // evento do MCI e é nulo em todo resultado histórico importado; este
+  // recorta a classe da organização, que existe nos dois caminhos.
+  if (catalogClassId) where.catalogClassId = catalogClassId;
 
   if (divisionId) {
     const classes = await publico.competitionClass.findMany({ where: { divisionId }, select: { id: true } });
@@ -1449,7 +1490,7 @@ async function athleteRankingBy(seasonId, { classId = null, eventId = null, divi
     select: {
       competitorKey: true, athleteId: true, externalAthleteId: true, displayName: true,
       categoryId: true, points: true, superOverallPoints: true, placing: true,
-      isOverallChampion: true, eventId: true, classId: true, sourceKey: true
+      isOverallChampion: true, eventId: true, classId: true, catalogClassId: true, sourceKey: true
     }
   });
 
@@ -1475,11 +1516,20 @@ async function athleteRankingBy(seasonId, { classId = null, eventId = null, divi
       : competidorExterno(ponto);
     if (!acumulado.has(ponto.competitorKey)) {
       acumulado.set(ponto.competitorKey, {
+        competitorKey: ponto.competitorKey,
         athleteId: ponto.athleteId, athlete: ponto.athlete,
         totalPoints: 0, fontes: new Set(), pontos: []
       });
     }
-    const linha = acumulado.get(ponto.athleteId);
+    // PELA MESMA CHAVE COM QUE FOI GRAVADO.
+    //
+    // Isto lia `acumulado.get(ponto.athleteId)`. Para quem tem cadastro dava
+    // certo por coincidência — `competitorKey` É o `athleteId` nesse caso.
+    // Para o competidor SEM cadastro, que é todo o histórico importado, a
+    // chave é `X:<identidade externa>` e `get(null)` devolvia `undefined`:
+    // a linha seguinte estourava, e o recorte respondia 500 em cima
+    // justamente das linhas que ele existe para mostrar.
+    const linha = acumulado.get(ponto.competitorKey);
     // Recorte do CAMPEONATO: soma `points`, como o ranking principal. Trocar
     // por `superOverallPoints` aqui apagaria Estreante, Novice e Master.
     linha.totalPoints += ponto.points;
@@ -1489,10 +1539,23 @@ async function athleteRankingBy(seasonId, { classId = null, eventId = null, divi
 
   const linhas = [...acumulado.values()].map(linha => ({ ...linha, ...contadores(linha.pontos) }));
 
+  // A categoria do RECORTE, resolvida uma vez. O recorte agrega o competidor
+  // inteiro, então a linha não tem categoria própria — ela tem a do filtro.
+  // Sem isto a tabela escreveria "Geral" numa lista que é, por definição, de
+  // uma categoria só.
+  const categoriaDoRecorte = categoryId
+    ? await publico.category.findUnique({ where: { id: categoryId }, select: { id: true, code: true, name: true } })
+    : null;
+
   return projetar(recortarParaOPublico(paginar(classificar(linhas), { limit, offset }), await vistaPublicaDaTemporada(seasonId, actor)), linha => ({
+    // Chave estável da linha para a tela: o COMPETIDOR. A linha agregada não
+    // existe como registro em lugar nenhum, e portanto não tem id de tabela.
+    id: linha.competitorKey ?? linha.athleteId,
     position: linha.position,
     tieUnresolved: linha.tieUnresolved,
     athlete: linha.athlete,
+    category: categoriaDoRecorte,
+    state: linha.athlete?.state ?? null,
     totalPoints: linha.totalPoints,
     eventCount: linha.fontes.size,
     overallWins: linha.overallWins,
@@ -1688,19 +1751,101 @@ async function agregarSuperOverall({ seasonId, categoryId, limite }) {
 // quais alimentam o Super Overall. O motor de pontuação lê a marca; nenhum
 // código de classe está escrito nele.
 
-async function listClasses(organizationId, actor) {
+async function listClasses(organizationId, { categoryId = null } = {}, actor) {
   assertCan(actor, 'ranking.read', organizationId);
   return prisma.classCatalog.findMany({
-    where: { organizationId },
+    where: { organizationId, ...(categoryId ? { categoryId } : {}) },
     orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }]
   });
+}
+
+/**
+ * As classes que servem de FILTRO para o ranking, por categoria.
+ *
+ * Lida pela projeção pública porque a tela do ranking é anônima. A política
+ * `catalogo_leitura` já libera a leitura do catálogo; o recorte por
+ * organização é feito aqui, e não pela política, porque o que se quer não é
+ * esconder a lista dos outros — é não misturar as classes de duas
+ * organizações no mesmo `<select>`.
+ *
+ * A CLASSE GENÉRICA ENTRA EM TODA CATEGORIA. ESTREANTE, NOVICE, OPEN e
+ * MASTER são divisões e valem em qualquer uma; deixá-las de fora faria o
+ * filtro de Women's Physique não ter "Open", que é a classe com mais
+ * resultado de todas.
+ *
+ * `displayName` é o que a tela mostra. `code` viaja junto porque é a
+ * identidade — mas não é o que se lê na tela.
+ */
+async function listClassesParaFiltro({ organizationId = null, categoryId = null, seasonId = null } = {}) {
+  // A organização pode vir da temporada, que é o recorte que a tela do
+  // ranking já tem na mão.
+  const orgId = organizationId
+    ?? (seasonId
+      ? (await publico.rankingSeason.findUnique({ where: { id: seasonId }, select: { organizationId: true } }))?.organizationId
+      : null)
+    ?? (await temporadaPadrao(null))?.organizationId
+    ?? null;
+
+  if (!orgId) return { items: [] };
+
+  const items = await publico.classCatalog.findMany({
+    where: {
+      organizationId: orgId,
+      active: true,
+      ...(categoryId ? { OR: [{ categoryId }, { categoryId: null }] } : {})
+    },
+    select: { id: true, code: true, name: true, displayName: true, categoryId: true, sortOrder: true },
+    orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }]
+  });
+
+  return { items: items.map(classe => ({ ...classe, displayName: classe.displayName ?? classe.name })) };
+}
+
+/**
+ * Uma classe de Women's Physique não filtra Figure.
+ *
+ * A conferência é do DADO, não de permissão: `categoryId` e `catalogClassId`
+ * chegam os dois pela query, onde qualquer um escreve o que quiser, e a
+ * interseção incoerente devolveria uma lista vazia que a tela leria como
+ * "ninguém pontuou" — um erro silencioso, que é o pior tipo.
+ *
+ * A classe GENÉRICA (categoria nula) é coerente com qualquer categoria: é
+ * exatamente o que "vale para todas" significa.
+ *
+ * Também confere a ORGANIZAÇÃO: classe de outra organização não recorta o
+ * ranking desta, nem por engano nem por id adivinhado.
+ */
+async function conferirCoerenciaDaClasse(catalogClassId, { categoryId = null, organizationId = null } = {}) {
+  const classe = await publico.classCatalog.findUnique({
+    where: { id: catalogClassId },
+    select: { id: true, categoryId: true, organizationId: true }
+  });
+
+  if (!classe) throw new AppError(404, 'CLASS_NOT_FOUND', 'Classe não encontrada');
+
+  if (organizationId && classe.organizationId !== organizationId) {
+    throw new AppError(404, 'CLASS_NOT_FOUND', 'Classe não encontrada');
+  }
+
+  if (categoryId && classe.categoryId && classe.categoryId !== categoryId) {
+    throw new AppError(
+      422, 'CLASS_CATEGORY_MISMATCH',
+      'A classe informada pertence a outra categoria: o recorte pedido não existe'
+    );
+  }
+
+  return classe;
 }
 
 async function upsertClass(organizationId, data, actor) {
   assertCan(actor, 'ranking.manage', organizationId);
 
-  const existente = await prisma.classCatalog.findUnique({
-    where: { organizationId_code: { organizationId, code: data.code } }
+  // Uma classe genérica e uma classe de categoria com o MESMO código são
+  // duas linhas diferentes e legítimas. O que o operador está editando é a
+  // que tem exatamente esta categoria — inclusive quando ela é nula.
+  const categoryId = data.categoryId ?? null;
+  const existente = await prisma.classCatalog.findFirst({
+    where: { organizationId, categoryId, code: data.code }
   });
 
   const classe = existente
@@ -1708,6 +1853,7 @@ async function upsertClass(organizationId, data, actor) {
       where: { id: existente.id },
       data: {
         name: data.name ?? existente.name,
+        displayName: data.displayName ?? data.name ?? existente.displayName,
         superOverallEligible: data.superOverallEligible ?? existente.superOverallEligible,
         active: data.active ?? existente.active,
         sortOrder: data.sortOrder ?? existente.sortOrder
@@ -1715,7 +1861,8 @@ async function upsertClass(organizationId, data, actor) {
     })
     : await prisma.classCatalog.create({
       data: {
-        organizationId, code: data.code, name: data.name ?? data.code,
+        organizationId, categoryId, code: data.code, name: data.name ?? data.code,
+        displayName: data.displayName ?? data.name ?? data.code,
         superOverallEligible: data.superOverallEligible ?? false,
         active: data.active ?? true,
         sortOrder: data.sortOrder ?? 0
@@ -1724,7 +1871,7 @@ async function upsertClass(organizationId, data, actor) {
 
   await audit.record({
     actor, action: 'CLASS_CATALOG_SET', entity: 'ClassCatalog', entityId: classe.id,
-    organizationId, metadata: { code: classe.code, superOverallEligible: classe.superOverallEligible, active: classe.active }
+    organizationId, metadata: { code: classe.code, categoryId: classe.categoryId, superOverallEligible: classe.superOverallEligible, active: classe.active }
   });
 
   return classe;
@@ -1842,6 +1989,36 @@ async function list(filtros, actor = null) {
   });
   const vistaPublica = ehVistaPublica(actor, temporada?.organizationId ?? null);
 
+  // RECORTE POR CLASSE: OUTRO MOTOR, DE PROPÓSITO.
+  //
+  // `Ranking` é o agregado por (competidor, categoria) — ele não tem classe
+  // nenhuma, e não teria como ter: a mesma linha soma Open e Masters do mesmo
+  // atleta. Filtrar por classe exige voltar ao lançamento, que é o que
+  // `athleteRankingBy` já faz, pela projeção pública e com a MESMA regra de
+  // soma e o MESMO desempate. Um motor só, duas portas de entrada.
+  if (filtros.catalogClassId) {
+    await conferirCoerenciaDaClasse(filtros.catalogClassId, {
+      categoryId: filtros.categoryId ?? null,
+      organizationId: temporada?.organizationId ?? null
+    });
+
+    const items = await athleteRankingBy(where.seasonId, {
+      catalogClassId: filtros.catalogClassId,
+      categoryId: filtros.categoryId ?? null,
+      limit: vistaPublica ? TOP_PUBLICO : (filtros.limit ?? null)
+    }, actor);
+
+    return {
+      items,
+      season: temporada ? { id: temporada.id, name: temporada.name, year: temporada.year } : null,
+      // O recorte não pagina por cursor: ele agrega em memória, e um cursor
+      // ancorado em id de linha agregada não existe.
+      nextCursor: null,
+      publicView: vistaPublica,
+      publicLimit: TOP_PUBLICO
+    };
+  }
+
   const brutos = await publico.ranking.findMany({
     where,
     include: {
@@ -1956,7 +2133,10 @@ const CAMPOS_CORRIGIVEIS = Object.freeze(['placing', 'didNotShow']);
 async function eventRankingPoints(eventId, actor) {
   const event = await prisma.event.findUnique({
     where: { id: eventId },
-    select: { id: true, name: true, slug: true, startDate: true, organizationId: true, seasonId: true }
+    select: {
+      id: true, name: true, slug: true, startDate: true, organizationId: true, seasonId: true,
+      season: { select: { id: true, name: true, year: true } }
+    }
   });
   if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Campeonato não encontrado');
 
@@ -1966,13 +2146,21 @@ async function eventRankingPoints(eventId, actor) {
     where: { eventId },
     select: {
       id: true, placing: true, placingOriginal: true, didNotShow: true,
-      placementPoints: true, overallBonus: true, points: true,
+      placementPoints: true, overallBonus: true, adjustmentPoints: true, points: true,
       superOverallPoints: true, superOverallEligible: true, isOverallChampion: true,
-      source: true, externalResultId: true,
+      source: true, externalResultId: true, seasonId: true,
       voidedAt: true, voidedById: true, voidReason: true,
       athlete: { select: { id: true, fullName: true, affiliationNumber: true } },
+      // O COMPETIDOR SEM CADASTRO tem nome, e é o único nome que ele tem. Sem
+      // isto a tela do operador mostrava linha em branco justamente para o
+      // histórico importado — que é a maior parte das linhas que ele veio
+      // conferir.
+      externalAthlete: { select: { id: true, displayName: true } },
       category: { select: { id: true, code: true, name: true } },
       competitionClass: { select: { id: true, code: true, name: true } },
+      // A classe do CATÁLOGO: é ela que existe no histórico importado, onde
+      // `competitionClass` é sempre nula por não haver evento do MCI.
+      catalogClass: { select: { id: true, code: true, name: true, displayName: true } },
       affiliation: { select: { id: true, code: true, name: true } }
     },
     // Ordem DECLARADA. Sem `orderBy` a resposta sai na ordem física do
@@ -1987,9 +2175,13 @@ async function eventRankingPoints(eventId, actor) {
 const CAMPOS_DO_LANCAMENTO = Object.freeze({
   id: true, seasonId: true, athleteId: true, eventId: true, source: true,
   externalResultId: true, placing: true, placingOriginal: true,
-  placementPoints: true, overallBonus: true, points: true,
+  placementPoints: true, overallBonus: true, adjustmentPoints: true, points: true,
   superOverallPoints: true, superOverallEligible: true,
   isOverallChampion: true, didNotShow: true,
+  // O recorte viaja junto porque o modal de ajuste o EXIBE — o operador
+  // precisa ver de qual categoria e de qual classe é a participação que ele
+  // está prestes a alterar. São lidos, nunca escritos por este caminho.
+  organizationId: true, categoryId: true, catalogClassId: true,
   voidedAt: true, voidedById: true, voidReason: true
 });
 
@@ -2056,9 +2248,17 @@ async function carregarLancamento(rankingPointId, actor) {
 
   // O atleta só é lido DEPOIS da autorização, e o nulo é tolerado: ele serve à
   // prévia, não à decisão.
-  const athlete = await prisma.athlete.findUnique({
-    where: { id: ponto.athleteId }, select: { id: true, fullName: true }
-  });
+  //
+  // E O LANÇAMENTO PODE NÃO TER ATLETA NENHUM. Resultado histórico importado
+  // antes do cadastro é o caso normal — são as 191 linhas do Ipiranga, todas
+  // com `athleteId` nulo. `findUnique({ where: { id: null } })` não é uma
+  // consulta que devolve nada: o Prisma a RECUSA, e a recusa subia como 500.
+  // Na prática, corrigir ou invalidar um lançamento histórico era impossível.
+  const athlete = ponto.athleteId
+    ? await prisma.athlete.findUnique({
+      where: { id: ponto.athleteId }, select: { id: true, fullName: true }
+    })
+    : null;
 
   return { ...ponto, season: temporada, athlete: athlete ?? { id: ponto.athleteId, fullName: null } };
 }
@@ -2077,21 +2277,43 @@ async function projetarLancamento(ponto, mudanca, cliente = prisma) {
     where: { seasonId: ponto.seasonId }, select: { placing: true, points: true }
   });
 
+  // O AJUSTE ADMINISTRATIVO ATRAVESSA A CORREÇÃO DE COLOCAÇÃO.
+  //
+  // Corrigir a colocação recalcula o que o MOTOR produz. O ajuste não saiu do
+  // motor: saiu de uma decisão de homologação, com motivo registrado. Zerá-lo
+  // aqui desfaria essa decisão de lado, sem ninguém pedir e sem aparecer em
+  // lugar nenhum.
+  //
+  // Na ausência declarada ele também some, e some com razão: NS vale zero pela
+  // regra homologada, e zero não comporta parcela.
+  const ajuste = ponto.adjustmentPoints ?? 0;
+
   // Ausência vale zero por regra homologada, e o motor nem é consultado.
   if (didNotShow || placing == null) {
     return {
       placing: null, didNotShow: true,
-      placementPoints: 0, overallBonus: 0, points: 0, superOverallPoints: 0,
+      placementPoints: 0, overallBonus: 0, adjustmentPoints: 0,
+      points: 0, superOverallPoints: 0,
       isOverallChampion: false
     };
   }
 
-  const { placementPoints, overallBonus, points, superOverallPoints } = pontuarResultado(
+  // `superOverallPoints` do motor é descartado de propósito: com o ajuste na
+  // conta, quem vale para o anual é o TOTAL ajustado, calculado logo abaixo
+  // pela mesma regra — igual a `points` onde a classe é elegível, zero nas
+  // demais. Duas contas para a mesma métrica é como elas passam a discordar.
+  const { placementPoints, overallBonus, points } = pontuarResultado(
     placing, tabela, ponto.isOverallChampion, ponto.superOverallEligible
   );
+
+  // O total nunca fica negativo: um ajuste para baixo maior que a nova
+  // pontuação do motor pararia em zero, e não em dívida de pontos.
+  const total = Math.max(0, points + ajuste);
   return {
     placing, didNotShow: false,
-    placementPoints, overallBonus, points, superOverallPoints,
+    placementPoints, overallBonus, adjustmentPoints: ajuste,
+    points: total,
+    superOverallPoints: ponto.superOverallEligible ? total : 0,
     isOverallChampion: ponto.isOverallChampion
   };
 }
@@ -2099,6 +2321,7 @@ async function projetarLancamento(ponto, mudanca, cliente = prisma) {
 const retrato = ponto => ({
   placing: ponto.placing, didNotShow: ponto.didNotShow,
   placementPoints: ponto.placementPoints, overallBonus: ponto.overallBonus,
+  adjustmentPoints: ponto.adjustmentPoints ?? 0,
   points: ponto.points, voided: Boolean(ponto.voidedAt)
 });
 
@@ -2150,6 +2373,7 @@ async function editRankingPoint(rankingPointId, dados, actor) {
       data: {
         placing: novo.placing, didNotShow: novo.didNotShow,
         placementPoints: novo.placementPoints, overallBonus: novo.overallBonus,
+        adjustmentPoints: novo.adjustmentPoints,
         points: novo.points, superOverallPoints: novo.superOverallPoints,
         // A colocação de origem só é gravada na PRIMEIRA alteração: depois
         // disso ela já registra de onde o lançamento partiu, e reescrevê-la
@@ -2171,6 +2395,146 @@ async function editRankingPoint(rankingPointId, dados, actor) {
   });
 
   return { ...retrato(atualizado), id: rankingPointId, diferenca: atualizado.points - antes.points };
+}
+
+/**
+ * AJUSTE ADMINISTRATIVO DA PONTUAÇÃO — o ponto muda, o resto não.
+ *
+ * O QUE ESTA OPERAÇÃO NÃO FAZ, e é a metade mais importante da descrição:
+ * não mexe em colocação, categoria, classe, evento, temporada, atleta nem
+ * `ExternalResult`. Não declara, não revoga e não inventa Overall — o bônus
+ * é da regra homologada e continua onde estava. O que ela altera é UM número.
+ *
+ * COMO O NÚMERO MUDA SEM QUEBRAR A AUDITORIA
+ *
+ * O total continua sendo a soma das parcelas. A diferença entre o valor
+ * pedido e o que o motor produz vira `adjustmentPoints`, e é ela que carrega
+ * a intervenção humana:
+ *
+ *   points = placementPoints + overallBonus + adjustmentPoints
+ *
+ * Assim o ledger continua dizendo quanto veio da colocação, quanto veio do
+ * Overall e quanto veio de decisão de homologação — em vez de um total
+ * sobrescrito que não se explica.
+ *
+ * CONCORRÊNCIA: `expectedPoints` é obrigatório. Ele é o valor que o operador
+ * TINHA NA TELA quando decidiu. Se o lançamento mudou desde então — outro
+ * operador ajustou, ou uma correção de colocação recalculou —, a gravação é
+ * recusada e a tela pede atualização. É a mesma guarda que protege do duplo
+ * clique: o segundo envio chega com um `expectedPoints` que já não vale.
+ */
+async function adjustRankingPoint(rankingPointId, { points, reason, expectedPoints }, actor) {
+  const ponto = await carregarLancamento(rankingPointId, actor);
+
+  if (ponto.voidedAt) {
+    throw new AppError(409, 'RANKING_POINT_VOIDED',
+      'Lançamento invalidado não se ajusta: restaure antes de alterar');
+  }
+
+  // Ausência vale ZERO pela regra homologada. Ajustar um NS para cima seria a
+  // plataforma dizendo que alguém que não subiu no palco pontuou.
+  if (ponto.didNotShow && points > 0) {
+    throw new AppError(422, 'ADJUST_ON_DID_NOT_SHOW',
+      'Não comparecimento vale zero pela regra homologada: corrija a colocação, não a pontuação');
+  }
+
+  let antes;
+  let registro;
+
+  const atualizado = await comTemporadaTravada(ponto, async (tx, atual) => {
+    if (atual.voidedAt) {
+      throw new AppError(409, 'RANKING_POINT_VOIDED',
+        'Lançamento invalidado não se ajusta: restaure antes de alterar');
+    }
+
+    // A CONFERÊNCIA SOB A TRAVA, e não antes dela. Conferir fora da trava
+    // deixaria passar exatamente a corrida que este parâmetro existe para
+    // pegar: dois operadores lendo 5, os dois enviando, os dois passando.
+    if (atual.points !== expectedPoints) {
+      throw new AppError(409, 'RANKING_POINT_STALE',
+        'Os pontos foram alterados por outro operador. Atualize antes de editar novamente.');
+    }
+
+    antes = retrato(atual);
+
+    // A parcela é a DIFERENÇA para o que o motor produz, e não o valor
+    // pedido: assim uma correção de colocação posterior recalcula as duas
+    // primeiras parcelas e este ajuste continua valendo o mesmo tanto.
+    const doMotor = atual.placementPoints + atual.overallBonus;
+
+    const gravado = await tx.rankingPoint.update({
+      where: { id: rankingPointId },
+      data: {
+        adjustmentPoints: points - doMotor,
+        points,
+        // A métrica anual segue a mesma regra de sempre: igual ao total onde
+        // a classe é elegível, zero nas demais. O ajuste não muda a
+        // elegibilidade — ela é atributo da classe.
+        superOverallPoints: atual.superOverallEligible ? points : 0
+      }
+    });
+
+    registro = await tx.rankingPointAdjustment.create({
+      data: {
+        organizationId: ponto.season.organizationId,
+        rankingPointId,
+        previousPoints: antes.points,
+        newPoints: points,
+        reason,
+        createdById: actor?.id ?? null
+      }
+    });
+
+    return gravado;
+  });
+
+  await audit.record({
+    actor, action: audit.ACTIONS.RANKING_POINTS_ADJUSTED,
+    entity: 'RankingPoint', entityId: rankingPointId,
+    organizationId: ponto.season.organizationId,
+    // SEM CPF, sem token, sem senha — e sem nome de pessoa. O log é lido por
+    // mais gente e guardado por mais tempo do que o dado que o originou; os
+    // identificadores bastam para reconstituir o caso.
+    metadata: {
+      adjustmentId: registro.id,
+      rankingPointId,
+      athleteId: ponto.athleteId ?? null,
+      externalResultId: ponto.externalResultId ?? null,
+      eventId: ponto.eventId ?? null,
+      seasonId: ponto.seasonId,
+      categoryId: ponto.categoryId ?? null,
+      catalogClassId: ponto.catalogClassId ?? null,
+      previousPoints: antes.points,
+      newPoints: atualizado.points,
+      adjustment: atualizado.points - antes.points,
+      reason,
+      antes, depois: retrato(atualizado)
+    }
+  });
+
+  return {
+    ...retrato(atualizado),
+    id: rankingPointId,
+    adjustmentId: registro.id,
+    diferenca: atualizado.points - antes.points
+  };
+}
+
+/** O histórico de ajustes de um lançamento, do mais recente para o mais antigo. */
+async function listAdjustments(rankingPointId, actor) {
+  const ponto = await carregarLancamento(rankingPointId, actor);
+
+  const items = await prisma.rankingPointAdjustment.findMany({
+    where: { rankingPointId },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true, previousPoints: true, newPoints: true, reason: true,
+      createdAt: true, voidedAt: true, voidReason: true,
+      createdBy: { select: { id: true, name: true } }
+    }
+  });
+
+  return { rankingPoint: retrato(ponto), items };
 }
 
 async function voidRankingPoint(rankingPointId, { reason }, actor) {
@@ -2363,8 +2727,8 @@ module.exports = {
   recompute, recompute_, list, athletePoints, teamRanking,
   declareOverall, listOverall, overallCandidates, overallPreview, revokeOverall,
   eventRankingPoints,
-  previewRankingPoint, editRankingPoint, voidRankingPoint, voidRankingPoints, restoreRankingPoint,
-  superOverallRanking, listClasses, upsertClass, companyRanking,
+  previewRankingPoint, editRankingPoint, adjustRankingPoint, listAdjustments, voidRankingPoint, voidRankingPoints, restoreRankingPoint,
+  superOverallRanking, listClasses, listClassesParaFiltro, conferirCoerenciaDaClasse, upsertClass, companyRanking,
   athleteRankingBy,
   TABELA_OFICIAL_COLOCACAO, BONUS_OVERALL,
   // Exportada para medição: a pré-seleção tem um contrato próprio — trazer o

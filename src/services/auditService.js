@@ -31,6 +31,12 @@ const ACTIONS = Object.freeze({
   RANKING_POINT_EDITED: 'RANKING_POINT_EDITED',
   RANKING_POINT_VOIDED: 'RANKING_POINT_VOIDED',
   RANKING_POINT_RESTORED: 'RANKING_POINT_RESTORED',
+  // Ajuste ADMINISTRATIVO da pontuação: o número muda, colocação,
+  // categoria, classe, evento, temporada e atleta não. Separado de
+  // RANKING_POINT_EDITED de propósito — aquele é correção de colocação,
+  // este é decisão de homologação, e confundir os dois na auditoria
+  // apagaria a diferença entre 'o dado estava errado' e 'a comissão decidiu'.
+  RANKING_POINTS_ADJUSTED: 'RANKING_POINTS_ADJUSTED',
   // Pontuação (fase 11.3). O padrão do projeto é ENTIDADE_VERBO, então os
   // nomes seguem SCORE_*, e não os do enunciado, que usa VERBO no particípio.
   // RANKING_UPDATE já cobre o recálculo do agregado e permanece como está.

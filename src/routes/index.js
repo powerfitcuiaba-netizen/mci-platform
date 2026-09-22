@@ -190,6 +190,10 @@ router.get('/classes/:id/result/versions', requireAuth, validate(s.paramsWithId,
 
 // ===================================================== RANKING E TEMPORADAS
 router.get('/ranking', optionalAuth, validate(s.rankingQuery, 'query'), wrap(c.ranking.list));
+// Classes disponíveis para recortar o ranking, por categoria. Dinâmica de
+// propósito: a lista de classes é DADO da organização, e nenhuma tela pode
+// trazê-la escrita no código.
+router.get('/ranking/classes', optionalAuth, validate(s.classesParaFiltroQuery, 'query'), wrap(c.ranking.classesParaFiltro));
 router.route('/seasons')
   .get(optionalAuth, validate(s.scopedListQuery, 'query'), wrap(c.ranking.listSeasons))
   .post(requireAuth, perm('ranking.manage', orgDoCorpo), validate(s.seasonCreate), wrap(c.ranking.createSeason));
@@ -202,7 +206,7 @@ router.get('/ranking/super-overall', optionalAuth, validate(s.superOverallQuery,
 // Catálogo de classes. O operador cria, edita e desativa classes e marca quais
 // alimentam o Super Overall — sem alteração no motor de pontuação.
 router.route('/classes-catalog')
-  .get(requireAuth, validate(s.scopedListQuery, 'query'), wrap(c.ranking.listClasses))
+  .get(requireAuth, validate(s.classCatalogQuery, 'query'), wrap(c.ranking.listClasses))
   .post(requireAuth, perm('ranking.manage', orgDoCorpo), validate(s.classCatalogUpsert), wrap(c.ranking.upsertClass));
 
 // Ranking de equipes: mesma tabela de pontos e mesmo desempate do atleta.
@@ -241,6 +245,13 @@ router.get('/events/:id/ranking-points', requireAuth, validate(s.paramsWithId, '
 // promessa vazia.
 router.get('/ranking/points/:pointId/preview', requireAuth, validate(s.paramsComPonto, 'params'), validate(s.rankingPointPreviewQuery, 'query'), wrap(c.ranking.previewRankingPoint));
 router.patch('/ranking/points/:pointId', requireAuth, validate(s.paramsComPonto, 'params'), validate(s.rankingPointEdit), wrap(c.ranking.editRankingPoint));
+// AJUSTE ADMINISTRATIVO DA PONTUAÇÃO. Rota própria, e não mais um campo do
+// PATCH acima: corrigir colocação e ajustar ponto são decisões diferentes,
+// com justificativas diferentes, e a auditoria precisa saber qual foi qual.
+// A autorização é do serviço — `carregarLancamento` exige `ranking.manage`
+// NA ORGANIZAÇÃO DA TEMPORADA, que é a única que o cliente não escolhe.
+router.post('/ranking/points/:pointId/adjust', requireAuth, validate(s.paramsComPonto, 'params'), validate(s.rankingPointAdjust), wrap(c.ranking.adjustRankingPoint));
+router.get('/ranking/points/:pointId/adjustments', requireAuth, validate(s.paramsComPonto, 'params'), wrap(c.ranking.listAdjustments));
 router.post('/ranking/points/:pointId/void', requireAuth, validate(s.paramsComPonto, 'params'), validate(s.rankingPointReason), wrap(c.ranking.voidRankingPoint));
 router.post('/ranking/points/:pointId/restore', requireAuth, validate(s.paramsComPonto, 'params'), validate(s.rankingPointReason), wrap(c.ranking.restoreRankingPoint));
 

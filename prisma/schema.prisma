@@ -47,24 +47,25 @@ model Organization {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
-  members                OrganizationMember[]
-  affiliations           Affiliation[]
-  athletes               Athlete[]
-  events                 Event[]
-  teams                  Team[]
-  gyms                   Gym[]
-  brands                 Brand[]
-  sponsors               Sponsor[]
-  seasons                RankingSeason[]
-  muscleWarImports       MuscleWarImport[]
-  externalAthletes       ExternalAthlete[]
-  externalResults        ExternalResult[]
-  rankingPoints          RankingPoint[]
-  rankings               Ranking[]
-  athleteIdentities      AthleteIdentity[]
-  classCatalog           ClassCatalog[]
-  companies              Company[]
-  athleteProfileRequests AthleteProfileRequest[]
+  members                 OrganizationMember[]
+  affiliations            Affiliation[]
+  athletes                Athlete[]
+  events                  Event[]
+  teams                   Team[]
+  gyms                    Gym[]
+  brands                  Brand[]
+  sponsors                Sponsor[]
+  seasons                 RankingSeason[]
+  muscleWarImports        MuscleWarImport[]
+  externalAthletes        ExternalAthlete[]
+  externalResults         ExternalResult[]
+  rankingPoints           RankingPoint[]
+  rankingPointAdjustments RankingPointAdjustment[]
+  rankings                Ranking[]
+  athleteIdentities       AthleteIdentity[]
+  classCatalog            ClassCatalog[]
+  companies               Company[]
+  athleteProfileRequests  AthleteProfileRequest[]
 
   @@index([active])
   @@index([selfRegistrationOpen])
@@ -165,29 +166,31 @@ model User {
   athleteRequests         AthleteProfileRequest[] @relation("AthleteRequestUser")
   athleteRequestsReviewed AthleteProfileRequest[] @relation("AthleteRequestReviewer")
 
-  createdEvents          Event[]                 @relation("EventCreatedBy")
-  createdAthletes        Athlete[]               @relation("AthleteCreatedBy")
-  createdRegistrations   Registration[]          @relation("RegistrationCreatedBy")
-  cancelledRegistrations Registration[]          @relation("RegistrationCancelledBy")
-  checkInsOperated       CheckIn[]               @relation("CheckInOperator")
-  weighInsOperated       WeighIn[]               @relation("WeighInOperator")
-  credentialScans        CredentialScan[]        @relation("CredentialScanner")
-  panelSeats             PanelJudge[]
-  scoresGiven            JudgingScore[]          @relation("ScoreJudge")
-  resultsPublished       Result[]                @relation("ResultPublishedBy")
-  resultVersions         ResultVersion[]         @relation("ResultVersionAuthor")
-  uploadedDocuments      AthleteDocument[]       @relation("DocumentUploader")
-  eventDocuments         EventDocument[]         @relation("EventDocumentUploader")
-  muscleWarImports       MuscleWarImport[]       @relation("ImportCreatedBy")
-  externalAthletesLinked ExternalAthlete[]       @relation("ExternalAthleteLinkedBy")
-  muscleWarApplied       MuscleWarImport[]       @relation("ImportAppliedBy")
-  muscleWarInvalidated   MuscleWarImport[]       @relation("ImportInvalidatedBy")
-  moderationActions      ContentReport[]         @relation("ReportResolver")
-  proHistoryEntries      AthleteProHistory[]     @relation("ProHistoryAuthor")
-  rankingPointsAwarded   RankingPoint[]          @relation("RankingPointAwardedBy")
-  overallTitlesDeclared  EventOverallTitle[]     @relation("OverallDeclaredBy")
-  membershipsCreated     AthleteTeamMembership[] @relation("MembershipCreatedBy")
-  membershipsEnded       AthleteTeamMembership[] @relation("MembershipEndedBy")
+  createdEvents                 Event[]                  @relation("EventCreatedBy")
+  createdAthletes               Athlete[]                @relation("AthleteCreatedBy")
+  createdRegistrations          Registration[]           @relation("RegistrationCreatedBy")
+  cancelledRegistrations        Registration[]           @relation("RegistrationCancelledBy")
+  checkInsOperated              CheckIn[]                @relation("CheckInOperator")
+  weighInsOperated              WeighIn[]                @relation("WeighInOperator")
+  credentialScans               CredentialScan[]         @relation("CredentialScanner")
+  panelSeats                    PanelJudge[]
+  scoresGiven                   JudgingScore[]           @relation("ScoreJudge")
+  resultsPublished              Result[]                 @relation("ResultPublishedBy")
+  resultVersions                ResultVersion[]          @relation("ResultVersionAuthor")
+  uploadedDocuments             AthleteDocument[]        @relation("DocumentUploader")
+  eventDocuments                EventDocument[]          @relation("EventDocumentUploader")
+  muscleWarImports              MuscleWarImport[]        @relation("ImportCreatedBy")
+  externalAthletesLinked        ExternalAthlete[]        @relation("ExternalAthleteLinkedBy")
+  muscleWarApplied              MuscleWarImport[]        @relation("ImportAppliedBy")
+  muscleWarInvalidated          MuscleWarImport[]        @relation("ImportInvalidatedBy")
+  moderationActions             ContentReport[]          @relation("ReportResolver")
+  proHistoryEntries             AthleteProHistory[]      @relation("ProHistoryAuthor")
+  rankingPointsAwarded          RankingPoint[]           @relation("RankingPointAwardedBy")
+  rankingPointAdjustmentsMade   RankingPointAdjustment[] @relation("RankingPointAdjustmentCreatedBy")
+  rankingPointAdjustmentsVoided RankingPointAdjustment[] @relation("RankingPointAdjustmentVoidedBy")
+  overallTitlesDeclared         EventOverallTitle[]      @relation("OverallDeclaredBy")
+  membershipsCreated            AthleteTeamMembership[]  @relation("MembershipCreatedBy")
+  membershipsEnded              AthleteTeamMembership[]  @relation("MembershipEndedBy")
 
   @@index([role])
   @@index([status])
@@ -631,6 +634,7 @@ model Category {
   rankingPoints   RankingPoint[]
   rankings        Ranking[]
   overallTitles   EventOverallTitle[]
+  classCatalog    ClassCatalog[]
 
   @@index([active, sortOrder])
 }
@@ -682,21 +686,59 @@ model Division {
 ///
 /// REGRA HOMOLOGADA: Estreante, Novice, Open e Master pontuam no campeonato;
 /// somente OPEN é elegível ao Super Overall anual.
+/// A CLASSE PODE SER DE UMA CATEGORIA, OU DE TODAS.
+///
+/// `categoryId` NULO é a classe GENÉRICA da organização — ESTREANTE, NOVICE,
+/// OPEN, MASTER, que são divisões e valem em qualquer categoria. É o estado
+/// das quatro linhas que toda organização ganha ao nascer, e elas continuam
+/// exatamente como estavam.
+///
+/// `categoryId` PREENCHIDO é a classe daquela categoria e só dela: "Masters
+/// 35+" de Women's Physique não é a mesma coisa que "Masters 35+" de Bikini.
+/// É o recorte que a importação precisa, porque o arquivo traz a classe como
+/// texto dentro de uma categoria.
+///
+/// A resolução prefere a específica; na ausência dela, vale a genérica. Ver
+/// `resolverClasseDoCatalogo` em src/utils/classeDoCatalogo.js.
+///
+/// ATENÇÃO À UNICIDADE: ela NÃO está declarada aqui.
+///
+/// A regra é "uma genérica por (organização, código)" E "uma específica por
+/// (organização, categoria, código)" — duas regras, porque um `@@unique`
+/// sobre as três colunas não fecha a primeira: em PostgreSQL NULL é distinto
+/// de NULL, e `(NPC, NULL, OPEN)` entraria duas vezes sem violar nada.
+/// Medido nesta base, PG 16.13: o UNIQUE simples aceitou a duplicata.
+///
+/// Prisma não expressa índice parcial. As duas regras vivem como
+/// `ClassCatalog_generica` e `ClassCatalog_especifica` na migration
+/// 20260922120000, e o teste `taxonomia-de-classe.test.mjs` confere que as
+/// duas existem no banco — índice que só existe no SQL some sem aviso no
+/// primeiro `db push`, e foi assim que esta base já perdeu `maxHeightCm`.
 model ClassCatalog {
   id                   String   @id @default(cuid())
   organizationId       String
+  /// Nulo = classe genérica da organização; preenchido = classe daquela
+  /// categoria. Ver o cabeçalho do modelo.
+  categoryId           String?
   code                 String
   name                 String
+  /// O texto COMO A ORIGEM ESCREVEU — "Masters 35+", "Open Light
+  /// Heavyweight". `code` é identidade técnica e `displayName` é
+  /// apresentação: a tela mostra este, nunca aquele. Nulo nas classes
+  /// anteriores a esta coluna, onde `name` continua respondendo.
+  displayName          String?
   superOverallEligible Boolean  @default(false)
   active               Boolean  @default(true)
   sortOrder            Int      @default(0)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  category      Category?      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  rankingPoints RankingPoint[]
 
-  @@unique([organizationId, code])
   @@index([organizationId, active])
+  @@index([organizationId, categoryId, code])
 }
 
 model CompetitionClass {
@@ -1289,9 +1331,26 @@ model RankingPoint {
   placing              Int?
   // Decomposição obrigatória para auditoria: o total precisa ser reconstituível
   // a partir das parcelas, não apenas conferido no agregado.
-  //   points = placementPoints + overallBonus
+  //   points = placementPoints + overallBonus + adjustmentPoints
   placementPoints      Int         @default(0)
   overallBonus         Int         @default(0)
+  /// AJUSTE ADMINISTRATIVO — a terceira parcela, e a única que não sai do
+  /// motor.
+  ///
+  /// A homologação às vezes corrige a pontuação de uma participação sem que a
+  /// COLOCAÇÃO tenha mudado. Escrever o novo total direto em `points`
+  /// quebraria a decomposição — o total deixaria de ser reconstituível a
+  /// partir das parcelas, que é o que torna o ledger auditável — e apagaria a
+  /// informação de que houve intervenção humana.
+  ///
+  /// Como parcela, o ajuste soma zero enquanto ninguém ajusta, aparece
+  /// explicitamente quando alguém ajusta, e sobrevive a uma correção posterior
+  /// de colocação: `projetarLancamento` recalcula as duas primeiras parcelas e
+  /// conserva esta.
+  ///
+  /// O MOTIVO e o AUTOR não moram aqui: moram em `RankingPointAdjustment`,
+  /// uma linha por ajuste, que é o histórico que a coluna sozinha não conta.
+  adjustmentPoints     Int         @default(0)
   isOverallChampion    Boolean     @default(false)
   /// Se este lançamento entra no ranking classificatório do Super Overall.
   /// Resolvido no momento da atribuição, a partir da classe — e gravado, para
@@ -1316,6 +1375,17 @@ model RankingPoint {
   /// a história do ranking.
   companyId            String?
   classId              String?
+  /// A CLASSE DO CATÁLOGO DA ORGANIZAÇÃO — e não a do evento.
+  ///
+  /// `classId` acima aponta para `CompetitionClass`, que existe por divisão
+  /// DE UM EVENTO do MCI. O resultado histórico importado não tem evento do
+  /// MCI, então `classId` nasce nulo e nunca deixou de ser nulo: o recorte
+  /// `/ranking/by?classId=` jamais devolveu uma linha importada.
+  ///
+  /// Esta coluna é o recorte que funciona para os dois caminhos, porque o
+  /// catálogo é da organização e não depende de evento. `classId` continua
+  /// com o significado que sempre teve; as duas convivem.
+  catalogClassId       String?
   /// Filiação do atleta no momento em que o ponto foi ganho — a ENTIDADE.
   /// Gravada aqui pela mesma razão que `teamId` e `companyId`: um atleta que
   /// troca de federação continua tendo ganho os pontos antigos pela antiga, e
@@ -1345,19 +1415,21 @@ model RankingPoint {
   awardedAt            DateTime    @default(now())
   createdAt            DateTime    @default(now())
 
-  season           RankingSeason     @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  athlete          Athlete?          @relation(fields: [athleteId], references: [id], onDelete: SetNull)
-  externalAthlete  ExternalAthlete?  @relation(fields: [externalAthleteId], references: [id], onDelete: SetNull)
-  category         Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  event            Event?            @relation(fields: [eventId], references: [id], onDelete: SetNull)
-  result           Result?           @relation(fields: [resultId], references: [id], onDelete: SetNull)
-  externalResult   ExternalResult?   @relation(fields: [externalResultId], references: [id], onDelete: SetNull)
-  team             Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  company          Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  competitionClass CompetitionClass? @relation(fields: [classId], references: [id], onDelete: SetNull)
-  affiliation      Affiliation?      @relation(fields: [affiliationId], references: [id], onDelete: SetNull)
-  awardedBy        User?             @relation("RankingPointAwardedBy", fields: [awardedById], references: [id], onDelete: SetNull)
+  season           RankingSeason            @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  athlete          Athlete?                 @relation(fields: [athleteId], references: [id], onDelete: SetNull)
+  externalAthlete  ExternalAthlete?         @relation(fields: [externalAthleteId], references: [id], onDelete: SetNull)
+  category         Category?                @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  event            Event?                   @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  result           Result?                  @relation(fields: [resultId], references: [id], onDelete: SetNull)
+  externalResult   ExternalResult?          @relation(fields: [externalResultId], references: [id], onDelete: SetNull)
+  team             Team?                    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  company          Company?                 @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  competitionClass CompetitionClass?        @relation(fields: [classId], references: [id], onDelete: SetNull)
+  catalogClass     ClassCatalog?            @relation(fields: [catalogClassId], references: [id], onDelete: SetNull)
+  adjustments      RankingPointAdjustment[]
+  affiliation      Affiliation?             @relation(fields: [affiliationId], references: [id], onDelete: SetNull)
+  awardedBy        User?                    @relation("RankingPointAwardedBy", fields: [awardedById], references: [id], onDelete: SetNull)
 
   // Um mesmo resultado de evento não pontua duas vezes para o mesmo atleta na
   // mesma temporada.
@@ -1372,6 +1444,10 @@ model RankingPoint {
   // base perdeu a coluna maxHeightCm e os DEFAULT de participantIds.
   @@index([seasonId, superOverallEligible])
   @@index([seasonId, affiliationId])
+  // Declarado aqui, e não só no SQL, pela mesma razão do índice acima: é o
+  // recorte do ranking por classe, e índice que vive só na migration some no
+  // primeiro `db push`.
+  @@index([seasonId, catalogClassId])
   @@index([source])
 }
 
@@ -1695,6 +1771,49 @@ model MuscleWarImportItem {
 /// `COALESCE(eventId, externalResultId, 'externo')`. Materializado porque
 /// `externalResultId` não sai da tabela privada.
 /// ============================================================================
+/// O HISTÓRICO DOS AJUSTES DE PONTUAÇÃO.
+///
+/// Uma linha por intervenção: de quanto para quanto, por quê e por quem.
+/// `RankingPoint.adjustmentPoints` guarda o EFEITO em vigor; esta tabela
+/// guarda como se chegou nele, e é ela que responde "quem mudou este número,
+/// quando e com que justificativa" seis meses depois.
+///
+/// NÃO substitui o AuditLog — complementa. O log é a trilha geral da
+/// plataforma; esta tabela é consultável pelo próprio produto, por lançamento,
+/// sem varrer auditoria.
+///
+/// `voidedAt` existe para desfazer um ajuste sem apagá-lo: história de
+/// campeonato não se remove, se invalida.
+model RankingPointAdjustment {
+  id             String    @id @default(cuid())
+  /// A organização, EXPLÍCITA — é ela que a política de RLS confere. Derivar
+  /// do lançamento faria o isolamento depender de um JOIN que a política não
+  /// tem como fazer barato.
+  organizationId String
+  rankingPointId String
+  /// O total ANTES e o total DEPOIS. Guardados os dois, e não só a diferença:
+  /// a diferença sozinha não permite conferir que a sequência de ajustes bate
+  /// com o valor em vigor.
+  previousPoints Int
+  newPoints      Int
+  /// Obrigatório. Ajuste sem justificativa é alteração silenciosa com outro
+  /// nome.
+  reason         String
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  voidedAt       DateTime?
+  voidedById     String?
+  voidReason     String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rankingPoint RankingPoint @relation(fields: [rankingPointId], references: [id], onDelete: Cascade)
+  createdBy    User?        @relation("RankingPointAdjustmentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  voidedBy     User?        @relation("RankingPointAdjustmentVoidedBy", fields: [voidedById], references: [id], onDelete: SetNull)
+
+  @@index([rankingPointId, createdAt])
+  @@index([organizationId, createdAt])
+}
+
 model PublicRankingEntry {
   id                   String   @id
   seasonId             String
@@ -1708,6 +1827,11 @@ model PublicRankingEntry {
   categoryId           String?
   eventId              String?
   classId              String?
+  /// A classe do catálogo da organização, espelhada de
+  /// `RankingPoint.catalogClassId`. É por ela que o público filtra: `classId`
+  /// é nulo em todo resultado histórico importado. Ver o comentário em
+  /// `RankingPoint.catalogClassId`.
+  catalogClassId       String?
   teamId               String?
   companyId            String?
   placing              Int?
@@ -1725,6 +1849,8 @@ model PublicRankingEntry {
   @@index([seasonId, categoryId])
   @@index([seasonId, eventId])
   @@index([seasonId, classId])
+  @@index([seasonId, catalogClassId])
+  @@index([seasonId, categoryId, catalogClassId])
   @@index([seasonId, teamId])
   @@index([seasonId, companyId])
   @@index([seasonId, superOverallEligible])
