@@ -359,3 +359,65 @@ describe('o recorte e o isolamento', () => {
     expect(daVizinha.every(p => p.categoryId === null), 'a outra temporada não foi tocada').toBe(true);
   });
 });
+
+describe('o recompute depois da correção não move nada', () => {
+  it('a projeção pública passa a ter a categoria, e a pontuação não muda', async () => {
+    await estadoDaProducao();
+    expect(rodar('--aplicar').status).toBe(0);
+
+    const antes = await retrato();
+    const projecaoAntes = await comoAtor(admin, tx => tx.publicRankingEntry.findMany({
+      where: { seasonId }, select: { id: true, points: true, superOverallPoints: true, catalogClassId: true },
+      orderBy: { id: 'asc' }
+    }));
+    expect(projecaoAntes.length).toBe(6);
+
+    // O MESMO motor de ranking já homologado, pela porta que o operador usa.
+    // Nenhum recálculo próprio: medir uma reimplementação não diria nada
+    // sobre o que roda em produção.
+    const recompute = await api().post(`/api/v1/seasons/${seasonId}/recompute`).set(admin.auth());
+    expect(recompute.status, JSON.stringify(recompute.body).slice(0, 300)).toBe(200);
+
+    // O LEDGER SAI IDÊNTICO. O recompute reescreve a projeção, não o histórico.
+    expect(await retrato()).toEqual(antes);
+
+    const projecaoDepois = await comoAtor(admin, tx => tx.publicRankingEntry.findMany({
+      where: { seasonId },
+      select: { id: true, points: true, superOverallPoints: true, catalogClassId: true, categoryId: true },
+      orderBy: { id: 'asc' }
+    }));
+
+    expect(projecaoDepois.length).toBe(6);
+    expect(projecaoDepois.every(p => p.categoryId !== null), 'a projeção enxerga a categoria').toBe(true);
+    expect(projecaoDepois.every(p => p.catalogClassId !== null), 'a projeção mantém a classe').toBe(true);
+
+    // Pontuação idêntica à de antes do recompute, linha a linha.
+    for (let i = 0; i < projecaoAntes.length; i += 1) {
+      expect(projecaoDepois[i].id).toBe(projecaoAntes[i].id);
+      expect(projecaoDepois[i].points).toBe(projecaoAntes[i].points);
+      expect(projecaoDepois[i].superOverallPoints).toBe(projecaoAntes[i].superOverallPoints);
+      expect(projecaoDepois[i].catalogClassId).toBe(projecaoAntes[i].catalogClassId);
+    }
+
+    // E a projeção continua fiel ao ledger.
+    const porId = new Map(antes.map(p => [p.id, p]));
+    for (const linha of projecaoDepois) {
+      expect(linha.points).toBe(porId.get(linha.id).points);
+      expect(linha.categoryId).toBe(porId.get(linha.id).categoryId);
+    }
+  });
+
+  it('empate não é erro: tieUnresolved é relatado, e não reprova o recompute', async () => {
+    // Nesta fase inicial há muitos empates — do 6º lugar em diante todo mundo
+    // vale zero, e a temporada tem um campeonato só. O recompute RELATA o
+    // empate; tratá-lo como falha faria o sistema recusar o estado normal do
+    // começo de temporada.
+    await estadoDaProducao();
+    expect(rodar('--aplicar').status).toBe(0);
+
+    const recompute = await api().post(`/api/v1/seasons/${seasonId}/recompute`).set(admin.auth());
+    expect(recompute.status).toBe(200);
+    expect(recompute.body).toHaveProperty('tieUnresolved');
+    expect(typeof recompute.body.tieUnresolved).toBe('number');
+  });
+});

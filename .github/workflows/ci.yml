@@ -334,9 +334,10 @@ jobs:
           PULADOS=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPendingTests+r.numTodoTests)" <<< "$SAIDA")
           PASSOU=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPassedTests)" <<< "$SAIDA")
           echo "correção de categoria: $PASSOU passaram, $PULADOS pulados"
-          # 11 testes: auditoria, aplicação, preservação, idempotência,
-          # recusa com conflito e recorte por temporada.
-          if [ "$PULADOS" != "0" ] || [ "$PASSOU" -lt 11 ]; then
+          # 13 testes: auditoria, aplicação, preservação, idempotência,
+          # recusa com conflito, recorte por temporada e o recompute depois
+          # da correção (ledger idêntico, projeção com categoria e classe).
+          if [ "$PULADOS" != "0" ] || [ "$PASSOU" -lt 13 ]; then
             echo "A suíte da correção de categoria não rodou por inteiro."
             exit 1
           fi

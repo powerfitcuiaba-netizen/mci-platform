@@ -357,7 +357,7 @@ A segunda execução não encontra mais nada.
 
 ### O que a suíte mede
 
-`tests/backfill-categoria.test.mjs` — onze testes, contra o script **como
+`tests/backfill-categoria.test.mjs` — treze testes, contra o script **como
 processo**, porque é o script que vai rodar contra produção:
 
 | teste | o que prova |
@@ -373,6 +373,8 @@ processo**, porque é o script que vai rodar contra produção:
 | código fora do catálogo | conflito, `--aplicar` recusa, **nem as linhas boas** são escritas |
 | origem sem código | não resolvido, `--aplicar` recusa |
 | `--temporada` | a temporada vizinha fica como estava |
+| recompute depois da correção | o ledger sai idêntico; a projeção pública passa a ter a categoria, mantém a classe e a pontuação não muda |
+| empate não é erro | `tieUnresolved` é relatado, e não reprova o recompute |
 
 E `scripts/qa/mutantes-categoria.mjs` (`npm run qa:mutantes:categoria`)
 estraga o script de propósito, uma mudança por vez.
