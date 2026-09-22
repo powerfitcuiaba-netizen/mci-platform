@@ -205,6 +205,26 @@ describe('a guarda de categoria protege a linha SEM atleta — que é o caso do 
     expect(pontos.every(p => p.catalogClass?.categoryId), 'classe específica').toBeTruthy();
   });
 
+  it('linha sem classe E sem categoria é CONFLITO, e não pendência', async () => {
+    // O MUTATION TESTING PEDIU ESTE TESTE.
+    //
+    // A suíte matava o mutante que afrouxa a guarda do código DESCONHECIDO,
+    // mas não o que afrouxa a guarda do código AUSENTE: trocar CONFLICT por
+    // MATCH_PENDING no primeiro ramo passava batido. E é o ramo do arquivo
+    // que não trouxe nem a coluna Class nem a de categoria — o mesmo defeito
+    // silencioso por outra porta, com a linha entrando sem recorte nenhum.
+    const lote = await api().post('/api/v1/musclewar/imports').set(gerente.auth()).send({
+      organizationId, seasonId, sourceType: 'CSV', sourceRef: unico('sem-classe') + '.csv',
+      content: csv(['QA-F-1,QA ATLETA UM,NPC,QA-F-001,,,1,Etapa QA'])
+    });
+
+    expect(lote.status).toBe(201);
+    expect(lote.body.summary.conflicts, JSON.stringify(lote.body.items?.map(i => [i.matchStatus, i.reason])).slice(0, 300)).toBe(1);
+    expect(lote.body.summary.pending).toBe(0);
+    expect(lote.body.items[0].matchStatus).toBe('CONFLICT');
+    expect(lote.body.items[0].reason).toMatch(/não informou classe nem categoria/);
+  });
+
   it('cada um dos oito códigos do Ipiranga resolve sozinho', async () => {
     const porCategoria = {
       BIKINI: "Women's Bikini - Open Class A",

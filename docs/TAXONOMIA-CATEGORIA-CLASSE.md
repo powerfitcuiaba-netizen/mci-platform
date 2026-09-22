@@ -290,7 +290,7 @@ maior do que o problema. O catálogo de categorias é pré-requisito de domínio
 
 ### O que a suíte mede
 
-`tests/catalogo-oficial-de-categorias.test.mjs` — oito testes:
+`tests/catalogo-oficial-de-categorias.test.mjs` — nove testes:
 
 | teste | o que prova |
 |---|---|
@@ -300,6 +300,7 @@ maior do que o problema. O catálogo de categorias é pré-requisito de domínio
 | categoria desconhecida vira CONFLITO com base de atletas vazia | a guarda alcança a linha sem atleta |
 | CATÁLOGO VAZIO recusa o arquivo inteiro | a reprodução exata do defeito: `conflicts: 2`, `applicable: 0`, apply 422 `NOTHING_TO_APPLY` |
 | com o catálogo provisionado, as mesmas linhas entram com categoria | nenhum ponto sem categoria, `athleteId` nulo, classe específica |
+| linha sem classe E sem categoria é CONFLITO | o ramo do código AUSENTE, que o mutation testing mostrou descoberto |
 | cada um dos oito códigos do Ipiranga resolve sozinho | os oito, um a um |
 | a categoria é global, a CLASSE é da organização | o isolamento continua de pé |
 

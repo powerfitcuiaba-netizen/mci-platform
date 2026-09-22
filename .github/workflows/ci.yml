@@ -314,8 +314,8 @@ jobs:
           PULADOS=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPendingTests+r.numTodoTests)" <<< "$SAIDA")
           PASSOU=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPassedTests)" <<< "$SAIDA")
           echo "catálogo de categorias e backfill: $PASSOU passaram, $PULADOS pulados"
-          # 8 do catálogo oficial + 14 do backfill da classe.
-          if [ "$PULADOS" != "0" ] || [ "$PASSOU" -lt 22 ]; then
+          # 9 do catálogo oficial + 14 do backfill da classe.
+          if [ "$PULADOS" != "0" ] || [ "$PASSOU" -lt 23 ]; then
             echo "A suíte do catálogo de categorias não rodou por inteiro."
             exit 1
           fi
