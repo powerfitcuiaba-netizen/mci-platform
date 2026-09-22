@@ -132,7 +132,18 @@ describe('importação MuscleWar', () => {
       // em conflito e as 2 rejeitadas seguem fora.
       applicable: 2,
       pendingLink: 1,
-      valid: 2
+      valid: 2,
+      // O AVISO QUE CHEGA ANTES DE APLICAR.
+      //
+      // `pontuarResultado` procura a colocação na tabela da temporada e, não
+      // achando, devolve zero — certo do 6º lugar em diante, catastrófico numa
+      // temporada sem tabela nenhuma, onde TODA colocação valeria zero e a
+      // aplicação anunciaria sucesso. O resumo passa a dizer isso antes, e
+      // `apply` recusa.
+      //
+      // Falso aqui porque a temporada nasce com a tabela homologada — que é
+      // como ela sempre nasce, por `createSeason`.
+      seasonWithoutPointsTable: false
     });
 
     const porId = Object.fromEntries(resposta.body.items.map(item => [item.externalResultId, item]));

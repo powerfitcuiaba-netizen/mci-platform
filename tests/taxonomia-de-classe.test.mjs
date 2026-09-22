@@ -329,22 +329,34 @@ describe('GATE 9, 14 e 16 — a etapa inteira, com a pontuação intocada', () =
     const divergentes = pontos.filter(p => p.points !== pontosDaColocacao(p.didNotShow ? null : p.placing));
     expect(divergentes, `${divergentes.length} lançamentos fora da tabela homologada`).toEqual([]);
 
-    // GATE 16: o relatório categoria / classe / quantidade / colocação / pontos.
+    // O RECORTE categoria + classe, CONFERIDO — e não impresso.
+    //
+    // A primeira versão deste bloco imprimia a tabela categoria | classe |
+    // quantidade | colocações | pontos. Relatório em log não é garantia: ele
+    // passa igual com o número certo e com o número errado, e ninguém lê a
+    // saída de uma suíte verde. Quem precisa do relatório é
+    // `scripts/backfill-classe-do-catalogo.js`, que o imprime por categoria e
+    // por classe — lá ele serve para decidir, aqui ele só ocuparia espaço.
+    //
+    // O que vale é a conferência: cada par (categoria, classe) tem linhas, as
+    // quantidades somam 191, e a pontuação de cada grupo é a soma da tabela
+    // homologada aplicada às colocações daquele grupo.
     const relatorio = new Map();
     for (const ponto of pontos) {
       const chave = `${ponto.category.code} | ${ponto.catalogClass.displayName ?? ponto.catalogClass.name}`;
-      if (!relatorio.has(chave)) relatorio.set(chave, { quantidade: 0, colocacoes: new Set(), pontos: 0 });
+      if (!relatorio.has(chave)) relatorio.set(chave, { quantidade: 0, esperado: 0, pontos: 0 });
       const linha = relatorio.get(chave);
       linha.quantidade += 1;
-      linha.colocacoes.add(ponto.didNotShow ? 'NS' : ponto.placing);
+      linha.esperado += pontosDaColocacao(ponto.didNotShow ? null : ponto.placing);
       linha.pontos += ponto.points;
     }
-    console.log('\nGATE 16 — categoria | classe | quantidade | colocações | pontos\n'
-      + [...relatorio.entries()].sort()
-        .map(([chave, l]) => `  ${chave.padEnd(46)} ${String(l.quantidade).padStart(3)}  [${[...l.colocacoes].join(',')}]  ${l.pontos}`)
-        .join('\n'));
 
+    expect(relatorio.size, 'há grupos categoria+classe').toBeGreaterThan(0);
+    expect([...relatorio.values()].every(l => l.quantidade > 0)).toBe(true);
     expect([...relatorio.values()].reduce((s, l) => s + l.quantidade, 0)).toBe(TOTAL);
+
+    const gruposErrados = [...relatorio.entries()].filter(([, l]) => l.pontos !== l.esperado);
+    expect(gruposErrados, `${gruposErrados.length} grupos com soma fora da tabela homologada`).toEqual([]);
   });
 
   it('o histórico sem atleta aparece no ranking, com categoria — nunca como "Geral" de zero ponto', async () => {

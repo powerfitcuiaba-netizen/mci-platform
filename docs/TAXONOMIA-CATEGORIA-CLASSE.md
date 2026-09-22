@@ -178,6 +178,17 @@ e-mail nem data de nascimento.
 > não enxerga", e **não** "não existe". A PARTE 0 do diagnóstico existe para que
 > quem lê a saída saiba em qual dos dois casos está.
 
+## O relatório por categoria e classe
+
+Ele NÃO é impresso pela suíte: relatório em log passa igual com o número certo
+e com o errado, e ninguém lê a saída de um teste verde. O teste **confere** —
+cada par (categoria, classe) tem linhas, as quantidades somam 191, e a soma de
+pontos de cada grupo é exatamente a tabela homologada aplicada às colocações
+daquele grupo.
+
+Quem imprime o relatório é `scripts/backfill-classe-do-catalogo.js`, em modo
+diagnóstico (sem `--aplicar`), onde ele serve para decidir.
+
 ## Mutation testing
 
 `npm run qa:mutantes` estraga o código de propósito, uma mudança por vez, e
