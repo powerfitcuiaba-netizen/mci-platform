@@ -160,6 +160,37 @@ telefone.
 
 ---
 
+## 9-A. Regressão completa
+
+```
+Test Files  109 passed | 1 skipped (110)
+Tests      1845 passed |  15 skipped (1860)
+```
+
+**PASS.**
+
+Os 15 pulados são **condicionais de ambiente e anteriores a esta fase** —
+`backup-restore`, `backup-storage` e `bypassrls-real` usam `describe.skipIf` /
+`it.skipIf` e só rodam onde os papéis de backup e de BYPASSRLS estão
+provisionados. Na CI eles **rodam**, porque o workflow os provisiona, e há
+passos de guarda que reprovam se forem pulados lá. Nada foi desativado.
+
+### O que a CI achou antes disso
+
+Duas suítes reprovaram no commit do recado, e **nenhuma era defeito da
+funcionalidade** — eram dois inventários fixados à mão, fazendo o que existem
+para fazer:
+
+| Guarda | Por que existe | O que mudou |
+|---|---|---|
+| lista de migrations homologadas | nenhuma migration entra de carona numa mudança que não é sobre schema | entrou a migration da fase, com a justificativa ao lado |
+| contagem de tabelas com `FORCE RLS` | tabela protegida nova é decisão consciente; tabela que sai, idem | 28 → 30, com a razão de cada uma |
+
+Nenhuma das duas foi afrouxada: a contagem continua exata e a lista continua
+exigindo revisão.
+
+---
+
 ## 10. Limites declarados
 
 * **A varredura por nome tem teto de 500 identidades sem dono.** A resposta
