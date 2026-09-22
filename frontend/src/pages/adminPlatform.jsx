@@ -1443,6 +1443,34 @@ function Organizacoes({ notificar }) {
   const estado = useFetch(() => api.organizations.list(), []);
   const [criando, setCriando] = useState(false);
   const [gerindo, setGerindo] = useState(null);
+  const [alternando, setAlternando] = useState(null);
+
+  // ========================================================================
+  // O AUTOCADASTRO PRECISAVA DE UM INTERRUPTOR.
+  //
+  // `Organization.selfRegistrationOpen` nasce FECHADO, e a rota para abri-lo
+  // existe desde sempre — mas nenhuma tela a chamava. Na prática a federação
+  // não tinha como receber cadastro espontâneo: o atleta chegava na tela de
+  // solicitação, o campo "Entidade de filiação" vinha vazio, e a mensagem
+  // "Nenhuma entidade de filiação ativa está disponível para a sua conta"
+  // não apontava para a causa.
+  //
+  // Abrir torna as filiações da organização descobríveis por qualquer
+  // visitante; fechar tira todas de circulação de uma vez. É ato
+  // administrativo, então a confirmação é explícita e fica na auditoria.
+  // ========================================================================
+  const alternarAutocadastro = async (organizacao, abrir) => {
+    setAlternando(organizacao.id);
+    try {
+      await api.organizations.setSelfRegistration(organizacao.id, abrir);
+      notificar(t(abrir ? 'plataforma.autocadastroAberto' : 'plataforma.autocadastroFechado'));
+      estado.reload();
+    } catch (erro) {
+      notificar(erro.message, 'erro');
+    } finally {
+      setAlternando(null);
+    }
+  };
 
   return (
     <>
@@ -1459,7 +1487,23 @@ function Organizacoes({ notificar }) {
                 <span className="info">
                   <strong>{organizacao.name}</strong>
                   <small>{organizacao.slug} · {organizacao._count.members} membro(s) · {organizacao._count.athletes} atleta(s) · {organizacao._count.events} evento(s)</small>
+                  {/* O ESTADO PRIMEIRO, E POR EXTENSO. Quem abre esta tela
+                      precisa saber se a porta está aberta antes de procurar
+                      o botão. */}
+                  <small>
+                    <Badge tom={organizacao.selfRegistrationOpen ? 'ok' : 'neutro'}>
+                      {t(organizacao.selfRegistrationOpen ? 'plataforma.autocadastroAbertoEtiqueta' : 'plataforma.autocadastroFechadoEtiqueta')}
+                    </Badge>
+                  </small>
                 </span>
+                <button
+                  type="button"
+                  className="button button-secondary button-sm"
+                  disabled={alternando === organizacao.id}
+                  onClick={() => alternarAutocadastro(organizacao, !organizacao.selfRegistrationOpen)}
+                >
+                  {t(organizacao.selfRegistrationOpen ? 'plataforma.fecharAutocadastro' : 'plataforma.abrirAutocadastro')}
+                </button>
                 <button type="button" className="button button-secondary button-sm" onClick={() => setGerindo(organizacao)}>{t('plataforma.membros')}</button>
               </div>
             ))
