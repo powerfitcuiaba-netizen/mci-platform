@@ -367,7 +367,12 @@ describe('o calendário não pede migration nenhuma', () => {
       // produção, e `Category` nasceu vazia lá. A migration é `INSERT ... ON
       // CONFLICT DO NOTHING` com id fixo: não apaga, não reescreve, não toca
       // `RankingPoint`, e rodar de novo não duplica.
-      '20260922210000_catalogo_oficial_de_categorias'
+      '20260922210000_catalogo_oficial_de_categorias',
+      // O TÍTULO OVERALL ALCANÇA O COMPETIDOR SEM CADASTRO. `athleteId` passa
+      // a aceitar nulo, entra `externalAthleteId`, e um CHECK exige
+      // EXATAMENTE UM dos dois. Aditiva e reversível: nenhum DROP, nenhum
+      // DELETE, e todo título já gravado satisfaz o CHECK.
+      '20260922230000_overall_do_historico_importado'
     ]);
   });
 });

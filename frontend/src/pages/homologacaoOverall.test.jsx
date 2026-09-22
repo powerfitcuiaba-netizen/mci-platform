@@ -266,3 +266,93 @@ describe('estado homologado', () => {
     await waitFor(() => expect(api.ranking.revokeOverall).toHaveBeenCalledWith('ev1', 't1', { reason: 'Ata oficial corrigida' }));
   });
 });
+
+// ==========================================================================
+// O CAMPEONATO IMPORTADO — CANDIDATOS SEM CADASTRO.
+//
+// `CompetitionClass`, `EventCategory` e `ResultEntry` existem por evento
+// MONTADO no MCI. O histórico oficial entra pronto: os candidatos vêm do
+// ledger, e o competidor tem `externalAthlete` em vez de `athlete`, porque a
+// pessoa ainda não se cadastrou — que é o caminho normal de um campeonato
+// carregado antes das inscrições.
+//
+// Antes, a tela lia `candidato.athlete.id` direto e quebrava; e a API
+// devolvia lista vazia para exatamente os campeonatos que mais precisam dela.
+// ==========================================================================
+
+const candidatoDoHistorico = (nome, placing) => ({
+  placing,
+  didNotShow: false,
+  athlete: null,
+  externalAthlete: { id: `ex-${nome}`, displayName: nome },
+  affiliationNumber: '88281'
+});
+
+const grupoDoHistorico = (extras = {}) => ({
+  competitionClass: { id: 'cc1', name: 'Open Class A', code: 'OPEN_CLASS_A' },
+  division: null,
+  category: { id: 'c1', code: 'BIKINI', name: 'Bikini' },
+  declaredTitle: null,
+  candidates: [candidatoDoHistorico('PRIMEIRA EXTERNA', 1), candidatoDoHistorico('SEGUNDA EXTERNA', 2)],
+  ...extras
+});
+
+describe('o campeonato importado', () => {
+  it('lista os candidatos do ledger e marca quem ainda não tem cadastro', async () => {
+    await abrir([grupoDoHistorico()], { fromLedger: true });
+    await screen.findByRole('heading', { name: /Etapa Cuiabá/ });
+
+    expect(screen.getByText('PRIMEIRA EXTERNA')).toBeTruthy();
+    expect(screen.getByText('SEGUNDA EXTERNA')).toBeTruthy();
+    // A tela diz que a pessoa não tem cadastro em vez de fingir que tem.
+    expect(screen.getAllByText(/Sem cadastro no MCI/i).length).toBe(2);
+    expect(screen.getAllByText(/Histórico importado/i).length).toBeGreaterThan(0);
+  });
+
+  it('declara pelo competidor do histórico, e não por athleteId', async () => {
+    api.ranking.overallPreview.mockResolvedValue({
+      ...PREVIA,
+      athlete: {
+        id: null, externalAthleteId: 'ex-PRIMEIRA EXTERNA', fullName: 'PRIMEIRA EXTERNA',
+        stageName: null, affiliationNumber: '88281', affiliation: null, pendingLink: true
+      },
+      competitionClass: { id: 'cc1', name: 'Open Class A', code: 'OPEN_CLASS_A' },
+      participation: { placing: 1, placementPoints: 5, pointsBefore: 5, pointsAfter: 15 }
+    });
+    api.ranking.declararOverall.mockResolvedValue({ id: 't1' });
+
+    await abrir([grupoDoHistorico()], { fromLedger: true });
+    await screen.findByRole('heading', { name: /Etapa Cuiabá/ });
+
+    const linha = screen.getByText('PRIMEIRA EXTERNA').closest('tr');
+    fireEvent.click(within(linha).getByRole('button', { name: /declarar overall/i }));
+
+    // A PRÉVIA é consultada com o competidor do histórico — o mesmo par que a
+    // declaração vai usar, para que o que se confere seja o que se grava.
+    await waitFor(() => expect(api.ranking.overallPreview).toHaveBeenCalledWith(
+      'ev1', { externalAthleteId: 'ex-PRIMEIRA EXTERNA', categoryId: 'c1' }
+    ));
+
+    const confirmar = await screen.findByRole('button', { name: /homologar|confirmar/i });
+    fireEvent.click(confirmar);
+
+    await waitFor(() => expect(api.ranking.declararOverall).toHaveBeenCalledWith(
+      'ev1', { externalAthleteId: 'ex-PRIMEIRA EXTERNA', categoryId: 'c1' }
+    ));
+  });
+
+  it('mostra o campeão homologado do histórico pelo nome do competidor', async () => {
+    await abrir([grupoDoHistorico({
+      declaredTitle: {
+        id: 't1', athleteId: null, externalAthleteId: 'ex-PRIMEIRA EXTERNA',
+        categoryId: 'c1', declaredAt: '2026-09-20T12:00:00.000Z'
+      }
+    })], { fromLedger: true });
+    await screen.findByRole('heading', { name: /Etapa Cuiabá/ });
+
+    expect(screen.getAllByText(/PRIMEIRA EXTERNA/).length).toBeGreaterThan(0);
+    // Homologado: o botão de declarar sai de cena naquele recorte.
+    expect(screen.queryAllByRole('button', { name: /declarar overall/i }).length).toBe(0);
+    expect(screen.getByRole('button', { name: /revogar/i })).toBeTruthy();
+  });
+});

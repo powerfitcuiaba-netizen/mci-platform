@@ -1464,9 +1464,23 @@ model RankingPoint {
 /// aqui, com autoria e data, e nunca calculado — a determinação é do
 /// regulamento esportivo, a pontuação (+10) é do sistema.
 model EventOverallTitle {
-  id           String   @id @default(cuid())
-  eventId      String
-  athleteId    String
+  id String @id @default(cuid())
+
+  eventId String
+
+  /// O COMPETIDOR É UM SÓ, CADASTRADO OU NÃO.
+  ///
+  /// O histórico oficial é carregado antes de os atletas se cadastrarem: os
+  /// resultados importados vivem com `athleteId` nulo e a identidade em
+  /// `ExternalAthlete`. Sem esta alternativa, declarar o Overall de um
+  /// campeonato importado era impossível por forma do modelo — não por regra.
+  ///
+  /// EXATAMENTE UM dos dois é preenchido. Quem garante é a restrição CHECK
+  /// `EventOverallTitle_um_competidor`, no banco: o Prisma não expressa isso,
+  /// e convenção de código some na primeira escrita por outro caminho.
+  athleteId         String?
+  externalAthleteId String?
+
   /// Recorte do título. Nulo = Overall do evento inteiro. Enquanto o critério
   /// não é homologado, o campo apenas registra o que a organização declarou.
   categoryId   String?
@@ -1476,14 +1490,16 @@ model EventOverallTitle {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  event      Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  athlete    Athlete   @relation(fields: [athleteId], references: [id], onDelete: Cascade)
-  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  declaredBy User?     @relation("OverallDeclaredBy", fields: [declaredById], references: [id], onDelete: SetNull)
+  event           Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  athlete         Athlete?         @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  externalAthlete ExternalAthlete? @relation(fields: [externalAthleteId], references: [id], onDelete: Cascade)
+  category        Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  declaredBy      User?            @relation("OverallDeclaredBy", fields: [declaredById], references: [id], onDelete: SetNull)
 
   /// Um título por recorte: declarar de novo substitui, não acumula.
   @@unique([eventId, categoryId])
   @@index([athleteId])
+  @@index([externalAthleteId])
 }
 
 model Ranking {
@@ -1886,6 +1902,7 @@ model ExternalAthlete {
   @@unique([organizationId, identityKey])
   @@index([organizationId, athleteId])
   @@index([affiliationId, affiliationNumber])
+  overallTitles     EventOverallTitle[]
 }
 
 model ExternalResult {

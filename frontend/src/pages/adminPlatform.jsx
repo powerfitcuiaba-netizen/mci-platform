@@ -92,10 +92,28 @@ export function AdminRanking({ notificar }) {
   const [conferindo, setConferindo] = useState(null);
   const estado = useFetch(() => api.ranking.seasons(), []);
 
+  // O AVISO DIZ O QUE ACONTECEU, E NÃO SÓ QUE ACONTECEU.
+  //
+  // "Ranking recalculado: 7 linha(s)" contava LINHAS DO AGREGADO e não
+  // distinguia as três situações que o operador precisa separar: a tabela
+  // alcançou o histórico, nada mudou, ou não havia tabela para aplicar. Com a
+  // mesma frase nos três casos, quem clicou não sabia se o trabalho foi feito.
   const recalcular = async temporada => {
     try {
       const resposta = await api.ranking.recompute(temporada.id);
-      notificar(`Ranking recalculado: ${resposta.rows} linha(s).`);
+
+      if (resposta.semTabelaDePontos) {
+        // Nada foi escrito — e isso é proteção, não falha: zerar o histórico
+        // por causa de uma tabela ausente seria destruir o que já existe.
+        notificar(t('plataforma.recalculoSemTabela'), 'erro');
+      } else if (resposta.lancamentosAlterados > 0) {
+        notificar(t('plataforma.recalculoAlterou', {
+          total: resposta.lancamentos, alterados: resposta.lancamentosAlterados
+        }));
+      } else {
+        notificar(t('plataforma.recalculoSemMudanca', { total: resposta.lancamentos }));
+      }
+
       refreshData();
     } catch (erro) {
       notificar(erro.message, 'erro');

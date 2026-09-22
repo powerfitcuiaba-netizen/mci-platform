@@ -476,18 +476,35 @@ const superOverallQuery = z.object({
   ...recorteDeLista
 });
 
+// DECLARAÇÃO DE OVERALL.
+//
+// O competidor é UM SÓ, e pode não ter cadastro: o histórico oficial é
+// carregado antes de os atletas se inscreverem, e a identidade dessas linhas
+// vive em `ExternalAthlete`. Exigir `athleteId` aqui era o que impedia
+// declarar o campeão de um campeonato importado.
+//
+// Os dois juntos são recusados no schema, e não só no serviço: assim o erro
+// chega como validação, com o campo apontado, em vez de como regra de negócio.
 const overallDeclare = z.object({
-  athleteId: id,
+  athleteId: id.optional(),
+  externalAthleteId: id.optional(),
   categoryId: id.optional(),
   note: opcional(texto(1, 300))
-});
+}).refine(
+  corpo => Boolean(corpo.athleteId) !== Boolean(corpo.externalAthleteId),
+  { message: 'Informe o atleta cadastrado OU o competidor do histórico importado — um, e apenas um', path: ['athleteId'] }
+);
 
 // Prévia da homologação. `athleteId` é obrigatório: prévia sem atleta não
 // tem o que prever.
 const overallPreviewQuery = z.object({
-  athleteId: id,
+  athleteId: id.optional(),
+  externalAthleteId: id.optional(),
   categoryId: id.optional()
-});
+}).refine(
+  consulta => Boolean(consulta.athleteId) !== Boolean(consulta.externalAthleteId),
+  { message: 'Informe o atleta cadastrado OU o competidor do histórico importado — um, e apenas um', path: ['athleteId'] }
+);
 
 // Revogação. O MOTIVO é obrigatório — revogar título homologado sem dizer por
 // quê deixa o próximo operador sem saber o que já foi analisado, que é o mesmo

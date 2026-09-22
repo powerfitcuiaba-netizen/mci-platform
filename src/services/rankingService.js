@@ -167,7 +167,7 @@ function escolherPortadoraDoBonus(linhas) {
 
 async function normalizarBonusOverall(tx, { eventId, seasonId }) {
   const titulos = await tx.eventOverallTitle.findMany({
-    where: { eventId }, select: { athleteId: true, categoryId: true }
+    where: { eventId }, select: { athleteId: true, externalAthleteId: true, categoryId: true }
   });
 
   // REVOGAR TAMBÉM É NORMALIZAR.
@@ -199,15 +199,36 @@ async function normalizarBonusOverall(tx, { eventId, seasonId }) {
     // Quem decide se a linha recebe o bônus continua sendo a REGRA, não a
     // origem: `escolherPortadoraDoBonus` só olha participações elegíveis à
     // absoluta, e uma linha fora dela segue com zero.
+    // O COMPETIDOR, E NÃO O ATLETA.
+    //
+    // O título pode ser de quem ainda não tem cadastro: o histórico oficial é
+    // carregado antes de os atletas se inscreverem, e a identidade dessas
+    // linhas vive em `ExternalAthlete`. Casar só por `athleteId` deixava o
+    // +10 de um campeonato importado sem linha onde pousar.
+    const doCompetidor = titulo.athleteId
+      ? { athleteId: titulo.athleteId }
+      : { externalAthleteId: titulo.externalAthleteId };
+
     const linhas = await tx.rankingPoint.findMany({
       where: {
-        seasonId, eventId, athleteId: titulo.athleteId,
+        seasonId, eventId, ...doCompetidor,
         ...(titulo.categoryId ? { categoryId: titulo.categoryId } : {})
       },
       select: {
         id: true, placing: true, superOverallEligible: true, source: true,
         didNotShow: true, voidedAt: true,
         placementPoints: true, overallBonus: true, isOverallChampion: true,
+        // `adjustmentPoints` ENTRA AQUI PORQUE ELE ENTRA NA CONTA.
+        //
+        // A fórmula do lançamento é `placementPoints + overallBonus +
+        // adjustmentPoints` — é assim que `adjustRankingPoint` a escreve, e a
+        // parcela de ajuste é guardada justamente para sobreviver a um
+        // recálculo. Esta função somava só as duas primeiras: declarar ou
+        // revogar um Overall no evento APAGAVA, em silêncio, a correção
+        // administrativa de qualquer lançamento daquele atleta — com a
+        // trilha de auditoria do ajuste continuando lá, apontando para um
+        // número que o ledger já não tinha.
+        adjustmentPoints: true,
         points: true, superOverallPoints: true
       },
       // Ordem DECLARADA — um `findMany` sem `orderBy` devolve a ordem física
@@ -242,7 +263,9 @@ async function normalizarBonusOverall(tx, { eventId, seasonId }) {
 
       const ehPortadora = Boolean(portadora) && linha.id === portadora.id;
       const overallBonus = ehPortadora ? BONUS_OVERALL : 0;
-      const points = linha.placementPoints + overallBonus;
+      // AS TRÊS PARCELAS. Ver a nota do `select` acima: somar só duas apagava
+      // o ajuste administrativo a cada declaração ou revogação de Overall.
+      const points = linha.placementPoints + overallBonus + linha.adjustmentPoints;
       const superOverallPoints = linha.superOverallEligible ? points : 0;
 
       // Linha que só existia por causa de um bônus que agora mudou de lugar
@@ -285,17 +308,20 @@ async function normalizarBonusOverall(tx, { eventId, seasonId }) {
       seasonId, eventId, overallBonus: { gt: 0 }, voidedAt: null,
       ...(portadoras.size ? { id: { notIn: [...portadoras] } } : {})
     },
-    select: { id: true, placementPoints: true, superOverallEligible: true }
+    select: { id: true, placementPoints: true, adjustmentPoints: true, superOverallEligible: true }
   });
 
   for (const linha of orfas) {
+    // Perder o bônus não é perder o ajuste administrativo: só a parcela do
+    // Overall sai da conta.
+    const points = linha.placementPoints + linha.adjustmentPoints;
     await tx.rankingPoint.update({
       where: { id: linha.id },
       data: {
         overallBonus: 0,
         isOverallChampion: false,
-        points: linha.placementPoints,
-        superOverallPoints: linha.superOverallEligible ? linha.placementPoints : 0
+        points,
+        superOverallPoints: linha.superOverallEligible ? points : 0
       }
     });
   }
@@ -598,7 +624,153 @@ function competidorExterno(linha) {
   };
 }
 
+// ===========================================================================
+// ETAPA A DO RECÁLCULO: A TABELA DA TEMPORADA VOLTA A ALCANÇAR OS LANÇAMENTOS.
+// ===========================================================================
+//
+// O QUE ESTAVA ERRADO, MEDIDO NA BASE REAL DA FEDERAÇÃO
+//
+// "Recalcular" só reconstruía o AGREGADO: lia `RankingPoint.points` e somava.
+// Se a linha valia zero, o ranking valia zero — e continuava valendo depois de
+// quantos recálculos fossem.
+//
+// Os 191 do Ipiranga entraram antes de a temporada ter tabela de pontos.
+// `pontuarResultado` não achou regra para colocação nenhuma e gravou zero nas
+// 191, corretamente: sem tabela não há o que atribuir. Depois a tabela foi
+// cadastrada (1=5, 2=4, 3=3, 4=2, 5=1) — e não havia caminho que a fizesse
+// alcançar o que já estava gravado. O operador via a tabela certa na tela, o
+// `placing` certo no lançamento, e zero ponto no ranking.
+//
+// Reimportar não resolvia: a idempotência do importador marca tudo como
+// DUPLICATE, que é justamente a proteção que impede duplicar os 191.
+//
+// O QUE ESTA ETAPA FAZ
+//
+// Reaplica a tabela VIGENTE da temporada a cada lançamento, a partir do
+// `placing` que já está gravado. É genérica: vale para qualquer tabela que o
+// administrador configure, e não para o Ipiranga em particular.
+//
+//   placementPoints  <- tabela da temporada para aquela colocação
+//   points           <- placementPoints + overallBonus + adjustmentPoints
+//   superOverallPoints <- points onde a classe é elegível, zero nas demais
+//
+// O QUE ELA NÃO TOCA
+//
+// `placing`, `didNotShow`, `categoryId`, `catalogClassId`, `athleteId`,
+// `eventId`, `source`, `externalResultId`, equipe, empresa e filiação. Nenhum
+// lançamento é criado, nenhum é apagado. Só as parcelas derivadas de
+// pontuação mudam.
+//
+// `adjustmentPoints` É PRESERVADO. Ele é a diferença que um operador registrou
+// com motivo e trilha de auditoria; recalcular a tabela não revoga aquela
+// decisão. Quem quiser desfazê-la usa o caminho do ajuste, que registra.
+//
+// O LANÇAMENTO INVALIDADO NÃO É TOCADO. Ele vale zero por decisão
+// administrativa registrada, e `placementPoints` guarda o que aconteceu no
+// campeonato para a restauração poder existir. Repontuá-lo aqui o
+// ressuscitaria sem ninguém ter restaurado nada.
+//
+// TEMPORADA SEM TABELA NÃO ZERA NADA.
+//
+// Sem regra cadastrada esta etapa não roda e devolve o aviso. Zerar 191
+// lançamentos porque a tabela sumiu seria destruir histórico por causa de uma
+// configuração ausente — e é o oposto do que este reparo existe para fazer.
+//
+// IDEMPOTENTE: a escrita só acontece onde algum campo difere, então a segunda
+// passada não altera nada e devolve `alterados: 0`.
+// ===========================================================================
+async function reconciliarPontuacao(tx, seasonId) {
+  const tabela = await tx.rankingPointsRule.findMany({
+    where: { seasonId }, select: { placing: true, points: true }, orderBy: { placing: 'asc' }
+  });
+
+  if (!tabela.length) {
+    return { processados: 0, alterados: 0, semTabelaDePontos: true };
+  }
+
+  const pontos = await tx.rankingPoint.findMany({
+    where: { seasonId, voidedAt: null },
+    select: {
+      id: true, placing: true, didNotShow: true, superOverallEligible: true,
+      placementPoints: true, overallBonus: true, adjustmentPoints: true,
+      points: true, superOverallPoints: true
+    }
+  });
+
+  let alterados = 0;
+
+  for (const ponto of pontos) {
+    // ===================================================================
+    // SEM COLOCAÇÃO E SEM AUSÊNCIA, A TABELA NÃO TEM O QUE APLICAR.
+    // ===================================================================
+    //
+    // A importação aceita a linha que traz PONTOS e não traz colocação: não
+    // há regra a aplicar, e o número do arquivo é o único dado disponível
+    // (ver `apply` em muscleWarService). Esse lançamento existe no ledger com
+    // `placing` nulo, `didNotShow` falso e pontuação vinda da origem.
+    //
+    // Reaplicar a tabela aqui significaria consultá-la por uma colocação que
+    // não existe, não achar regra, e gravar ZERO — apagando um número que a
+    // plataforma aceitou e que ninguém mandou revogar. Foi o que o teste de
+    // carga do Super Overall pegou: centenas de lançamentos legítimos
+    // zerados, todos empatados, ranking inteiro sem colocação.
+    //
+    // A linha fica como está. Recalcular corrige o que DERIVA da tabela; o
+    // que nunca derivou dela não é dela para mexer.
+    if (ponto.placing == null && !ponto.didNotShow) continue;
+
+    // A MESMA função que a apuração e a importação usam. Reimplementar a
+    // consulta à tabela aqui criaria um segundo lugar onde a regra mora, e
+    // dois lugares divergem.
+    //
+    // NÃO COMPARECEU VALE ZERO, E O ARQUIVO NÃO OPINA — é a mesma regra que a
+    // importação aplica, e a razão pela qual `didNotShow` não passa pela
+    // tabela: um arquivo declarando `NS` com pontos é a fraude mais barata
+    // que existe.
+    const { placementPoints } = ponto.didNotShow
+      ? { placementPoints: 0 }
+      : pontuarResultado(ponto.placing, tabela);
+
+    // O BÔNUS NÃO É DECIDIDO AQUI. Quem o atribui é `normalizarBonusOverall`,
+    // a partir dos títulos DECLARADOS pela organização — e ela roda logo
+    // abaixo, já sobre o `placementPoints` corrigido.
+    const points = placementPoints + ponto.overallBonus + ponto.adjustmentPoints;
+    const superOverallPoints = ponto.superOverallEligible ? points : 0;
+
+    const jaEstaCerto = ponto.placementPoints === placementPoints
+      && ponto.points === points
+      && ponto.superOverallPoints === superOverallPoints;
+    if (jaEstaCerto) continue;
+
+    await tx.rankingPoint.update({
+      where: { id: ponto.id },
+      data: { placementPoints, points, superOverallPoints }
+    });
+    alterados += 1;
+  }
+
+  return { processados: pontos.length, alterados, semTabelaDePontos: false };
+}
+
 async function recomputarEm(tx, seasonId) {
+  // ETAPA A — a tabela da temporada volta a alcançar os lançamentos.
+  const reconciliacao = await reconciliarPontuacao(tx, seasonId);
+
+  // E o Overall DECLARADO volta a pousar, agora sobre a colocação corrigida.
+  // Só os eventos que têm título declarado são varridos: sem declaração não há
+  // bônus a normalizar, e varrer o resto seria trabalho sem efeito.
+  if (!reconciliacao.semTabelaDePontos) {
+    const comTitulo = await tx.rankingPoint.findMany({
+      where: { seasonId, eventId: { not: null }, event: { overallTitles: { some: {} } } },
+      select: { eventId: true }, distinct: ['eventId']
+    });
+    for (const { eventId } of comTitulo) {
+      await normalizarBonusOverall(tx, { eventId, seasonId });
+    }
+  }
+
+  // ETAPA B — materialização. A leitura vem DEPOIS da reconciliação: ler antes
+  // materializaria o estado que a etapa A acabou de corrigir.
   const pontos = await tx.rankingPoint.findMany({
     where: { seasonId },
     select: {
@@ -695,7 +867,12 @@ async function recomputarEm(tx, seasonId) {
 
   return {
     rows: classificadas.length,
-    tieUnresolved: classificadas.filter(linha => linha.tieUnresolved).length
+    tieUnresolved: classificadas.filter(linha => linha.tieUnresolved).length,
+    // Os números da ETAPA A, para a tela poder dizer o que aconteceu em vez de
+    // "recalculado" — que não distingue "191 corrigidos" de "nada mudou".
+    lancamentos: reconciliacao.processados,
+    lancamentosAlterados: reconciliacao.alterados,
+    semTabelaDePontos: reconciliacao.semTabelaDePontos
   };
 }
 
@@ -932,7 +1109,74 @@ const MENSAGEM_OVERALL_MULTIPLO = 'Este evento já possui uma declaração Overa
   + 'para este atleta em outra categoria absoluta. A regra de pontuação para '
   + 'múltiplos títulos Overall neste mesmo evento ainda requer homologação.';
 
-async function declareOverall(eventId, { athleteId, categoryId = null, note = null }, actor) {
+// ===========================================================================
+// O COMPETIDOR DE UM TÍTULO: CADASTRADO OU NÃO, UM SÓ.
+// ===========================================================================
+//
+// O MCI carrega histórico oficial ANTES de os atletas se cadastrarem — é o
+// caminho normal, não a exceção. Um campeonato importado tem `athleteId` nulo
+// nos lançamentos e a identidade em `ExternalAthlete`; exigir cadastro para
+// declarar o Overall impediria a organização de registrar um fato que já
+// aconteceu no palco.
+//
+// A conferência de organização é a mesma para os dois: competidor de outra
+// federação não recebe título neste campeonato, tenha cadastro ou não.
+async function resolverCompetidorDoTitulo({ athleteId, externalAthleteId }, event) {
+  if (Boolean(athleteId) === Boolean(externalAthleteId)) {
+    throw new AppError(
+      422, 'OVERALL_COMPETITOR_REQUIRED',
+      'Informe o atleta cadastrado OU o competidor do histórico importado — um, e apenas um'
+    );
+  }
+
+  if (athleteId) {
+    const athlete = await prisma.athlete.findUnique({
+      where: { id: athleteId }, select: { id: true, organizationId: true }
+    });
+    if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
+    if (athlete.organizationId !== event.organizationId) {
+      throw new AppError(422, 'ATHLETE_OTHER_ORGANIZATION', 'Atleta de outra organização');
+    }
+    return { athleteId: athlete.id, externalAthleteId: null, doLedger: { athleteId: athlete.id } };
+  }
+
+  const externo = await prisma.externalAthlete.findUnique({
+    where: { id: externalAthleteId }, select: { id: true, organizationId: true }
+  });
+  if (!externo) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Competidor do histórico não encontrado');
+  if (externo.organizationId !== event.organizationId) {
+    throw new AppError(422, 'ATHLETE_OTHER_ORGANIZATION', 'Competidor de outra organização');
+  }
+  return { athleteId: null, externalAthleteId: externo.id, doLedger: { externalAthleteId: externo.id } };
+}
+
+/**
+ * A participação na ABSOLUTA, conferida no LEDGER.
+ *
+ * A conferência original lia `RegistrationItem` — a inscrição do campeonato
+ * apurado dentro do MCI. Resultado importado NÃO tem inscrição: ele entra no
+ * ledger já pronto, com a classe resolvida contra o catálogo da organização e
+ * `superOverallEligible` marcado ali.
+ *
+ * O fato existe; mora em outro lugar. Esta função pergunta ao ledger a mesma
+ * coisa que a outra pergunta à inscrição: este competidor disputou classe
+ * absoluta neste campeonato, neste recorte?
+ *
+ * A linha INVALIDADA não conta: ela parou de pontuar por decisão registrada, e
+ * dar título a partir dela a ressuscitaria pela porta dos fundos.
+ */
+async function disputouAbsolutaNoLedger(eventId, doLedger, categoryId) {
+  const linha = await prisma.rankingPoint.findFirst({
+    where: {
+      eventId, ...doLedger, superOverallEligible: true, voidedAt: null,
+      ...(categoryId ? { categoryId } : {})
+    },
+    select: { id: true }
+  });
+  return Boolean(linha);
+}
+
+async function declareOverall(eventId, { athleteId = null, externalAthleteId = null, categoryId = null, note = null }, actor) {
   const event = await prisma.event.findUnique({
     where: { id: eventId },
     select: { id: true, organizationId: true, seasonId: true }
@@ -940,11 +1184,7 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
   if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Evento não encontrado');
   assertCan(actor, 'ranking.manage', event.organizationId);
 
-  const athlete = await prisma.athlete.findUnique({ where: { id: athleteId }, select: { id: true, organizationId: true } });
-  if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
-  if (athlete.organizationId !== event.organizationId) {
-    throw new AppError(422, 'ATHLETE_OTHER_ORGANIZATION', 'Atleta de outra organização');
-  }
+  const competidor = await resolverCompetidorDoTitulo({ athleteId, externalAthleteId }, event);
 
   // A CATEGORIA precisa ser deste evento.
   //
@@ -956,7 +1196,13 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
     const doEvento = await prisma.eventCategory.findFirst({
       where: { eventId, categoryId }, select: { id: true }
     });
-    if (!doEvento) {
+    // O CAMPEONATO IMPORTADO NÃO TEM `EventCategory`: ele não foi montado
+    // dentro do MCI, foi carregado pronto. A categoria dele existe como FATO
+    // no ledger, e é lá que a conferência olha quando a grade não existe.
+    const noLedger = doEvento ? null : await prisma.rankingPoint.findFirst({
+      where: { eventId, categoryId }, select: { id: true }
+    });
+    if (!doEvento && !noLedger) {
       throw new AppError(
         422, 'CATEGORY_NOT_IN_EVENT',
         'A categoria informada não faz parte deste campeonato'
@@ -976,9 +1222,11 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
   // A verificação usa a INSCRIÇÃO, e não o resultado: no momento de declarar, o
   // resultado pode ainda não estar publicado, e exigir publicação prévia
   // inverteria a ordem real do trabalho do operador.
-  const absolutas = await prisma.registrationItem.findMany({
+  // Só o competidor CADASTRADO tem inscrição: quem veio do histórico
+  // importado nunca esteve nesta tabela.
+  const absolutas = competidor.athleteId ? await prisma.registrationItem.findMany({
     where: {
-      registration: { eventId, athleteId },
+      registration: { eventId, athleteId: competidor.athleteId },
       status: { not: 'CANCELLED' },
       competitionClass: {
         ...(categoryId ? { division: { eventCategory: { categoryId } } } : {})
@@ -992,7 +1240,7 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
         }
       }
     }
-  });
+  }) : [];
 
   const catalogo = new Map(
     (await prisma.classCatalog.findMany({
@@ -1006,12 +1254,16 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
   // que declarar e pontuar nunca discordem sobre o que é a absoluta.
   const disputouAbsoluta = absolutas.some(item =>
     item.competitionClass.superOverallEligible || Boolean(catalogo.get(item.competitionClass.code))
-  );
+  )
+    // OU o fato já gravado no LEDGER, que é onde o campeonato importado vive.
+    // A regra não muda — o título continua sendo da absoluta e de mais
+    // ninguém. O que muda é onde a plataforma procura a participação.
+    || await disputouAbsolutaNoLedger(eventId, competidor.doLedger, categoryId);
 
   if (!disputouAbsoluta) {
     throw new AppError(
       422, 'OVERALL_REQUIRES_ABSOLUTE_CLASS',
-      'O título Overall é da classe absoluta: o atleta não tem participação em classe absoluta neste evento'
+      'O título Overall é da classe absoluta: o competidor não tem participação em classe absoluta neste evento'
     );
   }
 
@@ -1054,7 +1306,7 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
       // e deixaria passar exatamente o caso do título do evento inteiro
       // (recorte nulo) convivendo com um título de categoria.
       const doAtleta = await tx.eventOverallTitle.findMany({
-        where: { eventId, athleteId }, select: { id: true, categoryId: true }
+        where: { eventId, ...competidor.doLedger }, select: { id: true, categoryId: true }
       });
       if (doAtleta.some(outro => outro.categoryId !== categoryId)) {
         throw new AppError(409, 'OVERALL_MULTIPLE_CATEGORIES_PENDING_RULE', MENSAGEM_OVERALL_MULTIPLO);
@@ -1070,7 +1322,14 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
       // anterior — em silêncio, sem registro do que havia antes. Um título
       // esportivo homologado não se troca assim: quem errou revoga, com motivo, e
       // declara de novo. As duas operações ficam na trilha.
-      if (existente && existente.athleteId !== athleteId) {
+      // O MESMO competidor, cadastrado ou não: comparar só `athleteId`
+      // deixaria dois títulos externos diferentes passarem como iguais,
+      // porque nos dois `athleteId` é nulo.
+      const mesmoCompetidor = existente
+        && existente.athleteId === competidor.athleteId
+        && existente.externalAthleteId === competidor.externalAthleteId;
+
+      if (existente && !mesmoCompetidor) {
         throw new AppError(
           409, 'OVERALL_ALREADY_DECLARED',
           'Esta categoria já possui um Overall homologado. Revogue a homologação atual antes de declarar outro campeão.'
@@ -1086,7 +1345,12 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
           data: { note: note ?? existente.note, declaredById: actor?.id ?? null, declaredAt: new Date() }
         })
         : tx.eventOverallTitle.create({
-          data: { eventId, athleteId, categoryId, note, declaredById: actor?.id ?? null }
+          data: {
+            eventId, categoryId, note,
+            athleteId: competidor.athleteId,
+            externalAthleteId: competidor.externalAthleteId,
+            declaredById: actor?.id ?? null
+          }
         });
     }, OPCOES_TRANSACAO);
   } catch (erro) {
@@ -1118,7 +1382,11 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
   await audit.record({
     actor, action: 'OVERALL_DECLARE', entity: 'Event', entityId: eventId,
     organizationId: event.organizationId,
-    metadata: { athleteId, categoryId, bonus: BONUS_OVERALL }
+    metadata: {
+      athleteId: competidor.athleteId,
+      externalAthleteId: competidor.externalAthleteId,
+      categoryId, bonus: BONUS_OVERALL
+    }
   });
 
   // O bônus só entra no ranking depois que os resultados do evento forem
@@ -1141,6 +1409,76 @@ async function declareOverall(eventId, { athleteId, categoryId = null, note = nu
  * identificar quem está em questão. CPF, telefone e endereço não entram — a
  * tela resolve homologação, não consulta cadastro.
  */
+/**
+ * Os candidatos ao Overall de um campeonato que veio de importação.
+ *
+ * Agrupados por CATEGORIA, porque é esse o recorte do título. Dentro de cada
+ * uma, quem disputou a classe absoluta, ordenado pela colocação — a colocação
+ * é FATO da súmula, e não opinião da plataforma sobre quem deve levar.
+ */
+async function candidatosDoLedger(event, eventId) {
+  const linhas = await prisma.rankingPoint.findMany({
+    where: { eventId, superOverallEligible: true, voidedAt: null },
+    select: {
+      placing: true, didNotShow: true, categoryId: true,
+      athleteId: true, externalAthleteId: true,
+      athlete: { select: { id: true, fullName: true, stageName: true } },
+      externalAthlete: { select: { id: true, displayName: true, affiliationNumber: true } },
+      category: { select: { id: true, code: true, name: true } },
+      catalogClass: { select: { id: true, code: true, displayName: true } }
+    },
+    orderBy: [{ placing: 'asc' }]
+  });
+
+  const titulos = await prisma.eventOverallTitle.findMany({
+    where: { eventId },
+    select: {
+      id: true, athleteId: true, externalAthleteId: true, categoryId: true, declaredAt: true,
+      athlete: { select: { id: true, fullName: true } },
+      externalAthlete: { select: { id: true, displayName: true } }
+    }
+  });
+
+  const porCategoria = new Map();
+  for (const linha of linhas) {
+    const chave = linha.categoryId ?? '';
+    if (!porCategoria.has(chave)) {
+      porCategoria.set(chave, { category: linha.category, catalogClass: linha.catalogClass, candidates: [] });
+    }
+    porCategoria.get(chave).candidates.push({
+      placing: linha.placing,
+      didNotShow: linha.didNotShow,
+      // O competidor, na forma que a tela consome: `athlete` quando há
+      // cadastro, `externalAthlete` quando ainda não há. Nunca os dois.
+      athlete: linha.athlete
+        ? { id: linha.athlete.id, fullName: linha.athlete.fullName, stageName: linha.athlete.stageName }
+        : null,
+      externalAthlete: linha.externalAthlete
+        ? { id: linha.externalAthlete.id, displayName: linha.externalAthlete.displayName }
+        : null,
+      affiliationNumber: linha.externalAthlete?.affiliationNumber ?? null
+    });
+  }
+
+  return {
+    event,
+    fromLedger: true,
+    items: [...porCategoria.values()]
+      .filter(grupo => grupo.category)
+      .sort((a, b) => a.category.code.localeCompare(b.category.code))
+      .map(grupo => ({
+        competitionClass: grupo.catalogClass
+          ? { id: grupo.catalogClass.id, name: grupo.catalogClass.displayName, code: grupo.catalogClass.code }
+          : null,
+        division: null,
+        category: grupo.category,
+        declaredTitle: titulos.find(t => t.categoryId === grupo.category.id)
+          || titulos.find(t => t.categoryId === null) || null,
+        candidates: grupo.candidates
+      }))
+  };
+}
+
 async function overallCandidates(eventId, actor) {
   const event = await prisma.event.findUnique({
     where: { id: eventId },
@@ -1180,7 +1518,20 @@ async function overallCandidates(eventId, actor) {
   const absolutas = classes.filter(classe =>
     classe.superOverallEligible || Boolean(catalogo.get(classe.code)));
 
-  if (!absolutas.length) return { event, items: [] };
+  // ===========================================================================
+  // CAMPEONATO IMPORTADO NÃO TEM GRADE — E MESMO ASSIM TEM CAMPEÃO.
+  // ===========================================================================
+  //
+  // `CompetitionClass` existe por divisão de um evento MONTADO no MCI. O
+  // histórico oficial entra pronto: não há grade, não há inscrição, não há
+  // `ResultEntry`. Antes, esta função devolvia `items: []` e a tela de Overall
+  // ficava vazia para exatamente os campeonatos que mais precisam dela.
+  //
+  // Os candidatos desses eventos vêm do LEDGER, que é onde o fato está: quem
+  // competiu em classe ABSOLUTA daquele campeonato, com a colocação que a
+  // súmula registrou. A regra não muda — só participação na absoluta é
+  // candidata, e linha invalidada fica de fora.
+  if (!absolutas.length) return candidatosDoLedger(event, eventId);
 
   // UMA consulta para todas as classes absolutas, e não uma por classe.
   const entradas = await prisma.resultEntry.findMany({
@@ -1202,7 +1553,12 @@ async function overallCandidates(eventId, actor) {
   });
 
   const titulos = await prisma.eventOverallTitle.findMany({
-    where: { eventId }, select: { id: true, athleteId: true, categoryId: true, declaredAt: true }
+    where: { eventId },
+    select: {
+      id: true, athleteId: true, externalAthleteId: true, categoryId: true, declaredAt: true,
+      athlete: { select: { id: true, fullName: true } },
+      externalAthlete: { select: { id: true, displayName: true } }
+    }
   });
 
   return {
@@ -1224,6 +1580,9 @@ async function overallCandidates(eventId, actor) {
             placing: entrada.placing,
             status: entrada.status,
             athlete: { id: entrada.athlete.id, fullName: entrada.athlete.fullName, stageName: entrada.athlete.stageName },
+            // O caminho interno é sempre de atleta cadastrado. O campo existe
+            // para que a tela consuma UMA forma só nos dois caminhos.
+            externalAthlete: null,
             affiliationNumber: entrada.athlete.affiliationNumber ?? null,
             affiliation: entrada.athlete.affiliation
           }))
@@ -1240,7 +1599,7 @@ async function overallCandidates(eventId, actor) {
  * atleta, participação na absoluta —, de modo que a prévia que responde 200 é
  * uma declaração que vai passar.
  */
-async function overallPreview(eventId, { athleteId, categoryId = null }, actor) {
+async function overallPreview(eventId, { athleteId = null, externalAthleteId = null, categoryId = null }, actor) {
   const event = await prisma.event.findUnique({
     where: { id: eventId },
     select: { id: true, name: true, organizationId: true, seasonId: true }
@@ -1248,40 +1607,77 @@ async function overallPreview(eventId, { athleteId, categoryId = null }, actor) 
   if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Evento não encontrado');
   assertCan(actor, 'ranking.manage', event.organizationId);
 
-  const athlete = await prisma.athlete.findUnique({
-    where: { id: athleteId },
-    select: {
-      id: true, fullName: true, stageName: true, organizationId: true, affiliationNumber: true,
-      affiliation: { select: { id: true, name: true, code: true } }
-    }
-  });
-  if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
-  if (athlete.organizationId !== event.organizationId) {
-    throw new AppError(422, 'ATHLETE_OTHER_ORGANIZATION', 'Atleta de outra organização');
-  }
+  // A PRÉVIA ACEITA OS MESMOS DOIS COMPETIDORES QUE A DECLARAÇÃO.
+  //
+  // Se ela só aceitasse atleta cadastrado, a tela de um campeonato importado
+  // teria de pular a conferência e escrever às cegas — e a prévia existe
+  // justamente para que o operador veja a conta antes de assinar.
+  const competidor = await resolverCompetidorDoTitulo({ athleteId, externalAthleteId }, event);
+
+  const identificado = competidor.athleteId
+    ? await prisma.athlete.findUnique({
+      where: { id: competidor.athleteId },
+      select: {
+        id: true, fullName: true, stageName: true, affiliationNumber: true,
+        affiliation: { select: { id: true, name: true, code: true } }
+      }
+    })
+    : await prisma.externalAthlete.findUnique({
+      where: { id: competidor.externalAthleteId },
+      select: {
+        id: true, displayName: true, affiliationNumber: true,
+        affiliation: { select: { id: true, name: true, code: true } }
+      }
+    });
+
+  const athlete = competidor.athleteId
+    ? identificado
+    : {
+      // `id` NULO é deliberado: nada que consuma isto pode montar um link
+      // para o perfil de um atleta que ainda não existe.
+      id: null,
+      externalAthleteId: identificado.id,
+      fullName: identificado.displayName,
+      stageName: null,
+      affiliationNumber: identificado.affiliationNumber ?? null,
+      affiliation: identificado.affiliation ?? null,
+      pendingLink: true
+    };
 
   const candidatos = await overallCandidates(eventId, actor);
   const grupos = categoryId
     ? candidatos.items.filter(grupo => grupo.category?.id === categoryId)
     : candidatos.items;
 
-  const grupo = grupos.find(g => g.candidates.some(c => c.athlete.id === athleteId));
+  const ehOCompetidor = c => (competidor.athleteId
+    ? c.athlete?.id === competidor.athleteId
+    : c.externalAthlete?.id === competidor.externalAthleteId);
+
+  const grupo = grupos.find(g => g.candidates.some(ehOCompetidor));
   if (!grupo) {
     throw new AppError(
       422, 'OVERALL_REQUIRES_ABSOLUTE_CLASS',
-      'O título Overall é da classe absoluta: o atleta não tem participação publicada em classe absoluta neste evento'
+      'O título Overall é da classe absoluta: o competidor não tem participação publicada em classe absoluta neste evento'
     );
   }
 
-  const participacao = grupo.candidates.find(c => c.athlete.id === athleteId);
+  const participacao = grupo.candidates.find(ehOCompetidor);
 
   // Os pontos JÁ lançados daquela participação. Ler em vez de recalcular
   // mantém a prévia honesta: ela mostra o que existe, e o que o +10 fará por
   // cima — não um cálculo paralelo que pode divergir do motor.
+  // No caminho interno a participação é localizada pela CLASSE do evento; no
+  // importado não há `CompetitionClass`, e o recorte é a CATEGORIA — que é o
+  // recorte do próprio título.
   const ponto = event.seasonId
     ? await prisma.rankingPoint.findFirst({
-      where: { seasonId: event.seasonId, athleteId, eventId, classId: grupo.competitionClass.id },
-      select: { placementPoints: true, overallBonus: true, points: true }
+      where: {
+        seasonId: event.seasonId, eventId, ...competidor.doLedger,
+        ...(grupo.competitionClass && competidor.athleteId
+          ? { classId: grupo.competitionClass.id }
+          : { categoryId: grupo.category?.id ?? null })
+      },
+      select: { placementPoints: true, overallBonus: true, adjustmentPoints: true, points: true }
     })
     : null;
 
@@ -1291,8 +1687,11 @@ async function overallPreview(eventId, { athleteId, categoryId = null }, actor) 
   return {
     event: { id: event.id, name: event.name },
     athlete: {
-      id: athlete.id, fullName: athlete.fullName, stageName: athlete.stageName,
-      affiliationNumber: athlete.affiliationNumber ?? null, affiliation: athlete.affiliation
+      id: athlete.id,
+      externalAthleteId: athlete.externalAthleteId ?? null,
+      fullName: athlete.fullName, stageName: athlete.stageName,
+      affiliationNumber: athlete.affiliationNumber ?? null, affiliation: athlete.affiliation ?? null,
+      pendingLink: Boolean(athlete.pendingLink)
     },
     category: grupo.category,
     competitionClass: grupo.competitionClass,
@@ -1301,7 +1700,10 @@ async function overallPreview(eventId, { athleteId, categoryId = null }, actor) 
       placing: participacao.placing,
       placementPoints,
       pointsBefore: ponto?.points ?? placementPoints,
-      pointsAfter: placementPoints + BONUS_OVERALL
+      // A parcela de ajuste entra na conta da prévia porque entra na conta do
+      // ledger: mostrar `placementPoints + 10` onde existe ajuste faria a
+      // prévia prometer um número que o motor não vai gravar.
+      pointsAfter: placementPoints + BONUS_OVERALL + (ponto?.adjustmentPoints ?? 0)
     },
     // Quanto o acumulado da temporada sobe. Zero quando o bônus já está lá —
     // homologar de novo não soma, e a prévia diz isso antes de o operador
@@ -1332,7 +1734,10 @@ async function revokeOverall(eventId, titleId, { reason }, actor) {
 
   const titulo = await prisma.eventOverallTitle.findUnique({
     where: { id: titleId },
-    select: { id: true, eventId: true, athleteId: true, categoryId: true, declaredById: true, declaredAt: true }
+    select: {
+      id: true, eventId: true, athleteId: true, externalAthleteId: true,
+      categoryId: true, declaredById: true, declaredAt: true
+    }
   });
   if (!titulo || titulo.eventId !== eventId) {
     throw new AppError(404, 'OVERALL_NOT_FOUND', 'Homologação não encontrada neste campeonato');
@@ -1344,7 +1749,8 @@ async function revokeOverall(eventId, titleId, { reason }, actor) {
     actor, action: 'OVERALL_REVOKE', entity: 'Event', entityId: eventId,
     organizationId: event.organizationId,
     metadata: {
-      titleId, athleteId: titulo.athleteId, categoryId: titulo.categoryId,
+      titleId, athleteId: titulo.athleteId, externalAthleteId: titulo.externalAthleteId,
+      categoryId: titulo.categoryId,
       declaredById: titulo.declaredById, declaredAt: titulo.declaredAt,
       reason
     }
@@ -1356,7 +1762,11 @@ async function revokeOverall(eventId, titleId, { reason }, actor) {
   // importação.
   await aplicarTitulosDoEvento(eventId, event.seasonId, actor);
 
-  return { revoked: true, titleId, athleteId: titulo.athleteId, categoryId: titulo.categoryId };
+  return {
+    revoked: true, titleId,
+    athleteId: titulo.athleteId, externalAthleteId: titulo.externalAthleteId,
+    categoryId: titulo.categoryId
+  };
 }
 
 async function listOverall(eventId) {
@@ -1364,7 +1774,10 @@ async function listOverall(eventId) {
     where: { eventId },
     include: {
       athlete: { select: { id: true, fullName: true, stageName: true } },
-      category: { select: { id: true, code: true, name: true } }
+      // O competidor sem cadastro tem nome, e é ele que a tela mostra.
+      externalAthlete: { select: { id: true, displayName: true } },
+      category: { select: { id: true, code: true, name: true } },
+      declaredBy: { select: { id: true, name: true } }
     },
     orderBy: { declaredAt: 'desc' }
   });
