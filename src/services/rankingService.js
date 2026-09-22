@@ -1578,7 +1578,7 @@ async function overallCandidates(eventId, actor) {
  * atleta, participação na absoluta —, de modo que a prévia que responde 200 é
  * uma declaração que vai passar.
  */
-async function overallPreview(eventId, { athleteId, categoryId = null }, actor) {
+async function overallPreview(eventId, { athleteId = null, externalAthleteId = null, categoryId = null }, actor) {
   const event = await prisma.event.findUnique({
     where: { id: eventId },
     select: { id: true, name: true, organizationId: true, seasonId: true }
@@ -1586,40 +1586,77 @@ async function overallPreview(eventId, { athleteId, categoryId = null }, actor) 
   if (!event) throw new AppError(404, 'EVENT_NOT_FOUND', 'Evento não encontrado');
   assertCan(actor, 'ranking.manage', event.organizationId);
 
-  const athlete = await prisma.athlete.findUnique({
-    where: { id: athleteId },
-    select: {
-      id: true, fullName: true, stageName: true, organizationId: true, affiliationNumber: true,
-      affiliation: { select: { id: true, name: true, code: true } }
-    }
-  });
-  if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
-  if (athlete.organizationId !== event.organizationId) {
-    throw new AppError(422, 'ATHLETE_OTHER_ORGANIZATION', 'Atleta de outra organização');
-  }
+  // A PRÉVIA ACEITA OS MESMOS DOIS COMPETIDORES QUE A DECLARAÇÃO.
+  //
+  // Se ela só aceitasse atleta cadastrado, a tela de um campeonato importado
+  // teria de pular a conferência e escrever às cegas — e a prévia existe
+  // justamente para que o operador veja a conta antes de assinar.
+  const competidor = await resolverCompetidorDoTitulo({ athleteId, externalAthleteId }, event);
+
+  const identificado = competidor.athleteId
+    ? await prisma.athlete.findUnique({
+      where: { id: competidor.athleteId },
+      select: {
+        id: true, fullName: true, stageName: true, affiliationNumber: true,
+        affiliation: { select: { id: true, name: true, code: true } }
+      }
+    })
+    : await prisma.externalAthlete.findUnique({
+      where: { id: competidor.externalAthleteId },
+      select: {
+        id: true, displayName: true, affiliationNumber: true,
+        affiliation: { select: { id: true, name: true, code: true } }
+      }
+    });
+
+  const athlete = competidor.athleteId
+    ? identificado
+    : {
+      // `id` NULO é deliberado: nada que consuma isto pode montar um link
+      // para o perfil de um atleta que ainda não existe.
+      id: null,
+      externalAthleteId: identificado.id,
+      fullName: identificado.displayName,
+      stageName: null,
+      affiliationNumber: identificado.affiliationNumber ?? null,
+      affiliation: identificado.affiliation ?? null,
+      pendingLink: true
+    };
 
   const candidatos = await overallCandidates(eventId, actor);
   const grupos = categoryId
     ? candidatos.items.filter(grupo => grupo.category?.id === categoryId)
     : candidatos.items;
 
-  const grupo = grupos.find(g => g.candidates.some(c => c.athlete.id === athleteId));
+  const ehOCompetidor = c => (competidor.athleteId
+    ? c.athlete?.id === competidor.athleteId
+    : c.externalAthlete?.id === competidor.externalAthleteId);
+
+  const grupo = grupos.find(g => g.candidates.some(ehOCompetidor));
   if (!grupo) {
     throw new AppError(
       422, 'OVERALL_REQUIRES_ABSOLUTE_CLASS',
-      'O título Overall é da classe absoluta: o atleta não tem participação publicada em classe absoluta neste evento'
+      'O título Overall é da classe absoluta: o competidor não tem participação publicada em classe absoluta neste evento'
     );
   }
 
-  const participacao = grupo.candidates.find(c => c.athlete.id === athleteId);
+  const participacao = grupo.candidates.find(ehOCompetidor);
 
   // Os pontos JÁ lançados daquela participação. Ler em vez de recalcular
   // mantém a prévia honesta: ela mostra o que existe, e o que o +10 fará por
   // cima — não um cálculo paralelo que pode divergir do motor.
+  // No caminho interno a participação é localizada pela CLASSE do evento; no
+  // importado não há `CompetitionClass`, e o recorte é a CATEGORIA — que é o
+  // recorte do próprio título.
   const ponto = event.seasonId
     ? await prisma.rankingPoint.findFirst({
-      where: { seasonId: event.seasonId, athleteId, eventId, classId: grupo.competitionClass.id },
-      select: { placementPoints: true, overallBonus: true, points: true }
+      where: {
+        seasonId: event.seasonId, eventId, ...competidor.doLedger,
+        ...(grupo.competitionClass && competidor.athleteId
+          ? { classId: grupo.competitionClass.id }
+          : { categoryId: grupo.category?.id ?? null })
+      },
+      select: { placementPoints: true, overallBonus: true, adjustmentPoints: true, points: true }
     })
     : null;
 
@@ -1629,8 +1666,11 @@ async function overallPreview(eventId, { athleteId, categoryId = null }, actor) 
   return {
     event: { id: event.id, name: event.name },
     athlete: {
-      id: athlete.id, fullName: athlete.fullName, stageName: athlete.stageName,
-      affiliationNumber: athlete.affiliationNumber ?? null, affiliation: athlete.affiliation
+      id: athlete.id,
+      externalAthleteId: athlete.externalAthleteId ?? null,
+      fullName: athlete.fullName, stageName: athlete.stageName,
+      affiliationNumber: athlete.affiliationNumber ?? null, affiliation: athlete.affiliation ?? null,
+      pendingLink: Boolean(athlete.pendingLink)
     },
     category: grupo.category,
     competitionClass: grupo.competitionClass,
@@ -1639,7 +1679,10 @@ async function overallPreview(eventId, { athleteId, categoryId = null }, actor) 
       placing: participacao.placing,
       placementPoints,
       pointsBefore: ponto?.points ?? placementPoints,
-      pointsAfter: placementPoints + BONUS_OVERALL
+      // A parcela de ajuste entra na conta da prévia porque entra na conta do
+      // ledger: mostrar `placementPoints + 10` onde existe ajuste faria a
+      // prévia prometer um número que o motor não vai gravar.
+      pointsAfter: placementPoints + BONUS_OVERALL + (ponto?.adjustmentPoints ?? 0)
     },
     // Quanto o acumulado da temporada sobe. Zero quando o bônus já está lá —
     // homologar de novo não soma, e a prévia diz isso antes de o operador

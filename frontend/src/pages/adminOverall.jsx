@@ -79,8 +79,9 @@ export function AdminOverall({ notificar }) {
                     )
                     : dados.items.map(grupo => (
                       <GrupoAbsoluto
-                        key={grupo.competitionClass.id}
+                        key={grupo.category?.id || grupo.competitionClass?.id}
                         grupo={grupo}
+                        doHistorico={Boolean(dados.fromLedger)}
                         onDeclarar={candidato => setDeclarando({ grupo, candidato })}
                         onRevogar={() => setRevogando(grupo)}
                       />
@@ -115,20 +116,33 @@ export function AdminOverall({ notificar }) {
   );
 }
 
-function GrupoAbsoluto({ grupo, onDeclarar, onRevogar }) {
+// O COMPETIDOR TEM DUAS FORMAS, E A TELA CONSOME UMA SÓ.
+//
+// `athlete` quando há cadastro no MCI; `externalAthlete` quando o resultado
+// veio do histórico importado e a pessoa ainda não se cadastrou — que é o
+// caminho normal de um campeonato carregado antes das inscrições.
+const idDoCompetidor = c => c?.athlete?.id || c?.externalAthlete?.id || null;
+const nomeDoCompetidor = (c, semNome) => c?.athlete?.fullName || c?.externalAthlete?.displayName || semNome;
+
+const ehOMesmoCompetidor = (candidato, titulo) => (titulo?.athleteId
+  ? candidato?.athlete?.id === titulo.athleteId
+  : candidato?.externalAthlete?.id === titulo?.externalAthleteId);
+
+function GrupoAbsoluto({ grupo, doHistorico, onDeclarar, onRevogar }) {
   const { t } = useIdioma();
   const homologado = Boolean(grupo.declaredTitle);
   const campeao = homologado
-    ? grupo.candidates.find(c => c.athlete.id === grupo.declaredTitle.athleteId)
+    ? grupo.candidates.find(c => ehOMesmoCompetidor(c, grupo.declaredTitle))
     : null;
 
   return (
     <section className="panel" style={{ marginTop: 18 }}>
       <div className="panel-head">
         <h2>
-          {grupo.category?.name || '—'} · {grupo.competitionClass.name}
+          {grupo.category?.name || '—'}
+          {grupo.competitionClass?.name ? ` · ${grupo.competitionClass.name}` : ''}
           <small style={{ display: 'block', color: 'var(--cinza-fraco)', fontWeight: 400 }}>
-            {grupo.division?.name}
+            {grupo.division?.name || (doHistorico ? t('overall.doHistorico') : '')}
           </small>
         </h2>
         {homologado
@@ -142,7 +156,10 @@ function GrupoAbsoluto({ grupo, onDeclarar, onRevogar }) {
           <div>
             <strong>{t('overall.declaradoOficialmente')}</strong>
             <p>
-              {campeao?.athlete.fullName || t('overall.atletaHomologado')}
+              {nomeDoCompetidor(campeao, null)
+                || grupo.declaredTitle.athlete?.fullName
+                || grupo.declaredTitle.externalAthlete?.displayName
+                || t('overall.atletaHomologado')}
               {' · '}{t('overall.homologadoEm', { data: formatarDataHora(grupo.declaredTitle.declaredAt) })}
             </p>
           </div>
@@ -168,12 +185,21 @@ function GrupoAbsoluto({ grupo, onDeclarar, onRevogar }) {
               </thead>
               <tbody>
                 {grupo.candidates.map(candidato => (
-                  <tr key={candidato.athlete.id}>
+                  <tr key={idDoCompetidor(candidato)}>
                     {/* A colocação é FATO do resultado publicado. Não é
                         destaque, não é sugestão e não muda de cor no 1º
                         lugar — quem escolhe o Overall é o operador. */}
                     <td className="num" data-rotulo={t('overall.colocacao')}>{candidato.placing ?? '—'}º</td>
-                    <td data-rotulo={t('overall.atleta')}>{candidato.athlete.fullName}</td>
+                    <td data-rotulo={t('overall.atleta')}>
+                      {nomeDoCompetidor(candidato, '—')}
+                      {/* Sem cadastro ainda: o ranking já conta com a pessoa,
+                          e a tela não finge que ela tem perfil. */}
+                      {!candidato.athlete && candidato.externalAthlete && (
+                        <small style={{ display: 'block', color: 'var(--cinza-fraco)' }}>
+                          {t('overall.semCadastro')}
+                        </small>
+                      )}
+                    </td>
                     <td className="num" data-rotulo={t('overall.matricula')}>{candidato.affiliationNumber || '—'}</td>
                     <td data-rotulo={t('overall.filiacao')}>{candidato.affiliation?.name || '—'}</td>
                     <td style={{ textAlign: 'right' }}>
@@ -202,16 +228,22 @@ function GrupoAbsoluto({ grupo, onDeclarar, onRevogar }) {
 function DialogoDeHomologacao({ eventId, grupo, candidato, notificar, onClose, onPronto }) {
   const { t } = useIdioma();
   const [enviando, setEnviando] = useState(false);
+  // O competidor vai como `athleteId` OU `externalAthleteId` — o mesmo par que
+  // a declaração usa, para que a prévia confira exatamente o que será gravado.
+  const doCompetidor = candidato.athlete
+    ? { athleteId: candidato.athlete.id }
+    : { externalAthleteId: candidato.externalAthlete.id };
+
   const previa = useFetch(
-    () => api.ranking.overallPreview(eventId, { athleteId: candidato.athlete.id, categoryId: grupo.category?.id }),
-    [eventId, candidato.athlete.id]
+    () => api.ranking.overallPreview(eventId, { ...doCompetidor, categoryId: grupo.category?.id }),
+    [eventId, idDoCompetidor(candidato)]
   );
 
   const confirmar = async () => {
     setEnviando(true);
     try {
       await api.ranking.declararOverall(eventId, {
-        athleteId: candidato.athlete.id,
+        ...doCompetidor,
         ...(grupo.category?.id ? { categoryId: grupo.category.id } : {})
       });
       notificar?.(t('overall.homologadoAviso'));
@@ -233,7 +265,7 @@ function DialogoDeHomologacao({ eventId, grupo, candidato, notificar, onClose, o
           <>
             <dl className="definicoes">
               <div><dt>{t('overall.campeonato')}</dt><dd>{dados.event.name}</dd></div>
-              <div><dt>{t('overall.categoria')}</dt><dd>{dados.category?.name || '—'} · {dados.competitionClass?.name}</dd></div>
+              <div><dt>{t('overall.categoria')}</dt><dd>{dados.category?.name || '—'}{dados.competitionClass?.name ? ` · ${dados.competitionClass.name}` : ''}</dd></div>
               <div><dt>{t('overall.atleta')}</dt><dd>{dados.athlete.fullName}</dd></div>
               <div><dt>{t('overall.matricula')}</dt><dd>{dados.athlete.affiliationNumber || '—'}</dd></div>
               <div><dt>{t('overall.filiacao')}</dt><dd>{dados.athlete.affiliation?.name || '—'}</dd></div>

@@ -192,6 +192,38 @@ describe('cadastrar a tabela e recalcular alcança o histórico', () => {
     for (const [, ponto] of pontos) expect(ponto.points).toBe(ponto.placementPoints);
   });
 
+  it('NÃO COMPARECEU vale zero mesmo com colocação gravada na linha', async () => {
+    // O MUTATION TESTING PEDIU ESTE TESTE.
+    //
+    // A suíte já cobria o NS, mas o importador grava `placing: null` junto com
+    // `didNotShow: true` — e com colocação nula os dois caminhos dão zero por
+    // acidente. Trocar `didNotShow ? null : placing` por `placing` passava
+    // batido.
+    //
+    // O estado em que eles DIVERGEM existe: um lançamento corrigido para não
+    // comparecimento mantém `placingOriginal`, e base herdada pode ter as duas
+    // colunas preenchidas. Aí a regra homologada tem de continuar valendo:
+    // quem não subiu no palco não pontua, tenha ou não número gravado.
+    const ns = await noLedger(tx => tx.rankingPoint.findFirst({
+      where: { seasonId, didNotShow: true }, select: { id: true }
+    }));
+    await comoAtor(gerente, tx => tx.rankingPoint.update({
+      where: { id: ns.id }, data: { placing: 1 }
+    }));
+
+    expect((await definirTabela(TABELA)).status).toBe(200);
+    expect((await recalcular()).status).toBe(200);
+
+    const depois = await noLedger(tx => tx.rankingPoint.findUnique({
+      where: { id: ns.id },
+      select: { didNotShow: true, placing: true, placementPoints: true, points: true }
+    }));
+    expect(depois.didNotShow).toBe(true);
+    expect(depois.placing, 'a colocação gravada não é apagada').toBe(1);
+    expect(depois.placementPoints, 'e mesmo assim não pontua').toBe(0);
+    expect(depois.points).toBe(0);
+  });
+
   it('a tabela é a do administrador, e não 5/4/3/2/1 embutido', async () => {
     // Uma tabela deliberadamente diferente da oficial: se houvesse número
     // embutido no motor, este teste o encontraria.

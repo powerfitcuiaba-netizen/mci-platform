@@ -498,9 +498,13 @@ const overallDeclare = z.object({
 // Prévia da homologação. `athleteId` é obrigatório: prévia sem atleta não
 // tem o que prever.
 const overallPreviewQuery = z.object({
-  athleteId: id,
+  athleteId: id.optional(),
+  externalAthleteId: id.optional(),
   categoryId: id.optional()
-});
+}).refine(
+  consulta => Boolean(consulta.athleteId) !== Boolean(consulta.externalAthleteId),
+  { message: 'Informe o atleta cadastrado OU o competidor do histórico importado — um, e apenas um', path: ['athleteId'] }
+);
 
 // Revogação. O MOTIVO é obrigatório — revogar título homologado sem dizer por
 // quê deixa o próximo operador sem saber o que já foi analisado, que é o mesmo

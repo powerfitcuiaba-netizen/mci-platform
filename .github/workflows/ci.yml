@@ -342,6 +342,30 @@ jobs:
             exit 1
           fi
 
+      # A MESMA GUARDA PARA O MOTOR DE PONTUAÇÃO E O OVERALL MANUAL.
+      #
+      # `motor-de-pontuacao` prova que "Recalcular" reaplica a tabela VIGENTE
+      # da temporada ao histórico já gravado — o defeito que deixou os 191 do
+      # Ipiranga valendo zero com a tabela cadastrada na tela —, que a
+      # temporada sem tabela NÃO zera nada, e que o ajuste administrativo
+      # sobrevive. `overall-do-historico` prova que o título alcança o
+      # competidor sem cadastro sem afrouxar regra esportiva nenhuma.
+      #
+      # São as duas suítes que tocam o ledger histórico. Pulá-las em silêncio
+      # devolveria um CI verde sobre a pontuação oficial da federação.
+      - name: Conferir que as suítes do motor e do Overall não foram puladas
+        run: |
+          set -e
+          SAIDA=$(npx vitest run tests/motor-de-pontuacao.test.mjs tests/overall-do-historico.test.mjs --reporter=json 2>/dev/null | tail -1)
+          PULADOS=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPendingTests+r.numTodoTests)" <<< "$SAIDA")
+          PASSOU=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPassedTests)" <<< "$SAIDA")
+          echo "motor de pontuação e Overall: $PASSOU passaram, $PULADOS pulados"
+          # 11 do motor + 16 do Overall do histórico.
+          if [ "$PULADOS" != "0" ] || [ "$PASSOU" -lt 27 ]; then
+            echo "As suítes do motor/Overall não rodaram por inteiro."
+            exit 1
+          fi
+
       # O catálogo precisa terminar o job do jeito que o deploy o entrega: a
       # suíte acima apaga `Category` de propósito num dos testes e reprovisiona
       # em seguida. Conferir aqui custa um comando e fecha a janela.

@@ -181,6 +181,40 @@ describe('declarar o Overall de quem ainda não tem cadastro', () => {
     expect((await pontoDe('QA-O-5')).overallBonus).toBe(0);
   });
 
+  it('com DUAS participações absolutas, o bônus pousa em UMA só', async () => {
+    // O MUTATION TESTING PEDIU ESTE TESTE.
+    //
+    // No cenário anterior cada competidor tinha uma única participação
+    // absoluta, e aí "o portador" e "todos" são o mesmo conjunto: trocar
+    // `linha.id === portadora.id` por `true` passava batido.
+    //
+    // A regra homologada é que o bônus de Overall vale UMA VEZ — é um título,
+    // não um prêmio por inscrição. Quem se inscreve em duas classes absolutas
+    // da mesma categoria não leva +20.
+    const bikini = await categoriaPorCodigo('BIKINI');
+    const campeao = await pontoDe('QA-O-3');
+    const segunda = await pontoDe('QA-O-4');
+
+    // A segunda participação passa a ser do MESMO competidor, na mesma
+    // categoria e também na absoluta.
+    await comoAtor(gerente, tx => tx.rankingPoint.update({
+      where: { id: segunda.id }, data: { externalAthleteId: campeao.externalAthleteId }
+    }));
+
+    expect((await declarar({ externalAthleteId: campeao.externalAthleteId, categoryId: bikini.id })).status).toBe(201);
+
+    const primeira = await pontoDe('QA-O-3');
+    const outra = await pontoDe('QA-O-4');
+
+    // UMA carrega o bônus, a outra não. Qual delas é escolha de LOCALIZAÇÃO
+    // (a melhor colocação), e não de mérito: o total do competidor é o mesmo.
+    const bonus = [primeira.overallBonus, outra.overallBonus].sort();
+    expect(bonus, 'exatamente um +10').toEqual([0, 10]);
+    expect(primeira.overallBonus + outra.overallBonus).toBe(10);
+    // A colocação continua acumulando normalmente: 5 + 4 + 10 = 19.
+    expect(primeira.points + outra.points).toBe(19);
+  });
+
   it('declarar de novo o MESMO campeão é idempotente: um título, um bônus', async () => {
     const bikini = await categoriaPorCodigo('BIKINI');
     const campeao = await pontoDe('QA-O-3');
@@ -252,6 +286,33 @@ describe('declarar o Overall de quem ainda não tem cadastro', () => {
     }
 
     expect(await pontoDe('QA-O-3')).toEqual(antes);
+  });
+
+  it('o recálculo reconstrói o bônus a partir do título declarado', async () => {
+    // O TÍTULO É A FONTE, E O RECÁLCULO VOLTA A ELA.
+    //
+    // Se o bônus sumir do ledger por qualquer caminho — uma correção manual
+    // malfeita, um estado herdado de antes desta fase —, "Recalcular" tem de
+    // reconstituí-lo a partir da declaração, que é o fato homologado. Sem
+    // isso, o operador teria de revogar e declarar de novo para consertar um
+    // número que a plataforma já sabe calcular.
+    const bikini = await categoriaPorCodigo('BIKINI');
+    const campeao = await pontoDe('QA-O-3');
+    expect((await declarar({ externalAthleteId: campeao.externalAthleteId, categoryId: bikini.id })).status).toBe(201);
+    expect((await pontoDe('QA-O-3')).points).toBe(15);
+
+    await comoAtor(gerente, tx => tx.rankingPoint.update({
+      where: { id: campeao.id },
+      data: { overallBonus: 0, isOverallChampion: false, points: 5, superOverallPoints: 5 }
+    }));
+    expect((await pontoDe('QA-O-3')).overallBonus).toBe(0);
+
+    expect((await recalcular()).status).toBe(200);
+
+    const reconstituido = await pontoDe('QA-O-3');
+    expect(reconstituido.overallBonus).toBe(10);
+    expect(reconstituido.isOverallChampion).toBe(true);
+    expect(reconstituido.points).toBe(15);
   });
 
   it('mudar a tabela recalcula a colocação e mantém o bônus uma vez só', async () => {
