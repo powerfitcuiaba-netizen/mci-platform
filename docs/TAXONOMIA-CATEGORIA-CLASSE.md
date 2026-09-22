@@ -229,3 +229,82 @@ Os dois últimos só morrem por causa de assertivas de CONTAGEM: recortar
 Open Middleweight devolve **12** de 36, e a classe genérica NOVICE devolve
 **10** em Wellness contra **12** em Classic Physique. Sem esses números, um
 filtro ignorado passaria despercebido — a lista continuaria plausível.
+
+## O catálogo oficial de categorias não existia em produção
+
+O backfill rodou em modo diagnóstico na base real da federação e devolveu **191
+de 191 em conflito de categoria** — os oito códigos do Ipiranga, todos
+recusados:
+
+```
+BIKINI 34 · CLASSIC_PHYSIQUE 36 · FIGURE 6 · FITMODEL 12
+MENS_BODYBUILDING 36 · MENS_PHYSIQUE 44 · WELLNESS 20 · WOMENS_PHYSIQUE 3
+```
+
+Não era divergência de mapeamento: os oito códigos que o adaptador produz são
+exatamente os que `prisma/seed.js` declara. Não era invisibilidade por RLS:
+`Category` não tem RLS — não há bloco `Policies` em `\d "Category"`.
+
+A causa é de provisionamento, e está em `render.yaml`:
+
+```yaml
+preDeployCommand: npx prisma migrate deploy
+```
+
+O deploy roda **migrate deploy** e nada mais. As categorias oficiais existiam
+só em `prisma/seed.js`, e o seed nunca rodou em produção. `Category` nasceu
+vazia lá e continuou vazia.
+
+### Por que ninguém percebeu na importação dos 191
+
+A guarda que recusa categoria desconhecida existia, estava escrita e tinha
+teste. Ela ficava **depois da resolução do atleta**, e a base de atletas
+também estava vazia — que é o caminho normal do MCI, histórico oficial
+carregado antes de existir cadastro. Toda linha saía como `MATCH_PENDING`
+antes de alcançar a guarda.
+
+O resultado foi a combinação que ninguém tinha testado junta: catálogo vazio
+**mais** base de atletas vazia. A importação respondeu "191 aplicados, 0
+conflitos", `findUnique` por código devolveu `null` nas 191, e `categoryId`
+nasceu nulo em todas — de onde saiu o "Geral" na tela.
+
+### A correção é dupla, uma em cada metade
+
+**Código.** A conferência de categoria subiu para antes da resolução do
+atleta, em `analisarLinha`. Conferir a categoria não depende de saber de quem
+é o resultado: a categoria é do RESULTADO, não da pessoa. As recusas passam a
+devolver `athleteId: null`, que é a consequência honesta — naquele ponto ainda
+não se sabe quem é.
+
+**Provisionamento.** O catálogo virou migration —
+`20260922210000_catalogo_oficial_de_categorias` —, que é o caminho que o
+deploy já percorre. `INSERT ... ON CONFLICT ("code") DO NOTHING` com ids
+fixos: não apaga, não reescreve, não toca `RankingPoint`, e rodar de novo não
+duplica. O seed continua existindo e continua criando o mesmo catálogo; um
+teste compara as duas listas e reprova se elas se separarem.
+
+Promover o seed inteiro a passo de deploy foi descartado: ele também cria
+critérios, comunidades e regra padrão, e o alcance da mudança ficaria muito
+maior do que o problema. O catálogo de categorias é pré-requisito de domínio
+— é schema de negócio, não dado de exemplo.
+
+### O que a suíte mede
+
+`tests/catalogo-oficial-de-categorias.test.mjs` — nove testes:
+
+| teste | o que prova |
+|---|---|
+| as onze categorias oficiais existem | o catálogo provisionado tem os oito do Ipiranga |
+| a migration e o seed não divergem | as duas listas são uma só |
+| é idempotente | reaplicar a migration não duplica nem reescreve |
+| categoria desconhecida vira CONFLITO com base de atletas vazia | a guarda alcança a linha sem atleta |
+| CATÁLOGO VAZIO recusa o arquivo inteiro | a reprodução exata do defeito: `conflicts: 2`, `applicable: 0`, apply 422 `NOTHING_TO_APPLY` |
+| com o catálogo provisionado, as mesmas linhas entram com categoria | nenhum ponto sem categoria, `athleteId` nulo, classe específica |
+| linha sem classe E sem categoria é CONFLITO | o ramo do código AUSENTE, que o mutation testing mostrou descoberto |
+| cada um dos oito códigos do Ipiranga resolve sozinho | os oito, um a um |
+| a categoria é global, a CLASSE é da organização | o isolamento continua de pé |
+
+E `scripts/qa/mutantes-catalogo.mjs` (`npm run qa:mutantes:catalogo`) estraga a
+correção de propósito, uma mudança por vez. O mutante que mais importa é o
+primeiro — `a guarda volta a ficar depois da resolução do atleta` —, que não
+inventa defeito nenhum: recoloca o que a base real tinha.

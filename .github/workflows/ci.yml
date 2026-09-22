@@ -295,6 +295,39 @@ jobs:
             exit 1
           fi
 
+      # A MESMA GUARDA PARA O CATÁLOGO OFICIAL DE CATEGORIAS.
+      #
+      # Esta é a suíte que reproduz o defeito que chegou à base real da
+      # federação: catálogo de categorias VAZIO mais base de atletas VAZIA,
+      # juntos. `Category` nasceu vazia em produção porque `render.yaml` roda
+      # `prisma migrate deploy` e nunca rodou o seed, e a guarda que recusaria
+      # categoria desconhecida ficava depois da resolução do atleta — que
+      # também não resolvia. Resultado: 191 linhas aplicadas com "0 conflitos"
+      # e `categoryId` nulo nas 191.
+      #
+      # Um deles é o teste que apaga `Category` de propósito. Se ele for
+      # pulado, o CI fica verde exatamente sobre o buraco que abriu isto.
+      - name: Conferir que a suíte do catálogo de categorias não foi pulada
+        run: |
+          set -e
+          SAIDA=$(npx vitest run tests/catalogo-oficial-de-categorias.test.mjs tests/backfill-classe.test.mjs --reporter=json 2>/dev/null | tail -1)
+          PULADOS=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPendingTests+r.numTodoTests)" <<< "$SAIDA")
+          PASSOU=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPassedTests)" <<< "$SAIDA")
+          echo "catálogo de categorias e backfill: $PASSOU passaram, $PULADOS pulados"
+          # 9 do catálogo oficial + 14 do backfill da classe.
+          if [ "$PULADOS" != "0" ] || [ "$PASSOU" -lt 23 ]; then
+            echo "A suíte do catálogo de categorias não rodou por inteiro."
+            exit 1
+          fi
+
+      # O catálogo precisa terminar o job do jeito que o deploy o entrega: a
+      # suíte acima apaga `Category` de propósito num dos testes e reprovisiona
+      # em seguida. Conferir aqui custa um comando e fecha a janela.
+      - name: Conferir que o catálogo terminou provisionado
+        run: |
+          set -e
+          node -e "const p=require('./src/config/prisma');p.category.count().then(n=>{console.log('categorias:',n);if(n<11){console.error('O catálogo oficial não está completo ao fim do job.');process.exit(1)}process.exit(0)})"
+
   frontend:
     name: Frontend — testes e build
     runs-on: ubuntu-latest
