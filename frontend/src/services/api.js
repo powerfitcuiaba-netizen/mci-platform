@@ -220,6 +220,10 @@ export const api = {
     // e a resposta carrega documento, que não tem por que passar por URL,
     // cache ou Referer. O id vai no caminho; o número volta no corpo.
     revealCpf: id => post(`/athletes/${id}/cpf`),
+    // O HISTÓRICO IMPORTADO visto do lado do atleta: o que já é dele e o que
+    // pode ser. A leitura não vincula nada — vincular é a chamada seguinte.
+    importedHistory: id => get(`/athletes/${id}/imported-history`),
+    linkImportedIdentity: (id, externalAthleteId) => post(`/athletes/${id}/imported-history/${externalAthleteId}/link`),
     // Vínculo com equipe. `linkTeam` só vincula atleta livre; tirar de outra
     // equipe é `transferTeam`, ato do operador da Muscle Contest.
     linkTeam: (id, dados) => post(`/athletes/${id}/team`, dados),

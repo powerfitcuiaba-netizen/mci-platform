@@ -44,6 +44,8 @@ const paramsWithId = z.object({ id });
 // — e o Prisma respondia 500 numa rota de regra de negócio.
 const paramsComTitulo = z.object({ id, titleId: id });
 const paramsComPonto = z.object({ pointId: id });
+// Pelo mesmo motivo: o atleta e a identidade importada que ele reivindica.
+const paramsComIdentidadeExterna = z.object({ id, externalAthleteId: id });
 
 // ---------------------------------------------------------------- autenticação
 const authRegister = z.object({
@@ -891,7 +893,7 @@ module.exports = {
   batchCreate, batchStatusUpdate, stageOrderSet,
   resultReceive, resultPublish, resultOverride,
   meuHistoricoQuery,
-  paramsComTitulo, paramsComPonto,
+  paramsComTitulo, paramsComPonto, paramsComIdentidadeExterna,
   seasonCreate, pointsRuleSet, rankingQuery, rankingCutQuery, overallDeclare,
   overallPreviewQuery, overallRevoke, teamRankingQuery,
   classCatalogUpsert, classCatalogQuery, classesParaFiltroQuery, superOverallQuery,

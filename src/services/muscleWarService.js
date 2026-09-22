@@ -2219,6 +2219,211 @@ async function listImports(filtros, actor) {
   });
 }
 
+
+// ============================================================================
+// O HISTÓRICO IMPORTADO, VISTO DO LADO DO ATLETA.
+//
+// A revisão de lote olha para o ARQUIVO: quais linhas ficaram sem dono. Esta
+// função olha para a PESSOA: o que já é dela, e o que pode ser. São a mesma
+// base de dados e duas perguntas diferentes, e só a segunda serve a quem abre
+// o perfil de alguém para conferir uma carreira.
+//
+// TRÊS NÍVEIS DE PISTA, E SÓ UM É RECONHECIMENTO:
+//
+//   FILIACAO_MATRICULA  a entidade e o número batem. É a chave pela qual o
+//                       resultado oficial identifica o atleta — forte.
+//   NOME                o nome normalizado bate. NÃO reconhece nada: duas
+//                       atletas chamadas "Ana Silva" existem, e fundir as
+//                       duas numa só carreira é um erro que só aparece
+//                       quando uma delas vai ver o próprio histórico.
+//   (nenhuma)           não aparece como sugestão.
+//
+// NADA AQUI VINCULA. Esta função só LÊ. O vínculo é um ato separado, com
+// permissão própria, feito por quem olhou os dois lados — e é por isso que a
+// resposta traz os resultados de cada identidade candidata: sem eles o
+// operador confirmaria um nome, não uma carreira.
+//
+// A VARREDURA POR NOME É LIMITADA de propósito. Comparar nome normalizado
+// exige trazer as linhas para a aplicação (o banco não desacentua sem
+// extensão), e uma organização com histórico grande não cabe numa requisição.
+// O teto é declarado na resposta (`varreduraTruncada`), e não escondido: uma
+// sugestão que não apareceu é melhor dita do que suposta.
+// ============================================================================
+const TETO_DA_VARREDURA_POR_NOME = 500;
+
+const RESULTADO_IMPORTADO = Object.freeze({
+  id: true, eventName: true, eventDate: true, categoryCode: true,
+  className: true, placing: true, points: true, seasonId: true, athleteId: true
+});
+
+const identidadeParaTela = identidade => ({
+  id: identidade.id,
+  displayName: identidade.displayName,
+  source: identidade.source,
+  affiliation: identidade.affiliation
+    ? { id: identidade.affiliation.id, name: identidade.affiliation.name, code: identidade.affiliation.code }
+    : null,
+  affiliationNumber: identidade.affiliationNumber ?? null,
+  linkedAt: identidade.linkedAt ?? null,
+  results: (identidade.externalResults || []).map(resultado => ({
+    id: resultado.id,
+    eventName: resultado.eventName,
+    eventDate: resultado.eventDate,
+    categoryCode: resultado.categoryCode,
+    className: resultado.className,
+    placing: resultado.placing,
+    points: resultado.points,
+    seasonId: resultado.seasonId
+  }))
+});
+
+async function historicoImportadoDoAtleta(athleteId, actor) {
+  const athlete = await prisma.athlete.findUnique({
+    where: { id: athleteId },
+    select: { id: true, organizationId: true, fullName: true, affiliationId: true, affiliationNumber: true }
+  });
+  if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
+
+  assertCan(actor, 'athletes.read_sensitive', athlete.organizationId);
+
+  const INCLUDE = {
+    affiliation: { select: { id: true, name: true, code: true } },
+    externalResults: { select: RESULTADO_IMPORTADO, orderBy: { eventDate: 'desc' } }
+  };
+
+  const vinculadas = await prisma.externalAthlete.findMany({
+    where: { athleteId: athlete.id, organizationId: athlete.organizationId },
+    include: INCLUDE,
+    orderBy: { linkedAt: 'desc' }
+  });
+
+  // As candidatas são SEMPRE identidades sem dono. Uma que já pertence a
+  // outra pessoa não é sugestão: é a carreira de outra pessoa, e mudá-la de
+  // dono é outra operação, com outra pergunta.
+  const semDono = await prisma.externalAthlete.findMany({
+    where: { organizationId: athlete.organizationId, athleteId: null },
+    include: INCLUDE,
+    orderBy: { createdAt: 'desc' },
+    take: TETO_DA_VARREDURA_POR_NOME + 1
+  });
+
+  const varreduraTruncada = semDono.length > TETO_DA_VARREDURA_POR_NOME;
+  const examinadas = varreduraTruncada ? semDono.slice(0, TETO_DA_VARREDURA_POR_NOME) : semDono;
+
+  const temFiliacao = Boolean(athlete.affiliationId && athlete.affiliationNumber);
+  const matricula = temFiliacao ? String(athlete.affiliationNumber).trim() : null;
+  const nomeDoCadastro = normalizarNome(athlete.fullName);
+
+  const porNome = examinadas.filter(identidade => normalizarNome(identidade.displayName) === nomeDoCadastro);
+
+  const sugestoes = [];
+  for (const identidade of examinadas) {
+    const casaFiliacao = temFiliacao
+      && identidade.affiliationId === athlete.affiliationId
+      && String(identidade.affiliationNumber ?? '').trim() === matricula;
+    const casaNome = normalizarNome(identidade.displayName) === nomeDoCadastro;
+
+    if (!casaFiliacao && !casaNome) continue;
+
+    sugestoes.push({
+      ...identidadeParaTela(identidade),
+      // A chave FORTE vence a fraca quando as duas batem: dizer "nome" quando
+      // a matrícula também confere subestimaria a evidência que o operador
+      // tem na mão.
+      matchedBy: casaFiliacao ? CHAVE_MATRICULA : 'NAME',
+      // O nome sozinho NUNCA basta, e a resposta diz isso em vez de deixar a
+      // tela inventar a regra.
+      exigeConfirmacaoHumana: true,
+      // Mais de uma identidade sem dono com o mesmo nome: homônimos. Não
+      // suprimimos a sugestão como o reconhecimento automático faz — aqui há
+      // um humano olhando os dois lados, que é exatamente onde a dúvida se
+      // resolve. Mas ele precisa SABER que há ambiguidade.
+      homonimos: !casaFiliacao && porNome.length > 1
+    });
+  }
+
+  // Forte antes de fraca, e dentro de cada uma o histórico mais rico primeiro.
+  sugestoes.sort((a, b) => {
+    if (a.matchedBy !== b.matchedBy) return a.matchedBy === CHAVE_MATRICULA ? -1 : 1;
+    return b.results.length - a.results.length;
+  });
+
+  return {
+    athlete: { id: athlete.id, fullName: athlete.fullName },
+    linked: vinculadas.map(identidadeParaTela),
+    suggestions: sugestoes,
+    varreduraTruncada,
+    tetoDaVarredura: TETO_DA_VARREDURA_POR_NOME
+  };
+}
+
+// ============================================================================
+// ADOTAR UMA IDENTIDADE EXTERNA — o vínculo manual, do lado do atleta.
+//
+// É a terceira porta para `adotarLedger`, e a regra é a mesma das outras
+// duas: preencher ponteiro, nunca criar lançamento. A pontuação não é
+// recalculada por linha; o agregado da temporada é refeito porque aqueles
+// pontos passaram a ter dono, com o MESMO valor.
+//
+// O que esta porta acrescenta é de quem parte o pedido: aqui é o operador
+// olhando um perfil, e não uma linha de arquivo. Por isso ela recusa o que a
+// revisão de lote também recusaria, e diz por quê:
+//
+//   * identidade de OUTRA organização — nem existe, para este ator;
+//   * identidade que JÁ TEM dono — trocar o dono de uma carreira publicada é
+//     outra operação, com outra autorização. Só o caso "já é deste mesmo
+//     atleta" passa, e passa sem efeito, porque repetir não pode doer.
+// ============================================================================
+async function adotarIdentidadeExterna(athleteId, externalAthleteId, actor) {
+  const athlete = await prisma.athlete.findUnique({
+    where: { id: athleteId },
+    select: { id: true, organizationId: true, userId: true, fullName: true, affiliationId: true, affiliationNumber: true }
+  });
+  if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
+
+  assertCan(actor, 'musclewar.review', athlete.organizationId);
+
+  const identidade = await prisma.externalAthlete.findUnique({
+    where: { id: externalAthleteId },
+    select: { id: true, organizationId: true, athleteId: true, displayName: true }
+  });
+  if (!identidade || identidade.organizationId !== athlete.organizationId) {
+    throw new AppError(404, 'EXTERNAL_ATHLETE_NOT_FOUND', 'Identidade importada não encontrada');
+  }
+
+  if (identidade.athleteId && identidade.athleteId === athlete.id) {
+    return { alreadyLinked: true, lancamentos: 0, temporadas: 0, displayName: identidade.displayName };
+  }
+
+  if (identidade.athleteId) {
+    throw new AppError(409, 'EXTERNAL_ATHLETE_ALREADY_LINKED',
+      `A identidade importada "${identidade.displayName}" já pertence a outro atleta. `
+      + 'Trocar o dono de um histórico já vinculado é outra operação — desfaça o vínculo existente primeiro.');
+  }
+
+  const { lancamentos, temporadas } = await adotarLedger(identidade.id, athlete, actor);
+
+  // O vínculo em si é auditado mesmo quando não havia lançamento nenhum para
+  // adotar: reconhecer que aquela identidade é desta pessoa é o ato, e ele
+  // precisa de autor e data mesmo quando não move ponto.
+  await audit.record({
+    actor, action: 'RESULTADO_EXTERNAL_LINKED', entity: 'ExternalAthlete', entityId: identidade.id,
+    organizationId: athlete.organizationId,
+    metadata: { athleteId: athlete.id, via: 'perfil-do-atleta', lancamentos, manual: true }
+  });
+
+  if (athlete.userId && lancamentos) {
+    await notifications.notify({
+      userIds: [athlete.userId], type: notifications.TYPES.ATHLETE_MATCHED,
+      title: 'Histórico importado vinculado ao seu perfil',
+      message: `${lancamentos} lançamento(s) de pontuação passaram a constar no seu histórico.`,
+      entityType: 'ExternalAthlete', entityId: identidade.id, actorId: actor?.id ?? null
+    });
+  }
+
+  return { alreadyLinked: false, lancamentos, temporadas: temporadas.size, displayName: identidade.displayName };
+}
+
 module.exports = {
   vincularPendentesDoAtleta, resolverIdentidadeDoAtleta, createImport, preview, linkItem, apply, reject, deleteImport,
-  listImports, analisarLinha, SOURCE, MAXIMO_DE_LINHAS };
+  listImports, analisarLinha, historicoImportadoDoAtleta, adotarIdentidadeExterna, SOURCE, MAXIMO_DE_LINHAS };

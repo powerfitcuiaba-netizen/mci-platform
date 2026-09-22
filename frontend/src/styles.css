@@ -2488,3 +2488,27 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
   /* A busca expandida acompanha o novo respiro, e não sobra para fora. */
   .busca-global.is-expandida { inset: 0 var(--e2); }
 }
+
+/* ==========================================================================
+   COMPARAÇÃO LADO A LADO — o cadastro do MCI contra a identidade importada.
+   Existe para uma pergunta só, e é a mais cara do sistema: "este histórico é
+   desta pessoa?". Confirmar um nome é confirmar um homônimo; por isso as duas
+   colunas mostram entidade e matrícula junto do nome, e nunca só o nome.
+   Abaixo de 720px elas empilham: espremer duas listas de definição numa
+   largura de telefone transforma a conferência em adivinhação.
+   ========================================================================== */
+.comparacao {
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--e4);
+  margin-bottom: var(--e4);
+}
+.comparacao > div {
+  background: var(--superficie-2); border: 1px solid var(--linha);
+  border-radius: 10px; padding: var(--e3);
+}
+.comparacao h4 {
+  margin: 0 0 var(--e2); font-size: 11px; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--cinza-fraco);
+}
+@media (max-width: 720px) {
+  .comparacao { grid-template-columns: 1fr; }
+}

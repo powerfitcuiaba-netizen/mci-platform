@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, Archive, Eye, Pause, Play, PencilLine, ShieldCheck, Trash2 } from 'lucide-react';
+import { AlertTriangle, Archive, Eye, Link2, Pause, Play, PencilLine, ShieldCheck, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import { useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Field, Modal, ModalActions, PageHead } from '../components/ui';
@@ -113,7 +113,7 @@ export function AdminAtleta({ id, navegar, notificar }) {
               </section>
 
               <div className="chips" style={{ margin: '18px 0' }}>
-                {[['resumo', t('atleta.abaResumo')], ['cadastro', t('atleta.abaCadastro')], ['historico', t('atleta.abaHistorico')], ['pontuacao', t('atleta.abaPontuacao')]].map(([chave, rotulo]) => (
+                {[['resumo', t('atleta.abaResumo')], ['cadastro', t('atleta.abaCadastro')], ['historico', t('atleta.abaHistorico')], ['importado', t('atleta.abaImportado')], ['pontuacao', t('atleta.abaPontuacao')]].map(([chave, rotulo]) => (
                   <button key={chave} type="button" className={`chip${aba === chave ? ' is-on' : ''}`} onClick={() => setAba(chave)}>{rotulo}</button>
                 ))}
               </div>
@@ -121,6 +121,7 @@ export function AdminAtleta({ id, navegar, notificar }) {
               {aba === 'resumo' && <Resumo atleta={atleta} dados={dados} />}
               {aba === 'cadastro' && <Cadastro atleta={atleta} />}
               {aba === 'historico' && <HistoricoEsportivo dados={dados} />}
+              {aba === 'importado' && <HistoricoImportado atleta={atleta} notificar={notificar} aoVincular={recarregar} />}
               {aba === 'pontuacao' && <Pontuacao dados={dados} />}
 
               {acao === 'editar' && (
@@ -307,6 +308,231 @@ function HistoricoEsportivo({ dados }) {
         </table>
       </div>
     </section>
+  );
+}
+
+// ==========================================================================
+// O HISTÓRICO IMPORTADO — E POR QUE ELE TEM ABA PRÓPRIA.
+//
+// O MCI carrega resultado oficial ANTES de a pessoa se cadastrar: foi assim
+// com os 191 lançamentos do Ipiranga. Quando o atleta aparece, a plataforma
+// precisa perguntar "este histórico é seu?" a alguém que possa responder.
+//
+// A TELA NÃO RESPONDE SOZINHA. Ela mostra, lado a lado, o cadastro e a
+// carreira candidata — com evento, categoria, classe e colocação de cada
+// resultado. Confirmar um NOME seria confirmar um homônimo; confirmar uma
+// CARREIRA é uma decisão que o operador tem como tomar.
+//
+// A sugestão por nome vem do servidor marcada como `exigeConfirmacaoHumana`,
+// e a tela não a trata diferente por conta própria: ela desenha o que
+// recebeu, inclusive o aviso de homônimos.
+// ==========================================================================
+const FORCA_DA_PISTA = Object.freeze({
+  AFFILIATION_NUMBER: { rotulo: 'atleta.pistaMatricula', tom: 'ok' },
+  NAME: { rotulo: 'atleta.pistaNome', tom: 'alerta' }
+});
+
+function ResultadosImportados({ resultados }) {
+  const { t } = useIdioma();
+  if (!resultados.length) return <p><small>{t('atleta.identidadeSemResultados')}</small></p>;
+
+  return (
+    <div className="table-wrap">
+      <table className="table">
+        <thead>
+          <tr>
+            <th>{t('atleta.campeonato')}</th>
+            <th>{t('atleta.categoria')}</th>
+            <th>{t('atleta.classe')}</th>
+            <th className="num">{t('atleta.colocacao')}</th>
+            <th className="num">{t('atleta.pontos')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {resultados.map(linha => (
+            <tr key={linha.id}>
+              <td data-rotulo={t('atleta.campeonato')}>{linha.eventName || '—'}</td>
+              <td data-rotulo={t('atleta.categoria')}>{linha.categoryCode || '—'}</td>
+              <td data-rotulo={t('atleta.classe')}>{linha.className || '—'}</td>
+              <td className="num" data-rotulo={t('atleta.colocacao')}>{linha.placing != null ? `${linha.placing}º` : '—'}</td>
+              <td className="num" data-rotulo={t('atleta.pontos')}>{linha.points}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function IdentidadeImportada({ identidade, titulo, acao }) {
+  const { t } = useIdioma();
+
+  return (
+    <section className="panel" style={{ marginTop: 18 }}>
+      <div className="panel-head">
+        <div>
+          <h2 style={{ margin: 0 }}>{identidade.displayName}</h2>
+          <small style={{ color: 'var(--cinza-fraco)' }}>
+            {identidade.affiliation?.name || t('atleta.semFiliacao')}
+            {identidade.affiliationNumber ? ` · ${t('atleta.matricula')} ${identidade.affiliationNumber}` : ''}
+            {' · '}{t('atleta.resultadosNoHistorico', { total: identidade.results.length })}
+          </small>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {titulo}
+          {acao}
+        </div>
+      </div>
+      <ResultadosImportados resultados={identidade.results} />
+    </section>
+  );
+}
+
+function HistoricoImportado({ atleta, notificar, aoVincular }) {
+  const { t } = useIdioma();
+  const [recarga, setRecarga] = useState(0);
+  const [confirmando, setConfirmando] = useState(null);
+
+  const estado = useFetch(() => api.athletes.importedHistory(atleta.id), [atleta.id, recarga]);
+
+  return (
+    <AsyncSection state={estado} linhas={4}>
+      {dados => (
+        <>
+          {dados.varreduraTruncada && (
+            <div className="alert alert-info">
+              <AlertTriangle size={16} />
+              <div>
+                <strong>{t('atleta.varreduraTruncada')}</strong>
+                <p>{t('atleta.varreduraTruncadaDescricao', { teto: dados.tetoDaVarredura })}</p>
+              </div>
+            </div>
+          )}
+
+          <h3>{t('atleta.jaVinculado')}</h3>
+          {dados.linked.length === 0
+            ? <EmptyState title={t('atleta.semHistoricoImportado')} description={t('atleta.semHistoricoImportadoDescricao')} />
+            : dados.linked.map(identidade => (
+              <IdentidadeImportada
+                key={identidade.id}
+                identidade={identidade}
+                titulo={<Badge tom="ok">{t('atleta.vinculado')}</Badge>}
+              />
+            ))}
+
+          <h3 style={{ marginTop: 28 }}>{t('atleta.candidatos')}</h3>
+          {dados.suggestions.length === 0
+            ? <EmptyState title={t('atleta.semCandidatos')} description={t('atleta.semCandidatosDescricao')} />
+            : dados.suggestions.map(identidade => {
+              const pista = FORCA_DA_PISTA[identidade.matchedBy] || FORCA_DA_PISTA.NAME;
+              return (
+                <div key={identidade.id}>
+                  <IdentidadeImportada
+                    identidade={identidade}
+                    titulo={
+                      <>
+                        <Badge tom={pista.tom}>{t(pista.rotulo)}</Badge>
+                        {identidade.homonimos && <Badge tom="alerta">{t('atleta.homonimos')}</Badge>}
+                      </>
+                    }
+                    acao={
+                      <button type="button" className="button button-secondary button-sm" onClick={() => setConfirmando(identidade)}>
+                        <Link2 size={14} />{t('atleta.vincular')}
+                      </button>
+                    }
+                  />
+                </div>
+              );
+            })}
+
+          {confirmando && (
+            <DialogoDeVinculo
+              atleta={atleta}
+              identidade={confirmando}
+              notificar={notificar}
+              onClose={() => setConfirmando(null)}
+              onPronto={() => { setConfirmando(null); setRecarga(n => n + 1); aoVincular?.(); }}
+            />
+          )}
+        </>
+      )}
+    </AsyncSection>
+  );
+}
+
+// A CONFIRMAÇÃO É LADO A LADO, e não uma pergunta de sim ou não.
+//
+// "Vincular este histórico?" com um nome só é a pergunta que produz o erro:
+// quem responde vê um nome que confere e clica. O que decide é a carreira —
+// a entidade, a matrícula e os resultados —, e é ela que fica na tela até o
+// operador confirmar.
+function DialogoDeVinculo({ atleta, identidade, notificar, onClose, onPronto }) {
+  const { t } = useIdioma();
+  const [enviando, setEnviando] = useState(false);
+  const [recusa, setRecusa] = useState(null);
+
+  const confirmar = async () => {
+    setEnviando(true);
+    setRecusa(null);
+    try {
+      const resposta = await api.athletes.linkImportedIdentity(atleta.id, identidade.id);
+      notificar?.(resposta.alreadyLinked
+        ? t('atleta.jaEstavaVinculado')
+        : t('atleta.vinculadoAviso', { total: resposta.lancamentos }));
+      onPronto();
+    } catch (erro) {
+      setRecusa(erro.message);
+      setEnviando(false);
+    }
+  };
+
+  return (
+    <Modal title={t('atleta.confirmarVinculo')} description={t('atleta.confirmarVinculoDescricao')} wide onClose={onClose}>
+      {recusa && (
+        <div className="alert alert-erro" role="alert">
+          <ShieldCheck size={16} />
+          <div><p>{recusa}</p></div>
+        </div>
+      )}
+
+      {identidade.homonimos && (
+        <div className="alert alert-alerta">
+          <AlertTriangle size={16} />
+          <div>
+            <strong>{t('atleta.homonimos')}</strong>
+            <p>{t('atleta.homonimosDescricao')}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="comparacao">
+        <div>
+          <h4>{t('atleta.oCadastro')}</h4>
+          <dl className="definicoes">
+            <Linha rotulo={t('atleta.nomeCompleto')} valor={atleta.fullName} />
+            <Linha rotulo={t('atleta.entidade')} valor={atleta.affiliation?.name} />
+            <Linha rotulo={t('atleta.matricula')} valor={atleta.affiliationNumber} />
+          </dl>
+        </div>
+        <div>
+          <h4>{t('atleta.oHistorico')}</h4>
+          <dl className="definicoes">
+            <Linha rotulo={t('atleta.nomeNaFonte')} valor={identidade.displayName} />
+            <Linha rotulo={t('atleta.entidade')} valor={identidade.affiliation?.name} />
+            <Linha rotulo={t('atleta.matricula')} valor={identidade.affiliationNumber} />
+          </dl>
+        </div>
+      </div>
+
+      <ResultadosImportados resultados={identidade.results} />
+
+      <div className="modal-actions">
+        <button type="button" className="button button-secondary" onClick={onClose}>{t('acao.cancelar')}</button>
+        <button type="button" className="button button-primary" onClick={confirmar} disabled={enviando}>
+          {t(enviando ? 'atleta.vinculando' : 'atleta.confirmarVinculo')}
+        </button>
+      </div>
+    </Modal>
   );
 }
 

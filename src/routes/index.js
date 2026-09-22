@@ -133,6 +133,16 @@ router.post('/athletes/:id/reactivate', requireAuth, validate(s.paramsWithId, 'p
 // organização DO ATLETA, e não contra nada que o cliente tenha mandado.
 router.post('/athletes/:id/cpf', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.athletes.revealCpf));
 
+// O HISTÓRICO IMPORTADO, DO LADO DO ATLETA.
+//
+// A leitura mostra o que já é dele e o que PODE ser — com os resultados de
+// cada candidata, para que o operador confirme uma carreira, e não um nome.
+// Nenhuma sugestão vincula nada: o vínculo é o POST abaixo, com permissão
+// própria (`musclewar.review`) e auditoria.
+router.get('/athletes/:id/imported-history', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.muscleWar.historicoDoAtleta));
+router.post('/athletes/:id/imported-history/:externalAthleteId/link', requireAuth,
+  validate(s.paramsComIdentidadeExterna, 'params'), wrap(c.muscleWar.adotarIdentidade));
+
 // A EXCLUSÃO FÍSICA SÓ PASSA SEM HISTÓRICO ESPORTIVO. O serviço confere
 // lançamento, ranking, projeção, resultado, inscrição, resultado importado e
 // título — havendo qualquer um, responde 409 e aponta o arquivamento.

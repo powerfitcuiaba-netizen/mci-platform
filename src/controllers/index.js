@@ -270,7 +270,11 @@ module.exports = {
     link: async (req, res) => res.json(await muscleWar.linkItem(req.params.itemId, req.body, req.user)),
     apply: async (req, res) => res.json(await muscleWar.apply(req.params.id, req.user)),
     reject: async (req, res) => res.json(await muscleWar.reject(req.params.id, req.body, req.user)),
-    remove: async (req, res) => res.json(await muscleWar.deleteImport(req.params.id, req.body || {}, req.user))
+    remove: async (req, res) => res.json(await muscleWar.deleteImport(req.params.id, req.body || {}, req.user)),
+    // O histórico importado visto do lado do atleta, e o vínculo manual feito
+    // dali. Mesmo serviço, outra pergunta.
+    historicoDoAtleta: async (req, res) => res.json(await muscleWar.historicoImportadoDoAtleta(req.params.id, req.user)),
+    adotarIdentidade: async (req, res) => res.json(await muscleWar.adotarIdentidadeExterna(req.params.id, req.params.externalAthleteId, req.user))
   },
 
   partners: {
