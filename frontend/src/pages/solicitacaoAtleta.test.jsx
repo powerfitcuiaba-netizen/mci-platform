@@ -118,7 +118,7 @@ describe('minha solicitação', () => {
 
     await screen.findByLabelText(/^CPF/i);
     await preencherPedido(usuario);
-    await usuario.click(screen.getByRole('button', { name: /enviar para análise/i }));
+    await usuario.click(screen.getByRole('button', { name: /concluir cadastro/i }));
 
     await waitFor(() => expect(espioes.criar).toHaveBeenCalledTimes(1));
     const corpo = espioes.criar.mock.calls[0][0];
@@ -141,7 +141,7 @@ describe('minha solicitação', () => {
     await waitFor(() => expect(screen.getByLabelText(/^Entidade de filiação/i)).toBeEnabled());
     await usuario.selectOptions(screen.getByLabelText(/^Entidade de filiação/i), 'fil-1');
     await usuario.type(screen.getByLabelText(/^Número de registro/i), 'NPC-123');
-    await usuario.click(screen.getByRole('button', { name: /enviar para análise/i }));
+    await usuario.click(screen.getByRole('button', { name: /concluir cadastro/i }));
 
     expect(await screen.findByText('CPF inválido')).toBeInTheDocument();
     expect(espioes.criar).not.toHaveBeenCalled();
@@ -157,9 +157,110 @@ describe('minha solicitação', () => {
     await screen.findByLabelText(/^CPF/i);
     await preencherPedido(usuario);
     const campo = screen.getByLabelText(/^CPF/i);
-    await usuario.click(screen.getByRole('button', { name: /enviar para análise/i }));
+    await usuario.click(screen.getByRole('button', { name: /concluir cadastro/i }));
 
     await waitFor(() => expect(campo).toHaveValue(''));
+  });
+
+  // ====================== O DESFECHO DA CONCILIAÇÃO ======================
+  //
+  // A regra mudou: o autocadastro CONCLUI, e o servidor diz num campo só o
+  // que aconteceu com o histórico. São três situações diferentes para quem
+  // acabou de se cadastrar, e uma frase única serviria mal às três — a pessoa
+  // que teve o histórico vinculado precisa saber que ele está lá; a que caiu
+  // em ambiguidade precisa saber que alguém vai conferir, senão ela abre o
+  // perfil, vê vazio e conclui que o sistema perdeu a carreira dela.
+  //
+  // A TELA NÃO DEDUZ NENHUM DOS TRÊS. Ela lê `conciliacao.estado`, que vem
+  // pronto. Deduzir por contagem aqui faria a tela contradizer o servidor no
+  // dia em que a regra mudasse — e a tela é o lado que não tem a regra.
+
+  it('histórico vinculado: a pessoa é avisada de que ele já está no perfil', async () => {
+    espioes.criar = vi.fn(async () => ({
+      ...PEDIDO, status: 'APPROVED', athleteId: 'atl-1',
+      conciliacao: { estado: 'VINCULADO', matchMethod: 'CPF', vinculados: 3, exigeConfirmacao: 0, rankingPointIds: ['rp-1', 'rp-2', 'rp-3'] }
+    }));
+    const avisos = [];
+    const usuario = userEvent.setup();
+    render(<MinhaSolicitacao notificar={(texto, tom) => avisos.push({ texto, tom })} />);
+
+    await screen.findByLabelText(/^CPF/i);
+    await preencherPedido(usuario);
+    await usuario.click(screen.getByRole('button', { name: /concluir cadastro/i }));
+
+    await waitFor(() => expect(avisos).toHaveLength(1));
+    expect(avisos[0].texto).toMatch(/histórico/i);
+    expect(avisos[0].texto).toMatch(/vinculamos/i);
+    // E NENHUM NÚMERO SAI NA FRASE. `rankingPointIds` existe na resposta para
+    // a auditoria; jogá-lo na tela não ajuda quem lê e cria mais uma
+    // superfície por onde id de resultado circula.
+    expect(avisos[0].texto).not.toMatch(/rp-1|\b3\b/);
+  });
+
+  it('ambiguidade: a pessoa é avisada de que a federação vai confirmar', async () => {
+    espioes.criar = vi.fn(async () => ({
+      ...PEDIDO, status: 'APPROVED', athleteId: 'atl-1',
+      conciliacao: { estado: 'PRECISA_CONFIRMAR', matchMethod: 'PRECISA_CONFIRMAR', vinculados: 0, exigeConfirmacao: 2, rankingPointIds: [] }
+    }));
+    const avisos = [];
+    const usuario = userEvent.setup();
+    render(<MinhaSolicitacao notificar={(texto, tom) => avisos.push({ texto, tom })} />);
+
+    await screen.findByLabelText(/^CPF/i);
+    await preencherPedido(usuario);
+    await usuario.click(screen.getByRole('button', { name: /concluir cadastro/i }));
+
+    await waitFor(() => expect(avisos).toHaveLength(1));
+    // O CADASTRO SAIU — dizer só "precisa confirmar" faria a pessoa achar que
+    // nada aconteceu e tentar de novo, e a segunda tentativa bate em 409.
+    expect(avisos[0].texto).toMatch(/cadastro realizado/i);
+    expect(avisos[0].texto).toMatch(/confirmar/i);
+    expect(avisos[0].texto).toMatch(/federação/i);
+  });
+
+  it('sem histórico: o aviso diz que o perfil está ativo, e não que faltou algo', async () => {
+    espioes.criar = vi.fn(async () => ({
+      ...PEDIDO, status: 'APPROVED', athleteId: 'atl-1',
+      conciliacao: { estado: 'SEM_HISTORICO', matchMethod: 'SEM_HISTORICO', vinculados: 0, exigeConfirmacao: 0, rankingPointIds: [] }
+    }));
+    const avisos = [];
+    const usuario = userEvent.setup();
+    render(<MinhaSolicitacao notificar={(texto, tom) => avisos.push({ texto, tom })} />);
+
+    await screen.findByLabelText(/^CPF/i);
+    await preencherPedido(usuario);
+    await usuario.click(screen.getByRole('button', { name: /concluir cadastro/i }));
+
+    await waitFor(() => expect(avisos).toHaveLength(1));
+    expect(avisos[0].texto).toMatch(/cadastro realizado/i);
+    expect(avisos[0].texto).toMatch(/ativo/i);
+    // Quem nunca competiu não pode ser informado de uma pendência que não
+    // existe: "aguardando análise" mandaria a pessoa esperar por nada.
+    expect(avisos[0].texto).not.toMatch(/aguard|análise|analise/i);
+  });
+
+  it('cadastro que precisa da federação: a tela diz o que fazer, e não some com o formulário', async () => {
+    // 409 `REGISTRATION_NEEDS_REVIEW`. Antes esta resposta chegava no formato
+    // de sucesso e o cliente, que lê `error.message`, não achava frase
+    // nenhuma: a pessoa recebia "não foi possível concluir a operação", que
+    // não diz o que fazer a seguir.
+    const recusa = new Error('Não foi possível concluir a operação.');
+    recusa.code = 'REGISTRATION_NEEDS_REVIEW';
+    recusa.status = 409;
+    espioes.criar = vi.fn(async () => { throw recusa; });
+
+    const usuario = userEvent.setup();
+    render(<MinhaSolicitacao notificar={() => {}} />);
+
+    await screen.findByLabelText(/^CPF/i);
+    await preencherPedido(usuario);
+    await usuario.click(screen.getByRole('button', { name: /concluir cadastro/i }));
+
+    expect(await screen.findByText(/procure a sua federação/i)).toBeInTheDocument();
+    // O QUE ELA DIGITOU FICA. Tentar de novo com os mesmos dados bate no mesmo
+    // lugar; limpar o formulário aqui apagaria o trabalho dela sem lhe dar
+    // nada em troca.
+    expect(screen.getByLabelText(/^Número de registro/i)).toHaveValue('NPC-123');
   });
 
   // A tela do solicitante NÃO pode usar `GET /affiliations`: aquela rota é
@@ -479,7 +580,7 @@ describe('foto da solicitação', () => {
 
     await preencherPedido(usuario);
     await escolherFoto(usuario, imagem());
-    await usuario.click(screen.getByRole('button', { name: /enviar para análise/i }));
+    await usuario.click(screen.getByRole('button', { name: /concluir cadastro/i }));
 
     await waitFor(() => expect(espioes.enviarFoto).toHaveBeenCalled());
     expect(espioes.criar).toHaveBeenCalledTimes(1);
@@ -493,7 +594,7 @@ describe('foto da solicitação', () => {
     await screen.findByLabelText(/^CPF/i);
 
     await preencherPedido(usuario);
-    await usuario.click(screen.getByRole('button', { name: /enviar para análise/i }));
+    await usuario.click(screen.getByRole('button', { name: /concluir cadastro/i }));
 
     await waitFor(() => expect(espioes.criar).toHaveBeenCalled());
     expect(espioes.enviarFoto).not.toHaveBeenCalled();
@@ -511,11 +612,14 @@ describe('foto da solicitação', () => {
 
     await preencherPedido(usuario);
     await escolherFoto(usuario, imagem());
-    await usuario.click(screen.getByRole('button', { name: /enviar para análise/i }));
+    await usuario.click(screen.getByRole('button', { name: /concluir cadastro/i }));
 
     await waitFor(() => expect(avisos.length).toBeGreaterThan(0));
     const aviso = avisos.at(-1);
-    expect(aviso.texto).toMatch(/Solicitação enviada/i);
+    // "Cadastro realizado", e não "solicitação enviada": o cadastro CONCLUI
+    // agora, e dizer "enviada" faria a pessoa ficar esperando uma análise que
+    // não vai acontecer.
+    expect(aviso.texto).toMatch(/Cadastro realizado/i);
     expect(aviso.texto).toMatch(/foto não subiu/i);
     expect(aviso.texto).toMatch(/reenviá-la/i);
     // A solicitação foi criada uma única vez — nada de tentar de novo.

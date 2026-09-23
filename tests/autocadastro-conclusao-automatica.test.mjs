@@ -294,9 +294,21 @@ describe('colisão de identidade é recusada, e a recusa é muda', () => {
     const r = await pedir(pessoa, { ...pedidoValido(filiacaoA, 1), cpf });
 
     expect(r.status, JSON.stringify(r.body)).toBe(409);
-    expect(r.body.conciliacao.estado).toBe('PRECISA_REVISAO');
-    // O pedido FICA pendente: é assim que a federação recebe o caso.
-    expect(r.body.status).toBe('PENDING');
+    // A RECUSA SAI NO ENVELOPE DE ERRO. Antes ela vinha no formato de um
+    // pedido criado, e a tela — que lê `error.message` — ficava sem frase:
+    // a pessoa recebia "não foi possível concluir a operação", que não diz o
+    // que fazer. Agora recebe a frase que a manda procurar a federação.
+    expect(r.body.error.code).toBe('REGISTRATION_NEEDS_REVIEW');
+    expect(r.body.error.message).toMatch(/federação/i);
+    expect(r.body.error.details.conciliacao.estado).toBe('PRECISA_REVISAO');
+
+    // O pedido FICA pendente: é assim que a federação recebe o caso. Medido
+    // onde o dono o veria, e não no corpo da recusa — a recusa deixou de ser
+    // um pedido, mas o pedido não deixou de existir.
+    const meus = await api().get('/api/v1/athlete-requests/me').set(pessoa.auth());
+    expect(meus.body.items).toHaveLength(1);
+    expect(meus.body.items[0].status).toBe('PENDING');
+    expect(meus.body.items[0].athleteId).toBeNull();
 
     // A RECUSA NÃO CONTA NADA. Nem o documento, nem o nome de quem já o tem,
     // nem sequer que o problema foi o CPF — senão bastaria variar o número
@@ -351,13 +363,18 @@ describe('colisão de identidade é recusada, e a recusa é muda', () => {
     const p2 = await pedir(segunda, { ...pedidoValido(filiacaoA, 252525252), affiliationNumber: 'NPC-UNICA' });
 
     expect(p2.status).toBe(409);
-    expect(p2.body.conciliacao.estado).toBe('PRECISA_REVISAO');
-    expect(p2.body.status).toBe('PENDING');
-    // A matrícula volta porque foi ELA quem a digitou — eco do próprio
-    // formulário. O que não pode voltar é de quem ela já é, nem qual das duas
-    // unicidades caiu.
+    expect(p2.body.error.code).toBe('REGISTRATION_NEEDS_REVIEW');
+    expect(p2.body.error.details.conciliacao.estado).toBe('PRECISA_REVISAO');
+
+    const dela = await api().get('/api/v1/athlete-requests/me').set(segunda.auth());
+    expect(dela.body.items[0].status).toBe('PENDING');
+    // A RECUSA NÃO DEVOLVE NADA do que foi digitado, e nada de terceiro.
+    // Antes ela ecoava o pedido inteiro — inofensivo, porque era o eco do
+    // próprio formulário, mas desnecessário. Agora sai só o estado, e a
+    // afirmação fica mais forte: nem a matrícula volta.
     const corpo = JSON.stringify(p2.body);
     expect(corpo, 'a recusa nomeou a dona da matrícula').not.toContain('Dona da Matrícula');
+    expect(corpo, 'a recusa ecoou a matrícula que colidiu').not.toContain('NPC-UNICA');
     expect(corpo, 'a recusa disse qual identificador colidiu').not.toContain('AFFILIATION_NUMBER_IN_USE');
     expect(corpo).not.toMatch(/"motivo"/);
 

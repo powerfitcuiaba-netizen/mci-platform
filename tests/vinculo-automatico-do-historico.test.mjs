@@ -289,15 +289,21 @@ describe('ambiguidade vai para revisão, e não para o atleta errado', () => {
     // quem é, não devolve nome nem documento — porque quem recebe esta
     // resposta é qualquer um que preencheu o formulário, e uma recusa
     // específica transformaria o cadastro num detector de matrículas.
-    expect(pedidoDaSegunda.body.conciliacao.estado).toBe('PRECISA_REVISAO');
-    // O pedido FICA pendente: a federação recebe o caso em vez de o cadastro
-    // sumir sem rastro.
-    expect(pedidoDaSegunda.body.status).toBe('PENDING');
+    expect(pedidoDaSegunda.body.error.code).toBe('REGISTRATION_NEEDS_REVIEW');
+    expect(pedidoDaSegunda.body.error.details.conciliacao.estado).toBe('PRECISA_REVISAO');
 
-    // A recusa não diz QUAL identificador colidiu. A matrícula volta porque
-    // foi ela quem a digitou — eco do próprio formulário, não vazamento.
+    // O pedido FICA pendente: a federação recebe o caso em vez de o cadastro
+    // sumir sem rastro. Conferido onde a dona o veria, porque a recusa deixou
+    // de devolver o pedido — e ele continuar existindo é o ponto.
+    const dela = await api().get('/api/v1/athlete-requests/me').set(segunda.auth());
+    expect(dela.body.items[0].status).toBe('PENDING');
+    expect(dela.body.items[0].athleteId).toBeNull();
+
+    // A recusa não diz QUAL identificador colidiu — e agora não devolve nem
+    // a matrícula que a pessoa digitou.
     const texto = JSON.stringify(pedidoDaSegunda.body);
     expect(texto, 'a recusa disse qual identificador colidiu').not.toContain('AFFILIATION_NUMBER_IN_USE');
+    expect(texto, 'a recusa ecoou a matrícula').not.toContain('NPC-777');
     expect(texto).not.toMatch(/"motivo"/);
 
     // O histórico ficou com a ÚNICA dona possível da matrícula, e o sistema
