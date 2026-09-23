@@ -44,22 +44,27 @@ const importar = (conteudo, extras = {}) => api().post('/api/v1/musclewar/import
 
 const aplicar = importId => api().post(`/api/v1/musclewar/imports/${importId}/apply`).set(gerente.auth()).send({});
 
-// O cadastro pela porta da frente: pedido do próprio interessado, aprovado por
-// um operador. Não é atalho de teste — é o fluxo que o auto-vínculo escuta.
-async function pedirECadastrar({ matricula, nome, affiliationId = null, semente = 700, aprovar = true }) {
+// O cadastro pela porta da frente: o próprio interessado pede, e ACABOU. Não
+// é atalho de teste — é o fluxo que o auto-vínculo escuta, e a ausência de um
+// operador no meio dele é parte do que estes testes provam.
+//
+// O nome `pedirECadastrar` ficou: pedir E cadastrar passaram a ser o mesmo
+// ato, que é justamente a regra nova.
+async function pedirECadastrar({ matricula, nome, affiliationId = null, semente = 700 }) {
   const pessoa = await criarUsuario({ name: nome });
   const pedido = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
     fullName: nome, cpf: gerarCpf(semente), sex: 'MALE', birthDate: '1995-03-10',
     affiliationId: affiliationId ?? npc.id, affiliationNumber: matricula
   });
-  if (pedido.status !== 201) throw new Error(`pedido falhou: ${pedido.status} ${JSON.stringify(pedido.body)}`);
-  if (!aprovar) return { pessoa, pedido: pedido.body, athlete: null };
+  if (pedido.status !== 201) throw new Error(`cadastro falhou: ${pedido.status} ${JSON.stringify(pedido.body)}`);
 
-  const aprovado = await api().post(`/api/v1/athlete-requests/${pedido.body.id}/approve`).set(admin.auth()).send({});
-  if (aprovado.status !== 200) throw new Error(`aprovação falhou: ${aprovado.status} ${JSON.stringify(aprovado.body)}`);
+  // NINGUÉM APROVOU, e o cadastro está concluído. Se um dia voltar a nascer
+  // PENDENTE, ou alguém constar como revisor, é aqui que a suíte inteira cai.
+  if (pedido.body.status !== 'APPROVED') throw new Error(`o autocadastro voltou a enfileirar: ${pedido.body.status}`);
+  if (pedido.body.reviewedById !== null) throw new Error('alguém consta como revisor de um cadastro automático');
 
   const athlete = await comoAtor(gerente, tx => tx.athlete.findFirst({ where: { affiliationNumber: matricula } }));
-  return { pessoa, pedido: pedido.body, athlete };
+  return { pessoa, pedido: pedido.body, athlete, conciliacao: pedido.body.conciliacao };
 }
 
 const itensDoLote = importId => comoAtor(gerente, tx => tx.muscleWarImportItem.findMany({
@@ -90,6 +95,9 @@ beforeEach(async () => {
   gerente = await criarUsuario({ name: 'Gerente de Ranking' });
   await vincular(organizationId, gerente, 'RANKING_MANAGER');
   await vincular(organizationId, gerente, 'REGISTRATION_OPERATOR');
+
+  await api().post(`/api/v1/organizations/${organizationId}/self-registration`)
+    .set(admin.auth()).send({ open: true });
 
   npc = (await api().post('/api/v1/affiliations').set(admin.auth())
     .send({ organizationId, name: 'National Physique Committee', code: 'NPC' })).body;
@@ -336,17 +344,16 @@ describe('idempotência e ausência de pontuação nova', () => {
 
   it('duas aprovações simultâneas para a mesma identidade produzem um vínculo só', async () => {
     const { body } = await importar(csv([linha('88281', 'Yuri', 'Santinelli')]));
-    const { athlete } = await pedirECadastrar({ matricula: '88281', nome: 'Yuri Santinelli', semente: 717, aprovar: false })
-      .then(async () => {
-        // Cria o atleta direto: o que está sob teste é a corrida DO VÍNCULO.
-        const a = await comoAtor(gerente, tx => tx.athlete.create({
-          data: {
-            organizationId, fullName: 'Yuri Santinelli', sex: 'MALE', affiliationId: npc.id,
-            affiliationNumber: '88281', identity: { create: { organizationId, cpf: gerarCpf(718) } }
-          }
-        }));
-        return { athlete: a };
-      });
+    // O atleta nasce DIRETO, sem passar pelo autocadastro: o que está sob
+    // teste aqui é a corrida DO VÍNCULO, e fazê-lo pela porta da frente
+    // acionaria a conciliação automática uma vez antes da disputa — medindo
+    // outra coisa.
+    const athlete = await comoAtor(gerente, tx => tx.athlete.create({
+      data: {
+        organizationId, fullName: 'Yuri Santinelli', sex: 'MALE', affiliationId: npc.id,
+        affiliationNumber: '88281', identity: { create: { organizationId, cpf: gerarCpf(718) } }
+      }
+    }));
 
     // Duas transações de verdade, disputando a mesma linha.
     const [a, b] = await Promise.all([

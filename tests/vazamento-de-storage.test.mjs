@@ -163,14 +163,22 @@ describe('rotas autenticadas', () => {
     }
   });
 
-  it('a análise do operador mostra CPF e "tem foto", mas nunca a chave', async () => {
+  // CONVERTIDO. O CPF não fica mais no pedido: a conclusão é imediata e o
+  // documento migra na hora para `AthleteIdentity`, sob a RLS que o protege.
+  // O que este teste guarda — a CHAVE do armazenamento nunca sai — não mudou
+  // uma vírgula, e continua sendo o motivo de ele existir.
+  //
+  // A leitura do CPF por quem tem permissão segue coberta, e de forma mais
+  // completa, em `revelar-cpf.test.mjs`: lá ela passa pela rota própria, com
+  // as duas permissões e a auditoria.
+  it('a análise do operador mostra "tem foto", e nunca a chave', async () => {
     const criado = await api().post('/api/v1/athlete-requests').set(pessoa.auth())
       .send({ fullName: 'Solicitante', cpf: gerarCpf(88), sex: 'MALE', affiliationId: filiacao.id, affiliationNumber: 'NPC-2' });
     await api().post(`/api/v1/athlete-requests/${criado.body.id}/photo`).set(pessoa.auth())
       .attach('file', png(), { filename: 'f.png', contentType: 'image/png' });
 
     const analise = await api().get(`/api/v1/athlete-requests/${criado.body.id}`).set(operador.auth());
-    expect(analise.body.cpf, 'o operador precisa do CPF para conferir').toBeTruthy();
+    expect(analise.body.cpf, 'o CPF continuou no pedido depois da conclusão').toBeUndefined();
     expect(analise.body.hasPhoto).toBe(true);
     expect(analise.body).not.toHaveProperty('photoKey');
     semVazamento(analise, 'GET /athlete-requests/:id');

@@ -952,12 +952,15 @@ describe('por onde o vínculo automático é disparado', () => {
     });
     expect(pedido.status, JSON.stringify(pedido.body).slice(0, 300)).toBe(201);
 
-    const aprovado = await api().post(`/api/v1/athlete-requests/${pedido.body.id}/approve`)
-      .set(admin.auth()).send({});
-    expect(aprovado.status, JSON.stringify(aprovado.body).slice(0, 300)).toBe(200);
-
-    // NINGUÉM CHAMOU O VÍNCULO NA MÃO. A aprovação o disparou, e a chave que
-    // respondeu foi o CPF.
+    // NINGUÉM CHAMOU O VÍNCULO NA MÃO, E NINGUÉM APROVOU NADA. O gatilho
+    // mudou de lugar — era a aprovação, agora é o próprio cadastro —, e a
+    // chave que responde continua sendo o CPF.
+    expect(pedido.body.status).toBe('APPROVED');
+    expect(pedido.body.reviewedById, 'alguém aprovou um cadastro automático').toBeNull();
+    // CPF_AFFILIATION, e não CPF: neste cenário o documento E a filiação
+    // batem, e a auditoria distingue os dois casos de propósito — evidência
+    // mais forte merece registro diferente.
+    expect(pedido.body.conciliacao.matchMethod).toBe('CPF_AFFILIATION');
     const [item] = await itens(importId);
     expect(item.athleteId).not.toBeNull();
     expect(item.matchedBy).toBe('CPF');
