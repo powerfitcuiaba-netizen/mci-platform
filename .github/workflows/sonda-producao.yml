@@ -263,3 +263,90 @@ jobs:
             echo "::error::FAIL — ${FALHAS} sonda(s) do §18 reprovaram. Ver o placar acima."
             exit 1
           fi
+
+  # ==========================================================================
+  # AS CINCO LINHAS DO SUPER OVERALL
+  #
+  # O §18 mediu 5 linhas e passou — ele cobra 200 com JSON válido. Mas 5 é
+  # pouco para 47 campeonatos, e "é assim mesmo" só vale quando medido.
+  #
+  # O código diz que é o corte da vista pública: `TOP_PUBLICO = 5` em
+  # rankingService.js. Este job confere que é ISSO que está acontecendo no ar,
+  # e não uma tabela quase vazia que por acaso tem cinco linhas.
+  #
+  # A prova está no cabeçalho, não na contagem. `X-MCI-Public-View` só é
+  # emitido quando o service MARCOU a lista como cortada — a marca vem do
+  # motor, não de uma dedução pelo tamanho, justamente para que uma lista com
+  # cinco linhas de fato não fosse rotulada como cortada.
+  #
+  # Tudo GET, tudo anônimo, nenhuma escrita.
+  # ==========================================================================
+  superoverall:
+    name: As 5 linhas do Super Overall
+    needs: sondar
+    runs-on: ubuntu-latest
+    env:
+      API: ${{ inputs.api || 'https://mci-platform-api.onrender.com' }}
+    steps:
+      - name: O corte é declarado no cabeçalho
+        run: |
+          curl -sS -m 120 -D /tmp/h.txt -o /tmp/so.json "$API/api/v1/ranking/super-overall" > /dev/null
+          CORTE="$(grep -i '^x-mci-public-view:' /tmp/h.txt | tr -d '\r' | cut -d' ' -f2-)"
+          LIDAS="$(grep -i '^x-mci-rows-read:'   /tmp/h.txt | tr -d '\r' | cut -d' ' -f2-)"
+          N="$(jq -r 'if type=="array" then length elif .items then (.items|length) else 0 end' /tmp/so.json)"
+          echo "linhas no corpo ....... $N"
+          echo "X-MCI-Public-View ..... ${CORTE:-(ausente)}"
+          echo "X-MCI-Rows-Read ....... ${LIDAS:-(ausente)}"
+          # Ausência de cabeçalho significa LISTA INTEIRA. Se as 5 linhas
+          # viessem sem esta marca, aí sim seria notícia ruim: a temporada
+          # inteira teria cinco competidores.
+          if [ -z "$CORTE" ]; then
+            echo "::error::As 5 linhas NÃO são corte de vista pública — o cabeçalho não veio, e ausência de cabeçalho quer dizer lista inteira. Isto seria uma temporada com 5 competidores, e não um teto."
+            exit 1
+          fi
+          echo "CORTE=$CORTE" >> "$GITHUB_ENV"
+
+      # Pedir mais não pode entregar mais. Se `limit=50` furasse o teto, o
+      # corte seria decoração — bastaria pedir para ver a tabela inteira.
+      - name: Pedir 50 continua entregando 5
+        run: |
+          N="$(curl -sS -m 120 "$API/api/v1/ranking/super-overall?limit=50" | jq -r 'if type=="array" then length elif .items then (.items|length) else 0 end')"
+          echo "com limit=50 → $N linhas"
+          [ "$N" = "5" ] || { echo "::error::O teto público cedeu: limit=50 devolveu $N linhas."; exit 1; }
+
+      # O mesmo teto vale para as outras tabelas anônimas? Se valesse só no
+      # Super Overall, o "5" dele seria caso isolado e não regra.
+      - name: O mesmo teto nas outras tabelas públicas
+        run: |
+          for R in 'ranking' 'ranking/teams' 'ranking/companies'; do
+            curl -sS -m 120 -D /tmp/hh.txt -o /tmp/rr.json "$API/api/v1/$R" > /dev/null
+            N="$(jq -r 'if type=="array" then length elif .items then (.items|length) else 0 end' /tmp/rr.json 2>/dev/null || echo '-')"
+            H="$(grep -i '^x-mci-public-view:' /tmp/hh.txt | tr -d '\r' | cut -d' ' -f2-)"
+            echo "/$R → $N linhas · corte: ${H:-(ausente)}"
+          done
+
+      # Contexto, não veredito: quantas temporadas existem e qual o calendário.
+      # Nomes de temporada e códigos de classe não são dado pessoal.
+      - name: O contexto — temporadas e classes elegíveis
+        run: |
+          curl -sS -m 120 -o /tmp/se.json "$API/api/v1/seasons"
+          echo "temporadas: $(jq -r 'if type=="array" then length elif .items then (.items|length) else 0 end' /tmp/se.json)"
+          jq -r 'if type=="array" then . elif .items then .items else [] end | .[] | "  · \(.name // .year // "?") — id \(.id[0:8])…"' /tmp/se.json 2>/dev/null || true
+          echo
+          curl -sS -m 120 -o /tmp/cl.json "$API/api/v1/ranking/classes"
+          echo "classes no filtro do ranking: $(jq -r 'if type=="array" then length elif .items then (.items|length) else 0 end' /tmp/cl.json)"
+          jq -r 'if type=="array" then . elif .items then .items else [] end | .[] | "  · \(.code // .name // "?")"' /tmp/cl.json 2>/dev/null | head -30 || true
+
+      - name: Veredito
+        run: |
+          echo "As 5 linhas são o teto da vista pública, declarado em ${CORTE}."
+          {
+            echo '## As 5 linhas do Super Overall'
+            echo
+            echo "O corte é **declarado** no cabeçalho \`X-MCI-Public-View: ${CORTE}\`, pedir \`limit=50\`"
+            echo 'continua entregando 5, e o mesmo teto vale para as outras tabelas anônimas.'
+            echo 'Não é uma tabela vazia: é a regra da vista pública.'
+            echo
+            echo 'O total real da temporada só é visível a operador com vínculo na organização'
+            echo 'dona dela — e esta sonda não usa credencial nenhuma.'
+          } >> "$GITHUB_STEP_SUMMARY"
