@@ -49,6 +49,11 @@
  * Uso:
  *   PROVISIONAR_ADMIN_EMAIL='admin@dominio' node scripts/provisionar-contas-de-servico.js
  *   PROVISIONAR_ADMIN_EMAIL='admin@dominio' node scripts/provisionar-contas-de-servico.js --conferir
+ *
+ * Códigos de saída:
+ *   0  nada a fazer (ou provisionamento concluído)
+ *   1  erro: variável ausente, usuário inexistente, sem permissão, falha
+ *   2  --conferir encontrou federações pendentes
  */
 const prisma = require('../src/config/prisma');
 const contasDeServico = require('../src/services/serviceAccountService');
@@ -98,7 +103,17 @@ async function principal() {
 
   if (SO_CONFERIR) {
     console.log('\n--conferir: NADA foi escrito.');
-    return semConta.length;
+    // CÓDIGO FIXO, E NÃO A CONTAGEM.
+    //
+    // A primeira versão devolvia `semConta.length` como código de saída, e o
+    // teste real mostrou o problema: três pendências viraram `exit=3`. Código
+    // de saída é byte — com 256 federações pendentes ele daria 0, e o deploy
+    // leria "nada a fazer" justamente no pior caso. Além disso, um número
+    // qualquer não diz a um pipeline o que houve.
+    //
+    // 2 significa "há pendências"; 0, "nada a fazer". A contagem sai no texto,
+    // que é onde contagem deve estar.
+    return 2;
   }
 
   let criadas = 0;

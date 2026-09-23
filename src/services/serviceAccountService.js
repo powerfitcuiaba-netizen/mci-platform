@@ -43,7 +43,25 @@ const audit = require('./auditService');
 
 const PAPEL = 'FEDERATION_SERVICE';
 
-const emailDaConta = slug => `servico.${slug}@federacao.mci.local`;
+// O DOMÍNIO É RESERVADO, e a recusa mora em `authService.register`: nenhuma
+// pessoa cadastra endereço aqui. É a barreira que fecha a classe inteira do
+// problema — não só este endereço, todos.
+const DOMINIO_RESERVADO = 'federacao.mci.local';
+
+// O ENDEREÇO VEM DO ID, E NÃO DO SLUG.
+//
+// Com o slug, o endereço era ADIVINHÁVEL antes de a federação existir: quem
+// soubesse o slug planejado registrava `servico.<slug>@…` primeiro, e a
+// criação da organização falhava por unicidade de e-mail. Não dava para
+// assumir a identidade — `contaDaOrganizacao` busca por `serviceOrganizationId`
+// e `isServiceAccount`, que só `provisionar` escreve —, mas dava para IMPEDIR
+// que ela nascesse.
+//
+// O id é um cuid gerado pelo servidor no instante da criação. Ninguém o
+// conhece antes, então não há o que registrar antes. Junto com o domínio
+// reservado, são duas barreiras independentes: uma torna o alvo desconhecido,
+// a outra fecha a porta mesmo para quem o conhecesse.
+const emailDaConta = organizationId => `servico.${organizationId}@${DOMINIO_RESERVADO}`;
 
 /**
  * Garante que a federação tenha a sua conta de serviço. Idempotente: rodar de
@@ -71,7 +89,7 @@ async function provisionar(organizationId, actor = null, tx = prisma) {
   const conta = await tx.user.create({
     data: {
       name: `Sistema · ${organizacao.name}`,
-      email: emailDaConta(organizacao.slug),
+      email: emailDaConta(organizacao.id),
       passwordHash,
       // O papel GLOBAL não concede nada: a matriz de permissões dá a
       // `FEDERATION_SERVICE` apenas a base autenticada.
@@ -115,4 +133,4 @@ async function contaDaOrganizacao(organizationId) {
   return conta;
 }
 
-module.exports = { provisionar, contaDaOrganizacao, PAPEL, emailDaConta };
+module.exports = { provisionar, contaDaOrganizacao, PAPEL, emailDaConta, DOMINIO_RESERVADO };

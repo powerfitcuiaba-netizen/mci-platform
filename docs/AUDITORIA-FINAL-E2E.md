@@ -658,6 +658,22 @@ O motivo está escrito no próprio código, ao lado da condição, para que o
 sobrevivente não seja lido depois como cobertura faltando e não gere um teste
 inventado para um estado inalcançável.
 
+**ATUALIZAÇÃO (hardening pré-main).** A equivalência deixou de ser afirmada e
+passou a ser DEMONSTRADA, das duas pontas, em
+`conciliacao-a-h-e-conta-de-servico`:
+
+1. o índice único parcial existe e cobre **exatamente** as três colunas da
+   contagem, com a mesma condição `IS NOT NULL` — lido de `pg_indexes`;
+2. o banco **recusa** dois atletas com a mesma matrícula na mesma filiação,
+   mesmo escrevendo direto, sem passar por regra de aplicação nenhuma.
+
+Com isso M3 passou a MORRER no teste de mutação — mas é preciso ser exato
+sobre COMO: ele morre por uma asserção que lê o CÓDIGO-FONTE e cobra que a
+guarda continue lá. **Em comportamento ele continua equivalente**, porque o
+estado que a guarda protege é inalcançável. A asserção de fonte é uma guarda
+contra REMOÇÃO, não uma prova comportamental, e chamá-la de outra coisa seria
+inflar o placar.
+
 ---
 
 ## §14 E2E em navegador e responsividade da tela do autocadastro
@@ -867,3 +883,98 @@ o 503 acontece e não deixa resto; o provisionamento cria conta **e membresia**
 (sem a membresia `mci_operator_of` não a reconhece, e a conta existiria sem
 poder fazer nada — falha pior, porque parece certa); repetir não duplica; cada
 federação recebe a sua.
+
+
+---
+
+## §17 HARDENING PRÉ-MAIN
+
+### 17.1 `audit.record` — a correção central com SAVEPOINT
+
+**O defeito, reproduzido:** a política `auditoria_escrita` recusa o INSERT
+(42501) quando o ator não é membro da organização. No PostgreSQL, statement
+recusado **aborta a transação inteira**. O `try/catch` capturava o erro em
+JavaScript e devolvia `null`, como se a falha fosse contida — mas a transação
+seguia envenenada, todo comando posterior falhava com 25P02, e o commit
+desfazia tudo.
+
+**Quando falha:** sempre que a política recusa — ator sem vínculo, sem ator, ou
+organização de que ele não participa.
+**Qual transação aborta:** a da requisição inteira, aberta por `asyncHandler`.
+**O erro original é preservado?** Não era: no caminho de script, o chamador
+recebia sucesso; no caminho HTTP, o 25P02 seguinte mascarava a causa.
+**Muda conforme a operação?** Sim, e é isso que tornava o defeito traiçoeiro:
+em HTTP o cliente recebia 500 (ruim, mas visível); fora de HTTP, sucesso
+mentiroso.
+
+**A correção**, centralizada num lugar só porque são 44 chamadas: SAVEPOINT
+antes do INSERT, RELEASE no sucesso, ROLLBACK TO + RELEASE na recusa. A
+operação principal segue consistente, a transação continua utilizável, e a
+falha é registrada em nível `error` com código, ação, entidade e organização.
+
+Fora de transação o caminho antigo permanece: um INSERT avulso que falha não
+envenena nada.
+
+**Teste:** `auditoria-nao-envenena-transacao` — 4 testes. Prova que a operação
+principal COMMITA, que a transação continua utilizável depois da recusa, que
+auditorias recusadas seguidas não atrapalham uma à outra (pontos de retorno
+com nomes distintos), e — a guarda contra a correção fácil demais — que a
+auditoria ACEITA continua sendo gravada.
+
+### 17.2 Squatting do endereço da conta técnica
+
+Duas barreiras independentes:
+
+1. **O endereço vem do ID**, não do slug. O id é um cuid gerado pelo servidor
+   no instante da criação: ninguém o conhece antes, então não há o que
+   registrar antes.
+2. **O domínio é reservado.** `authService.register` recusa qualquer endereço
+   em `federacao.mci.local` com `EMAIL_DOMAIN_RESERVED`, **antes** da
+   conferência de duplicidade — responder "e-mail já cadastrado" ali contaria
+   quais endereços técnicos existem.
+
+### 17.3 O script de provisionamento, executado de verdade
+
+Até este ponto eu só havia chamado `provisionar()` direto; **o script nunca
+tinha rodado**. Rodou agora, contra banco real com três federações legadas:
+
+| Execução | Resultado |
+|---|---|
+| sem `PROVISIONAR_ADMIN_EMAIL` | falha explícita, exit 1 |
+| `--conferir` | lista 3 pendentes, **escreve 0 linhas**, exit 2 |
+| aplicar | 3 provisionadas, exit 0 |
+| repetir | "nada a fazer", exit 0 |
+
+Verificação final: **3 federações, 1 conta e 1 membresia cada.**
+
+**Dois defeitos encontrados só por executá-lo:**
+
+- **O cliente Prisma estava desatualizado** e o filtro `contaDeServico` não
+  existia nele. `prisma generate` faz parte do deploy, então produção estaria
+  coberta — mas eu não podia saber disso sem rodar.
+- **O código de saída do `--conferir` era a contagem crua** (`exit=3` para três
+  pendências). Código de saída é byte: com 256 federações pendentes daria 0, e
+  o deploy leria "nada a fazer" justamente no pior caso. Agora é fixo: 0 nada a
+  fazer, 1 erro, 2 há pendências.
+
+### 17.4 A auditoria do provisionamento — e um erro meu de medição
+
+Consultei `AuditLog` via `psql` e vi zero linhas. **Estava errado:** `psql`
+conecta sem `mci.user_id`, e a política `auditoria_leitura` escondia tudo.
+Lendo sob contexto de administrador aparecem as 3 linhas
+`SERVICE_ACCOUNT_PROVISIONED`, uma por federação, atribuídas ao admin que
+autorizou. Conferi antes de concluir, e registro o tropeço porque a conclusão
+apressada teria sido "o provisionamento não audita".
+
+### 17.5 O gate de navegador não dá falso PASS
+
+Medido de propósito, com o módulo do Playwright apontando para um caminho
+inexistente: **exit 1, zero PASS, "GATE REPROVADO"**. Um gate que não sobe
+reprova — não aprova vazio.
+
+### 17.6 Mutação da rodada de hardening
+
+7 mutantes, **7 mortos**: M3 (guarda de fonte), M12 (login), M14 (SAVEPOINT
+ausente), M15 (rollback até da auditoria aceita — a correção fácil demais),
+M16 (domínio não reservado), M17 (endereço volta a ser adivinhável), M18
+(conta sem membresia).

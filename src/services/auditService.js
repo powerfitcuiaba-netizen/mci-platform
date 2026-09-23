@@ -1,4 +1,5 @@
 const prisma = require('../config/prisma');
+const { contextoAtual } = require('../config/rlsContext');
 const logger = require('../utils/logger');
 const { AppError } = require('../utils/errors');
 const { can } = require('../utils/permissions');
@@ -96,30 +97,95 @@ function sanitize(valor, profundidade = 0) {
   return valor;
 }
 
-// Auditar é efeito colateral: uma falha aqui não derruba a operação auditada,
-// mas também não passa despercebida.
+// ============================================================================
+// O `try/catch` SOZINHO ERA UMA MENTIRA, e custou caro descobrir.
+//
+// "Uma falha aqui não derruba a operação auditada" é o que este código dizia,
+// e era falso no PostgreSQL: QUALQUER statement recusado aborta a transação
+// INTEIRA. Capturar o erro em JavaScript não desfaz isso — a transação fica
+// envenenada, todo comando seguinte falha com 25P02, e no commit tudo volta
+// atrás.
+//
+// MEDIDO, e não deduzido: o provisionamento da conta de serviço rodava sem
+// ator, a política `auditoria_escrita` recusava o INSERT com 42501, este
+// `catch` engolia o erro, `provisionar` devolvia a conta criada COM ID — e o
+// banco ficava vazio. Sucesso mentiroso, que é o pior modo de falhar.
+//
+// A CORREÇÃO É UM SAVEPOINT, e ele precisa ser aqui, num lugar só: são 44
+// chamadas espalhadas, e cada uma que confiasse na promessa antiga estaria
+// desfazendo o trabalho inteiro sem saber.
+//
+// Com SAVEPOINT, a recusa da auditoria volta atrás SÓ A SI MESMA. A operação
+// principal segue consistente, a transação continua utilizável, e a falha
+// continua observável no log — que é exatamente o que a frase original
+// prometia e agora, enfim, cumpre.
+//
+// FORA DE TRANSAÇÃO não há o que proteger: um INSERT avulso que falha não
+// envenena nada, e o `try/catch` basta.
+//
 // `createMany` e não `create`: o `create` do Prisma emite INSERT ... RETURNING,
 // e o RETURNING é submetido à política de SELECT da tabela. Como a auditoria só
 // é legível por administrador e operador da organização, gravar um registro em
 // nome de um ator comum falharia ao tentar lê-lo de volta — e o retorno é
 // descartado por todas as 44 chamadas. Sem RETURNING, a escrita passa pela
 // política de INSERT, que é a que de fato governa quem pode auditar.
+// ============================================================================
+
+// Nome único por chamada: auditorias aninhadas na mesma transação não podem
+// disputar o mesmo ponto de retorno.
+let sequencia = 0;
+
+async function inserir(dados) {
+  return prisma.auditLog.createMany({ data: dados });
+}
+
 async function record({ actor, action, entity, entityId = null, organizationId = null, metadata = null, ip = null }) {
+  const dados = {
+    organizationId,
+    userId: actor?.id || null,
+    userEmail: actor?.email || null,
+    action: String(action),
+    entity: String(entity),
+    entityId: entityId ? String(entityId) : null,
+    metadata: metadata ? sanitize(metadata) : undefined,
+    ip: ip ? String(ip).slice(0, 60) : null
+  };
+
+  const tx = contextoAtual()?.tx;
+
+  if (!tx) {
+    try {
+      return await inserir(dados);
+    } catch (error) {
+      logger.error('falha ao registrar auditoria', {
+        action: dados.action, entity: dados.entity, erro: error.message
+      });
+      return null;
+    }
+  }
+
+  sequencia += 1;
+  const ponto = `mci_audit_${sequencia}`;
+
+  await tx.$executeRawUnsafe(`SAVEPOINT ${ponto}`);
   try {
-    return await prisma.auditLog.createMany({
-      data: {
-        organizationId,
-        userId: actor?.id || null,
-        userEmail: actor?.email || null,
-        action: String(action),
-        entity: String(entity),
-        entityId: entityId ? String(entityId) : null,
-        metadata: metadata ? sanitize(metadata) : undefined,
-        ip: ip ? String(ip).slice(0, 60) : null
-      }
-    });
+    const resultado = await inserir(dados);
+    await tx.$executeRawUnsafe(`RELEASE SAVEPOINT ${ponto}`);
+    return resultado;
   } catch (error) {
-    logger.error('falha ao registrar auditoria', { action: String(action), entity: String(entity), erro: error.message });
+    // Volta ao ponto: desfaz SÓ o INSERT recusado. A transação principal
+    // continua viva e utilizável — é isto que o `catch` sozinho não fazia.
+    await tx.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT ${ponto}`);
+    await tx.$executeRawUnsafe(`RELEASE SAVEPOINT ${ponto}`);
+
+    // `error` E NÃO `warn`: auditoria que não grava é perda de trilha, e
+    // trilha perdida só se descobre quando alguém precisa dela. O motivo real
+    // vai junto, porque "falhou" sem o porquê não deixa ninguém consertar.
+    logger.error('falha ao registrar auditoria (a operação seguiu; a transação foi preservada)', {
+      action: dados.action, entity: dados.entity, entityId: dados.entityId,
+      organizationId: dados.organizationId, temAtor: Boolean(dados.userId),
+      codigo: error.code, erro: error.message
+    });
     return null;
   }
 }

@@ -297,6 +297,68 @@ describe('F — ninguém importou nada ainda', () => {
   });
 });
 
+describe('M3 — a demonstração de que o mutante é equivalente', () => {
+  // O teste de mutação apagou `homonimosDeMatricula === 0` da adoção do ledger
+  // e NENHUM teste falhou. Chamar isso de "mutante equivalente" sem demonstrar
+  // seria exatamente o tipo de afirmação que este projeto não aceita.
+  //
+  // A demonstração é esta: a condição não pode ser falsa porque o BANCO
+  // impede o estado que a tornaria falsa. `homonimosDeMatricula` conta
+  // atletas com a MESMA (organização, filiação, matrícula), e existe índice
+  // único parcial exatamente sobre essas três colunas, com
+  // `WHERE affiliationId IS NOT NULL AND affiliationNumber IS NOT NULL` — que
+  // é a mesma condição sob a qual a contagem é feita.
+  //
+  // Não é argumento: é medido, aqui embaixo, das duas pontas.
+
+  it('o índice único existe, e cobre exatamente as colunas da contagem', async () => {
+    const [indice] = await comoAtor(admin, tx => tx.$queryRawUnsafe(`
+      SELECT indexdef FROM pg_indexes
+      WHERE tablename = 'Athlete'
+        AND indexdef ILIKE '%UNIQUE%'
+        AND indexdef ILIKE '%affiliationNumber%'
+    `));
+    expect(indice, 'o índice único sumiu: a guarda deixou de ser inalcançável').toBeTruthy();
+    for (const coluna of ['organizationId', 'affiliationId', 'affiliationNumber']) {
+      expect(indice.indexdef).toContain(coluna);
+    }
+    // A condição parcial é o que faz o índice valer SEMPRE que a contagem é
+    // feita — a contagem só ocorre com os dois campos preenchidos.
+    expect(indice.indexdef).toMatch(/affiliationId.*IS NOT NULL/i);
+    expect(indice.indexdef).toMatch(/affiliationNumber.*IS NOT NULL/i);
+  });
+
+  it('o banco RECUSA dois atletas com a mesma matrícula na mesma filiação', async () => {
+    // A outra ponta: mesmo escrevendo direto, sem passar por regra de
+    // aplicação nenhuma, o estado não nasce. É isso que torna
+    // `homonimosDeMatricula > 0` inalcançável — e o mutante, equivalente.
+    const base = {
+      organizationId, affiliationId: npc.id, affiliationNumber: 'DUPLA-1',
+      sex: 'FEMALE', birthDate: new Date('1990-01-01T12:00:00.000Z')
+    };
+    await comoAtor(gerente, tx => tx.athlete.create({ data: { ...base, fullName: 'PRIMEIRA' } }));
+
+    await expect(
+      comoAtor(gerente, tx => tx.athlete.create({ data: { ...base, fullName: 'SEGUNDA' } }))
+    ).rejects.toThrow();
+
+    const quantos = await comoAtor(gerente, tx => tx.athlete.count({
+      where: { organizationId, affiliationId: npc.id, affiliationNumber: 'DUPLA-1' }
+    }));
+    expect(quantos, 'o banco aceitou duas: a guarda VOLTOU a ser alcançável').toBe(1);
+  });
+
+  it('e a guarda continua no código, para o dia em que o índice mudar', async () => {
+    // Mutante equivalente não é código morto a remover: é código que protege
+    // contra uma mudança futura. Se alguém afrouxar o índice, a guarda passa a
+    // valer — e o teste acima falha primeiro, avisando.
+    const { readFileSync } = await import('node:fs');
+    const fonte = readFileSync(new URL('../src/services/muscleWarService.js', import.meta.url), 'utf8');
+    expect(fonte, 'a guarda de homônimos foi removida da adoção do ledger')
+      .toContain('homonimosDeMatricula === 0 && !matriculaImpedida');
+  });
+});
+
 describe('G — repetir não soma', () => {
   // Idempotência aqui não é elegância: a conciliação roda em caminho de
   // reentrada (foto que chega depois, lote reaplicado, retentativa de rede).

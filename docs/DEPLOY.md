@@ -226,6 +226,22 @@ o provisionamento volta atrás **em silêncio**. Medido; ver §16.2 da auditoria
 É **idempotente**: rode a cada deploy, sem precisar lembrar quais federações já
 foram atendidas. Só faz INSERT.
 
+Códigos de saída — **nunca a contagem**, que como byte daria 0 em 256
+pendências e o deploy leria "nada a fazer" justamente no pior caso:
+
+| Código | Significado |
+|---|---|
+| 0 | nada a fazer, ou provisionamento concluído |
+| 1 | erro: variável ausente, usuário inexistente, sem permissão, falha |
+| 2 | `--conferir` encontrou federações pendentes |
+
+Exige `prisma generate` antes (já é o passo 3.1): o script filtra organizações
+pela relação `contaDeServico`, que não existe num cliente Prisma desatualizado.
+
+Medido contra banco real com três federações legadas: `--conferir` escreve 0
+linhas; aplicar provisiona 3; repetir não cria nenhuma; resultado final 1 conta
+e 1 membresia por federação. Ver §17.3 da auditoria.
+
 #### Preflight obrigatório em base que já tem dado
 
 A migration `20260921120000_matricula_identifica_um_atleta` cria um índice
