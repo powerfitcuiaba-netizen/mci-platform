@@ -725,3 +725,21 @@ O gate visual da FASE 9 também não está: ambos exigem Playwright e Chromium, 
 a CI não os instala. Mantive o mesmo padrão em vez de mudar a infraestrutura da
 CI por conta própria — a instrução de execução está em `docs/COMO-TESTAR.md`.
 Colocar os dois na CI é decisão de produto, e vale a pena; fica registrado.
+
+### 14.5 O gate visual da FASE 9 não subia mais — e o defeito era o mesmo
+
+Rodado como regressão das mudanças de frontend, `responsividade.mjs` nem chegou
+a abrir o navegador: `ERR_UNSUPPORTED_DIR_IMPORT`. O mesmo tropeço que o gate
+novo teve, pela mesma causa — o Playwright é CommonJS, e `await import()` de um
+caminho absoluto não devolve `chromium` como export nomeado.
+
+Enquanto o módulo estava em `node_modules`, o especificador nu resolvia e o
+defeito ficava escondido. Com instalação global, o gate inteiro deixa de subir
+— e um gate que não sobe reprova por motivo nenhum, que é pior do que não ter
+gate: dá a impressão de que alguma coisa foi medida.
+
+Corrigido com `createRequire` nos três scripts que tinham o padrão
+(`responsividade`, `estabilidade`, `preview-verificacao`).
+
+**Resultado depois da correção: 343 asserções, APROVADO.** As mudanças de
+frontend desta fase não quebraram nada do que já passava.
