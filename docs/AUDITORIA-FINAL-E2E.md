@@ -307,3 +307,67 @@ curl -sS $API/api/v1/events                    # os 47 campeonatos continuam lá
 curl -sS $API/api/v1/athletes                  # sem token: espera 401
 curl -sS "$API/api/v1/search?q=<nome>"         # CPF NÃO pode aparecer
 ```
+
+---
+
+## 10. §18 — Smoke test pós-deploy
+
+**Execução #2** (`35813745111`), 2026-09-23 03:17:48Z. Tudo `GET`, tudo anônimo,
+nenhuma escrita.
+
+| Sonda | Esperado | Obtido | |
+|---|---|---|---|
+| `GET /events?limit=100` | 200, lista não vazia | 200, **47 itens** | **PASS** |
+| `GET /ranking/super-overall` | 200, JSON válido | 200, 5 linhas | **PASS** |
+| `GET /athletes` sem token | 401 | 401 | **PASS** |
+| `GET /athletes/:id` sem token | 401, **não** 404 | 401 | **PASS** |
+| `GET /search` × 3 termos | 200 e zero CPF | 200 e zero CPF | **PASS** |
+| 7 rotas financeiras | 404 | 404 nas 7 | **PASS** |
+| Escrita em produção | nenhuma | nenhuma | **PASS** |
+
+### 10.1 Os 47 campeonatos
+
+**47** na vista pública — o número que se esperava, contado no ar. A vista
+anônima esconde `DRAFT` e `CANCELLED`, então o 47 aqui significa que **nenhum
+dos 47 caiu para rascunho ou cancelado**.
+
+### 10.2 CPF: zero, por três caminhos diferentes
+
+A regra é absoluta — CPF nunca aparece em busca pública, nem mascarado. A sonda
+procurou por três formas de o número escapar, em três termos (`si`, `da` e um
+CPF de teste digitado como busca):
+
+| Caminho | `si` | `da` | CPF digitado |
+|---|---|---|---|
+| chave `"cpf"` no corpo | 0 | 0 | 0 |
+| formato `000.000.000-00` | 0 | 0 | 0 |
+| onze dígitos dentro de `.results` | 0 | 0 | 0 |
+
+O terceiro termo é o caso que interessa: **digitar um CPF na busca pública não
+encontra ninguém**. Quem não tem `search.sensitive` não busca por CPF — o termo
+é tratado como texto, e texto não casa com número que não está no payload.
+
+A conferência imprime **quantas** ocorrências achou, nunca **o que** achou.
+Um CPF impresso num log de repositório público seria exatamente o vazamento que
+a sonda existe para recusar.
+
+### 10.3 A ordem das barreiras
+
+`GET /athletes/:id` com um id que não é de ninguém, sem token, responde **401 —
+e não 404**. A diferença não é cosmética: um 404 ali já contaria quem existe e
+quem não existe para quem nem se identificou. Autenticação **antes** de
+existência.
+
+### 10.4 "Este aplicativo NÃO é um sistema financeiro"
+
+`payments`, `checkout`, `billing`, `invoices`, `subscriptions`, `wallet`,
+`orders` — **404 nas sete**. A guarda de higiene do repositório já recusa o
+módulo no código; esta confere a mesma coisa no ar.
+
+### 10.5 Uma observação, que não é falha
+
+O Super Overall devolveu **5 linhas**. A sonda não reprova isso — 200 com JSON
+válido é o que ela cobra, e foi o que veio. Mas o número é pequeno para 47
+campeonatos e **merece o olho de quem conhece o calendário**: só a classe OPEN
+alimenta o Super Overall, e a consulta foi feita sem informar temporada. Não
+vou atribuir causa a isto sem medir.
