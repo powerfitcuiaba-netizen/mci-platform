@@ -999,3 +999,65 @@ engana quem for depurar. Fica registrado; a limpeza antes de rodar é
 `pkill -f "vite preview --port 55"`. Um `trap` em SIGINT/SIGTERM nos quatro
 scripts resolveria de vez — não fiz nesta fase para não mexer em gate que
 estava passando às vésperas da promoção.
+
+---
+
+## §18 GATE DE DEPLOY — o provisionamento no pipeline automático
+
+### 18.1 O que o pipeline fazia, e o que faltava
+
+`render.yaml` executava apenas `preDeployCommand: npx prisma migrate deploy`.
+**O provisionamento não estava no pipeline** — era passo manual documentado, e
+passo manual documentado é passo que alguém esquece. Um deploy automático
+deixaria todas as federações existentes sem conta de serviço.
+
+### 18.2 A correção
+
+```
+preDeployCommand: npx prisma migrate deploy && node scripts/provisionar-contas-de-servico.js
+```
+
+mais `PROVISIONAR_ADMIN_EMAIL` declarada com `sync: false` (o valor é decisão
+de quem opera, não algo que o repositório fixe).
+
+**Por que `preDeployCommand`:** roda depois de o banco estar migrado e antes de
+a nova versão receber tráfego. Se falhar, o Render não promove — a versão
+antiga, sem conclusão automática, continua no ar. Falha fechada, que é a certa:
+melhor o deploy parar do que subir uma versão em que o autocadastro responde
+503 para toda federação existente.
+
+**Por que o `&&` e não `;`:** migration que falha aborta o provisionamento. A
+ordem é obrigatória — primeiro a estrutura, depois o dado.
+
+### 18.3 Uma mudança no script, exigida pelo deploy automático
+
+A contagem passou a vir **antes** da exigência do administrador.
+
+Exigi-lo sempre quebraria dois casos legítimos em que não há nada a autorizar:
+a instalação nova (sem federação nem admin) e o deploy seguinte (tudo já
+provisionado). Nos dois, pedir autorização para não fazer nada derrubaria o
+deploy por burocracia.
+
+Conferindo primeiro, o script só exige o administrador quando existe trabalho
+de verdade — e aí falha alto.
+
+### 18.4 Os cenários, medidos contra bancos reais
+
+| Cenário | Comando | Resultado |
+|---|---|---|
+| Instalação nova | script | "nada a fazer", **exit 0** |
+| Existentes, sem a variável | script | falha explícita, **exit 1** |
+| Existentes, com a variável | script | 3 provisionadas, **exit 0** |
+| Deploy seguinte, sem a variável | script | "nada a fazer", **exit 0** |
+| Ponta a ponta | `preDeployCommand` literal | 0 → 3 contas, **exit 0** |
+
+Estado final em todos: **1 federação = 1 conta + 1 membresia**.
+
+O último caso é o que importa: executei o texto extraído do próprio
+`render.yaml` com `grep -oP '(?<=preDeployCommand: ).*'`, contra um banco com
+três federações legadas. Não é paráfrase do que o Render fará — é o comando.
+
+### 18.5 O que NÃO foi tocado
+
+RLS, regra de conciliação, testes já aprovados, e nenhum dado de produção. A
+mudança é de pipeline e de ordem de verificação dentro do script.

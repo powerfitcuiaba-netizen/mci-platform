@@ -62,27 +62,19 @@ const { withUserContext } = require('../src/config/rlsSession');
 const SO_CONFERIR = process.argv.includes('--conferir');
 
 async function principal() {
-  const email = process.env.PROVISIONAR_ADMIN_EMAIL;
-  if (!email) {
-    console.error('Defina PROVISIONAR_ADMIN_EMAIL com o e-mail do administrador que autoriza o provisionamento.');
-    console.error('A auditoria grava quem foi; ato administrativo sem dono não é auditável.');
-    return 1;
-  }
-
-  const ator = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true, email: true, name: true, role: true }
-  });
-  if (!ator) {
-    console.error(`Usuário não encontrado: ${email}`);
-    return 1;
-  }
-  if (ator.role !== 'SUPER_ADMIN' && ator.role !== 'ADMIN') {
-    console.error(`${email} não é administrador (papel: ${ator.role}).`);
-    return 1;
-  }
-  console.log(`Autorizado por: ${ator.name} <${ator.email}> (${ator.role})\n`);
-
+  // A CONTAGEM VEM ANTES DO ATOR, e a ordem é o que torna este script seguro
+  // no deploy AUTOMÁTICO.
+  //
+  // Provisionar é ato administrativo e exige um administrador nomeado — mas
+  // exigi-lo SEMPRE quebraria dois casos legítimos em que não há nada a
+  // autorizar: a instalação nova, que ainda não tem federação nem admin, e o
+  // deploy seguinte, em que tudo já foi provisionado. Nos dois, pedir
+  // autorização para não fazer nada derrubaria o deploy por burocracia.
+  //
+  // Conferindo primeiro, o script só exige o administrador quando existe
+  // trabalho de verdade — e aí ele falha alto, que é o comportamento certo:
+  // melhor o deploy parar do que subir uma versão em que o autocadastro
+  // responde 503 para toda federação existente.
   const organizacoes = await prisma.organization.findMany({
     select: { id: true, name: true, slug: true, contaDeServico: { select: { id: true } } },
     orderBy: { createdAt: 'asc' }
@@ -100,6 +92,28 @@ async function principal() {
   }
 
   for (const org of semConta) console.log(`  · ${org.name} (${org.slug})`);
+
+  const email = process.env.PROVISIONAR_ADMIN_EMAIL;
+  if (!email) {
+    console.error('\nHÁ FEDERAÇÃO SEM CONTA DE SERVIÇO, e o autocadastro delas responderá 503.');
+    console.error('Defina PROVISIONAR_ADMIN_EMAIL com o e-mail do administrador que autoriza.');
+    console.error('A auditoria grava quem foi; ato administrativo sem dono não é auditável.');
+    return 1;
+  }
+
+  const ator = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true, email: true, name: true, role: true }
+  });
+  if (!ator) {
+    console.error(`\nUsuário não encontrado: ${email}`);
+    return 1;
+  }
+  if (ator.role !== 'SUPER_ADMIN' && ator.role !== 'ADMIN') {
+    console.error(`\n${email} não é administrador (papel: ${ator.role}).`);
+    return 1;
+  }
+  console.log(`\nAutorizado por: ${ator.name} <${ator.email}> (${ator.role})`);
 
   if (SO_CONFERIR) {
     console.log('\n--conferir: NADA foi escrito.');

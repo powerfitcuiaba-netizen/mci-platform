@@ -55,15 +55,49 @@ services:
     region: oregon
     healthCheckPath: /health
 
-    # As migrations rodam antes de a nova versão receber tráfego. Se o seu
-    # plano não oferecer preDeployCommand, remova esta linha e rode uma vez,
-    # pelo shell do serviço:
-    #     npx prisma migrate deploy
-    preDeployCommand: npx prisma migrate deploy
+    # ANTES DE A NOVA VERSÃO RECEBER TRÁFEGO, e nesta ordem:
+    #
+    #   1. `prisma migrate deploy` — a ESTRUTURA (colunas, índices, políticas);
+    #   2. `provisionar-contas-de-servico.js` — o DADO que a estrutura não
+    #      cria: a conta de serviço de cada federação que já existia.
+    #
+    # A ORDEM É OBRIGATÓRIA e o gancho também. A conta de serviço nasce junto
+    # com a organização (`organizationService.create`), mas as federações
+    # anteriores a esta versão foram criadas antes disso — e migration altera
+    # estrutura, não cria linha. Sem o passo 2, `POST /athlete-requests`
+    # responde 503 SERVICE_ACCOUNT_MISSING para TODAS elas, e o sintoma só
+    # aparece quando o primeiro atleta tenta se cadastrar.
+    #
+    # `preDeployCommand` é o único lugar onde isso cabe: roda depois de o banco
+    # estar migrado e ANTES de o autocadastro novo ficar disponível. Se
+    # falhar, o Render não promove a versão — e é o que se quer: a versão
+    # antiga, sem conclusão automática, continua no ar e ninguém fica com
+    # autocadastro quebrado.
+    #
+    # O script é IDEMPOTENTE e só faz INSERT: no deploy seguinte ele encontra
+    # tudo provisionado, imprime "nada a fazer" e sai com 0. Numa instalação
+    # nova, sem federação nenhuma, também sai com 0 — ele só exige
+    # PROVISIONAR_ADMIN_EMAIL quando existe federação de verdade a provisionar.
+    #
+    # Se o seu plano não oferecer preDeployCommand, remova esta linha e rode os
+    # DOIS comandos, nesta ordem, pelo shell do serviço, ANTES de promover.
+    preDeployCommand: npx prisma migrate deploy && node scripts/provisionar-contas-de-servico.js
 
     envVars:
       - key: NODE_ENV
         value: production
+
+      # QUEM AUTORIZA O PROVISIONAMENTO das federações que já existiam.
+      #
+      # `sync: false` porque o valor é decisão de quem opera, não algo que o
+      # repositório deva fixar. Preencha com o e-mail de um ADMIN ou
+      # SUPER_ADMIN existente: a auditoria registra `SERVICE_ACCOUNT_PROVISIONED`
+      # em nome dele, porque foi ele quem mandou rodar.
+      #
+      # Só é lido quando há federação sem conta. Numa instalação nova, ou num
+      # deploy em que tudo já foi provisionado, o script nem chega a consultá-lo.
+      - key: PROVISIONAR_ADMIN_EMAIL
+        sync: false
 
       # A string vem do banco gerenciado; ninguém digita credencial.
       - key: DATABASE_URL
