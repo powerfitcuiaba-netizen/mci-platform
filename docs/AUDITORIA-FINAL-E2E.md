@@ -474,3 +474,186 @@ A mesma leitura fortalece o resultado do §10.2. A busca pública não devolve
 atleta **sob termo nenhum** — não é que o CPF esteja filtrado do payload: o
 ramo inteiro de atletas está fechado para quem não se autentica. O zero do §10.2
 é, portanto, mais forte do que a medição sozinha mostrava.
+
+---
+
+## §12 Auditoria de segurança da conta de serviço da federação
+
+A conclusão automática do autocadastro introduziu uma identidade nova que
+escreve no ledger. Antes de promover qualquer coisa, a pergunta a responder
+não é "funciona?", e sim **"quem escreveu podia escrever, e mais ninguém
+consegue vestir essa identidade?"**. Sete superfícies, medidas uma a uma.
+
+### 12.1 Como a identidade é escolhida — e por que o corpo não decide
+
+`pedido.organizationId` é resolvido no servidor a partir da **filiação**
+escolhida; a conta de serviço sai daí por consulta. Não existe parâmetro de
+entrada que nomeie a conta, o operador ou a organização.
+
+Medido pela porta da frente: um cadastro cujo corpo traz `serviceAccountId`,
+`operatorId`, `organizationId`, `federationId`, `reviewedById`, `status` e
+`isServiceAccount` — todos apontando para a **outra** federação — sai com a
+organização correta, `reviewedById` nulo, e a auditoria nomeando a conta
+**desta** federação. Nenhum dos sete campos é lido.
+
+### 12.2 Alcance no banco
+
+`mci_operator_of` ganhou um papel na lista e nada mais: continua exigindo
+membresia **naquela** organização. Perguntado direto ao Postgres sob a
+identidade da conta: `mci_operator_of(própria) = true`,
+`mci_operator_of(alheia) = false`.
+
+Leitura e escrita cruzadas também foram medidas no caminho real, e não por
+inspeção: a conta de uma federação lê `null` para o atleta da outra, e o
+`UPDATE` é recusado. A distinção importa — ler nulo poderia ser filtro de
+leitura; a escrita recusada prova que a política barra o `UPDATE`.
+
+### 12.3 Autenticação
+
+`login` recusa por `isServiceAccount` **antes** de qualquer comparação de
+senha, e devolve `INVALID_CREDENTIALS` — a mesma resposta de senha errada.
+Distinguir os dois casos entregaria a lista de contas técnicas da plataforma.
+
+A senha nasce aleatória, vira hash e é descartada na mesma linha. As duas
+barreiras são independentes de propósito: a recusa não depende de o segredo
+ser bom, e o segredo não depende de a recusa existir.
+
+`register` é o único outro caminho que emite token, e ele cria usuário novo —
+`FEDERATION_SERVICE` não está em `PAPEIS_DE_CADASTRO_ABERTO`.
+
+### 12.4 Permissão de aplicação
+
+Poder no banco e poder na aplicação são separados, e a conta só recebeu o
+primeiro. Medido contra a matriz real: o conjunto de permissões de
+`FEDERATION_SERVICE` **menos** o de `ATHLETE` é vazio.
+
+### 12.5 A fresta que a varredura encontrou — administração de usuários
+
+A conta **é** membro da organização; precisa ser. Sem filtro, ela aparecia na
+listagem de usuários de todo operador da federação, com papel e situação
+editáveis ao lado, como se fosse uma pessoa mal configurada.
+
+**Não era escalonamento, e isto foi medido campo a campo antes de concluir:**
+
+| Caminho | Resultado |
+|---|---|
+| `adminUserUpdate` aceita outros campos? | Não — só `role` e `status` |
+| `role: 'FEDERATION_SERVICE'` é atribuível? | Não — está fora de `USER_ROLES`, logo fora do `z.enum` |
+| Mudar o papel **global** afeta o RLS? | Não — `mci_operator_of` lê o papel da **membresia** |
+| `status: 'DISABLED'` quebra o autocadastro? | Não — `contaDaOrganizacao` ignora `status` |
+| A conta tem perfil social? | Não — invisível à busca e ao messenger |
+
+Era uma ferramenta de administrar **pessoas** apontada para uma identidade
+**técnica**, e a próxima pessoa a mexer ali não teria como saber de nenhuma
+das cinco linhas acima. Fechado: a conta sai da listagem e da leitura por id
+(404, inclusive para quem administra a plataforma), e `updateUser` a recusa.
+
+### 12.6 A armadilha na lista de papéis
+
+`USER_ROLES` **não** contém `FEDERATION_SERVICE`, embora o enum do banco
+contenha. A ausência é o que mantém o papel fora do `z.enum` do Zod — mas ela
+não estava escrita em lugar nenhum, e a lista se parece com um espelho do
+enum.
+
+Quem notasse a diferença iria "consertá-la". E como o papel **não** está em
+`PAPEIS_PRIVILEGIADOS`, consertá-la o tornaria atribuível por qualquer um com
+`users.manage` — não só pelo SUPER_ADMIN. O comentário agora diz isso, e há
+teste em `unidade-dominio` que falha antes, com o motivo junto.
+
+### 12.7 Atomicidade — não existe federação meio-construída
+
+`asyncHandler` abre **uma** transação por requisição autenticada e retém a
+resposta até o commit. Uma falha ao provisionar a conta desfaz a criação da
+federação inteira; não há estado em que a federação exista sem a identidade
+que o autocadastro precisa.
+
+### 12.8 Ressalva conhecida, medida, não corrigida
+
+O e-mail da conta é derivado do slug (`servico.<slug>@federacao.mci.local`).
+Quem registrasse esse endereço **antes** de a federação ser criada faria a
+criação falhar por unicidade de e-mail.
+
+Não é substituição: `contaDaOrganizacao` busca por `serviceOrganizationId` +
+`isServiceAccount`, que só `provisionar` escreve — uma conta squatted nunca é
+encontrada no lugar da verdadeira. E pelo §12.7 a falha é atômica e ruidosa.
+
+Severidade baixa, falha limpa e alta. **Não alterei o formato do e-mail**:
+mudá-lo é decisão de produto, e a alternativa (endereço sorteado) troca
+legibilidade operacional por uma proteção contra um cenário que exige adivinhar
+o slug antes da criação. Fica registrado para a sua decisão.
+
+### 12.9 DEMO = 0 no código
+
+`DEMO` não aparece em `src/`, `prisma/`, `scripts/` nem no frontend fora de
+testes: **0 ocorrências**. Varredura de segredos no diff contra `main`: nenhuma
+— o único casamento é a palavra "token" dentro de um comentário de teste.
+
+**A auditoria de DEMO nos DADOS DE PRODUÇÃO não está feita.** Ela exige
+consultar o banco de produção, e este ambiente não tem egresso nem credencial.
+O caminho é a sonda `sonda-producao.yml`, que roda no Actions e devolve
+contagens — ainda **NOT TESTED** para este item.
+
+---
+
+## §13 Teste de mutação dos caminhos novos
+
+13 mutantes, cada um com o teste nomeado que **deveria** matá-lo. Um mutante
+sobrevivente é um teste que não mede o que diz medir — e é o único resultado
+que interessa aqui.
+
+**Placar: 12 mortos, 1 equivalente comprovado.**
+
+| # | Mutação | Veredito |
+|---|---|---|
+| M1 | adota a identidade da matrícula mesmo impedida | MORTO |
+| M2 | volta a contar conflito só quando o rótulo muda | MORTO |
+| M3 | remove a guarda de homônimo na adoção do ledger | **EQUIVALENTE** |
+| M4 | ignora CPF divergente | MORTO |
+| M5 | remove a pré-checagem de CPF | MORTO |
+| M6 | remove a pré-checagem de matrícula | MORTO |
+| M7 | troca `\|\|` por `&&` na porta do autocadastro | MORTO |
+| M8 | grava revisor humano no vínculo automático | MORTO |
+| M9 | faz a conta de serviço vir do corpo da requisição | MORTO |
+| M10 | volta a listar a conta de serviço na administração | MORTO |
+| M11 | volta a permitir editá-la | MORTO |
+| M12 | remove a recusa de login da conta de serviço | MORTO *(na 2ª rodada)* |
+| M13 | devolve o CPF na resposta | MORTO |
+
+### 13.1 M12 — o teste que eu escrevi media o acaso, não a guarda
+
+Sobreviveu na primeira rodada, e estava certo em sobreviver.
+
+O teste tentava logar com a senha padrão da suíte contra o hash **aleatório**
+da conta. Recusava — mas recusava por **senha errada**, e teria recusado
+igual se a guarda `isServiceAccount` fosse apagada. A asserção falava sobre o
+acaso do segredo, não sobre a barreira.
+
+Corrigido: a conta recebe o hash de uma senha que a suíte conhece (o do
+próprio gerente, usuário comum criado com ela), há um **controle** provando
+que essa senha entra no usuário comum, e só então o login da conta de serviço
+é cobrado. Com a guarda apagada, o login passa e o teste falha. M12 morre.
+
+Sem mutação, este teste teria ficado verde para sempre guardando nada — e a
+frase "a conta de serviço não autentica" no relatório seria falsa sem que
+ninguém percebesse.
+
+### 13.2 M3 — mutante equivalente, e por que a guarda fica
+
+Investigado antes de concluir qualquer coisa: **não é lacuna de cobertura.**
+
+Existe índice único parcial
+`Athlete_organizationId_affiliationId_affiliationNumber_key`, com
+`WHERE affiliationId IS NOT NULL AND affiliationNumber IS NOT NULL`. E
+`homonimosDeMatricula` só é contado quando `filiacao` é verdadeiro, o que
+exige exatamente esses dois campos não-nulos. A contagem é, portanto,
+**estruturalmente sempre 0**: a condição não pode ser falsa, e nenhum teste
+poderia distinguir o código do mutante.
+
+**A guarda fica.** Custa um booleano e protege contra o índice ser afrouxado,
+contra dado anterior a ele e contra qualquer caminho futuro que escreva
+`Athlete` por fora. O que ela evita, se um dia puder ser falsa, é creditar a
+carreira de uma pessoa a outra — erro que não se desfaz com um "desfazer".
+
+O motivo está escrito no próprio código, ao lado da condição, para que o
+sobrevivente não seja lido depois como cobertura faltando e não gere um teste
+inventado para um estado inalcançável.

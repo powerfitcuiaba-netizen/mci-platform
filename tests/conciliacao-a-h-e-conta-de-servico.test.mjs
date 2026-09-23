@@ -555,18 +555,43 @@ describe('Conta de serviço — quem escreveu podia escrever', () => {
   it('não autentica — nem com a senha certa, porque não existe senha certa', async () => {
     const conta = await contaDeServicoDe(organizationId);
 
-    // A senha nasceu aleatória e foi descartada na mesma linha que a gerou.
-    // Este teste cobre a outra metade: mesmo que alguém a soubesse, o login
-    // recusa por `isServiceAccount` — a recusa não depende do segredo.
-    const gravada = await comoAtor(admin, tx => tx.user.findUnique({
+    // A SENHA CERTA É PLANTADA DE PROPÓSITO, e a mutação é quem ensinou isto.
+    //
+    // A primeira versão deste teste tentava logar com a senha padrão da suíte
+    // contra o hash aleatório da conta. Recusava, claro — mas recusava por
+    // SENHA ERRADA, e teria recusado igual se a guarda `isServiceAccount`
+    // fosse apagada. O mutante que apaga a guarda SOBREVIVEU, e foi assim que
+    // eu soube que o teste media a coisa errada.
+    //
+    // Agora a conta recebe o hash de uma senha que a suíte conhece — o do
+    // próprio gerente, que é um usuário comum criado com ela. Se a guarda
+    // sumir, o login PASSA, e o teste falha. É a única montagem em que a
+    // asserção fala sobre a guarda, e não sobre o acaso do segredo.
+    const humano = await comoAtor(admin, tx => tx.user.findUnique({
+      where: { id: gerente.id }, select: { passwordHash: true }
+    }));
+    const antes = await comoAtor(admin, tx => tx.user.findUnique({
       where: { id: conta.id }, select: { passwordHash: true, isServiceAccount: true }
     }));
-    expect(gravada.isServiceAccount).toBe(true);
-    expect(gravada.passwordHash, 'a conta de serviço ficou sem hash').toBeTruthy();
+    expect(antes.isServiceAccount).toBe(true);
+    expect(antes.passwordHash, 'a conta de serviço ficou sem hash').toBeTruthy();
+    expect(antes.passwordHash, 'a conta nasceu com a senha da suíte')
+      .not.toBe(humano.passwordHash);
+
+    await comoAtor(admin, tx => tx.user.update({
+      where: { id: conta.id }, data: { passwordHash: humano.passwordHash }
+    }));
+
+    // Controle: a MESMA senha, no usuário comum, entra. Sem isto, um 401 aqui
+    // poderia ser qualquer outra coisa quebrada no login.
+    const doHumano = await api().post('/api/v1/auth/login')
+      .send({ email: gerente.email, password: 'senha-de-teste-123' });
+    expect(doHumano.status, 'a senha de controle não serve: o teste não mede nada').toBe(200);
 
     const tentativa = await api().post('/api/v1/auth/login')
       .send({ email: conta.email, password: 'senha-de-teste-123' });
-    expect(tentativa.status).toBe(401);
+    expect(tentativa.status, 'A CONTA DE SERVIÇO AUTENTICOU').toBe(401);
+    expect(tentativa.body.token, 'a conta de serviço recebeu token').toBeUndefined();
     // MESMA resposta de credencial errada: distinguir "é conta de serviço" de
     // "senha errada" entregaria a lista de contas técnicas da plataforma.
     expect(tentativa.body.error?.code ?? tentativa.body.code).toBe('INVALID_CREDENTIALS');
@@ -635,6 +660,66 @@ describe('Conta de serviço — quem escreveu podia escrever', () => {
     // coisa, e apagar essa diferença apagaria de quem foi o cadastro.
     expect(registro.userId).toBe(pessoa.id);
     expect(registro.metadata.actorType).toBe('SYSTEM_SERVICE_ACCOUNT');
+  });
+
+  it('não aparece na administração de usuários, nem para quem administra a plataforma', async () => {
+    // Ela É membro da organização — precisa ser, é daí que `mci_operator_of`
+    // a reconhece. Sem filtro, aparecia na lista de usuários de todo operador
+    // da federação, com papel e situação editáveis ao lado, como se fosse uma
+    // pessoa mal configurada.
+    const conta = await contaDeServicoDe(organizationId);
+
+    const lista = await api().get('/api/v1/admin/users').set(admin.auth());
+    expect(lista.status, JSON.stringify(lista.body).slice(0, 200)).toBe(200);
+    expect(lista.body.items.map(u => u.id), 'a conta de serviço foi listada').not.toContain(conta.id);
+    expect(JSON.stringify(lista.body), 'o e-mail da conta técnica vazou na listagem')
+      .not.toContain(conta.email);
+
+    // E nem por id: para esta tela ela não existe. 404, e não 403 — responder
+    // 403 confirmaria que o id existe e ensinaria que há uma categoria de
+    // conta escondida ali.
+    const porId = await api().get(`/api/v1/admin/users/${conta.id}`).set(admin.auth());
+    expect(porId.status).toBe(404);
+
+    // As pessoas de verdade continuam aparecendo: o filtro é da conta técnica,
+    // e não uma listagem que quebrou.
+    expect(lista.body.items.length).toBeGreaterThan(0);
+    expect(lista.body.items.map(u => u.id)).toContain(gerente.id);
+  });
+
+  it('a administração de usuários não muda papel nem situação da conta de serviço', async () => {
+    const conta = await contaDeServicoDe(organizationId);
+
+    for (const tentativa of [{ role: 'ADMIN' }, { status: 'DISABLED' }]) {
+      const r = await api().patch(`/api/v1/admin/users/${conta.id}`).set(admin.auth()).send(tentativa);
+      expect(r.status, `${JSON.stringify(tentativa)} passou: ${JSON.stringify(r.body).slice(0, 200)}`).toBe(404);
+    }
+
+    const depois = await comoAtor(admin, tx => tx.user.findUnique({
+      where: { id: conta.id },
+      select: { role: true, status: true, isServiceAccount: true, serviceOrganizationId: true }
+    }));
+    expect(depois.role).toBe('FEDERATION_SERVICE');
+    expect(depois.status).toBe('ACTIVE');
+    expect(depois.isServiceAccount).toBe(true);
+    expect(depois.serviceOrganizationId).toBe(organizationId);
+
+    // E o autocadastro continua funcionando depois das tentativas — se alguma
+    // tivesse pegado, é aqui que a federação descobriria, em produção.
+    const { resposta } = await autocadastrar({ nome: 'LUCIA PEREIRA', cpf: gerarCpf(500019) });
+    expect(resposta.status, JSON.stringify(resposta.body).slice(0, 200)).toBe(201);
+  });
+
+  it('não tem perfil social: não é encontrável nem endereçável por ninguém', async () => {
+    // Todo usuário criado pelo cadastro ganha um `SocialProfile`, e é por ele
+    // que a busca e o messenger alcançam gente. A conta de serviço nasce por
+    // outro caminho e não ganha nenhum — se ganhasse, seria possível abrir
+    // conversa com "Sistema · MCI Brasil", que não lê e não responde.
+    const conta = await contaDeServicoDe(organizationId);
+    const perfil = await comoAtor(admin, tx => tx.socialProfile.findUnique({
+      where: { userId: conta.id }, select: { id: true }
+    }));
+    expect(perfil, 'a conta de serviço ganhou perfil social').toBeNull();
   });
 
   it('a federação de porta fechada recusa, mesmo com o id da filiação em mãos', async () => {

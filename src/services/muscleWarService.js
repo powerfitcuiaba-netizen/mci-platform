@@ -1553,6 +1553,22 @@ async function vincularPendentesDoAtleta(athlete, actor) {
   // sobre o CADASTRO; matrícula impedida é impasse sobre as LINHAS. Nos dois
   // casos quem decide é gente, e até lá o histórico fica sem dono — que é o
   // estado honesto, não uma perda.
+  //
+  // SOBRE `homonimosDeMatricula === 0` SER, HOJE, INALCANÇÁVEL.
+  //
+  // O teste de mutação apagou esta metade da condição e NENHUM teste falhou.
+  // Investigado: não é lacuna de cobertura, é mutante EQUIVALENTE. Existe
+  // índice único parcial em (organizationId, affiliationId, affiliationNumber)
+  // — ver `Athlete_organizationId_affiliationId_affiliationNumber_key` — e
+  // `homonimosDeMatricula` só é contado quando os dois campos são não-nulos,
+  // que é exatamente a condição do índice. A contagem, portanto, é sempre 0, e
+  // nenhum teste poderia distinguir o código do mutante.
+  //
+  // FICA. A guarda custa um booleano e protege contra o índice ser afrouxado,
+  // contra dado anterior a ele e contra qualquer caminho futuro que escreva
+  // `Athlete` por fora. O que ela evita, se um dia puder ser falsa, é creditar
+  // a carreira de uma pessoa a outra — e esse erro não se desfaz com um
+  // "desfazer".
   if (identidade && homonimosDeMatricula === 0 && !matriculaImpedida) identidades.add(identidade.id);
 
   if (itensVinculados.length) {
