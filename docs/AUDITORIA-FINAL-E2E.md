@@ -364,10 +364,48 @@ existência.
 `orders` — **404 nas sete**. A guarda de higiene do repositório já recusa o
 módulo no código; esta confere a mesma coisa no ar.
 
-### 10.5 Uma observação, que não é falha
+### 10.5 As 5 linhas do Super Overall — investigadas
 
-O Super Overall devolveu **5 linhas**. A sonda não reprova isso — 200 com JSON
-válido é o que ela cobra, e foi o que veio. Mas o número é pequeno para 47
-campeonatos e **merece o olho de quem conhece o calendário**: só a classe OPEN
-alimenta o Super Overall, e a consulta foi feita sem informar temporada. Não
-vou atribuir causa a isto sem medir.
+Eu tinha deixado isto como observação sem causa. **Agora tem causa, medida.**
+
+As 5 linhas são o **teto da vista pública**, e não uma tabela quase vazia.
+`TOP_PUBLICO = 5` em `rankingService.js`: quem não tem vínculo com a
+organização dona da temporada vê o topo, não a tabela.
+
+**Execução #3** (`35814121838`), 03:23:31Z:
+
+| Medição | Resultado | O que prova |
+|---|---|---|
+| `X-MCI-Public-View` | **`top-5`** | O corte é **declarado**. Ausência do cabeçalho significaria lista inteira — e aí 5 seria notícia ruim |
+| `X-MCI-Rows-Read` | **84** | O banco materializou 84 linhas para devolver 5 |
+| `?limit=50` | **5 linhas** | O teto não cede a quem pede mais |
+| `GET /ranking` | 5 linhas, `top-5` | A mesma regra, não um caso isolado |
+
+#### Por que 84 é a resposta, e não um número qualquer
+
+A pré-seleção consulta com `TETO = max(200, limite × 20)` — para `limite = 5`,
+**200**. A consulta voltou com **84**, abaixo do teto: o `LIMIT` **não foi
+alcançado**, e portanto 84 é a agregação **completa**.
+
+**O Super Overall da Temporada 2026 tem 84 competidores com pontos elegíveis.**
+A vista pública mostra os 5 primeiros. Não falta dado: falta permissão, que é
+exatamente o que a regra manda.
+
+Para ver os 84, é preciso ser operador com vínculo na organização dona da
+temporada. Esta sonda não usa credencial nenhuma, e por isso não os viu.
+
+### 10.6 O que a investigação encontrou de passagem
+
+Duas coisas que eu não tinha ido procurar:
+
+**`/ranking/teams` e `/ranking/companies` devolvem 0 linhas.** Com o cabeçalho
+`top-5` presente — ou seja, é vista pública, mas **não há o que cortar**. Isto
+é uma tabela vazia de verdade, ao contrário do Super Overall. Não atribuo causa:
+pode ser que nenhuma equipe ou empresa tenha vínculo com pontuação lançada, e
+medir isso exige o lado autenticado. **Fica registrado para quem conhece o
+calendário decidir se é esperado.**
+
+**Uma temporada, 55 classes.** A temporada é a **"Temporada 2026"**, única. O
+filtro do ranking oferece 55 entradas, com códigos repetidos (`JUNIOR` ×5,
+`MASTERS_35` ×6, `OPEN_CLASS_A` ×6, …) — o que é esperado, porque a classe
+existe **por categoria**, e o mesmo código aparece em cada uma delas.
