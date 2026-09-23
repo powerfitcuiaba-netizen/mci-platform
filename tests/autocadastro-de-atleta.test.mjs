@@ -75,7 +75,7 @@ const pedir = (pessoa, corpo) => api().post('/api/v1/athlete-requests').set(pess
 // `cancelar`, não `criar`. Fabricar o estado pela porta dos fundos para medir
 // a porta da frente seria trapaça; fabricá-lo para medir OUTRA porta é
 // montagem de cenário.
-const pedidoPendenteNaMao = async (pessoa, filiacao, organizationId, semente) => comoAtor(operadorA, () =>
+const pedidoPendenteNaMao = async (pessoa, filiacao, organizationId, semente) => comoAtor(pessoa, () =>
   prisma.athleteProfileRequest.create({
     data: {
       userId: pessoa.id,
@@ -607,7 +607,9 @@ describe('de conta nova a atleta aprovado', () => {
     //    conclusão. A tela de análise, então, não tem mais o que revelar — e
     //    a resposta continua sem a chave do armazenamento.
     const analise = await api().get(`/api/v1/athlete-requests/${pedidoId}`).set(operadorA.auth());
-    expect(analise.body.cpf, 'o CPF ficou para trás no pedido').toBeNull();
+    // Ausente, e não nulo: `semChaves` remove o campo por construção — não há
+    // o que esquecer de limpar.
+    expect(analise.body.cpf, 'o CPF ficou para trás no pedido').toBeUndefined();
     expect(analise.body.hasPhoto).toBe(true);
     expect(analise.body, 'a análise devolveu a chave do armazenamento').not.toHaveProperty('photoKey');
     expect((await api().get(`/api/v1/media/athlete-requests/${pedidoId}/photo`).set(operadorA.auth())).status).toBe(200);

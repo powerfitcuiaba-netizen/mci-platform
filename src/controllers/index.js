@@ -135,7 +135,17 @@ module.exports = {
   },
 
   athleteRequests: {
-    criar: async (req, res) => res.status(201).json(await athleteRequests.criar(req.body, req.user)),
+    // 201 quando o cadastro CONCLUIU; 409 quando ele precisou parar.
+    //
+    // O status vem do desfecho que o serviço devolve, e não de uma exceção:
+    // lançar derrubaria a transação e apagaria o pedido e a auditoria da
+    // recusa junto. Quando para, o pedido FICA pendente — é assim que a
+    // federação recebe o caso para resolver.
+    criar: async (req, res) => {
+      const pedido = await athleteRequests.criar(req.body, req.user);
+      const precisaDeRevisao = pedido.conciliacao?.estado === 'PRECISA_REVISAO';
+      return res.status(precisaDeRevisao ? 409 : 201).json(pedido);
+    },
     meus: async (req, res) => res.json({ items: await athleteRequests.meusPedidos(req.user) }),
     cancelar: async (req, res) => res.json(await athleteRequests.cancelar(req.params.id, req.user)),
     listar: async (req, res) => res.json(await athleteRequests.listar(req.query, req.user)),

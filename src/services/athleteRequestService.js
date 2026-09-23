@@ -343,6 +343,54 @@ async function carregarParaAnalise(id, actor) {
 // A transação da aprovação, separada para que a tradução do erro fique
 // legível — e para não repetir `prisma.$transaction` num `try` gigante.
 /**
+ * A RECUSA NEUTRA, e o registro do que de fato aconteceu.
+ *
+ * Para fora, as duas colisões possíveis recebem a MESMA frase: "CPF já
+ * cadastrado" e "matrícula já cadastrada" revelam a mesma coisa para quem
+ * está do lado de fora — as duas confirmam que aquele identificador existe
+ * nesta federação, e bastaria variar o número para mapear quem está cadastrado.
+ *
+ * Para dentro, a auditoria diz QUAL das duas caiu: é o que o operador lê
+ * quando a pessoa ligar reclamando, e mandá-lo conferir o documento quando o
+ * problema é o número da filiação custa o atendimento inteiro.
+ */
+async function recusarNeutro(pedido, actor, contaDeServico, motivo) {
+  await audit.record({
+    actor, action: 'ATHLETE_PROFILE_REQUEST_AUTO_BLOCKED',
+    entity: 'AthleteProfileRequest', entityId: pedido.id,
+    organizationId: pedido.organizationId,
+    metadata: {
+      actorType: 'SYSTEM_SERVICE_ACCOUNT',
+      serviceAccountId: contaDeServico.id,
+      motivo,
+      affiliationId: pedido.affiliationId,
+      origem: 'AUTOCADASTRO'
+    }
+  });
+
+  // O PEDIDO NÃO É DESFEITO — e é isso que faz a auditoria existir.
+  //
+  // Lançar aqui derrubaria a transação da requisição inteira, e com ela o
+  // registro que acabou de ser gravado: a recusa não deixaria rastro nenhum no
+  // banco, só no log. Devolvendo o desfecho, a transação fecha, o pedido fica
+  // PENDENTE e a federação tem o que resolver — que é exatamente o que a
+  // mensagem manda a pessoa procurar.
+  //
+  // A fila foi aposentada como caminho NORMAL. Ela continua sendo o lugar da
+  // EXCEÇÃO, e este é o único jeito de a exceção chegar lá.
+  return {
+    pedido: null,
+    resumo: {
+      estado: 'PRECISA_REVISAO',
+      matchMethod: 'PRECISA_CONFIRMAR',
+      vinculados: 0,
+      exigeConfirmacao: 0,
+      rankingPointIds: []
+    }
+  };
+}
+
+/**
  * CONCLUI O AUTOCADASTRO NA HORA E CONCILIA O HISTÓRICO.
  *
  * A regra de negócio mudou: um atleta com histórico não fica mais numa fila
@@ -377,6 +425,45 @@ async function concluirAutomaticamente(pedido, actor) {
   // `serviceAccountId` no corpo não muda nada, porque nada lê esses campos.
   const contaDeServico = await contasDeServico.contaDaOrganizacao(pedido.organizationId);
 
+  // A CONFERÊNCIA PRÉVIA SÓ PASSOU A SER POSSÍVEL AGORA, e é por isso que ela
+  // não existia antes.
+  //
+  // Enquanto quem consultava era o solicitante, `AthleteIdentity` sob RLS
+  // devolvia zero linhas SEMPRE — inclusive quando o CPF existia. Uma
+  // verificação que não enxerga nada não protege; ela aparenta proteger, que é
+  // pior. Quem consulta agora é a conta de serviço, que é operadora desta
+  // federação e enxerga o que existe nela.
+  //
+  // E isto NÃO substitui a unicidade do banco: ela continua sendo a autoridade
+  // e continua pegando a corrida entre a conferência e a escrita. O que a
+  // conferência evita é a transação ABORTADA — porque, depois de um 23505, não
+  // dá para escrever mais nada nela, nem a auditoria do bloqueio. Era
+  // exatamente isso que estava acontecendo: o registro do bloqueio nunca
+  // chegava ao banco.
+  const colisao = await withUserContext(contaDeServico.id, async tx => {
+    const [comMesmoCpf, comMesmaMatricula] = await Promise.all([
+      tx.athleteIdentity.findFirst({
+        where: { organizationId: pedido.organizationId, cpf: pedido.cpf },
+        select: { athleteId: true }
+      }),
+      pedido.affiliationId && pedido.affiliationNumber
+        ? tx.athlete.findFirst({
+          where: {
+            organizationId: pedido.organizationId,
+            affiliationId: pedido.affiliationId,
+            affiliationNumber: pedido.affiliationNumber
+          },
+          select: { id: true }
+        })
+        : null
+    ]);
+    if (comMesmoCpf) return 'CPF_ALREADY_REGISTERED';
+    if (comMesmaMatricula) return 'AFFILIATION_NUMBER_IN_USE';
+    return null;
+  });
+
+  if (colisao) return recusarNeutro(pedido, actor, contaDeServico, colisao);
+
   let resultado;
   try {
     // A PARTIR DAQUI QUEM ESCREVE É A FEDERAÇÃO, NÃO O ATLETA.
@@ -409,18 +496,12 @@ async function concluirAutomaticamente(pedido, actor) {
     // auditoria, que é lida por quem tem permissão.
     if (erro instanceof AppError
       && (erro.code === 'CPF_ALREADY_REGISTERED' || erro.code === 'AFFILIATION_NUMBER_IN_USE')) {
-      await audit.record({
-        actor, action: 'ATHLETE_PROFILE_REQUEST_AUTO_BLOCKED',
-        entity: 'AthleteProfileRequest', entityId: pedido.id,
-        organizationId: pedido.organizationId,
-        metadata: {
-          actorType: 'SYSTEM_SERVICE_ACCOUNT',
-          serviceAccountId: contaDeServico.id,
-          motivo: erro.code,
-          affiliationId: pedido.affiliationId,
-          origem: 'AUTOCADASTRO'
-        }
-      });
+      // CORRIDA: a conferência acima passou e a unicidade pegou mesmo assim.
+      // A transação já está abortada, então NÃO dá para registrar auditoria
+      // aqui — o log fica com o que se sabe, e a pessoa recebe a mesma recusa
+      // neutra.
+      logger.warn({ requestId: pedido.id, motivo: erro.code },
+        'cadastro automático bloqueado por unicidade; auditoria impossível: transação abortada');
       throw new AppError(409, 'REGISTRATION_NEEDS_REVIEW',
         'Não foi possível concluir o seu cadastro automaticamente. '
         + 'Procure a sua federação para finalizar.');
