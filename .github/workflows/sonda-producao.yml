@@ -350,3 +350,92 @@ jobs:
             echo 'O total real da temporada só é visível a operador com vínculo na organização'
             echo 'dona dela — e esta sonda não usa credencial nenhuma.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # ==========================================================================
+  # POR QUE OS RANKINGS DE EQUIPES E EMPRESAS ESTÃO VAZIOS
+  #
+  # A HIPÓTESE, LIDA NO CÓDIGO
+  #
+  # `teamRanking` filtra `PublicRankingEntry` por `teamId: { not: null }`. Essa
+  # coluna espelha `RankingPoint.teamId`, e no caminho da importação o
+  # `teamId` só nasce de duas formas (muscleWarService.js):
+  #
+  #   1. `equipeDeclarada` — o `teamName` do arquivo casado contra um `Team`
+  #      QUE JÁ EXISTE. O importador nunca cria equipe: `equipes` vem de
+  #      `prisma.team.findMany`, e nome que não casa vira `undefined`;
+  #   2. o vínculo registrado do atleta (`AthleteTeamMembership`) — que exige
+  #      `item.athleteId`, e resultado histórico importado não tem atleta
+  #      cadastrado.
+  #
+  # Sem `Team` cadastrado, os dois caminhos dão nulo, e a tabela de equipes
+  # fica vazia por falta de CADASTRO, não por falta de pontos. Para empresas a
+  # cadeia é a mesma: `companyId` vem da empresa declarada casada contra
+  # `Company` existente, ou da empresa DA EQUIPE — que não existe.
+  #
+  # O QUE ESTE JOB MEDE
+  #
+  # `/teams` e `/companies` exigem token, e esta sonda não usa credencial. Mas
+  # a busca pública enxerga `Team` por nome (`searchService.TIPOS` inclui
+  # `teams`, e a rota é anônima). Varrer bigramas comuns do português é o mais
+  # perto de enumerar que dá sem credencial: um nome de equipe que exista
+  # precisa conter pelo menos um deles.
+  #
+  # O CONTROLE É O QUE SEGURA A CONCLUSÃO: os mesmos termos contam ATLETAS.
+  # Zero equipes com zero atletas significaria busca quebrada; zero equipes com
+  # atletas de sobra significa que não há equipe cadastrada.
+  #
+  # Tudo GET, tudo anônimo, nenhuma escrita. Contagens, nunca corpos.
+  # ==========================================================================
+  equipes:
+    name: Equipes e empresas vazias — por quê
+    needs: sondar
+    runs-on: ubuntu-latest
+    env:
+      API: ${{ inputs.api || 'https://mci-platform-api.onrender.com' }}
+    steps:
+      - name: Varrer a busca pública por equipes
+        run: |
+          TOTAL_EQ=0; TOTAL_AT=0; TERMOS=0
+          for T in ar er os as te in an ra co de do da es re ma ta la ca na li sa to ro mo pa al ei ia ou; do
+            curl -sS -m 60 -o /tmp/b.json --get --data-urlencode "q=$T" --data-urlencode 'types=teams,athletes' --data-urlencode 'limit=50' "$API/api/v1/search"
+            EQ="$(jq -r '.results.teams    | length' /tmp/b.json 2>/dev/null || echo 0)"
+            AT="$(jq -r '.results.athletes | length' /tmp/b.json 2>/dev/null || echo 0)"
+            printf '  %-4s equipes %-3s · atletas %s\n' "$T" "$EQ" "$AT"
+            TOTAL_EQ=$((TOTAL_EQ + EQ)); TOTAL_AT=$((TOTAL_AT + AT)); TERMOS=$((TERMOS + 1))
+          done
+          echo
+          echo "$TERMOS bigramas · equipes encontradas: $TOTAL_EQ · atletas encontrados: $TOTAL_AT"
+          echo "TOTAL_EQ=$TOTAL_EQ" >> "$GITHUB_ENV"
+          echo "TOTAL_AT=$TOTAL_AT" >> "$GITHUB_ENV"
+          echo "TERMOS=$TERMOS"     >> "$GITHUB_ENV"
+
+      - name: O controle — a busca está achando alguma coisa
+        run: |
+          # Sem este passo a varredura acima não conclui nada: uma busca
+          # quebrada devolveria zero equipes exatamente como um banco sem
+          # equipe nenhuma.
+          if [ "$TOTAL_AT" -gt 0 ]; then
+            echo "Controle OK: a mesma busca, nos mesmos termos, achou $TOTAL_AT atletas."
+          else
+            echo "::error::Controle FALHOU: a busca não achou atleta nenhum em $TERMOS termos. A varredura de equipes não conclui nada — o instrumento é que está mudo."
+            exit 1
+          fi
+
+      - name: Veredito
+        run: |
+          if [ "$TOTAL_EQ" = "0" ]; then
+            V="Nenhuma equipe existe: $TERMOS bigramas, zero resultados, com a busca comprovadamente viva ($TOTAL_AT atletas nos mesmos termos)."
+            echo "$V"
+            echo "A tabela de equipes está vazia por falta de CADASTRO, não de pontos."
+          else
+            V="Existem equipes cadastradas ($TOTAL_EQ achadas). A hipótese do cadastro ausente NÃO explica o ranking vazio — a causa é outra, e precisa de medição do lado autenticado."
+            echo "::warning::$V"
+          fi
+          {
+            echo '## Equipes e empresas vazias'
+            echo
+            echo "$V"
+            echo
+            echo '`/teams` e `/companies` exigem token e esta sonda não usa credencial;'
+            echo 'a contagem acima vem da busca pública, que enxerga `Team` por nome.'
+          } >> "$GITHUB_STEP_SUMMARY"
