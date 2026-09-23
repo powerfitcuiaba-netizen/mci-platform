@@ -16,6 +16,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { conferirRestauracao, relatarRestauracao } from './lib/restauracao.mjs';
 
 const RAIZ = process.cwd();
 const SUITE = 'tests/ajuste-de-pontos.test.mjs';
@@ -141,6 +142,11 @@ function main() {
     for (const [alvo, original] of originais) writeFileSync(alvo, original);
   }
 
+  // A RESTAURAÇÃO É CONFERIDA CONTRA O GIT, e não só prometida: um commit
+  // feito durante a execução leva o mutante junto, e a restauração seguinte
+  // deixa a árvore certa com o histórico errado. Ver scripts/qa/lib.
+  const divergentes = conferirRestauracao(RAIZ, MUTANTES.map(m => m.arquivo));
+
   console.log(`\n  mortos ......... ${mortos.length}/${MUTANTES.length}`);
   console.log(`  sobreviventes .. ${sobreviventes.length}`);
   for (const nome of sobreviventes) console.log(`     ! ${nome}`);
@@ -149,7 +155,10 @@ function main() {
     for (const aviso of naoAplicados) console.log(`     ? ${aviso}`);
   }
 
-  process.exit(sobreviventes.length || naoAplicados.length ? 1 : 0);
+  const restauracaoOk = relatarRestauracao(divergentes);
+
+
+  process.exit(sobreviventes.length || naoAplicados.length || !restauracaoOk ? 1 : 0);
 }
 
 console.log('\n  MUTANTES DO AJUSTE DE PONTOS — cada um roda a suíte inteira\n');

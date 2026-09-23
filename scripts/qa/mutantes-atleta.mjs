@@ -21,6 +21,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { conferirRestauracao, relatarRestauracao } from './lib/restauracao.mjs';
 
 const RAIZ = process.cwd();
 
@@ -244,6 +245,11 @@ function main() {
   const declaradosEquivalentes = MUTANTES.filter(m => m.equivalente);
   const equivalentesQueMorreram = declaradosEquivalentes.filter(m => mortos.includes(m.nome));
 
+  // A RESTAURAÇÃO É CONFERIDA CONTRA O GIT, e não só prometida: um commit
+  // feito durante a execução leva o mutante junto, e a restauração seguinte
+  // deixa a árvore certa com o histórico errado. Ver scripts/qa/lib.
+  const divergentes = conferirRestauracao(RAIZ, MUTANTES.map(m => m.arquivo));
+
   console.log(`\n  mortos ......... ${mortos.length}/${MUTANTES.length - declaradosEquivalentes.length} não equivalentes`);
   console.log(`  equivalentes ... ${equivalentes.length}`);
   for (const m of equivalentes) console.log(`     = ${m.nome}\n       ${m.equivalente}`);
@@ -258,7 +264,10 @@ function main() {
     for (const aviso of naoAplicados) console.log(`     ? ${aviso}`);
   }
 
-  process.exit(sobreviventes.length || naoAplicados.length || equivalentesQueMorreram.length ? 1 : 0);
+  const restauracaoOk = relatarRestauracao(divergentes);
+
+
+  process.exit(sobreviventes.length || naoAplicados.length || equivalentesQueMorreram.length || !restauracaoOk ? 1 : 0);
 }
 
 console.log('\n  MUTANTES DA FASE DO ATLETA — cada um roda a suíte que deveria matá-lo\n');
