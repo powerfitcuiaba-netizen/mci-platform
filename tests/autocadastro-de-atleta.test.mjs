@@ -64,6 +64,33 @@ const abrirAutocadastro = (organizationId, aberto = true) =>
 
 const pedir = (pessoa, corpo) => api().post('/api/v1/athlete-requests').set(pessoa.auth()).send(corpo);
 
+// UM PEDIDO PENDENTE, FEITO NA MÃO.
+//
+// Com a conclusão automática, `POST /athlete-requests` não produz mais linha
+// PENDING: o cadastro nasce concluído. Recusar e cancelar continuam existindo
+// — para linhas legadas e para qualquer caminho futuro que volte a enfileirar
+// — e continuam precisando de prova.
+//
+// Inserir direto é deliberado: o que está sob teste aqui é `rejeitar` e
+// `cancelar`, não `criar`. Fabricar o estado pela porta dos fundos para medir
+// a porta da frente seria trapaça; fabricá-lo para medir OUTRA porta é
+// montagem de cenário.
+const pedidoPendenteNaMao = async (pessoa, filiacao, organizationId, semente) => comoAtor(operadorA, () =>
+  prisma.athleteProfileRequest.create({
+    data: {
+      userId: pessoa.id,
+      organizationId,
+      affiliationId: filiacao.id,
+      affiliationNumber: 'NPC-LEGADO',
+      fullName: 'Atleta Legado',
+      sex: 'FEMALE',
+      birthDate: new Date('1998-07-15T12:00:00.000Z'),
+      cpf: gerarCpf(semente).replace(/\D/g, ''),
+      status: 'PENDING'
+    },
+    select: { id: true, organizationId: true }
+  }));
+
 const pedidoValido = (filiacao, semente) => ({
   fullName: 'Atleta Solicitante', cpf: gerarCpf(semente), sex: 'FEMALE',
   birthDate: '1998-07-15', affiliationId: filiacao.id, affiliationNumber: 'NPC-00123'
@@ -267,6 +294,11 @@ describe('a vitrine não afrouxa a validação do pedido', () => {
     const operadorB = await criarUsuario({ name: 'Operador B' });
     await vincular(orgB.id, operadorB, 'EVENT_DIRECTOR');
     const filiacaoB = await criarFiliacao(operadorB, orgB.id);
+    // A federação B também precisa estar recebendo autocadastro: a conferência
+    // desceu da vitrine para o SERVIÇO, e agora recusa de verdade quem tem a
+    // porta fechada — esconder a filiação nunca impediu ninguém que já tivesse
+    // o id dela em mãos.
+    await abrirAutocadastro(orgB.id);
 
     const pessoa = await cadastrarPessoa();
     const r = await pedir(pessoa, pedidoValido(filiacaoB, 2));
@@ -403,9 +435,29 @@ describe('foto do pedido', () => {
     expect(await storage.exists(chave)).toBe(false);
   });
 
-  it('pedido já decidido não aceita mais foto', async () => {
-    await api().post(`/api/v1/athlete-requests/${pedido.id}/cancel`).set(pessoa.auth());
-    expect((await enviarFoto(pessoa, pedido.id, pngValido())).status).toBe(422);
+  // A REGRA MUDOU AQUI, E A MUDANÇA É INTENCIONAL.
+  //
+  // O pedido agora nasce APPROVED, e a foto é enviada depois — se APPROVED
+  // recusasse, TODO autocadastro sairia sem foto. Então APPROVED aceita, e a
+  // foto tem de CHEGAR NO ATLETA, não ficar presa no pedido.
+  it('o cadastro concluído ainda aceita foto, e ela chega ao atleta', async () => {
+    const envio = await enviarFoto(pessoa, pedido.id, pngValido(24));
+    expect(envio.status, JSON.stringify(envio.body)).toBe(200);
+    expect(envio.body.hasPhoto).toBe(true);
+
+    const chave = await chaveDoPedido(pessoa, pedido.id);
+    const atleta = await comoAtor(operadorA, () =>
+      prisma.athlete.findUnique({ where: { id: pedido.athleteId }, select: { photoKey: true } }));
+    expect(atleta.photoKey, 'a foto ficou só no pedido e não alcançou o atleta').toBe(chave);
+  });
+
+  // O CONTRAPESO: encerrado é encerrado. Ali o objeto já foi descartado de
+  // propósito, e aceitar foto depois traria de volta um arquivo que a regra
+  // mandou apagar.
+  it('pedido encerrado não aceita mais foto', async () => {
+    const legado = await pedidoPendenteNaMao(pessoa, filiacaoA, orgA.id, 9101);
+    await api().post(`/api/v1/athlete-requests/${legado.id}/cancel`).set(pessoa.auth());
+    expect((await enviarFoto(pessoa, legado.id, pngValido())).status).toBe(422);
   });
 });
 
@@ -542,29 +594,32 @@ describe('de conta nova a atleta aprovado', () => {
     expect(comFoto.body.hasPhoto).toBe(true);
     const chaveDaFoto = await chaveDoPedido(pessoa, pedidoId);
 
-    // 5. o operador vê o pedido na fila, SEM CPF na listagem
-    const fila = await api().get('/api/v1/athlete-requests').set(operadorA.auth());
-    expect(fila.body.items).toHaveLength(1);
-    expect(JSON.stringify(fila.body)).not.toContain(cpf.replace(/\D/g, ''));
+    // 5. NÃO HOUVE APROVAÇÃO HUMANA, e é isto que este teste existe para
+    //    provar. O cadastro já nasceu concluído, a fila está vazia, e
+    //    `reviewedById` é NULO — ninguém assinou, porque ninguém analisou.
+    expect(criado.body.status).toBe('APPROVED');
+    expect(criado.body.reviewedById, 'alguém consta como revisor de um cadastro automático').toBeNull();
 
-    // 6. abre para análise: aí sim o CPF, e a foto
+    const fila = await api().get('/api/v1/athlete-requests?status=PENDING').set(operadorA.auth());
+    expect(fila.body.items, 'o autocadastro ainda enfileirou alguém').toHaveLength(0);
+
+    // 6. o CPF não fica no pedido: ele já migrou para `AthleteIdentity` na
+    //    conclusão. A tela de análise, então, não tem mais o que revelar — e
+    //    a resposta continua sem a chave do armazenamento.
     const analise = await api().get(`/api/v1/athlete-requests/${pedidoId}`).set(operadorA.auth());
-    expect(analise.body.cpf).toBe(cpf.replace(/\D/g, ''));
+    expect(analise.body.cpf, 'o CPF ficou para trás no pedido').toBeNull();
     expect(analise.body.hasPhoto).toBe(true);
     expect(analise.body, 'a análise devolveu a chave do armazenamento').not.toHaveProperty('photoKey');
     expect((await api().get(`/api/v1/media/athlete-requests/${pedidoId}/photo`).set(operadorA.auth())).status).toBe(200);
 
-    // 7. aprova
-    const aprovado = await api().post(`/api/v1/athlete-requests/${pedidoId}/approve`).set(operadorA.auth()).send({});
-    expect(aprovado.status, JSON.stringify(aprovado.body)).toBe(200);
-    expect(aprovado.body.status).toBe('APPROVED');
-    expect(aprovado.body.cpf).toBeUndefined();
-
-    // 8. Athlete + AthleteIdentity nasceram, com a foto e o CPF no lugar certo
-    const athleteId = aprovado.body.athleteId;
+    // 7. Athlete + AthleteIdentity nasceram, com a foto e o CPF no lugar certo
+    const athleteId = criado.body.athleteId;
+    expect(athleteId, 'a conclusão automática não criou o atleta').toBeTruthy();
     const athlete = await comoAtor(operadorA, () => prisma.athlete.findUnique({ where: { id: athleteId } }));
     expect(athlete.fullName).toBe('Atleta Solicitante');
     expect(athlete.affiliationNumber).toBe('NPC-77777');
+    // A foto foi enviada DEPOIS de o atleta existir, e mesmo assim chegou nele:
+    // é a propagação que a conclusão automática tornou necessária.
     expect(athlete.photoKey).toBe(chaveDaFoto);
     expect(athlete.userId).toBe(pessoa.id);
 
@@ -591,7 +646,9 @@ describe('de conta nova a atleta aprovado', () => {
   it('recusa: o pedido guarda o motivo, e a foto NÃO fica órfã', async () => {
     await abrirAutocadastro(orgA.id);
     const pessoa = await cadastrarPessoa('Recusada');
-    const pedidoId = (await pedir(pessoa, pedidoValido(filiacaoA, 555))).body.id;
+    // Pedido PENDENTE legado: o autocadastro não produz mais fila, e recusar
+    // continua tendo de funcionar para as linhas que ainda estejam nela.
+    const pedidoId = (await pedidoPendenteNaMao(pessoa, filiacaoA, orgA.id, 555)).id;
     await enviarFoto(pessoa, pedidoId, pngValido());
     const chave = await chaveDoPedido(pessoa, pedidoId);
 
@@ -616,7 +673,9 @@ describe('de conta nova a atleta aprovado', () => {
   it('cancelamento também não deixa arquivo para trás', async () => {
     await abrirAutocadastro(orgA.id);
     const pessoa = await cadastrarPessoa('Desistente');
-    const pedidoId = (await pedir(pessoa, pedidoValido(filiacaoA, 666))).body.id;
+    // Mesma razão da recusa: desistir só existe enquanto houver pedido em
+    // aberto, e o autocadastro não deixa mais nenhum.
+    const pedidoId = (await pedidoPendenteNaMao(pessoa, filiacaoA, orgA.id, 666)).id;
     await enviarFoto(pessoa, pedidoId, pngValido());
     const chave = await chaveDoPedido(pessoa, pedidoId);
 
@@ -684,37 +743,49 @@ describe('o armazenamento falha', () => {
   // O descarte na recusa vai falhar (o objeto já não existe). A decisão do
   // operador não pode ser desfeita por causa disso.
   it('recusa com objeto já ausente: a decisão vale e o banco fica coerente', async () => {
-    await storage.remove(chave);
+    // Recusa opera sobre pedido PENDENTE, e o autocadastro não gera mais
+    // nenhum — o cenário é montado, o que está sob teste é `rejeitar`.
+    const legado = await pedidoPendenteNaMao(pessoa, filiacaoA, orgA.id, 7373);
+    await enviarFoto(pessoa, legado.id, pngValido(20));
+    const chaveLegado = await chaveDoPedido(pessoa, legado.id);
+    await storage.remove(chaveLegado);
 
-    const recusa = await api().post(`/api/v1/athlete-requests/${pedido.id}/reject`).set(operadorA.auth())
+    const recusa = await api().post(`/api/v1/athlete-requests/${legado.id}/reject`).set(operadorA.auth())
       .send({ reason: 'Documento ilegível' });
 
     expect(recusa.status, JSON.stringify(recusa.body)).toBe(200);
     expect(recusa.body.status).toBe('REJECTED');
     expect(recusa.body.hasPhoto).toBe(false);
 
-    const linha = await comoAtor(operadorA, () => prisma.athleteProfileRequest.findUnique({ where: { id: pedido.id } }));
+    const linha = await comoAtor(operadorA, () => prisma.athleteProfileRequest.findUnique({ where: { id: legado.id } }));
     expect(linha.photoKey, 'a linha continuou apontando para um objeto que não existe').toBeNull();
     expect(linha.cpf).toBeNull();
-    expect(await comoAtor(operadorA, () => prisma.athlete.count())).toBe(0);
+    // O pedido recusado NÃO virou atleta. O único atleta que existe aqui é o
+    // do cadastro que concluiu sozinho no `beforeEach` — a recusa não
+    // acrescentou outro.
+    expect(await comoAtor(operadorA, () => prisma.athlete.count({ where: { userId: pessoa.id } }))).toBe(1);
   });
 
   // Órfão de verdade: a linha deixa de apontar e o arquivo fica. Ninguém o
   // alcança, porque a entrega passa SEMPRE pela linha.
   it('objeto que sobra depois do encerramento fica inalcançável por qualquer um', async () => {
-    await api().post(`/api/v1/athlete-requests/${pedido.id}/cancel`).set(pessoa.auth());
+    const legado = await pedidoPendenteNaMao(pessoa, filiacaoA, orgA.id, 8484);
+    await enviarFoto(pessoa, legado.id, pngValido(20));
+    const chaveLegado = await chaveDoPedido(pessoa, legado.id);
+
+    await api().post(`/api/v1/athlete-requests/${legado.id}/cancel`).set(pessoa.auth());
 
     // Recria o arquivo no lugar exato, simulando o descarte que não aconteceu.
-    await storage.saveBuffer(chave, pngValido());
-    expect(await storage.exists(chave)).toBe(true);
+    await storage.saveBuffer(chaveLegado, pngValido());
+    expect(await storage.exists(chaveLegado)).toBe(true);
 
     const estranho = await cadastrarPessoa('Estranho');
     for (const quem of [pessoa, operadorA, estranho]) {
-      const r = await api().get(`/api/v1/media/athlete-requests/${pedido.id}/photo`).set(quem.auth());
+      const r = await api().get(`/api/v1/media/athlete-requests/${legado.id}/photo`).set(quem.auth());
       expect([403, 404], 'um objeto órfão ficou alcançável pela API').toContain(r.status);
     }
 
-    await storage.descartar(chave, { motivo: 'limpeza do teste' });
+    await storage.descartar(chaveLegado, { motivo: 'limpeza do teste' });
   });
 
   it('`descartar` nunca lança — nem no ausente, nem num erro real do provedor', async () => {
