@@ -96,6 +96,19 @@ async function login(data, contexto = {}) {
   const senhaConfere = await bcrypt.compare(data.password, hash);
 
   if (!user || !senhaConfere) throw new AppError(401, 'INVALID_CREDENTIALS', 'Credenciais inválidas');
+
+  // NINGUÉM ENTRA COMO A FEDERAÇÃO.
+  //
+  // A conta de serviço é identidade de EXECUÇÃO: o backend a assume para
+  // concluir um autocadastro e conciliar histórico, e nada mais. Ter senha
+  // impossível já a protegeria, mas senha é acidente — esta conferência é a
+  // regra, e ela vale mesmo que um dia alguém grave um hash conhecido ali.
+  //
+  // A recusa usa o MESMO código de credencial inválida: dizer "esta é uma
+  // conta de serviço" confirmaria a existência do endereço para quem estivesse
+  // procurando por ele.
+  if (user.isServiceAccount) throw new AppError(401, 'INVALID_CREDENTIALS', 'Credenciais inválidas');
+
   if (user.status !== 'ACTIVE') throw new AppError(403, 'USER_INACTIVE', 'Conta inativa');
 
   await audit.record({ actor: user, action: audit.ACTIONS.LOGIN, entity: 'User', entityId: user.id, ip: contexto.ip });

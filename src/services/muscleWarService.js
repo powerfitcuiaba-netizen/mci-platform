@@ -970,10 +970,18 @@ async function adotarLedger(externalAthleteId, athlete, actor) {
   // As temporadas são lidas ANTES da escrita: depois dela as linhas deixam de
   // casar com `athleteId: null` e não haveria como saber o que recalcular.
   const temporadas = new Set();
+  // Os IDs saem daqui pelo mesmo motivo das temporadas: depois da escrita as
+  // linhas deixam de casar com `athleteId: null`, e a auditoria não teria como
+  // dizer QUAIS lançamentos foram vinculados — só quantos, que é menos do que
+  // a regra pede.
+  const idsDosLancamentos = [];
   for (const ponto of await prisma.rankingPoint.findMany({
     where: { externalAthleteId, athleteId: null },
-    select: { seasonId: true }
-  })) temporadas.add(ponto.seasonId);
+    select: { id: true, seasonId: true }
+  })) {
+    temporadas.add(ponto.seasonId);
+    idsDosLancamentos.push(ponto.id);
+  }
 
   await prisma.externalResult.updateMany({
     where: { externalAthleteId, athleteId: null },
@@ -1009,7 +1017,7 @@ async function adotarLedger(externalAthleteId, athlete, actor) {
   // competidor externo para competidor com cadastro.
   for (const seasonId of temporadas) await ranking.recompute_(seasonId);
 
-  return { lancamentos: tocados.count, temporadas };
+  return { lancamentos: tocados.count, temporadas, idsDosLancamentos };
 }
 
 /**
@@ -1140,6 +1148,34 @@ async function linkItem(itemId, { athleteId }, actor) {
 
 const CHAVE_CPF = 'CPF';
 const CHAVE_MATRICULA = 'AFFILIATION_NUMBER';
+
+// OS TRÊS MÉTODOS DE CORRESPONDÊNCIA, e os dois desfechos em que não há
+// vínculo. São os nomes que saem na auditoria e no desfecho do autocadastro —
+// escritos uma vez, aqui, para que tela e registro não inventem variantes.
+const METODO_CPF = 'CPF';
+const METODO_CPF_FILIACAO = 'CPF_AFFILIATION';
+const METODO_FILIACAO = 'AFFILIATION';
+const SEM_HISTORICO = 'SEM_HISTORICO';
+const PRECISA_CONFIRMAR = 'PRECISA_CONFIRMAR';
+
+/**
+ * O método que a conciliação usou, para esta pessoa, nesta execução.
+ *
+ * Quando mais de uma chave alcançou linhas, vence a MAIS FORTE — CPF com
+ * filiação, depois CPF, depois filiação. Devolver a mais fraca daria a
+ * impressão de que o vínculo se apoiou em menos evidência do que de fato teve.
+ *
+ * Sem vínculo nenhum, o desfecho não é um método: é `PRECISA_CONFIRMAR` quando
+ * havia candidato e a regra recusou, e `SEM_HISTORICO` quando não havia nada a
+ * encontrar. Misturar os dois faria a tela dizer "não achamos nada" para quem
+ * tem histórico esperando confirmação.
+ */
+function metodoDeCorrespondencia(chavesUsadas, conflitos) {
+  if (chavesUsadas.has(METODO_CPF_FILIACAO)) return METODO_CPF_FILIACAO;
+  if (chavesUsadas.has(METODO_CPF)) return METODO_CPF;
+  if (chavesUsadas.has(METODO_FILIACAO)) return METODO_FILIACAO;
+  return conflitos > 0 ? PRECISA_CONFIRMAR : SEM_HISTORICO;
+}
 
 const MOTIVO_AUTO = 'AUTO_LINK_AFFILIATION_NUMBER';
 const MOTIVO_AUTO_CPF = 'AUTO_LINK_CPF';
@@ -1360,6 +1396,11 @@ async function vincularPendentesDoAtleta(athlete, actor) {
 
   let vinculados = 0;
   let conflitos = 0;
+  // O QUE DECIDIU, e quais lançamentos foram alcançados. A auditoria da
+  // conciliação automática pede os dois, e depois da escrita já não dá para
+  // reconstruí-los.
+  const chavesUsadas = new Set();
+  const idsVinculados = new Set();
   const lotesTocados = new Map();
   const lotesParaAplicar = new Set();
   const itensVinculados = [];
@@ -1415,6 +1456,20 @@ async function vincularPendentesDoAtleta(athlete, actor) {
     vinculados += 1;
     itensVinculados.push(item.id);
     lotesTocados.set(item.importId, item.import);
+
+    // CPF E FILIAÇÃO NA MESMA LINHA É UM TERCEIRO CASO, e a auditoria precisa
+    // distingui-lo: `CPF` diz que o documento bateu; `CPF_AFFILIATION` diz que
+    // bateram os dois, que é evidência mais forte. Nenhum dos dois muda a
+    // DECISÃO — quem decide continua sendo `impedimentoDoVinculo` —, mas quem
+    // ler o registro depois saberá com o que o sistema contou.
+    const codigoDaLinha = String(item.affiliationCode || '').toUpperCase();
+    const codigoDoAtleta = String(filiacao?.code || '').toUpperCase();
+    const filiacaoTambemBate = Boolean(codigoDaLinha) && codigoDaLinha === codigoDoAtleta;
+    chavesUsadas.add(
+      chave === CHAVE_CPF
+        ? (filiacaoTambemBate ? METODO_CPF_FILIACAO : METODO_CPF)
+        : METODO_FILIACAO
+    );
     // Linha que estava esperando aplicação: esta sim precisa que o lote seja
     // reaplicado para virar ponto. A que já estava `APPLIED` não.
     if (item.matchStatus === 'MATCH_PENDING') lotesParaAplicar.add(item.importId);
@@ -1475,7 +1530,9 @@ async function vincularPendentesDoAtleta(athlete, actor) {
 
   let lancamentosVinculados = 0;
   for (const externalAthleteId of identidades) {
-    lancamentosVinculados += (await adotarLedger(externalAthleteId, athlete, actor)).lancamentos;
+    const adocao = await adotarLedger(externalAthleteId, athlete, actor);
+    lancamentosVinculados += adocao.lancamentos;
+    for (const id of adocao.idsDosLancamentos || []) idsVinculados.add(id);
   }
 
   for (const importId of lotesTocados.keys()) await recontar(importId);
@@ -1523,7 +1580,11 @@ async function vincularPendentesDoAtleta(athlete, actor) {
     });
   }
 
-  return { vinculados, conflitos, lotesAplicados, lancamentosVinculados };
+  return {
+    vinculados, conflitos, lotesAplicados, lancamentosVinculados,
+    matchMethod: metodoDeCorrespondencia(chavesUsadas, conflitos),
+    rankingPointIds: [...idsVinculados]
+  };
 }
 
 async function recontar(importId) {

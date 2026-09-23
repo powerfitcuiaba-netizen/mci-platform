@@ -4,6 +4,7 @@ const { config } = require('../config/environment');
 const { assertPermission, assertCan } = require('../utils/tenant');
 const { isCrossTenant, organizationIdsOf } = require('../utils/permissions');
 const audit = require('./auditService');
+const contasDeServico = require('./serviceAccountService');
 
 async function list(actor) {
   const where = isCrossTenant(actor) ? {} : { id: { in: organizationIdsOf(actor).length ? organizationIdsOf(actor) : ['__nenhuma__'] } };
@@ -62,6 +63,14 @@ async function create(data, actor) {
     // nula, e a leitura cai em `name` — não são reescritas.
     data: CLASSES_DO_CAMPEONATO.map(classe => ({ organizationId: organization.id, displayName: classe.name, ...classe }))
   });
+
+  // A IDENTIDADE TÉCNICA NASCE COM A FEDERAÇÃO.
+  //
+  // Provisionar aqui, e não sob demanda, é o que faz o autocadastro poder
+  // concluir sozinho desde o primeiro dia. Criá-la no meio de um cadastro de
+  // atleta seria criar identidade privilegiada dentro do fluxo de quem está se
+  // cadastrando — o inverso do que esta arquitetura quer.
+  await contasDeServico.provisionar(organization.id, actor);
 
   await audit.record({ actor, action: 'ORGANIZATION_CREATE', entity: 'Organization', entityId: organization.id, organizationId: organization.id, metadata: { slug: data.slug } });
 

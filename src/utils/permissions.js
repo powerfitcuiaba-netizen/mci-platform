@@ -126,6 +126,17 @@ const ROLE_PERMISSIONS = Object.freeze({
 
   MODERATOR: operacional('social.moderate', 'social.delete', 'messenger.moderate'),
 
+  // A CONTA DE SERVIÇO DA FEDERAÇÃO NÃO TEM PERMISSÃO DE APLICAÇÃO NENHUMA.
+  //
+  // Não é descuido, é o desenho. O poder dela mora no BANCO — `mci_operator_of`
+  // a reconhece, e o RLS a prende a uma federação. Aqui em cima, toda rota que
+  // passa por `assertCan` lhe é negada, inclusive as da própria federação.
+  //
+  // Se algum dia esta linha ganhar permissões, a conta deixa de ser uma
+  // identidade de execução e vira um usuário privilegiado sem dono — que é
+  // exatamente o que ela foi criada para não ser.
+  FEDERATION_SERVICE: operacional(),
+
   ATHLETE: operacional(),
   COACH: operacional('registrations.read'),
   GYM: operacional(),
