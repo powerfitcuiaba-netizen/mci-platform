@@ -402,6 +402,25 @@ function Formulario({ nomeDaConta, ultimaRecusa, aoEnviar, notificar }) {
   // defeito do servidor em vez de mostrá-lo.
   const ativas = filiacoes.data?.items ?? [];
 
+  // UMA SÓ ENTIDADE, JÁ ESCOLHIDA.
+  //
+  // Quando a vitrine devolve uma federação só, o "—" não é uma escolha: é um
+  // passo obrigatório com uma opção. Deixá-lo vazio custa um clique em todo
+  // cadastro e produz o erro mais bobo do formulário — enviar sem entidade,
+  // justamente quem está preenchendo isto pela primeira vez.
+  //
+  // O que decide é a CARDINALIDADE, e não o nome: nada aqui conhece "NPC",
+  // nem deve. No dia em que uma segunda federação abrir o autocadastro, a
+  // escolha volta a ser da pessoa — sozinha, sem ninguém tocar neste código.
+  //
+  // A pré-seleção só acontece sobre campo VAZIO. Ela não reescreve escolha de
+  // ninguém, e o formulário limpo depois do envio volta a recebê-la.
+  const unica = ativas.length === 1 ? ativas[0].id : null;
+  useEffect(() => {
+    if (!unica) return;
+    setForm(anterior => (anterior.affiliationId ? anterior : { ...anterior, affiliationId: unica }));
+  }, [unica]);
+
   return (
     <section className="card">
       <h2>{t('solicitacao.solicitarPerfil')}</h2>
