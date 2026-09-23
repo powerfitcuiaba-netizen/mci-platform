@@ -242,45 +242,68 @@ As sete guardas anti-pulo passaram, inclusive a nova — "Conferir que as suíte
 da gestão do atleta não foram puladas" —, que exige as 71 asserções das quatro
 suítes desta fase.
 
-### 9.3 Deploy — NOT TESTED
+### 9.3 Deploy — MEDIDO
 
-Duas coisas, e nenhuma delas é "passou":
-
-**1. A CI não publica.** `.github/workflows/ci.yml` diz, na terceira linha:
-*"Valida cada push e cada PR. Não publica nada: deploy é decisão manual."*
-Não existe job de deploy neste repositório. A publicação é do `render.yaml`
-(blueprint do Render), que não fixa `autoDeploy` nem `branch` — o que significa
-que vale o padrão do Render para o serviço, e esse padrão está do lado do
-Render, não aqui. **Não posso afirmar daqui que o deploy disparou.**
-
-**2. Não consigo alcançar a produção.** O proxy de saída deste ambiente nega a
-conexão por política da organização:
+Não daqui. O proxy de saída deste ambiente nega a conexão por política da
+organização, e continua negando:
 
 ```
 mci-platform-api.onrender.com:443 — connect_rejected
 gateway answered 403 to CONNECT (policy denial or upstream failure)
 ```
 
-Portanto `/health`, `/ready` e o smoke test pós-deploy ficam **NOT TESTED**.
-Não vou chamar de verde o que não medi.
+Então a pergunta foi feita do único lugar deste projeto que alcança a internet:
+o runner do Actions — o mesmo motivo que fez o `preview.yml` nascer lá. O
+workflow `sonda-producao.yml` faz dois GET e mais nada: sem escrita, sem
+autenticação, sem credencial, e só por `workflow_dispatch`.
 
-**Comandos para conferir, de uma máquina com saída para o Render:**
+**Execução #1** (`35811628566`), 2026-09-23 02:45:32Z:
 
-```sh
-curl -sS https://mci-platform-api.onrender.com/health   # espera 200 e status ok
-curl -sS https://mci-platform-api.onrender.com/ready    # espera 200; 503 = banco/RLS fora
-```
+| Sonda | HTTP | Corpo |
+|---|---|---|
+| `/health` | **200** | `{"status":"ok","env":"production","uptimeSeconds":2448}` |
+| `/ready` | **200** | `{"ready":true,"checks":{"database":true,"storage":true,"rls":true},"databaseKind":"postgresql","storageDriver":"s3"}` |
 
-O smoke test pós-deploy é **somente leitura** e não cria nada:
+As três conferências do `/ready` passaram: **banco alcançável, armazenamento
+gravável e RLS efetivo**. `env` é `production` e o driver é `s3` — não é
+ambiente de teste respondendo no lugar da produção.
+
+### 9.4 O que a sonda NÃO prova
+
+Duas coisas, e nenhuma delas fica escondida atrás do 200:
+
+**Qual commit está rodando.** `/health` devolve `status`, `env` e `uptime`. Não
+devolve versão. Não existe endpoint que diga o SHA publicado, e portanto **não
+posso afirmar que a produção está servindo `27ef29d`**.
+
+O que posso dizer é a aritmética: `uptimeSeconds: 2448` às 02:45:32Z coloca a
+partida do processo em **02:04:44Z**, e a CI da main fechou às **02:01:22Z**.
+O processo reiniciou três minutos depois do merge. Isso é **compatível** com o
+deploy automático do Render ter disparado no merge — e compatível não é
+confirmado. Para confirmar, é preciso o painel do Render, que fica do lado de
+lá.
+
+**Se todo merge dispara deploy.** Depois daquele reinício, a main recebeu mais
+dois merges. A sonda não mediu se eles produziram novos deploys.
+
+### 9.5 Como repetir a sonda
+
+Pelo Actions: **Sonda de produção** → *Run workflow*. O campo `api` aceita
+outra URL, para o dia em que o serviço mudar de nome.
+
+De uma máquina com saída para o Render, o mesmo, na mão:
 
 ```sh
 API=https://mci-platform-api.onrender.com
-curl -sS $API/api/v1/ranking/super-overall     # ranking público responde
-curl -sS $API/api/v1/events                    # 47 campeonatos continuam lá
-curl -sS $API/api/v1/athletes                  # sem token: espera 401
-curl -sS "$API/api/v1/search?q=<nome>"         # CPF NÃO pode aparecer na resposta
+curl -sS $API/health   # espera 200, status ok
+curl -sS $API/ready    # espera 200; 503 = database, storage ou rls fora
 ```
 
-Se `/ready` responder 503 depois do deploy, a causa está documentada em
-`docs/DEPLOY.md`: a aplicação **recusa subir sem RLS efetivo**, e isso é
-comportamento desejado, não defeito.
+O smoke test de §18, somente leitura, que não cria nada:
+
+```sh
+curl -sS $API/api/v1/ranking/super-overall     # ranking público responde
+curl -sS $API/api/v1/events                    # os 47 campeonatos continuam lá
+curl -sS $API/api/v1/athletes                  # sem token: espera 401
+curl -sS "$API/api/v1/search?q=<nome>"         # CPF NÃO pode aparecer
+```
