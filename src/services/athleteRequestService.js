@@ -402,7 +402,13 @@ async function concluirAutomaticamente(pedido, actor) {
     //
     // Então o que sai daqui não confirma nem nega nada sobre o documento. O
     // motivo real fica na auditoria, para o operador que for atender.
-    if (erro instanceof AppError && erro.code === 'CPF_ALREADY_REGISTERED') {
+    // As duas colisões de identidade recebem a MESMA resposta neutra. Para
+    // quem está do lado de fora, "CPF já cadastrado" e "matrícula já
+    // cadastrada" são igualmente reveladores: as duas confirmam que aquele
+    // identificador existe nesta federação. O motivo verdadeiro vai para a
+    // auditoria, que é lida por quem tem permissão.
+    if (erro instanceof AppError
+      && (erro.code === 'CPF_ALREADY_REGISTERED' || erro.code === 'AFFILIATION_NUMBER_IN_USE')) {
       await audit.record({
         actor, action: 'ATHLETE_PROFILE_REQUEST_AUTO_BLOCKED',
         entity: 'AthleteProfileRequest', entityId: pedido.id,
@@ -410,7 +416,7 @@ async function concluirAutomaticamente(pedido, actor) {
         metadata: {
           actorType: 'SYSTEM_SERVICE_ACCOUNT',
           serviceAccountId: contaDeServico.id,
-          motivo: 'CPF_ALREADY_REGISTERED',
+          motivo: erro.code,
           affiliationId: pedido.affiliationId,
           origem: 'AUTOCADASTRO'
         }
@@ -522,6 +528,17 @@ async function executarAprovacao(pedido, actor, opcoes = {}) {
     // esperada, e sem dizer o que fazer. Medido no navegador: a aprovação
     // devolvia 500.
     if (erro?.code === 'P2002') {
+      // QUAL unicidade caiu, e não "alguma". São duas colisões possíveis e
+      // elas pedem coisas diferentes do operador: conferir o documento, ou
+      // conferir a matrícula com a federação. Chamar as duas de CPF duplicado
+      // mandaria alguém procurar o problema no lugar errado — e mandaria a
+      // AUDITORIA registrar uma causa que não aconteceu.
+      const alvo = [].concat(erro.meta?.target ?? []).join(',');
+      if (alvo.includes('affiliationNumber')) {
+        throw new AppError(409, 'AFFILIATION_NUMBER_IN_USE',
+          'Esta matrícula já pertence a outro atleta desta filiação. '
+          + 'Confira o número com a federação antes de aprovar.');
+      }
       throw new AppError(409, 'CPF_ALREADY_REGISTERED',
         'Este CPF já pertence a um atleta desta federação. Confira o documento com o solicitante antes de aprovar.');
     }
