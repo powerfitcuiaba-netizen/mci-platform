@@ -1,0 +1,112 @@
+# ============================================================================
+# SONDA DE PRODUÇÃO — /health e /ready, somente leitura
+#
+# POR QUE ESTE WORKFLOW EXISTE
+#
+# A rede onde o agente trabalha não alcança o Render: o CONNECT para
+# `*.onrender.com` volta 403 por política de egresso da organização. O runner
+# do Actions tem internet. Ele é o único lugar de onde este projeto consegue
+# PERGUNTAR à produção se ela está de pé — o mesmo motivo que fez o
+# `preview.yml` nascer aqui.
+#
+# O QUE ELE FAZ
+#
+#   dois GET. `/health` e `/ready`. Mais nada.
+#
+# O QUE ELE NÃO FAZ
+#
+#   não escreve, não autentica, não usa credencial nenhuma, não toca no banco,
+#   não faz deploy e não roda em push. Só quando alguém pede.
+#
+# SOBRE O LOG SER PÚBLICO
+#
+# O repositório é público, e log de Actions de repositório público é público.
+# Isto aqui é seguro porque `/health` e `/ready` JÁ SÃO públicos — qualquer
+# pessoa na internet pode chamá-los — e porque `healthService.js` foi escrito
+# para não publicar segredo em nenhum dos dois: o diagnóstico de armazenamento
+# sai como status HTTP e código do serviço, nunca o corpo bruto, justamente
+# porque erro de credencial em S3 devolve a Access Key dentro do XML.
+# ============================================================================
+
+name: Sonda de produção
+
+on:
+  workflow_dispatch:
+    inputs:
+      api:
+        description: 'URL da API, sem barra no final'
+        required: false
+        default: 'https://mci-platform-api.onrender.com'
+
+permissions:
+  contents: read
+
+jobs:
+  sondar:
+    name: /health e /ready
+    runs-on: ubuntu-latest
+    steps:
+      - name: Conferir que o host existe
+        id: dns
+        run: |
+          API="${{ inputs.api }}"
+          HOST="$(printf '%s' "$API" | sed -E 's#^https?://##; s#/.*$##')"
+          echo "host=$HOST" >> "$GITHUB_OUTPUT"
+          echo "Host: $HOST"
+          if getent hosts "$HOST" > /dev/null; then
+            echo "DNS resolve."
+          else
+            echo "::error::O host \`$HOST\` não resolve. Isto não é a produção caída: é a URL errada. Confira o nome real do serviço no painel do Render — ele sufixa o nome com caracteres aleatórios (ver docs/DEPLOY-RENDER.md)."
+            exit 1
+          fi
+
+      # O plano free do Render hiberna o serviço. A primeira chamada depois da
+      # hibernação demora para responder, e um timeout curto mediria a
+      # hibernação, não a saúde. Daí o tempo largo.
+      - name: GET /health
+        id: health
+        run: |
+          API="${{ inputs.api }}"
+          CODIGO="$(curl -sS -m 120 -o /tmp/health.json -w '%{http_code}' "$API/health" || echo 000)"
+          echo "HTTP $CODIGO"
+          echo '--- corpo ---'
+          cat /tmp/health.json; echo
+          echo "codigo=$CODIGO" >> "$GITHUB_OUTPUT"
+          [ "$CODIGO" = "200" ] || { echo "::error::/health respondeu $CODIGO, e o esperado é 200."; exit 1; }
+
+      # /ready responde 503 quando o banco, o armazenamento ou o RLS reprovam.
+      # 503 é uma MEDIÇÃO VÁLIDA, não um erro da sonda: o corpo diz qual dos
+      # três caiu. Por isso o passo não morre em 503 — ele mostra o corpo e
+      # falha depois, com o diagnóstico já impresso.
+      - name: GET /ready
+        id: ready
+        run: |
+          API="${{ inputs.api }}"
+          CODIGO="$(curl -sS -m 120 -o /tmp/ready.json -w '%{http_code}' "$API/ready" || echo 000)"
+          echo "HTTP $CODIGO"
+          echo '--- corpo ---'
+          cat /tmp/ready.json; echo
+          echo "codigo=$CODIGO" >> "$GITHUB_OUTPUT"
+
+      - name: Resumo
+        if: always()
+        run: |
+          {
+            echo '## Sonda de produção'
+            echo
+            echo "Host: \`${{ steps.dns.outputs.host }}\`"
+            echo
+            echo '| Sonda | HTTP |'
+            echo '|---|---|'
+            echo "| \`/health\` | ${{ steps.health.outputs.codigo || 'não chegou a rodar' }} |"
+            echo "| \`/ready\` | ${{ steps.ready.outputs.codigo || 'não chegou a rodar' }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: O veredito
+        run: |
+          C="${{ steps.ready.outputs.codigo }}"
+          case "$C" in
+            200) echo "PASS — a produção está pronta para receber tráfego." ;;
+            503) echo "::error::FAIL — /ready respondeu 503. O corpo acima diz qual das três conferências (database, storage, rls) reprovou. A aplicação recusar tráfego sem RLS efetivo é comportamento desejado, não defeito: ver docs/DEPLOY.md."; exit 1 ;;
+            *)   echo "::error::FAIL — /ready respondeu $C."; exit 1 ;;
+          esac
