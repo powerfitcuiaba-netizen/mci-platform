@@ -183,6 +183,59 @@ describe('minha solicitação', () => {
     if (parametros?.limit !== undefined) expect(parametros.limit).toBeLessThanOrEqual(100);
   });
 
+  // UMA FEDERAÇÃO SÓ: o campo já vem escolhido.
+  //
+  // O "—" com uma opção atrás não é escolha, é um clique obrigatório — e o
+  // erro que ele produz ("selecione a entidade") cai justamente sobre quem
+  // está preenchendo isto pela primeira vez.
+  it('com uma única entidade, ela já vem selecionada', async () => {
+    render(<MinhaSolicitacao notificar={() => {}} />);
+
+    const seletor = await screen.findByLabelText(/^Entidade de filiação/i);
+    await waitFor(() => expect(seletor).toBeEnabled());
+    await waitFor(() => expect(seletor).toHaveValue('fil-1'));
+  });
+
+  // O CONTRAPESO. Sem ele, a pré-seleção poderia estar escolhendo a primeira
+  // da lista — que é decidir pela pessoa qual federação a confirma, e isso
+  // nenhuma tela pode fazer.
+  it('com mais de uma entidade, nenhuma vem selecionada', async () => {
+    espioes.filiacoes = vi.fn(async () => ({
+      items: [
+        { id: 'fil-1', name: 'NPC — National Physique Committee', code: 'NPC', kind: 'ENTITY', state: 'MT', organization: { name: 'Federação de Mato Grosso' } },
+        { id: 'fil-2', name: 'Outra Federação', code: 'OUT', kind: 'ENTITY', state: 'SP', organization: { name: 'Federação de São Paulo' } }
+      ]
+    }));
+
+    render(<MinhaSolicitacao notificar={() => {}} />);
+
+    const seletor = await screen.findByLabelText(/^Entidade de filiação/i);
+    await waitFor(() => expect(seletor).toBeEnabled());
+    await waitFor(() => expect(within(seletor).getAllByRole('option')).toHaveLength(3));
+    expect(seletor).toHaveValue('');
+  });
+
+  // A pré-seleção não pode passar por cima de quem já escolheu. Aqui a lista
+  // começa com duas — a pessoa escolhe a segunda — e nada depois disso tem o
+  // direito de trocar por ela.
+  it('a pré-seleção não reescreve a escolha de quem já escolheu', async () => {
+    espioes.filiacoes = vi.fn(async () => ({
+      items: [
+        { id: 'fil-1', name: 'NPC — National Physique Committee', code: 'NPC', kind: 'ENTITY', state: 'MT', organization: { name: 'Federação de Mato Grosso' } },
+        { id: 'fil-2', name: 'Outra Federação', code: 'OUT', kind: 'ENTITY', state: 'SP', organization: { name: 'Federação de São Paulo' } }
+      ]
+    }));
+    const usuario = userEvent.setup();
+
+    render(<MinhaSolicitacao notificar={() => {}} />);
+
+    const seletor = await screen.findByLabelText(/^Entidade de filiação/i);
+    await waitFor(() => expect(seletor).toBeEnabled());
+    await usuario.selectOptions(seletor, 'fil-2');
+
+    expect(seletor).toHaveValue('fil-2');
+  });
+
   it('pedido em análise mostra a situação e o caminho para desistir, sem formulário', async () => {
     espioes.meus = vi.fn(async () => ({ items: [{ ...PEDIDO }] }));
     render(<MinhaSolicitacao notificar={() => {}} />);
