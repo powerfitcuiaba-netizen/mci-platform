@@ -743,3 +743,127 @@ Corrigido com `createRequire` nos três scripts que tinham o padrão
 
 **Resultado depois da correção: 343 asserções, APROVADO.** As mudanças de
 frontend desta fase não quebraram nada do que já passava.
+
+---
+
+## §15 A sonda de DEMO em produção
+
+Executada em 2026-09-23T17:06Z, `workflow_dispatch`, run #7, commit `3bd68e6`.
+Seis jobs, todos `success`.
+
+### 15.1 Consultas executadas e contagens
+
+Somente `GET`, sem token, contra `https://mci-platform-api.onrender.com`:
+
+| Vista pública | Rota | Itens | Com marcador |
+|---|---|---|---|
+| Campeonatos | `/api/v1/events?limit=100` | 47 | **0** |
+| Filiações (vitrine) | `/api/v1/public/affiliations` | 0 | **0** |
+| Super Overall | `/api/v1/ranking/super-overall` | 5 | **0** |
+| Busca pública | `/api/v1/search?q=DEMO` | 0 | **0** |
+| Busca pública | `/api/v1/search?q=QA` | 0 | **0** |
+
+**DEMO_PUBLIC_COUNT = 0.**
+
+Marcadores procurados: `DEMO`, `Etapa QA`, `Federação QA`, `NPC Mato Grosso
+(QA)`, `QA-NPC-MT`, `Atleta QA`, `MARIANA QA`, `qa-auto-`, `qa-resp-`,
+`@mci.local`, `federacao.mci.local`, `Sistema ·`.
+
+### 15.2 Nenhuma mutação foi realizada
+
+O job só executa `curl -sS` com `GET`, sem `Authorization`. Nenhum DELETE,
+UPDATE, TRUNCATE, backfill, recompute ou importação. Não há credencial de
+escrita disponível ao workflow — todas as rotas de escrita exigem token, e ele
+não tem nenhum. Se encontrasse marcador, o job pararia com `exit 1` sem apagar
+nada.
+
+### 15.3 O alcance desta medição — e por que NÃO é "DEMO = 0 no banco"
+
+Evidência **parcial, e assumidamente parcial**.
+
+O que ela prova: nenhum dado de QA desta fase aparece nas superfícies que o
+público enxerga em produção.
+
+O que ela **não** prova: contagem por TABELA, listagem de ID, e qualquer coisa
+não pública — a conta de serviço da federação, por exemplo, nunca aparece em
+rota nenhuma, e é essa a intenção do §12.5. Para isso seria preciso consultar
+o banco de produção, e **nenhum workflow deste repositório tem
+`DATABASE_URL`**: não existe um único `secrets.*` em `.github/workflows`.
+Conferido, não suposto.
+
+**Veredito: DEMO PRODUCTION (vistas públicas) = PASS. DEMO PRODUCTION (por
+tabela, com ID) = NOT TESTED**, por falta de acesso, e não por escolha.
+
+### 15.4 Um achado lateral que vale registrar
+
+`/api/v1/public/affiliations` devolve **0 itens** em produção. Não é defeito: a
+vitrine só mostra filiação de organização com autocadastro ABERTO, e nenhuma
+está — o padrão de produção é fechado, e abrir é ato administrativo. É
+consistente, e é o que se espera antes de a federação abrir a porta.
+
+---
+
+## §16 DEFEITO BLOQUEANTE DE DEPLOY, encontrado ao preparar a sonda
+
+### 16.1 As federações que já existem não teriam conta de serviço
+
+`provisionar` é chamado em **um** lugar: `organizationService.create`. As
+federações de produção foram criadas antes desta fase, e a migration que
+acrescentou `isServiceAccount`/`serviceOrganizationId` **não cria linha
+nenhuma** — migration altera ESTRUTURA; a conta de serviço é DADO.
+
+Consequência no deploy: `contaDaOrganizacao` não encontra a conta e
+`POST /athlete-requests` responde **503 SERVICE_ACCOUNT_MISSING para todas as
+federações existentes**. A funcionalidade inteira desta fase não funcionaria em
+produção — e o sintoma só apareceria quando o primeiro atleta tentasse se
+cadastrar.
+
+Corrigido com `scripts/provisionar-contas-de-servico.js`, idempotente e
+somente-INSERT, que roda a **mesma** `provisionar()` da criação de organização.
+Reimplementá-la em SQL faria existirem dois caminhos para a mesma coisa, que é
+como as duas versões divergem sem ninguém notar.
+
+### 16.2 E o script falhou EM SILÊNCIO — o pior modo de falhar
+
+A primeira versão rodava sem ator (`withUserContext(null, …)`), o que parecia
+correto: num deploy não há operador humano.
+
+Ela devolvia a conta criada, **com id e tudo**, e o banco ficava **vazio**.
+
+A cadeia, medida passo a passo:
+
+1. a política `auditoria_escrita` exige `mci_member_of(organizationId)`, e sem
+   ator nenhuma das alternativas vale → o INSERT é recusado com **42501**;
+2. no PostgreSQL, um statement recusado **aborta a transação inteira**;
+3. `audit.record` **engole** o erro (`try/catch` que loga e devolve `null`);
+4. `provisionar` segue e retorna com sucesso;
+5. tudo volta atrás no commit.
+
+**NÃO afrouxei a política.** Provisionar é ato administrativo, e ato
+administrativo tem dono: o script passou a exigir `PROVISIONAR_ADMIN_EMAIL`, o
+administrador se identifica, e a auditoria grava o nome dele — que é a verdade,
+porque foi ele quem mandou rodar. É a mesma escolha de `criar-admin.js`.
+
+### 16.3 A ressalva geral que isto expõe
+
+`audit.record` captura o próprio erro e devolve `null`, como se a falha fosse
+contida. **No PostgreSQL ela não é**: qualquer statement recusado envenena a
+transação. Todo ponto que chama `audit.record` confiando em "auditoria que
+falha não derruba o resto" está, na verdade, desfazendo o trabalho inteiro.
+
+No caminho HTTP o estrago é menor — `asyncHandler` retém a resposta até o
+commit, então o cliente recebe 500 em vez de um sucesso mentiroso. Fora dele
+(scripts), o sucesso mentiroso é exatamente o que acontece.
+
+A correção geral seria um SAVEPOINT em torno do INSERT de auditoria. É mudança
+num caminho quentíssimo, chamado de toda parte, e **não a fiz nesta fase**:
+está registrada aqui para decisão sua. O que fiz foi tirar este script da
+armadilha.
+
+### 16.4 Suíte
+
+`tests/provisionamento-de-contas-de-servico.test.mjs` — 4 testes, verdes:
+o 503 acontece e não deixa resto; o provisionamento cria conta **e membresia**
+(sem a membresia `mci_operator_of` não a reconhece, e a conta existiria sem
+poder fazer nada — falha pior, porque parece certa); repetir não duplica; cada
+federação recebe a sua.

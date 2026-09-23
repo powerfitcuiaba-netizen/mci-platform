@@ -198,6 +198,34 @@ npx prisma migrate status   # precisa dizer que nada ficou pendente
 As migrations são *forward-only*: o baseline do domínio, as políticas de RLS e
 a evolução do domínio esportivo desde então.
 
+### 3.3 Provisionar a conta de serviço das federações — PASSO OBRIGATÓRIO
+
+```bash
+# Confere primeiro, sem escrever nada:
+PROVISIONAR_ADMIN_EMAIL='admin@dominio' node scripts/provisionar-contas-de-servico.js --conferir
+
+# Aplica:
+PROVISIONAR_ADMIN_EMAIL='admin@dominio' node scripts/provisionar-contas-de-servico.js
+```
+
+**Não é opcional, e migration nenhuma faz isto por você.** A conta de serviço
+da federação nasce junto com a organização (`organizationService.create`). As
+federações que já existiam foram criadas antes desta fase, e a migration que
+acrescentou as colunas não cria linha nenhuma — migration altera ESTRUTURA, e a
+conta de serviço é DADO.
+
+Sem este passo, `POST /athlete-requests` responde **503
+`SERVICE_ACCOUNT_MISSING` para todas as federações existentes**: o autocadastro
+não conclui, e o sintoma só aparece quando o primeiro atleta tenta se cadastrar.
+
+O e-mail do administrador é exigido porque provisionar é ato administrativo e
+ato administrativo tem dono — a auditoria grava quem autorizou. Sem ator, a
+política `auditoria_escrita` recusa o INSERT, o PostgreSQL aborta a transação, e
+o provisionamento volta atrás **em silêncio**. Medido; ver §16.2 da auditoria.
+
+É **idempotente**: rode a cada deploy, sem precisar lembrar quais federações já
+foram atendidas. Só faz INSERT.
+
 #### Preflight obrigatório em base que já tem dado
 
 A migration `20260921120000_matricula_identifica_um_atleta` cria um índice
