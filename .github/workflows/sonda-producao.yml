@@ -449,3 +449,34 @@ jobs:
             echo '`/teams` e `/companies` exigem token e esta sonda não usa credencial;'
             echo 'a contagem acima vem da busca pública, que enxerga `Team` por nome.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # ==========================================================================
+  # A INTERFACE ESTÁ NO AR?
+  #
+  # A API foi medida; o site, não. O `render.yaml` declara dois serviços —
+  # `mci-api` e `mci-web` —, e o Render sufixa o nome com caracteres
+  # aleatórios, então o nome do site é um palpite até alguém perguntar a ele.
+  #
+  # Este job NÃO reprova a execução: ele RELATA. Errar o palpite da URL não é
+  # a produção estar fora do ar, e tratar as duas coisas como a mesma falha
+  # ensinaria a ignorar o vermelho.
+  # ==========================================================================
+  interface:
+    name: A interface está no ar
+    needs: sondar
+    runs-on: ubuntu-latest
+    steps:
+      - name: Perguntar aos candidatos
+        run: |
+          for U in https://mci-platform-web.onrender.com https://mci-web.onrender.com; do
+            H="$(printf '%s' "$U" | sed -E 's#^https?://##')"
+            if ! getent hosts "$H" > /dev/null; then
+              echo "$U → o host não resolve"
+              continue
+            fi
+            C="$(curl -sS -m 120 -o /tmp/w.html -w '%{http_code}' "$U" || echo 000)"
+            TITULO="$(grep -oiE '<title>[^<]*</title>' /tmp/w.html | head -1 | sed -E 's#</?[Tt][Ii][Tt][Ll][Ee]>##g')"
+            # Uma SPA responde 200 com o index em qualquer caminho. O que diz
+            # que é ESTA aplicação é o título, não o código.
+            echo "$U → HTTP $C · título: ${TITULO:-(sem título)}"
+          done
