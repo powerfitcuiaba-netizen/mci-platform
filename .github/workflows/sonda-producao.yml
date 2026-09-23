@@ -380,9 +380,19 @@ jobs:
   # perto de enumerar que dá sem credencial: um nome de equipe que exista
   # precisa conter pelo menos um deles.
   #
-  # O CONTROLE É O QUE SEGURA A CONCLUSÃO: os mesmos termos contam ATLETAS.
-  # Zero equipes com zero atletas significaria busca quebrada; zero equipes com
-  # atletas de sobra significa que não há equipe cadastrada.
+  # O CONTROLE É O QUE SEGURA A CONCLUSÃO: os mesmos termos contam EVENTOS.
+  # Zero equipes com zero eventos significaria busca quebrada; zero equipes com
+  # eventos de sobra significa que não há equipe cadastrada.
+  #
+  # O CONTROLE COMEÇOU ERRADO, e fica registrado. A primeira versão contava
+  # ATLETAS, e ela NÃO PODIA passar: `searchService.js` recusa atleta à busca
+  # anônima — "Sem autenticação, atleta não entra na busca: é dado de pessoa
+  # física", e o ramo devolve lista vazia sem consultar o banco. O controle
+  # reprovou e o job se recusou a concluir, que é o comportamento certo; o erro
+  # foi escolher o controle sem ler o ramo primeiro.
+  #
+  # `events` serve porque é o caso simétrico ao de `teams`: mesma busca por
+  # nome, mesma rota anônima, sem porteiro — e sabemos que há 47 deles.
   #
   # Tudo GET, tudo anônimo, nenhuma escrita. Contagens, nunca corpos.
   # ==========================================================================
@@ -397,14 +407,14 @@ jobs:
         run: |
           TOTAL_EQ=0; TOTAL_AT=0; TERMOS=0
           for T in ar er os as te in an ra co de do da es re ma ta la ca na li sa to ro mo pa al ei ia ou; do
-            curl -sS -m 60 -o /tmp/b.json --get --data-urlencode "q=$T" --data-urlencode 'types=teams,athletes' --data-urlencode 'limit=50' "$API/api/v1/search"
-            EQ="$(jq -r '.results.teams    | length' /tmp/b.json 2>/dev/null || echo 0)"
-            AT="$(jq -r '.results.athletes | length' /tmp/b.json 2>/dev/null || echo 0)"
-            printf '  %-4s equipes %-3s · atletas %s\n' "$T" "$EQ" "$AT"
+            curl -sS -m 60 -o /tmp/b.json --get --data-urlencode "q=$T" --data-urlencode 'types=teams,events' --data-urlencode 'limit=50' "$API/api/v1/search"
+            EQ="$(jq -r '.results.teams  | length' /tmp/b.json 2>/dev/null || echo 0)"
+            AT="$(jq -r '.results.events | length' /tmp/b.json 2>/dev/null || echo 0)"
+            printf '  %-4s equipes %-3s · eventos %s\n' "$T" "$EQ" "$AT"
             TOTAL_EQ=$((TOTAL_EQ + EQ)); TOTAL_AT=$((TOTAL_AT + AT)); TERMOS=$((TERMOS + 1))
           done
           echo
-          echo "$TERMOS bigramas · equipes encontradas: $TOTAL_EQ · atletas encontrados: $TOTAL_AT"
+          echo "$TERMOS bigramas · equipes encontradas: $TOTAL_EQ · eventos encontrados: $TOTAL_AT"
           echo "TOTAL_EQ=$TOTAL_EQ" >> "$GITHUB_ENV"
           echo "TOTAL_AT=$TOTAL_AT" >> "$GITHUB_ENV"
           echo "TERMOS=$TERMOS"     >> "$GITHUB_ENV"
@@ -415,16 +425,16 @@ jobs:
           # quebrada devolveria zero equipes exatamente como um banco sem
           # equipe nenhuma.
           if [ "$TOTAL_AT" -gt 0 ]; then
-            echo "Controle OK: a mesma busca, nos mesmos termos, achou $TOTAL_AT atletas."
+            echo "Controle OK: a mesma busca, nos mesmos termos, achou $TOTAL_AT eventos."
           else
-            echo "::error::Controle FALHOU: a busca não achou atleta nenhum em $TERMOS termos. A varredura de equipes não conclui nada — o instrumento é que está mudo."
+            echo "::error::Controle FALHOU: a busca não achou evento nenhum em $TERMOS termos. A varredura de equipes não conclui nada — o instrumento é que está mudo."
             exit 1
           fi
 
       - name: Veredito
         run: |
           if [ "$TOTAL_EQ" = "0" ]; then
-            V="Nenhuma equipe existe: $TERMOS bigramas, zero resultados, com a busca comprovadamente viva ($TOTAL_AT atletas nos mesmos termos)."
+            V="Nenhuma equipe existe: $TERMOS bigramas, zero resultados, com a busca comprovadamente viva ($TOTAL_AT eventos nos mesmos termos)."
             echo "$V"
             echo "A tabela de equipes está vazia por falta de CADASTRO, não de pontos."
           else
