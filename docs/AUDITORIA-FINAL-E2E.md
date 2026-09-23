@@ -208,3 +208,79 @@ PLAYWRIGHT_MODULE=… PLAYWRIGHT_CHROMIUM=… npm run qa:responsividade
 npm test                      # regressão de backend
 cd frontend && npm test -- --run && npm run build
 ```
+
+---
+
+## 9. Promoção, CI na main e deploy
+
+### 9.1 O merge
+
+```
+git merge --no-ff claude/mci-platform-muscle-contest-o6haz9
+```
+
+| Conferência | Resultado |
+|---|---|
+| `main` antes | `f4aafb0` |
+| `main` depois | `27ef29d` |
+| Commits preservados | 15 + o commit de merge — **sem squash, sem rebase, sem force** |
+| `git diff --stat <branch> <main>` | **0 linhas** — as árvores são idênticas |
+
+### 9.2 CI na main
+
+Execução **#280** (`35807577186`), `head_sha` `27ef29de467ae6cacea41736d36b60b49f4344a6`,
+concluída às 02:01:22Z.
+
+| Job | Resultado |
+|---|---|
+| Backend — migrations, RLS e testes | **success** — 27 passos, nenhum falho; os 2 pulados são os passos de diagnóstico que só rodam quando um teste cai |
+| Frontend — testes e build | **success** |
+| Higiene do repositório | **success** — sem segredo versionado, sem `.env`, sem marcador de trabalho inacabado, **sem módulo financeiro** |
+| Conclusão da execução | **success** |
+
+As sete guardas anti-pulo passaram, inclusive a nova — "Conferir que as suítes
+da gestão do atleta não foram puladas" —, que exige as 71 asserções das quatro
+suítes desta fase.
+
+### 9.3 Deploy — NOT TESTED
+
+Duas coisas, e nenhuma delas é "passou":
+
+**1. A CI não publica.** `.github/workflows/ci.yml` diz, na terceira linha:
+*"Valida cada push e cada PR. Não publica nada: deploy é decisão manual."*
+Não existe job de deploy neste repositório. A publicação é do `render.yaml`
+(blueprint do Render), que não fixa `autoDeploy` nem `branch` — o que significa
+que vale o padrão do Render para o serviço, e esse padrão está do lado do
+Render, não aqui. **Não posso afirmar daqui que o deploy disparou.**
+
+**2. Não consigo alcançar a produção.** O proxy de saída deste ambiente nega a
+conexão por política da organização:
+
+```
+mci-platform-api.onrender.com:443 — connect_rejected
+gateway answered 403 to CONNECT (policy denial or upstream failure)
+```
+
+Portanto `/health`, `/ready` e o smoke test pós-deploy ficam **NOT TESTED**.
+Não vou chamar de verde o que não medi.
+
+**Comandos para conferir, de uma máquina com saída para o Render:**
+
+```sh
+curl -sS https://mci-platform-api.onrender.com/health   # espera 200 e status ok
+curl -sS https://mci-platform-api.onrender.com/ready    # espera 200; 503 = banco/RLS fora
+```
+
+O smoke test pós-deploy é **somente leitura** e não cria nada:
+
+```sh
+API=https://mci-platform-api.onrender.com
+curl -sS $API/api/v1/ranking/super-overall     # ranking público responde
+curl -sS $API/api/v1/events                    # 47 campeonatos continuam lá
+curl -sS $API/api/v1/athletes                  # sem token: espera 401
+curl -sS "$API/api/v1/search?q=<nome>"         # CPF NÃO pode aparecer na resposta
+```
+
+Se `/ready` responder 503 depois do deploy, a causa está documentada em
+`docs/DEPLOY.md`: a aplicação **recusa subir sem RLS efetivo**, e isso é
+comportamento desejado, não defeito.
