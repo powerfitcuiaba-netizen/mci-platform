@@ -394,18 +394,83 @@ exatamente o que a regra manda.
 Para ver os 84, é preciso ser operador com vínculo na organização dona da
 temporada. Esta sonda não usa credencial nenhuma, e por isso não os viu.
 
-### 10.6 O que a investigação encontrou de passagem
+### 10.6 Uma temporada, 55 classes
 
-Duas coisas que eu não tinha ido procurar:
+A temporada é a **"Temporada 2026"**, única. O filtro do ranking oferece 55
+entradas, com códigos repetidos (`JUNIOR` ×5, `MASTERS_35` ×6, `OPEN_CLASS_A`
+×6, …) — o que é esperado, porque a classe existe **por categoria**, e o mesmo
+código aparece em cada uma delas.
 
-**`/ranking/teams` e `/ranking/companies` devolvem 0 linhas.** Com o cabeçalho
-`top-5` presente — ou seja, é vista pública, mas **não há o que cortar**. Isto
-é uma tabela vazia de verdade, ao contrário do Super Overall. Não atribuo causa:
-pode ser que nenhuma equipe ou empresa tenha vínculo com pontuação lançada, e
-medir isso exige o lado autenticado. **Fica registrado para quem conhece o
-calendário decidir se é esperado.**
+---
 
-**Uma temporada, 55 classes.** A temporada é a **"Temporada 2026"**, única. O
-filtro do ranking oferece 55 entradas, com códigos repetidos (`JUNIOR` ×5,
-`MASTERS_35` ×6, `OPEN_CLASS_A` ×6, …) — o que é esperado, porque a classe
-existe **por categoria**, e o mesmo código aparece em cada uma delas.
+## 11. Equipes e empresas: por que os rankings estão vazios
+
+`/ranking/teams` e `/ranking/companies` devolvem **0 linhas** — com o cabeçalho
+`top-5` presente, ou seja, é vista pública, mas não há o que cortar. Ao
+contrário do Super Overall, esta é uma tabela vazia de verdade.
+
+### 11.1 A cadeia, lida no código
+
+`teamRanking` filtra `PublicRankingEntry` por **`teamId: { not: null }`**. Essa
+coluna espelha `RankingPoint.teamId`, e no caminho da importação — que é o
+caminho dos 47 campeonatos — o `teamId` só nasce de **duas** formas
+(`muscleWarService.js`):
+
+| Origem | Condição | Vale aqui? |
+|---|---|---|
+| `equipeDeclarada` | o `teamName` do arquivo casado contra um `Team` **que já existe** | **Não**, se não há `Team` cadastrado |
+| vínculo do atleta | `AthleteTeamMembership`, que exige `item.athleteId` | **Não**: resultado histórico importado não tem atleta cadastrado |
+
+O ponto decisivo: **o importador nunca cria equipe.** O mapa `equipes` vem de
+`prisma.team.findMany({ where: { organizationId } })`, e um nome que não casa
+vira `undefined` — não um `Team` novo. É deliberado, e a razão está escrita no
+próprio arquivo: a trava de vínculo único não pode ser contornada por um
+arquivo que nomeie outra equipe.
+
+Para empresas a cadeia é a mesma, um elo adiante: `companyId` vem da empresa
+declarada casada contra `Company` existente, **ou da empresa DA EQUIPE** — que
+não existe. Por isso as duas tabelas caem juntas.
+
+### 11.2 A medição
+
+`/teams` e `/companies` exigem token, e esta sonda não usa credencial nenhuma.
+Mas a busca pública **enxerga `Team` por nome** — `searchService.TIPOS` inclui
+`teams`, e o ramo não tem porteiro. Varrer bigramas comuns do português é o
+mais perto de enumerar que se consegue sem credencial: um nome de equipe que
+exista contém pelo menos um deles.
+
+**Execução #5** (`35815496972`), 03:44:20Z:
+
+| Medição | Resultado |
+|---|---|
+| Bigramas varridos | **29** |
+| Equipes encontradas | **0** |
+| Eventos encontrados nos mesmos termos (controle) | **167** |
+
+**Conclusão: não há equipe cadastrada.** As duas tabelas estão vazias por falta
+de **cadastro**, não de pontos. Cadastrar as equipes e reimportar — ou lançar o
+vínculo dos atletas — é o que as preenche; e isso é decisão da federação, não
+correção de defeito.
+
+### 11.3 O primeiro controle estava errado, e o próprio controle disse isso
+
+A **execução #4** reprovou: zero equipes **e zero atletas** em 29 bigramas. O
+job se recusou a concluir, que é o comportamento certo — mas o instrumento mudo
+era meu, não da produção.
+
+`searchService.js` recusa atleta à busca anônima: *"Sem autenticação, atleta não
+entra na busca: é dado de pessoa física"*, e o ramo devolve lista vazia **sem
+sequer consultar o banco**. O controle que eu havia escolhido não podia passar.
+O erro foi escolhê-lo sem ler o ramo primeiro.
+
+Trocado por `events`, que é o caso simétrico ao de `teams`: mesma busca por
+nome, mesma rota anônima, sem porteiro — e com 47 deles já medidos no ar. Fica
+registrado aqui e no comentário do job: trocar em silêncio esconderia que a
+primeira medição não mediu nada.
+
+### 11.4 O que isto reforça sobre o CPF
+
+A mesma leitura fortalece o resultado do §10.2. A busca pública não devolve
+atleta **sob termo nenhum** — não é que o CPF esteja filtrado do payload: o
+ramo inteiro de atletas está fechado para quem não se autentica. O zero do §10.2
+é, portanto, mais forte do que a medição sozinha mostrava.
