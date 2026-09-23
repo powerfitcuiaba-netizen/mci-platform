@@ -2488,3 +2488,56 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
   /* A busca expandida acompanha o novo respiro, e não sobra para fora. */
   .busca-global.is-expandida { inset: 0 var(--e2); }
 }
+
+/* ==========================================================================
+   COMPARAÇÃO LADO A LADO — o cadastro do MCI contra a identidade importada.
+   Existe para uma pergunta só, e é a mais cara do sistema: "este histórico é
+   desta pessoa?". Confirmar um nome é confirmar um homônimo; por isso as duas
+   colunas mostram entidade e matrícula junto do nome, e nunca só o nome.
+   Abaixo de 720px elas empilham: espremer duas listas de definição numa
+   largura de telefone transforma a conferência em adivinhação.
+   ========================================================================== */
+.comparacao {
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--e4);
+  margin-bottom: var(--e4);
+}
+.comparacao > div {
+  background: var(--superficie-2); border: 1px solid var(--linha);
+  border-radius: 10px; padding: var(--e3);
+}
+.comparacao h4 {
+  margin: 0 0 var(--e2); font-size: 11px; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--cinza-fraco);
+}
+@media (max-width: 720px) {
+  .comparacao { grid-template-columns: 1fr; }
+}
+
+/* ==========================================================================
+   O RECADO DA FEDERAÇÃO — o corpo do aviso dentro do modal de abertura.
+   O remetente vem antes do texto porque a primeira pergunta de quem vê um
+   aviso por cima da tela é "quem está falando comigo?".
+   ========================================================================== */
+.recado-da-federacao p { margin: 0 0 var(--e3); color: var(--cinza); line-height: 1.6; }
+.recado-da-federacao p:last-child { margin-bottom: 0; }
+.recado-remetente {
+  display: flex; align-items: center; gap: var(--e2);
+  font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+  color: var(--cinza-fraco) !important; margin-bottom: var(--e3) !important;
+}
+
+/* ==========================================================================
+   PANEL-HEAD EM TELA ESTREITA.
+   Medido no gate em Chromium: no perfil do atleta, em 320px, o bloco do nome
+   empurrava o selo de estado para fora da viewport (scrollWidth 340 > 320).
+   `.badge` é `white-space: nowrap` de propósito — quebrar "ARQUIVADO" no meio
+   seria pior —, então quem tem de ceder é a linha. Abaixo de 560px o
+   cabeçalho passa a quebrar, e o bloco de texto passa a poder encolher
+   (`min-width: 0`), sem o que o `flex` se recusa a reduzi-lo abaixo do
+   conteúdo.
+   ========================================================================== */
+@media (max-width: 560px) {
+  .panel-head { flex-wrap: wrap; }
+  .panel-head > div { min-width: 0; }
+  .panel-head h2 { overflow-wrap: anywhere; }
+}

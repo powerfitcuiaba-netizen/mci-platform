@@ -366,6 +366,29 @@ jobs:
             exit 1
           fi
 
+      # A MESMA GUARDA PARA A FASE DO ATLETA.
+      #
+      # As quatro suítes cobrem o que esta fase tem de irreversível se falhar
+      # em silêncio: quem pode ver o CPF de quem (`revelar-cpf`), a quem
+      # pertence uma carreira importada (`historico-importado-do-atleta`), o
+      # que acontece a um atleta tirado de circulação (`estado-do-atleta`) e
+      # quem foi comunicado do quê (`mensagem-de-abertura`).
+      #
+      # Nenhuma delas pode ser pulada sem que a CI fique verde sobre dado
+      # pessoal, histórico esportivo e prova de comunicação.
+      - name: Conferir que as suítes da gestão do atleta não foram puladas
+        run: |
+          set -e
+          SAIDA=$(npx vitest run tests/revelar-cpf.test.mjs tests/estado-do-atleta.test.mjs tests/historico-importado-do-atleta.test.mjs tests/mensagem-de-abertura.test.mjs --reporter=json 2>/dev/null | tail -1)
+          PULADOS=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPendingTests+r.numTodoTests)" <<< "$SAIDA")
+          PASSOU=$(node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(r.numPassedTests)" <<< "$SAIDA")
+          echo "gestão do atleta: $PASSOU passaram, $PULADOS pulados"
+          # 12 do CPF + 13 do estado + 17 do histórico importado + 29 do recado.
+          if [ "$PULADOS" != "0" ] || [ "$PASSOU" -lt 71 ]; then
+            echo "As suítes da gestão do atleta não rodaram por inteiro."
+            exit 1
+          fi
+
       # O catálogo precisa terminar o job do jeito que o deploy o entrega: a
       # suíte acima apaga `Category` de propósito num dos testes e reprovisiona
       # em seguida. Conferir aqui custa um comando e fecha a janela.

@@ -60,6 +60,13 @@ const ACTIONS = Object.freeze({
   // abrir o metadata.
   MUSCLEWARE_IMPORT_DELETED: 'MUSCLEWARE_IMPORT_DELETED',
   MUSCLEWARE_IMPORT_INVALIDATED: 'MUSCLEWARE_IMPORT_INVALIDATED',
+  // A MENSAGEM DE ABERTURA AOS ATLETAS. Três ações e não uma: publicar um
+  // recado para toda a base, mudar o texto DEPOIS de gente já ter lido, e
+  // tirá-lo do ar são decisões diferentes, e quem audita precisa distingui-las
+  // sem abrir o metadata.
+  ATHLETE_NOTICE_CREATE: 'ATHLETE_NOTICE_CREATE',
+  ATHLETE_NOTICE_UPDATE: 'ATHLETE_NOTICE_UPDATE',
+  ATHLETE_NOTICE_DELETE: 'ATHLETE_NOTICE_DELETE',
   PRO_STATUS_CHANGE: 'PRO_STATUS_CHANGE',
   ROLE_CHANGE: 'ROLE_CHANGE',
   PERMISSION_CHANGE: 'PERMISSION_CHANGE',

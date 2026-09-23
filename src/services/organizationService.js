@@ -13,6 +13,14 @@ async function list(actor) {
     orderBy: { name: 'asc' },
     select: {
       id: true, name: true, slug: true, timezone: true, active: true, createdAt: true,
+      // O ESTADO DO AUTOCADASTRO PRECISA SER VISÍVEL.
+      //
+      // A federação decide se recebe pedido espontâneo, e o campo nasce
+      // FECHADO por padrão. Sem ele na listagem, não havia como saber se
+      // estava aberto ou fechado sem consultar o banco — e a tela do atleta
+      // dizia só "Nenhuma entidade de filiação ativa está disponível",
+      // que não aponta para a causa.
+      selfRegistrationOpen: true,
       _count: { select: { members: true, athletes: true, events: true } }
     }
   });

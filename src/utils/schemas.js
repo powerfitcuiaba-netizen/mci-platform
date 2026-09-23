@@ -44,6 +44,8 @@ const paramsWithId = z.object({ id });
 // — e o Prisma respondia 500 numa rota de regra de negócio.
 const paramsComTitulo = z.object({ id, titleId: id });
 const paramsComPonto = z.object({ pointId: id });
+// Pelo mesmo motivo: o atleta e a identidade importada que ele reivindica.
+const paramsComIdentidadeExterna = z.object({ id, externalAthleteId: id });
 
 // ---------------------------------------------------------------- autenticação
 const authRegister = z.object({
@@ -138,6 +140,14 @@ const cadastroCompleto = z.object({
 // Só o booleano. `z.object` com `strict` implícito do projeto descarta o
 // resto, e nada mais deste corpo chega ao serviço.
 const organizationSelfRegistration = z.object({ open: z.boolean() });
+
+// MUDANÇA DE ESTADO DO ATLETA.
+//
+// O motivo tem PISO de tamanho pelo mesmo raciocínio da invalidação de
+// lançamento: "ok" não é motivo, e seis meses depois a diferença entre
+// decisão administrativa e arbítrio está exatamente aí.
+const athleteStatusReason = z.object({ reason: texto(3, 500) });
+const athleteStatusOptionalReason = z.object({ reason: opcional(texto(3, 500)) });
 
 const athleteRequestCreate = z.object({
   fullName: texto(2, 160),
@@ -247,6 +257,9 @@ const athleteQuery = paginacao.extend({
   organizationId: id.optional(),
   search: z.string().trim().max(120).optional(),
   proStatus: z.enum(['NONE', 'ACTIVE', 'INACTIVE', 'SUSPENDED', 'RETIRED']).optional(),
+  // O ESTADO ADMINISTRATIVO, que é outra coisa que o estado PRO. Um atleta
+  // pode ser PRO ativo e estar suspenso pela federação ao mesmo tempo.
+  status: z.enum(['ACTIVE', 'SUSPENDED', 'ARCHIVED']).optional(),
   affiliationId: id.optional(),
   teamId: id.optional()
 });
@@ -824,6 +837,32 @@ const adminUserQuery = paginacao.extend({
 
 // Listagem simples com busca e escopo de organização, usada por filiações,
 // equipes, academias, coaches, marcas e patrocinadores.
+// ------------------------------------------- mensagem de abertura ao atleta
+//
+// O corpo tem 4000 caracteres de teto porque isto é um RECADO, e não um
+// regulamento: um texto que não cabe numa tela por cima do aplicativo não vai
+// ser lido, e o lugar dele é um documento com link.
+const athleteNoticeCreate = z.object({
+  organizationId: id,
+  title: texto(3, 140),
+  body: texto(3, 4000),
+  // A janela é opcional dos dois lados. Nulo significa "desde já" e "até
+  // segunda ordem", que é o caso comum.
+  startsAt: opcional(dataIso),
+  endsAt: opcional(dataIso),
+  showOnce: booleano.optional(),
+  active: booleano.optional()
+});
+
+// `organizationId` fica FORA: mudar o recado de federação depois de publicado
+// mudaria quem o recebe, e isso não é edição — é outro recado.
+const athleteNoticeUpdate = athleteNoticeCreate.partial().omit({ organizationId: true });
+
+const athleteNoticeQuery = paginacao.extend({
+  organizationId: id.optional(),
+  active: booleano.optional()
+});
+
 const scopedListQuery = paginacao.extend({
   organizationId: id.optional(),
   search: z.string().trim().max(120).optional()
@@ -871,6 +910,7 @@ module.exports = {
   athleteRequestCreate, athleteRequestReject, athleteRequestQuery,
   organizationCreate, organizationMemberCreate, organizationSelfRegistration,
   affiliationCreate,
+  athleteStatusReason, athleteStatusOptionalReason,
   athleteCreate, athleteUpdate, athleteTeamLink, athleteTeamTransfer, athleteTeamUnlink, athleteQuery, athleteLookup, proStatusUpdate,
   eventCreate, eventUpdate, eventTransition, eventQuery,
   categoryCreate, eventCategoryCreate, divisionCreate, classCreate,
@@ -879,7 +919,7 @@ module.exports = {
   batchCreate, batchStatusUpdate, stageOrderSet,
   resultReceive, resultPublish, resultOverride,
   meuHistoricoQuery,
-  paramsComTitulo, paramsComPonto,
+  paramsComTitulo, paramsComPonto, paramsComIdentidadeExterna,
   seasonCreate, pointsRuleSet, rankingQuery, rankingCutQuery, overallDeclare,
   overallPreviewQuery, overallRevoke, teamRankingQuery,
   classCatalogUpsert, classCatalogQuery, classesParaFiltroQuery, superOverallQuery,
@@ -893,5 +933,6 @@ module.exports = {
   conversationCreate, messageCreate, reactionCreate, conversationMembers,
   searchQuery, notificationQuery, auditQuery,
   documentUpload, eventDocumentUpload,
-  adminUserUpdate, adminUserQuery
+  adminUserUpdate, adminUserQuery,
+  athleteNoticeCreate, athleteNoticeUpdate, athleteNoticeQuery
 };

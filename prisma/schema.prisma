@@ -66,6 +66,7 @@ model Organization {
   classCatalog            ClassCatalog[]
   companies               Company[]
   athleteProfileRequests  AthleteProfileRequest[]
+  athleteNotices          AthleteNotice[]
 
   @@index([active])
   @@index([selfRegistrationOpen])
@@ -90,6 +91,17 @@ model OrganizationMember {
 // ============================================================================
 // USUÁRIOS E ACESSO
 // ============================================================================
+
+/// O ESTADO DO ATLETA.
+///
+/// SUSPENSO e ARQUIVADO não apagam nada: o histórico esportivo, a pontuação e
+/// os vínculos continuam inteiros. O estado diz o que o atleta PODE FAZER
+/// daqui para frente, nunca o que já aconteceu no palco.
+enum AthleteStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
 
 enum UserRole {
   SUPER_ADMIN
@@ -189,6 +201,9 @@ model User {
   rankingPointAdjustmentsMade   RankingPointAdjustment[] @relation("RankingPointAdjustmentCreatedBy")
   rankingPointAdjustmentsVoided RankingPointAdjustment[] @relation("RankingPointAdjustmentVoidedBy")
   overallTitlesDeclared         EventOverallTitle[]      @relation("OverallDeclaredBy")
+  athleteStatusChanges          Athlete[]                @relation("AthleteStatusChangedBy")
+  athleteNoticesCreated         AthleteNotice[]          @relation("AthleteNoticeAuthor")
+  athleteNoticeReads            AthleteNoticeRead[]      @relation("AthleteNoticeReader")
   membershipsCreated            AthleteTeamMembership[]  @relation("MembershipCreatedBy")
   membershipsEnded              AthleteTeamMembership[]  @relation("MembershipEndedBy")
 
@@ -292,17 +307,26 @@ model Athlete {
   gymId             String?
   proStatus         ProStatus @default(NONE)
   proSince          DateTime?
-  createdById       String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user         User?        @relation("AthleteUser", fields: [userId], references: [id], onDelete: SetNull)
-  affiliation  Affiliation? @relation(fields: [affiliationId], references: [id], onDelete: SetNull)
-  team         Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  coach        Coach?       @relation(fields: [coachId], references: [id], onDelete: SetNull)
-  gym          Gym?         @relation(fields: [gymId], references: [id], onDelete: SetNull)
-  createdBy    User?        @relation("AthleteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// ESTADO ADMINISTRATIVO. Nasce ATIVO e só muda por ato registrado.
+  /// O motivo fica NA LINHA, e não só na auditoria: a trilha guarda o evento,
+  /// a linha precisa carregar o estado corrente para a tela poder explicá-lo.
+  status            AthleteStatus @default(ACTIVE)
+  statusReason      String?
+  statusChangedAt   DateTime?
+  statusChangedById String?
+  createdById       String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user            User?        @relation("AthleteUser", fields: [userId], references: [id], onDelete: SetNull)
+  affiliation     Affiliation? @relation(fields: [affiliationId], references: [id], onDelete: SetNull)
+  team            Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  coach           Coach?       @relation(fields: [coachId], references: [id], onDelete: SetNull)
+  gym             Gym?         @relation(fields: [gymId], references: [id], onDelete: SetNull)
+  createdBy       User?        @relation("AthleteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  statusChangedBy User?        @relation("AthleteStatusChangedBy", fields: [statusChangedById], references: [id], onDelete: SetNull)
 
   registrations          Registration[]
   documents              AthleteDocument[]
@@ -1898,11 +1922,11 @@ model ExternalAthlete {
   externalResults ExternalResult[]
   rankingPoints   RankingPoint[]
   rankings        Ranking[]
+  overallTitles   EventOverallTitle[]
 
   @@unique([organizationId, identityKey])
   @@index([organizationId, athleteId])
   @@index([affiliationId, affiliationNumber])
-  overallTitles     EventOverallTitle[]
 }
 
 model ExternalResult {
@@ -2571,5 +2595,60 @@ model AthleteProfileRequest {
   // Prisma não modela `WHERE status = 'PENDING'`, e sem o recorte a pessoa
   // recusada nunca poderia tentar de novo.
   @@index([organizationId, status])
+  @@index([userId])
+}
+
+/// A MENSAGEM DE ABERTURA DA FEDERAÇÃO AOS SEUS ATLETAS.
+///
+/// Não é notificação e não é post social. Notificação chega por um evento que
+/// aconteceu com UMA pessoa; post entra num feed que se rola. Isto é o
+/// contrário das duas: um recado da organização para TODOS os seus atletas,
+/// que precisa ser visto antes de o atleta fazer qualquer outra coisa — aviso
+/// de abertura de inscrição, mudança de regulamento, prazo de filiação.
+///
+/// Por isso ela aparece por cima da tela, e por isso tem validade: um recado
+/// de setembro exibido em dezembro é ruído, e ninguém se lembra de apagar.
+model AthleteNotice {
+  id             String    @id @default(cuid())
+  organizationId String
+  title          String
+  body           String
+  /// A JANELA DE VALIDADE. Nulo dos dois lados significa "desde já e até
+  /// segunda ordem" — que é o caso comum e não deveria exigir preenchimento.
+  startsAt       DateTime?
+  endsAt         DateTime?
+  /// UMA VEZ POR PESSOA, ou toda vez que ela entrar. O padrão é uma vez:
+  /// repetir o mesmo aviso a cada acesso ensina o atleta a fechá-lo sem ler,
+  /// e aí o aviso seguinte — o que importava — morre junto.
+  showOnce       Boolean   @default(true)
+  /// Desativar não apaga. O recado já foi lido por gente, e a marcação de
+  /// leitura é registro de que foi comunicado.
+  active         Boolean   @default(true)
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?               @relation("AthleteNoticeAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  reads        AthleteNoticeRead[]
+
+  @@index([organizationId, active])
+}
+
+/// QUEM JÁ VIU O QUÊ, E QUANDO.
+///
+/// É o que faz `showOnce` funcionar — e é também o registro de que a
+/// comunicação chegou. Numa federação, "eu não fui avisado" é uma disputa
+/// real; a linha aqui responde com data.
+model AthleteNoticeRead {
+  id       String   @id @default(cuid())
+  noticeId String
+  userId   String
+  readAt   DateTime @default(now())
+
+  notice AthleteNotice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  user   User          @relation("AthleteNoticeReader", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([noticeId, userId])
   @@index([userId])
 }

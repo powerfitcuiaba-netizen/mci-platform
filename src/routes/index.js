@@ -92,6 +92,21 @@ router.get('/athlete-requests/me', requireAuth, wrap(c.athleteRequests.meus));
 // parâmetro capaz de apontar para outra pessoa. Ver src/services/meService.js.
 router.get('/me/affiliation', requireAuth, wrap(c.me.affiliation));
 router.get('/me/history', requireAuth, validate(s.meuHistoricoQuery, 'query'), wrap(c.me.history));
+
+// A MENSAGEM DE ABERTURA, do lado de quem a recebe. Não tem `perm()`: o
+// escopo é o CADASTRO DE ATLETA do próprio usuário, que o serviço resolve —
+// não existe parâmetro por onde pedir os recados de outra pessoa.
+router.get('/me/notices', requireAuth, wrap(c.me.notices));
+router.post('/me/notices/:id/read', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.me.readNotice));
+
+// E do lado de quem a escreve. `athletes.manage` porque o destinatário é a
+// base de atletas da federação, e publicar um recado para todos eles é ato de
+// quem responde por ela.
+router.route('/athlete-notices')
+  .get(requireAuth, validate(s.athleteNoticeQuery, 'query'), wrap(c.athleteNotices.list))
+  .post(requireAuth, perm('athletes.manage', orgDoCorpo), validate(s.athleteNoticeCreate), wrap(c.athleteNotices.create));
+router.patch('/athlete-notices/:id', requireAuth, validate(s.paramsWithId, 'params'), validate(s.athleteNoticeUpdate), wrap(c.athleteNotices.update));
+router.delete('/athlete-notices/:id', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.athleteNotices.remove));
 router.post('/athlete-requests/:id/cancel', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.athleteRequests.cancelar));
 // A foto sobe PELO SERVIDOR (multipart), como todo upload daqui: nenhuma
 // credencial de armazenamento chega ao navegador. `uploadAvatar` já aplica o
@@ -117,6 +132,36 @@ router.route('/athletes/:id')
   .get(requireAuth, validate(s.paramsWithId, 'params'), wrap(c.athletes.findById))
   .patch(requireAuth, validate(s.paramsWithId, 'params'), validate(s.athleteUpdate), wrap(c.athletes.update));
 router.post('/athletes/:id/pro-status', requireAuth, validate(s.paramsWithId, 'params'), validate(s.proStatusUpdate), wrap(c.athletes.setProStatus));
+
+// O ESTADO DO ATLETA. Suspender e arquivar EXIGEM motivo; reativar aceita um.
+// Nada aqui toca histórico esportivo: pontuação, resultado, inscrição e título
+// continuam inteiros nos três estados.
+router.post('/athletes/:id/suspend', requireAuth, validate(s.paramsWithId, 'params'), validate(s.athleteStatusReason), wrap(c.athletes.suspend));
+router.post('/athletes/:id/archive', requireAuth, validate(s.paramsWithId, 'params'), validate(s.athleteStatusReason), wrap(c.athletes.archive));
+router.post('/athletes/:id/reactivate', requireAuth, validate(s.paramsWithId, 'params'), validate(s.athleteStatusOptionalReason), wrap(c.athletes.reactivate));
+
+// REVELAR O CPF é POST, e não GET, por duas razões que não são de estilo: o
+// ato é auditável (grava `ATHLETE_CPF_VIEW`), e GET convida cache, prefetch e
+// registro em log intermediário para uma resposta que carrega documento. O id
+// do atleta vai no caminho; o número volta no corpo — nunca em URL nem em
+// parâmetro de consulta. A permissão é conferida no serviço, contra a
+// organização DO ATLETA, e não contra nada que o cliente tenha mandado.
+router.post('/athletes/:id/cpf', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.athletes.revealCpf));
+
+// O HISTÓRICO IMPORTADO, DO LADO DO ATLETA.
+//
+// A leitura mostra o que já é dele e o que PODE ser — com os resultados de
+// cada candidata, para que o operador confirme uma carreira, e não um nome.
+// Nenhuma sugestão vincula nada: o vínculo é o POST abaixo, com permissão
+// própria (`musclewar.review`) e auditoria.
+router.get('/athletes/:id/imported-history', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.muscleWar.historicoDoAtleta));
+router.post('/athletes/:id/imported-history/:externalAthleteId/link', requireAuth,
+  validate(s.paramsComIdentidadeExterna, 'params'), wrap(c.muscleWar.adotarIdentidade));
+
+// A EXCLUSÃO FÍSICA SÓ PASSA SEM HISTÓRICO ESPORTIVO. O serviço confere
+// lançamento, ranking, projeção, resultado, inscrição, resultado importado e
+// título — havendo qualquer um, responde 409 e aponta o arquivamento.
+router.delete('/athletes/:id', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.athletes.remove));
 
 router.route('/athletes/:id/documents')
   .get(requireAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.listAthlete))

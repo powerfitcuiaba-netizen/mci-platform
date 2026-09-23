@@ -9,7 +9,7 @@
 // que os mocks não encontraram.
 //
 // Este script SOBE a pilha real (API + build de produção servido), entra com
-// uma conta de atleta e mede, em seis larguras:
+// uma conta de atleta e mede, em QUINZE larguras:
 //
 //   * overflow horizontal do documento;
 //   * elementos que ultrapassam a viewport;
@@ -44,12 +44,19 @@ const DATABASE_URL = arg('db', env.QA_DATABASE_URL
 // primeira é o telefone grande atual, 560 é o ponto em que a barra superior
 // troca de arranjo — e portanto o mais provável de quebrar —, 1180 é o tablet
 // deitado, e as duas últimas são as telas que o operador usa de fato.
-const LARGURAS = [320, 375, 390, 430, 560, 768, 1024, 1180, 1280, 1366, 1440, 1920];
+// 414, 820 e 1600 entraram na auditoria final, pedidas na homologação: 414 é
+// o iPhone Plus/Max em retrato, 820 é o iPad em retrato — a largura onde o
+// layout troca de arranjo sem ainda ser desktop — e 1600 é o monitor
+// intermediário que ficava entre 1440 e 1920 sem nunca ter sido medido.
+//
+// As larguras anteriores FICAM. Trocar uma lista medida por outra perde
+// cobertura em silêncio; a união custa alguns segundos e não perde nada.
+const LARGURAS = [320, 375, 390, 414, 430, 560, 768, 820, 1024, 1180, 1280, 1366, 1440, 1600, 1920];
 // Alvo de toque só é exigência onde o dedo é o ponteiro. Acima de 430 o mouse
 // assume, e cobrar 40px de um botão de barra de ferramentas de desktop
 // produziria reprovação sem defeito — foi exatamente o erro que a fase
 // anterior cometeu e mediu.
-const LARGURAS_DE_TOQUE = new Set([320, 375, 390, 430]);
+const LARGURAS_DE_TOQUE = new Set([320, 375, 390, 414, 430]);
 const ALVO_MINIMO = 40;
 
 // `--manter` sobe a pilha com dados de QA e NÃO mede nada: fica de pé para
@@ -112,6 +119,13 @@ function cpfDeQa(semente) {
 }
 
 const SENHA = 'senha-de-qa-123';
+
+// O CPF do atleta semeado, na forma em que o servidor o devolve quando
+// alguém o revela. Fictício, de banco de QA descartável — e é justamente por
+// ser conhecido que o gate consegue afirmar que ele NÃO aparecia antes do
+// pedido e APARECE depois.
+const CPF_DO_ATLETA = cpfDeQa(123456789);
+const CPF_DO_ATLETA_FORMATADO = `${CPF_DO_ATLETA.slice(0, 3)}.${CPF_DO_ATLETA.slice(3, 6)}.${CPF_DO_ATLETA.slice(6, 9)}-${CPF_DO_ATLETA.slice(9)}`;
 const conta = sufixo => ({
   name: `QA ${sufixo}`,
   email: `qa.${sufixo}.${Date.now().toString(36)}@mci.local`,
@@ -202,7 +216,7 @@ async function semear() {
   const inscricao = await chamar(`/events/${evento.id}/registrations`, {
     metodo: 'POST', token: tokenDiretor,
     corpo: {
-      cpf: cpfDeQa(123456789),
+      cpf: CPF_DO_ATLETA,
       athlete: { fullName: 'Atleta QA de Responsividade', sex: 'FEMALE', state: 'MT', city: 'Cuiabá' },
       classIds: classes.map(c => c.id)
     }
@@ -347,7 +361,7 @@ try {
 
   console.log('semeando dados de QA…');
   const dadosSemeados = await semear();
-  const { emailAtleta, emailDiretor, eventoId } = dadosSemeados;
+  const { emailAtleta, emailDiretor, eventoId, athleteId } = dadosSemeados;
 
   console.log('construindo e servindo o frontend…');
   execSync('npm run build', { cwd: 'frontend', stdio: 'pipe', env: { ...env, VITE_API_URL: `${BASE_API}` } });
@@ -388,8 +402,20 @@ try {
   const paginaAtleta = await contexto.newPage();
 
   const erros = new Set();
+  // 401 NÃO É 5xx, e por isso passava despercebido — mas é ele que derruba a
+  // sessão no cliente (`SESSAO_EXPIRADA`) e leva a aplicação de volta ao
+  // login. Numa execução longa, uma única recusa dessas transforma todo teste
+  // seguinte em "a tela não apareceu", sem dizer por quê. Agora diz.
+  const naoAutorizadas = new Set();
+  const espiar = pagina => {
+    pagina.on('response', r => {
+      if (r.status() === 401) naoAutorizadas.add(`${r.request().method()} ${r.url().replace(BASE_API, '')}`);
+    });
+  };
+
   paginaAtleta.on('pageerror', erro => erros.add(String(erro).slice(0, 160)));
   paginaAtleta.on('response', r => { if (r.status() >= 500) erros.add(`${r.status()} ${r.url().slice(0, 80)}`); });
+  espiar(paginaAtleta);
 
   // Entrar como o atleta.
   await paginaAtleta.goto(`${BASE_WEB}/#entrar`, { waitUntil: 'networkidle' });
@@ -464,6 +490,7 @@ try {
   const pagina = await contextoOperador.newPage();
   pagina.on('pageerror', erro => erros.add(String(erro).slice(0, 160)));
   pagina.on('response', r => { if (r.status() >= 500) erros.add(`${r.status()} ${r.url().slice(0, 80)}`); });
+  espiar(pagina);
 
   await pagina.goto(`${BASE_WEB}/#entrar`, { waitUntil: 'networkidle' });
   await pagina.fill('input[type="email"]', emailDiretor);
@@ -588,6 +615,255 @@ try {
   //
   // A coleta é FORÇADA antes de cada leitura: sem isso o heap medido é lixo
   // ainda não recolhido, e qualquer número serve para provar qualquer coisa.
+  // ======================================================================
+  // A FASE DO ATLETA, NO NAVEGADOR.
+  //
+  // Teste de unidade prova que o componente chama a rota certa com o mock
+  // certo. Não prova que o operador consegue chegar até ali, que a tela cabe,
+  // nem que o recado da federação de fato aparece na cara de quem tem de vê-lo.
+  //
+  // Aqui o fluxo é atravessado inteiro, com a pilha real:
+  //
+  //   1. o operador acha o atleta na lista — e a lista NÃO mostra documento;
+  //   2. abre o perfil, vê o CPF MASCARADO e pede o inteiro, que o servidor
+  //      autoriza e audita;
+  //   3. publica um recado para a federação;
+  //   4. o ATLETA entra e recebe o recado por cima da tela; fecha; recarrega;
+  //      e o recado não volta.
+  //
+  // O passo 4 é o que nenhum mock alcança: `showOnce` só prova que funciona
+  // quando a segunda visita é uma segunda visita de verdade.
+  // ======================================================================
+  console.log('\n--- Administração → Atletas (lista e perfil) ---');
+
+  await pagina.setViewportSize({ width: 1440, height: 900 });
+  await pagina.goto(`${BASE_WEB}/#admin/atletas`, { waitUntil: 'networkidle' });
+  await esperar(1000);
+
+  const textoDaLista = await pagina.evaluate(() => document.body.innerText);
+  conferir('a lista administrativa de atletas abre para o operador',
+    /Atleta QA de Responsividade/.test(textoDaLista),
+    textoDaLista.slice(0, 140).replace(/\n/g, ' | '));
+
+  // O CPF NÃO APARECE NA LISTAGEM — nem inteiro, nem mascarado. Uma fila de
+  // duzentos nomes com documento ao lado é um vazamento esperando um print.
+  conferir('a listagem não mostra documento, nem mascarado',
+    !/\d{3}\.\d{3}\.\d{3}-\d{2}/.test(textoDaLista) && !/\*\*\*\.\d{3}/.test(textoDaLista),
+    (textoDaLista.match(/[\d*]{3}\.[\d*]{3}\.[\d*]{3}-[\d*]{2}/) || [''])[0]);
+
+  // A BUSCA VAI PARA O SERVIDOR E NÃO ENTRA NA URL. O termo é digitado; o que
+  // se mede é que o hash da página não o carrega junto.
+  const campoDeBusca = await pagina.$('input[aria-label="Buscar atleta"]');
+  conferir('a lista tem campo de busca', Boolean(campoDeBusca));
+  if (campoDeBusca) {
+    // O TERMO DE BUSCA É DISTINTIVO DE PROPÓSITO: a primeira versão deste
+    // gate procurou "Atleta" na URL e reprovou sozinha, porque a própria rota
+    // se chama `#admin/atletas`. Um termo que não aparece em rota nenhuma é o
+    // que torna a asserção capaz de distinguir.
+    await campoDeBusca.fill('Responsividade');
+    await esperar(1200);
+    const depoisDaBusca = await pagina.evaluate(() => ({
+      texto: document.body.innerText, hash: window.location.hash, busca: window.location.search
+    }));
+    conferir('a busca encontra o atleta', /Atleta QA de Responsividade/.test(depoisDaBusca.texto));
+    conferir('o termo buscado não entra na URL',
+      !/Responsividade/i.test(depoisDaBusca.hash) && !/Responsividade/i.test(depoisDaBusca.busca),
+      `${depoisDaBusca.hash} ${depoisDaBusca.busca}`);
+  }
+
+  // O FILTRO DE ESTADO existe e recorta.
+  const chipSuspenso = await pagina.$('button.chip:has-text("Suspenso")');
+  conferir('o filtro por estado existe na lista', Boolean(chipSuspenso));
+  if (chipSuspenso) {
+    await chipSuspenso.click();
+    await esperar(1000);
+    const filtrado = await pagina.evaluate(() => document.body.innerText);
+    conferir('filtrar por SUSPENSO tira o atleta ativo da lista',
+      !/Atleta QA de Responsividade/.test(filtrado));
+    await pagina.click('button.chip:has-text("Todos")');
+    await esperar(900);
+  }
+
+  // ------------------------------------------------ o perfil e o documento
+  await pagina.goto(`${BASE_WEB}/#admin/atletas/${athleteId}`, { waitUntil: 'networkidle' });
+  await esperar(1100);
+
+  const perfil = await pagina.evaluate(() => document.body.innerText);
+  conferir('o perfil administrativo abre', /Atleta QA de Responsividade/.test(perfil),
+    perfil.slice(0, 140).replace(/\n/g, ' | '));
+  conferir('o perfil mostra o CPF MASCARADO por padrão',
+    /\*\*\*\.\d{3}\.\d{3}-\*\*/.test(perfil),
+    perfil.slice(0, 200).replace(/\n/g, ' | '));
+  conferir('o CPF inteiro NÃO está na tela antes de alguém pedir',
+    !new RegExp(CPF_DO_ATLETA_FORMATADO.replace(/\./g, '\\.')).test(perfil));
+
+  // SÓ A AÇÃO QUE CABE NO ESTADO. Atleta ativo não tem "Reativar".
+  conferir('atleta ativo não oferece Reativar',
+    !(await pagina.$('button:has-text("Reativar")')));
+  conferir('atleta ativo oferece Suspender e Arquivar',
+    Boolean(await pagina.$('button:has-text("Suspender")')) && Boolean(await pagina.$('button:has-text("Arquivar")')));
+
+  await pagina.click('button.chip:has-text("Cadastro")');
+  await esperar(500);
+
+  const botaoRevelar = await pagina.$('button:has-text("Ver CPF completo")');
+  conferir('o perfil oferece pedir o CPF inteiro', Boolean(botaoRevelar));
+  if (botaoRevelar) {
+    await botaoRevelar.click();
+    await esperar(1200);
+    const revelado = await pagina.evaluate(() => document.body.innerText);
+    conferir('o servidor devolve o CPF inteiro a quem pode',
+      revelado.includes(CPF_DO_ATLETA_FORMATADO),
+      revelado.slice(0, 200).replace(/\n/g, ' | '));
+    conferir('a tela avisa que a consulta ficou registrada na auditoria',
+      /registrada na auditoria/i.test(revelado));
+  }
+
+  // A ABA DO HISTÓRICO IMPORTADO abre e diz o estado em vez de ficar em branco.
+  await pagina.click('button.chip:has-text("Histórico importado")');
+  await esperar(1200);
+  const importado = await pagina.evaluate(() => document.body.innerText);
+  conferir('a aba de histórico importado abre',
+    /Já vinculado a este atleta/.test(importado) && /Históricos que podem ser deste atleta/.test(importado),
+    importado.slice(0, 160).replace(/\n/g, ' | '));
+  conferir('sem candidatos, a tela diz que não há — não fica em branco',
+    /Nenhum histórico candidato/.test(importado) || /Vincular a este atleta/.test(importado));
+
+  // ------------------------------------------- o layout nas doze larguras
+  for (const rota of [`admin/atletas`, `admin/atletas/${athleteId}`, 'admin/mensagens']) {
+    const rotulo = rota.startsWith('admin/atletas/') ? 'Perfil do atleta' : (rota === 'admin/atletas' ? 'Lista de atletas' : 'Mensagens');
+    console.log(`\n--- ${rotulo} (larguras) ---`);
+    for (const largura of LARGURAS) {
+      const m = await medirTela(pagina, rota, largura);
+      conferir(`${rotulo} @ ${largura}px — sem overflow horizontal`, !m.overflowDoc,
+        m.overflowDoc ? `scrollWidth ${m.scrollWidth} > viewport ${m.viewport}` : '');
+      conferir(`${rotulo} @ ${largura}px — nenhum elemento fora da viewport`,
+        m.estourando.length === 0, m.estourando.join(', '));
+      if (LARGURAS_DE_TOQUE.has(largura)) {
+        conferir(`${rotulo} @ ${largura}px — alvos de toque >= ${ALVO_MINIMO}px`,
+          m.pequenos.length === 0, m.pequenos.join(', '));
+      }
+    }
+  }
+
+  // ------------------------------------------- o recado da federação
+  console.log('\n--- Mensagem de abertura (fluxo real) ---');
+
+  await pagina.setViewportSize({ width: 1440, height: 900 });
+  await pagina.goto(`${BASE_WEB}/#admin/mensagens`, { waitUntil: 'networkidle' });
+  await esperar(900);
+
+  const botaoNova = await pagina.$('button:has-text("Nova mensagem")');
+  conferir('a tela de mensagens abre para o operador', Boolean(botaoNova));
+
+  const TITULO_DO_RECADO = 'Inscrições abertas para a etapa QA';
+  const TEXTO_DO_RECADO = 'A etapa QA está com inscrições abertas até o fim do mês.';
+
+  if (botaoNova) {
+    await botaoNova.click();
+    await esperar(600);
+    await pagina.fill('[role="dialog"] input[type="text"]', TITULO_DO_RECADO);
+    await pagina.fill('[role="dialog"] textarea', TEXTO_DO_RECADO);
+    await pagina.click('[role="dialog"] button:has-text("Publicar")');
+    await esperar(1500);
+
+    const listaDeRecados = await pagina.evaluate(() => document.body.innerText);
+    conferir('o recado publicado aparece na lista', listaDeRecados.includes(TITULO_DO_RECADO),
+      listaDeRecados.slice(0, 160).replace(/\n/g, ' | '));
+    // `innerText` devolve o texto JÁ transformado pelo CSS, e os selos são
+    // `text-transform: uppercase`. Comparar sem ignorar caixa foi o que fez
+    // esta asserção reprovar da primeira vez — contra uma tela correta.
+    conferir('a lista diz que o recado está no ar e é de uma vez só',
+      /no ar/i.test(listaDeRecados) && /uma vez por pessoa/i.test(listaDeRecados));
+    conferir('a lista mostra a contagem de leituras', /0 leitura/.test(listaDeRecados));
+  }
+
+  // AGORA O ATLETA.
+  //
+  // O `reload()` NÃO é cerimônia: `goto` para o mesmo documento com outro hash
+  // é navegação de mesma página — o React não remonta, e o componente do
+  // recado continua com a lista que buscou quando a aplicação abriu, ainda
+  // vazia. Foi exatamente assim que este trecho reprovou da primeira vez,
+  // contra um backend que estava certo.
+  //
+  // E a correção não é só do gate: o recado É uma mensagem de ABERTURA. Ele é
+  // buscado quando a aplicação abre, e quem já está com ela aberta o recebe na
+  // próxima vez que abrir. Recarregar é, portanto, exatamente o gesto que se
+  // quer medir.
+  await paginaAtleta.setViewportSize({ width: 390, height: 844 });
+  await paginaAtleta.goto(`${BASE_WEB}/#meu-painel`, { waitUntil: 'networkidle' });
+  await paginaAtleta.reload({ waitUntil: 'networkidle' });
+  await esperar(1800);
+
+  const dialogoDoRecado = await paginaAtleta.$('[role="dialog"]');
+
+  // DIAGNÓSTICO SÓ QUANDO REPROVA. "Não apareceu" tem pelo menos quatro causas
+  // distintas — sessão sem cadastro de atleta, servidor sem recado, recado
+  // fora da janela, componente não montado —, e distingui-las depois exige
+  // subir a pilha inteira de novo. Estas seis linhas dizem qual foi, na hora,
+  // e foi por elas que se soube que o backend estava certo e a navegação é que
+  // não remontava a aplicação.
+  if (!dialogoDoRecado) {
+    const diagnostico = await paginaAtleta.evaluate(async (BASE_API_NO_NAVEGADOR) => {
+      const token = localStorage.getItem('mci-auth-token');
+      const chaves = Object.keys(localStorage);
+      let sessao;
+      let recados;
+      try {
+        const r = await fetch(`${BASE_API_NO_NAVEGADOR}/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
+        sessao = await r.json();
+      } catch (e) { sessao = { erro: String(e) }; }
+      try {
+        const r = await fetch(`${BASE_API_NO_NAVEGADOR}/me/notices`, { headers: { Authorization: `Bearer ${token}` } });
+        recados = await r.json();
+      } catch (e) { recados = { erro: String(e) }; }
+      return {
+        chaves, temToken: Boolean(token), sessao, recados,
+        camadas: document.querySelectorAll('.modal-layer').length,
+        raiz: document.getElementById('root') ? 'ok' : 'sem root',
+        texto: (document.body.innerText || '').slice(0, 200)
+      };
+    }, BASE_API);
+    console.log(`  [diagnóstico] camadas=${diagnostico.camadas} raiz=${diagnostico.raiz} athleteId=${diagnostico.sessao?.user?.athleteId} recados=${diagnostico.recados?.items?.length} deveExibir=${diagnostico.recados?.items?.[0]?.deveExibir}`);
+    console.log(`  [diagnóstico] texto=${JSON.stringify(diagnostico.texto)}`);
+    console.log(`  [diagnóstico] 401 vistos: ${[...naoAutorizadas].join(' · ') || 'nenhum'}`);
+  }
+  conferir('o recado aparece por cima da tela do atleta', Boolean(dialogoDoRecado));
+
+  if (dialogoDoRecado) {
+    const textoDoRecado = await dialogoDoRecado.innerText();
+    // O remetente é comparado SEM CAIXA: `innerText` devolve o texto já
+    // transformado pelo CSS, e a linha do remetente é `text-transform:
+    // uppercase`. Foi a segunda vez que esta armadilha reprovou uma tela
+    // correta neste gate.
+    conferir('o recado traz título, remetente e texto',
+      textoDoRecado.includes(TITULO_DO_RECADO) && /federação qa/i.test(textoDoRecado) && textoDoRecado.includes(TEXTO_DO_RECADO),
+      textoDoRecado.slice(0, 160).replace(/\n/g, ' | '));
+
+    // O MODAL PRECISA CABER NO TELEFONE. Um recado cortado é um recado não
+    // comunicado, e o registro de leitura diria o contrário.
+    const cabe = await paginaAtleta.evaluate(() => {
+      const dlg = document.querySelector('[role="dialog"]');
+      const r = dlg.getBoundingClientRect();
+      return { dentro: r.left >= -1 && r.right <= window.innerWidth + 1, doc: document.documentElement.scrollWidth > window.innerWidth + 1 };
+    });
+    conferir('o recado cabe em 390px', cabe.dentro && !cabe.doc);
+
+    await paginaAtleta.click('[role="dialog"] .button-primary');
+    await esperar(1200);
+    conferir('fechar o recado tira o modal da tela', !(await paginaAtleta.$('[role="dialog"]')));
+
+    // A SEGUNDA VISITA. É aqui que `showOnce` deixa de ser promessa: a
+    // aplicação é remontada do zero, o servidor é consultado de novo, e o
+    // recado lido não volta.
+    await paginaAtleta.reload({ waitUntil: 'networkidle' });
+    await esperar(1800);
+    conferir('o recado já lido NÃO volta na visita seguinte',
+      !(await paginaAtleta.$('[role="dialog"]')));
+  }
+
+  await paginaAtleta.setViewportSize({ width: 1440, height: 900 });
+
   console.log('\n--- Estabilidade (fluxo prolongado) ---');
 
   const CICLOS = Number(arg('ciclos-estabilidade', 25));
@@ -713,6 +989,13 @@ try {
   await pagina.emulateMedia({ reducedMotion: 'no-preference' });
 
   conferir('nenhum erro de página nem resposta 5xx', erros.size === 0, [...erros].join(' · '));
+  // `/auth/me` responde 401 quando NÃO há token — é o caminho normal de quem
+  // ainda não entrou, e o contexto de operador começa assim. O que não pode
+  // acontecer é 401 em rota de dados, que significa sessão recusada no meio
+  // do uso.
+  const autenticadasRecusadas = [...naoAutorizadas].filter(u => !u.includes('/auth/'));
+  conferir('nenhuma rota de dados recusou a sessão com 401',
+    autenticadasRecusadas.length === 0, autenticadasRecusadas.join(' · '));
 
   await navegador.close();
 } catch (erro) {

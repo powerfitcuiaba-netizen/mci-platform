@@ -208,6 +208,22 @@ export const api = {
     lookup: dados => post('/athletes/lookup', dados),
     listPro: params => get('/athletes/pro', params),
     setProStatus: (id, dados) => post(`/athletes/${id}/pro-status`, dados),
+    // ESTADO ADMINISTRATIVO. Suspender e arquivar exigem motivo; reativar
+    // aceita um. Nada aqui toca histórico esportivo.
+    suspend: (id, reason) => post(`/athletes/${id}/suspend`, { reason }),
+    archive: (id, reason) => post(`/athletes/${id}/archive`, { reason }),
+    reactivate: (id, reason) => post(`/athletes/${id}/reactivate`, reason ? { reason } : {}),
+    // A exclusão física só passa sem histórico esportivo — quem decide é o
+    // backend, e a tela mostra a recusa como ela vem.
+    remove: id => remove(`/athletes/${id}`),
+    // O CPF INTEIRO SÓ SAI POR AQUI, e por POST: o ato é auditado no servidor
+    // e a resposta carrega documento, que não tem por que passar por URL,
+    // cache ou Referer. O id vai no caminho; o número volta no corpo.
+    revealCpf: id => post(`/athletes/${id}/cpf`),
+    // O HISTÓRICO IMPORTADO visto do lado do atleta: o que já é dele e o que
+    // pode ser. A leitura não vincula nada — vincular é a chamada seguinte.
+    importedHistory: id => get(`/athletes/${id}/imported-history`),
+    linkImportedIdentity: (id, externalAthleteId) => post(`/athletes/${id}/imported-history/${externalAthleteId}/link`),
     // Vínculo com equipe. `linkTeam` só vincula atleta livre; tirar de outra
     // equipe é `transferTeam`, ato do operador da Muscle Contest.
     linkTeam: (id, dados) => post(`/athletes/${id}/team`, dados),
@@ -277,7 +293,19 @@ export const api = {
   // passar errado.
   me: {
     affiliation: () => get('/me/affiliation'),
-    history: params => get('/me/history', params)
+    history: params => get('/me/history', params),
+    // Os recados da federação para este atleta. `deveExibir` vem pronto do
+    // servidor: a regra de "uma vez só" não é recalculada aqui.
+    notices: () => get('/me/notices'),
+    readNotice: id => post(`/me/notices/${id}/read`)
+  },
+
+  // A mensagem de abertura, do lado de quem a escreve.
+  athleteNotices: {
+    list: params => get('/athlete-notices', params),
+    create: dados => post('/athlete-notices', dados),
+    update: (id, dados) => patch(`/athlete-notices/${id}`, dados),
+    remove: id => remove(`/athlete-notices/${id}`)
   },
 
   ranking: {

@@ -14,6 +14,7 @@ const results = require('../services/resultService');
 const ranking = require('../services/rankingService');
 const meService = require('../services/meService');
 const muscleWar = require('../services/muscleWarService');
+const athleteNotices = require('../services/athleteNoticeService');
 const partners = require('../services/partnerService');
 const social = require('../services/socialService');
 const messenger = require('../services/messengerService');
@@ -104,7 +105,17 @@ module.exports = {
   // de cliente entra na identificação de quem está perguntando.
   me: {
     affiliation: async (req, res) => res.json(await meService.affiliation(req.user)),
-    history: async (req, res) => res.json(await meService.history(req.user, req.query))
+    history: async (req, res) => res.json(await meService.history(req.user, req.query)),
+    // Os recados da federação para este atleta, e a marcação de leitura.
+    notices: async (req, res) => res.json(await athleteNotices.paraOAtleta(req.user)),
+    readNotice: async (req, res) => res.json(await athleteNotices.marcarLido(req.params.id, req.user))
+  },
+
+  athleteNotices: {
+    list: async (req, res) => res.json(await athleteNotices.list(req.query, req.user)),
+    create: async (req, res) => res.status(201).json(await athleteNotices.create(req.body, req.user)),
+    update: async (req, res) => res.json(await athleteNotices.update(req.params.id, req.body, req.user)),
+    remove: async (req, res) => res.json(await athleteNotices.remove(req.params.id, req.user))
   },
 
   organizations: {
@@ -146,7 +157,12 @@ module.exports = {
     update: async (req, res) => res.json(await athletes.update(req.params.id, req.body, req.user)),
     lookup: async (req, res) => res.json(await athletes.lookup(req.body, req.user)),
     setProStatus: async (req, res) => res.json(await athletes.setProStatus(req.params.id, req.body, req.user)),
-    listPro: async (req, res) => res.json(await athletes.listPro(req.query, req.user))
+    listPro: async (req, res) => res.json(await athletes.listPro(req.query, req.user)),
+    suspend: async (req, res) => res.json(await athletes.setStatus(req.params.id, { status: 'SUSPENDED', reason: req.body.reason }, req.user)),
+    archive: async (req, res) => res.json(await athletes.setStatus(req.params.id, { status: 'ARCHIVED', reason: req.body.reason }, req.user)),
+    reactivate: async (req, res) => res.json(await athletes.setStatus(req.params.id, { status: 'ACTIVE', reason: req.body.reason ?? null }, req.user)),
+    remove: async (req, res) => res.json(await athletes.remove(req.params.id, req.user)),
+    revealCpf: async (req, res) => res.json(await athletes.revealCpf(req.params.id, req.user))
   },
 
   events: {
@@ -265,7 +281,11 @@ module.exports = {
     link: async (req, res) => res.json(await muscleWar.linkItem(req.params.itemId, req.body, req.user)),
     apply: async (req, res) => res.json(await muscleWar.apply(req.params.id, req.user)),
     reject: async (req, res) => res.json(await muscleWar.reject(req.params.id, req.body, req.user)),
-    remove: async (req, res) => res.json(await muscleWar.deleteImport(req.params.id, req.body || {}, req.user))
+    remove: async (req, res) => res.json(await muscleWar.deleteImport(req.params.id, req.body || {}, req.user)),
+    // O histórico importado visto do lado do atleta, e o vínculo manual feito
+    // dali. Mesmo serviço, outra pergunta.
+    historicoDoAtleta: async (req, res) => res.json(await muscleWar.historicoImportadoDoAtleta(req.params.id, req.user)),
+    adotarIdentidade: async (req, res) => res.json(await muscleWar.adotarIdentidadeExterna(req.params.id, req.params.externalAthleteId, req.user))
   },
 
   partners: {
