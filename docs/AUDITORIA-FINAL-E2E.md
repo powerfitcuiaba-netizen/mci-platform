@@ -978,3 +978,24 @@ reprova — não aprova vazio.
 ausente), M15 (rollback até da auditoria aceita — a correção fácil demais),
 M16 (domínio não reservado), M17 (endereço volta a ser adivinhável), M18
 (conta sem membresia).
+
+### 17.7 Ressalva de ferramental: `vite preview` órfão entre execuções
+
+Ao encadear os gates encontrei **dois `vite preview` sobreviventes** de
+execuções anteriores, segurando as portas 5599 e 5601 havia mais de duas horas.
+
+Os gates sobem o preview com `--strictPort` de propósito — sem isso o Vite
+troca de porta sozinho e o gate mede um servidor que não é o dele, erro que já
+aconteceu na FASE 2.3. Mas a consequência é que uma porta ocupada faz o gate
+morrer com "preview do frontend não subiu", que manda investigar o build
+quando o problema é um processo esquecido.
+
+`encerrar()` mata os filhos no `finally`, e isso cobre a saída normal e a
+exceção. Não cobre o script ser **interrompido por sinal** — foi o que
+aconteceu quando cancelei execuções anteriores.
+
+**Não é defeito do produto**, é higiene do ferramental de QA, e o sintoma
+engana quem for depurar. Fica registrado; a limpeza antes de rodar é
+`pkill -f "vite preview --port 55"`. Um `trap` em SIGINT/SIGTERM nos quatro
+scripts resolveria de vez — não fiz nesta fase para não mexer em gate que
+estava passando às vésperas da promoção.
