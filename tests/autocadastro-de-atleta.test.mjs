@@ -161,6 +161,11 @@ beforeEach(async () => {
 
 describe('vitrine de filiações para autocadastro', () => {
   it('o padrão é FECHADO: a migration não tornou nenhuma federação descobrível', async () => {
+    // A fixture abre o autocadastro por conveniência das outras suítes. Aqui
+    // o que está sob teste é o PADRÃO DO PRODUTO, então a federação volta ao
+    // estado em que ela nasce.
+    await abrirAutocadastro(orgA.id, false);
+
     const r = await api().get('/api/v1/public/affiliations');
     expect(r.status).toBe(200);
     expect(r.body.items).toHaveLength(0);
@@ -267,6 +272,11 @@ describe('vitrine de filiações para autocadastro', () => {
   });
 
   it('só quem administra organização abre ou fecha o autocadastro', async () => {
+    // Fecha primeiro, para que "continua fechada" signifique alguma coisa: se
+    // a federação já estivesse aberta, a recusa do operador seria
+    // indistinguível de um sucesso.
+    await abrirAutocadastro(orgA.id, false);
+
     // Nem o diretor de evento da própria federação: é decisão de quem
     // administra a organização, e fica em auditoria.
     const r = await api().post(`/api/v1/organizations/${orgA.id}/self-registration`).set(operadorA.auth()).send({ open: true });
