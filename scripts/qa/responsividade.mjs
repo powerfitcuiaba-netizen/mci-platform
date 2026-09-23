@@ -9,7 +9,7 @@
 // que os mocks não encontraram.
 //
 // Este script SOBE a pilha real (API + build de produção servido), entra com
-// uma conta de atleta e mede, em seis larguras:
+// uma conta de atleta e mede, em QUINZE larguras:
 //
 //   * overflow horizontal do documento;
 //   * elementos que ultrapassam a viewport;

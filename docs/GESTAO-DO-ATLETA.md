@@ -242,3 +242,50 @@ O interruptor fica em `Administração → Configurações → Organizações`.
 | `frontend/src/pages/mensagemDeAbertura.test.jsx` | um recado de cada vez, fechar é ler, corpo é texto |
 | `scripts/qa/mutantes-atleta.mjs` | 18 mutantes, 1 declarado equivalente com investigação |
 | `scripts/qa/responsividade.mjs` | Chromium real: fluxo inteiro + doze larguras |
+
+---
+
+## 8. A auditoria por perfil
+
+`scripts/qa/auditoria-demo.mjs` (`npm run qa:auditoria`) percorre o sistema
+como usuários reais, contra a pilha real, com RLS ligada — 185 verificações em
+23 módulos.
+
+### O banco é descartável
+
+Criado, migrado, semeado, usado e derrubado pela execução. **Produção não é
+tocada**, e não existe ali nenhum dado real que possa ser apagado por engano.
+
+### Toda linha leva marca
+
+`DEMO_E2E_<tipo>_<carimbo>` entra no nome, no slug, no e-mail e no código de
+tudo o que a auditoria cria. É ela que torna a limpeza verificável.
+
+### A limpeza é conferida duas vezes
+
+A varredura percorre **toda coluna de texto do schema** e conta o que carrega
+o carimbo. Ela roda antes e depois:
+
+* **antes** o número tem de ser maior que zero — por tabela, nomeadamente.
+  Sem esse controle, uma varredura cega por RLS devolveria zero no fim e
+  assinaria uma limpeza que nunca conferiu;
+* **depois** tem de ser exatamente zero;
+* e o catálogo oficial de categorias tem de continuar de pé — a limpeza não
+  pode levar o que não era dela.
+
+### O que ela sonda em segurança
+
+Trinta e seis sondas chamam a **rota**, não o botão: ler, editar, suspender,
+excluir, recalcular, importar, aprovar e auditar, disparadas por um diretor de
+outra federação e por um atleta comum, contra recursos que não são deles.
+Mais ids malformados — incluindo `;DROP TABLE` e travessia de caminho —,
+conferindo 4xx e nunca 5xx.
+
+### Como rodar
+
+```sh
+npm run qa:auditoria
+```
+
+Saída `0` aprova; `1` reprova com a lista de verificações e o módulo de cada
+uma.
