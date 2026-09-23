@@ -44,12 +44,19 @@ const DATABASE_URL = arg('db', env.QA_DATABASE_URL
 // primeira é o telefone grande atual, 560 é o ponto em que a barra superior
 // troca de arranjo — e portanto o mais provável de quebrar —, 1180 é o tablet
 // deitado, e as duas últimas são as telas que o operador usa de fato.
-const LARGURAS = [320, 375, 390, 430, 560, 768, 1024, 1180, 1280, 1366, 1440, 1920];
+// 414, 820 e 1600 entraram na auditoria final, pedidas na homologação: 414 é
+// o iPhone Plus/Max em retrato, 820 é o iPad em retrato — a largura onde o
+// layout troca de arranjo sem ainda ser desktop — e 1600 é o monitor
+// intermediário que ficava entre 1440 e 1920 sem nunca ter sido medido.
+//
+// As larguras anteriores FICAM. Trocar uma lista medida por outra perde
+// cobertura em silêncio; a união custa alguns segundos e não perde nada.
+const LARGURAS = [320, 375, 390, 414, 430, 560, 768, 820, 1024, 1180, 1280, 1366, 1440, 1600, 1920];
 // Alvo de toque só é exigência onde o dedo é o ponteiro. Acima de 430 o mouse
 // assume, e cobrar 40px de um botão de barra de ferramentas de desktop
 // produziria reprovação sem defeito — foi exatamente o erro que a fase
 // anterior cometeu e mediu.
-const LARGURAS_DE_TOQUE = new Set([320, 375, 390, 430]);
+const LARGURAS_DE_TOQUE = new Set([320, 375, 390, 414, 430]);
 const ALVO_MINIMO = 40;
 
 // `--manter` sobe a pilha com dados de QA e NÃO mede nada: fica de pé para
