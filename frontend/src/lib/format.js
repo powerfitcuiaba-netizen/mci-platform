@@ -259,7 +259,20 @@ export const PAPEL = {
   TEAM: { rotulo: 'Equipe', tom: 'neutro' },
   BRAND: { rotulo: 'Marca', tom: 'neutro' },
   SPONSOR: { rotulo: 'Patrocinador', tom: 'neutro' },
-  MEDIA: { rotulo: 'Imprensa', tom: 'neutro' }
+  MEDIA: { rotulo: 'Imprensa', tom: 'neutro' },
+
+  // A IDENTIDADE TÉCNICA DA FEDERAÇÃO — e ela precisa de rótulo justamente
+  // porque NÃO é gente.
+  //
+  // Ela aparece na auditoria, ao lado de nomes de pessoas, e quem estiver
+  // lendo tem de distinguir "a regra concluiu isto sozinha" de "fulano
+  // concluiu". Sem rótulo, a tela mostraria `FEDERATION_SERVICE` cru e o
+  // leitor teria de adivinhar.
+  //
+  // O tom é `neutro` de propósito: `info` a destacaria como papel
+  // operacional, e ela não é um — no nível da aplicação não tem permissão
+  // nenhuma.
+  FEDERATION_SERVICE: { rotulo: 'Sistema (automático)', tom: 'neutro' }
 };
 export const papel = codigo => rotulo(PAPEL, codigo);
 
