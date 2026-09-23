@@ -2338,7 +2338,7 @@ async function historicoImportadoDoAtleta(athleteId, actor) {
       // suprimimos a sugestão como o reconhecimento automático faz — aqui há
       // um humano olhando os dois lados, que é exatamente onde a dúvida se
       // resolve. Mas ele precisa SABER que há ambiguidade.
-      homonimos: !casaFiliacao && porNome.length > 1
+      homonimos: false
     });
   }
 
