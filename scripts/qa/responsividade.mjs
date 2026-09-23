@@ -402,8 +402,20 @@ try {
   const paginaAtleta = await contexto.newPage();
 
   const erros = new Set();
+  // 401 NÃO É 5xx, e por isso passava despercebido — mas é ele que derruba a
+  // sessão no cliente (`SESSAO_EXPIRADA`) e leva a aplicação de volta ao
+  // login. Numa execução longa, uma única recusa dessas transforma todo teste
+  // seguinte em "a tela não apareceu", sem dizer por quê. Agora diz.
+  const naoAutorizadas = new Set();
+  const espiar = pagina => {
+    pagina.on('response', r => {
+      if (r.status() === 401) naoAutorizadas.add(`${r.request().method()} ${r.url().replace(BASE_API, '')}`);
+    });
+  };
+
   paginaAtleta.on('pageerror', erro => erros.add(String(erro).slice(0, 160)));
   paginaAtleta.on('response', r => { if (r.status() >= 500) erros.add(`${r.status()} ${r.url().slice(0, 80)}`); });
+  espiar(paginaAtleta);
 
   // Entrar como o atleta.
   await paginaAtleta.goto(`${BASE_WEB}/#entrar`, { waitUntil: 'networkidle' });
@@ -478,6 +490,7 @@ try {
   const pagina = await contextoOperador.newPage();
   pagina.on('pageerror', erro => erros.add(String(erro).slice(0, 160)));
   pagina.on('response', r => { if (r.status() >= 500) erros.add(`${r.status()} ${r.url().slice(0, 80)}`); });
+  espiar(pagina);
 
   await pagina.goto(`${BASE_WEB}/#entrar`, { waitUntil: 'networkidle' });
   await pagina.fill('input[type="email"]', emailDiretor);
@@ -813,6 +826,7 @@ try {
     }, BASE_API);
     console.log(`  [diagnóstico] camadas=${diagnostico.camadas} raiz=${diagnostico.raiz} athleteId=${diagnostico.sessao?.user?.athleteId} recados=${diagnostico.recados?.items?.length} deveExibir=${diagnostico.recados?.items?.[0]?.deveExibir}`);
     console.log(`  [diagnóstico] texto=${JSON.stringify(diagnostico.texto)}`);
+    console.log(`  [diagnóstico] 401 vistos: ${[...naoAutorizadas].join(' · ') || 'nenhum'}`);
   }
   conferir('o recado aparece por cima da tela do atleta', Boolean(dialogoDoRecado));
 
@@ -975,6 +989,13 @@ try {
   await pagina.emulateMedia({ reducedMotion: 'no-preference' });
 
   conferir('nenhum erro de página nem resposta 5xx', erros.size === 0, [...erros].join(' · '));
+  // `/auth/me` responde 401 quando NÃO há token — é o caminho normal de quem
+  // ainda não entrou, e o contexto de operador começa assim. O que não pode
+  // acontecer é 401 em rota de dados, que significa sessão recusada no meio
+  // do uso.
+  const autenticadasRecusadas = [...naoAutorizadas].filter(u => !u.includes('/auth/'));
+  conferir('nenhuma rota de dados recusou a sessão com 401',
+    autenticadasRecusadas.length === 0, autenticadasRecusadas.join(' · '));
 
   await navegador.close();
 } catch (erro) {
