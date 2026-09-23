@@ -657,3 +657,71 @@ carreira de uma pessoa a outra — erro que não se desfaz com um "desfazer".
 O motivo está escrito no próprio código, ao lado da condição, para que o
 sobrevivente não seja lido depois como cobertura faltando e não gere um teste
 inventado para um estado inalcançável.
+
+---
+
+## §14 E2E em navegador e responsividade da tela do autocadastro
+
+`scripts/qa/autocadastro-automatico.mjs` — **52 asserções, GATE APROVADO.**
+
+### 14.1 A prova negativa, que só o navegador alcança
+
+O item 21 da especificação pede comprovar que **não existe aprovação humana
+intermediária**. Teste de unidade não pode provar isso: lá não há ninguém para
+aprovar, então a afirmação é verdadeira por construção e não mede nada.
+
+Aqui a fila do operador é aberta **de verdade**, por um operador de verdade,
+depois de um atleta se cadastrar pelo navegador — e o que se cobra é que ela
+esteja **vazia**. Conferido duas vezes, por caminhos independentes: a tela
+`#admin/solicitacoes` não mostra a pessoa, e a API responde `0 pendente(s)`.
+
+Os quatro desfechos foram atravessados no navegador:
+
+| Caminho | O que a tela diz |
+|---|---|
+| CPF com histórico | "Cadastro realizado" + histórico vinculado; `meu-historico` já mostra a participação |
+| CPF sem histórico | "Cadastro realizado", perfil **ativo**, sem prometer análise |
+| Matrícula ambígua | cadastro sai, e a federação **confirma** antes de vincular |
+| Colisão de identidade | "Procure a sua federação" — e **não** diz qual identificador colidiu |
+
+Na colisão, o formulário **não é limpo**: tentar de novo com os mesmos dados
+bate no mesmo lugar, e apagar o que a pessoa digitou custaria o trabalho dela
+sem lhe dar o que fazer.
+
+### 14.2 A tela que nunca tinha sido medida
+
+O gate visual da FASE 9 mede `minha-filiacao`, `meu-historico` e `ranking`.
+`minha-solicitacao` ficou de fora desde que existe — sendo a **primeira** tela
+que um atleta novo abre e a única com formulário longo, que é o pior candidato
+possível a ficar sem medição de largura.
+
+Medida agora em **quinze larguras (320 → 1920)**: sem overflow horizontal,
+nenhum elemento fora da viewport, alvos de toque conformes nas cinco larguras
+de telefone.
+
+### 14.3 Um critério que eu mudei, e por isso declarei
+
+O gate reprovou cinco vezes em "alvos de toque", apontando `input:` — tag sem
+texto, que não dizia qual campo era.
+
+Corrigi o diagnóstico antes de qualquer outra coisa, e o elemento apareceu:
+`input[type=file] id=entrada-da-foto`, **1×1 px**, escondido atrás do rótulo
+estilizado da foto. Quem recebe o dedo é o rótulo, não ele.
+
+A exclusão é correta — mas foi acrescentada **depois** da reprovação, e mudar
+critério até a falha sumir é a pior coisa que se pode fazer com um gate. Duas
+consequências, as duas permanentes:
+
+1. **O descarte é impresso a cada execução**, com elemento, altura e largura.
+   Quem lê o relatório vê o que o gate escolheu ignorar e pode discordar. Se um
+   campo de verdade aparecer nessa lista, é defeito.
+2. **`label.button` entrou na medição.** Descartar o input sem medir o rótulo
+   teria criado um ponto cego onde antes havia um falso positivo — a exclusão
+   teria piorado o gate em vez de corrigi-lo.
+
+### 14.4 Por que não está na CI
+
+O gate visual da FASE 9 também não está: ambos exigem Playwright e Chromium, e
+a CI não os instala. Mantive o mesmo padrão em vez de mudar a infraestrutura da
+CI por conta própria — a instrução de execução está em `docs/COMO-TESTAR.md`.
+Colocar os dois na CI é decisão de produto, e vale a pena; fica registrado.
