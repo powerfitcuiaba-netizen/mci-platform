@@ -110,3 +110,156 @@ jobs:
             503) echo "::error::FAIL — /ready respondeu 503. O corpo acima diz qual das três conferências (database, storage, rls) reprovou. A aplicação recusar tráfego sem RLS efetivo é comportamento desejado, não defeito: ver docs/DEPLOY.md."; exit 1 ;;
             *)   echo "::error::FAIL — /ready respondeu $C."; exit 1 ;;
           esac
+
+  # ==========================================================================
+  # §18 — SMOKE TEST PÓS-DEPLOY, SOMENTE LEITURA
+  #
+  # Só roda se `/ready` passou: sondar produção que já se declarou fora do ar
+  # mede a indisponibilidade, não o sistema.
+  #
+  # TUDO AQUI É GET, E TUDO ANÔNIMO. Nenhuma escrita, nenhum token, nenhuma
+  # credencial. Nada é criado e nada é apagado.
+  #
+  # POR QUE NENHUM CORPO É IMPRESSO
+  #
+  # O log é público. `/events`, `/ranking` e `/search` devolvem NOMES DE
+  # ATLETAS REAIS — dado público na aplicação, mas despejá-lo num log de CI é
+  # publicá-lo de novo, num lugar onde ninguém foi avisado que ele estaria.
+  # Então o que sai daqui é contagem e veredito. A conferência de CPF, pelo
+  # mesmo motivo, imprime QUANTAS ocorrências achou e nunca o que achou: um
+  # CPF impresso aqui seria justamente o vazamento que a sonda existe para
+  # recusar.
+  # ==========================================================================
+  smoke:
+    name: §18 — smoke test somente leitura
+    needs: sondar
+    runs-on: ubuntu-latest
+    env:
+      API: ${{ inputs.api || 'https://mci-platform-api.onrender.com' }}
+    steps:
+      - name: Preparar o placar
+        run: |
+          echo "FALHAS=0" >> "$GITHUB_ENV"
+          echo '| Sonda | Esperado | Obtido | |' >> /tmp/placar.md
+          echo '|---|---|---|---|' >> /tmp/placar.md
+
+      # ------------------------------------------------------------- leitura
+      - name: Os campeonatos continuam publicados
+        run: |
+          C="$(curl -sS -m 120 -o /tmp/ev.json -w '%{http_code}' "$API/api/v1/events?limit=100")"
+          N="$(jq -r '.items | length' /tmp/ev.json 2>/dev/null || echo erro)"
+          echo "HTTP $C — $N campeonatos na vista pública"
+          # A vista anônima esconde DRAFT e CANCELLED, então 47 é o total do
+          # banco e não necessariamente o total daqui. Por isso a contagem é
+          # RELATADA; o que reprova é a lista vazia.
+          if [ "$C" = "200" ] && [ "$N" -gt 0 ] 2>/dev/null; then
+            echo "| \`GET /events\` | 200, lista não vazia | 200, $N itens | PASS |" >> /tmp/placar.md
+          else
+            echo "| \`GET /events\` | 200, lista não vazia | HTTP $C, $N | **FAIL** |" >> /tmp/placar.md
+            echo "FALHAS=$((FALHAS+1))" >> "$GITHUB_ENV"
+          fi
+          echo "EVENTOS=$N" >> "$GITHUB_ENV"
+
+      - name: O ranking público responde
+        run: |
+          C="$(curl -sS -m 120 -o /tmp/rk.json -w '%{http_code}' "$API/api/v1/ranking/super-overall")"
+          N="$(jq -r 'if type=="array" then length elif .items then (.items|length) else 0 end' /tmp/rk.json 2>/dev/null || echo erro)"
+          echo "HTTP $C — $N linhas no Super Overall"
+          if [ "$C" = "200" ]; then
+            echo "| \`GET /ranking/super-overall\` | 200, JSON válido | 200, $N linhas | PASS |" >> /tmp/placar.md
+          else
+            echo "| \`GET /ranking/super-overall\` | 200 | HTTP $C | **FAIL** |" >> /tmp/placar.md
+            echo "FALHAS=$((FALHAS+1))" >> "$GITHUB_ENV"
+          fi
+
+      # ---------------------------------------------------------- autorização
+      - name: Sem token, a lista de atletas recusa
+        run: |
+          C="$(curl -sS -m 120 -o /dev/null -w '%{http_code}' "$API/api/v1/athletes")"
+          echo "HTTP $C"
+          if [ "$C" = "401" ]; then
+            echo '| `GET /athletes` sem token | 401 | 401 | PASS |' >> /tmp/placar.md
+          else
+            echo "| \`GET /athletes\` sem token | 401 | **$C** | **FAIL** |" >> /tmp/placar.md
+            echo "FALHAS=$((FALHAS+1))" >> "$GITHUB_ENV"
+          fi
+
+      # Um id que não é de ninguém, sem token. O que se mede é a ORDEM das
+      # barreiras: autenticação ANTES de existência. Um 404 aqui já contaria
+      # quem existe e quem não existe para quem não se identificou.
+      - name: Sem token, o perfil de um atleta recusa antes de dizer se existe
+        run: |
+          C="$(curl -sS -m 120 -o /dev/null -w '%{http_code}' "$API/api/v1/athletes/00000000-0000-4000-8000-000000000000")"
+          echo "HTTP $C"
+          if [ "$C" = "401" ]; then
+            echo '| `GET /athletes/:id` sem token | 401 (não 404) | 401 | PASS |' >> /tmp/placar.md
+          else
+            echo "| \`GET /athletes/:id\` sem token | 401 (não 404) | **$C** | **FAIL** |" >> /tmp/placar.md
+            echo "FALHAS=$((FALHAS+1))" >> "$GITHUB_ENV"
+          fi
+
+      # ------------------------------------------------------------------ CPF
+      # A regra é absoluta: CPF NUNCA aparece em busca pública, nem mascarado.
+      - name: Nenhum CPF na busca pública
+        run: |
+          FALHOU=0
+          for TERMO in 'si' 'da' '00000000191'; do
+            C="$(curl -sS -m 120 -o /tmp/busca.json -w '%{http_code}' --get --data-urlencode "q=$TERMO" "$API/api/v1/search")"
+            # Três formas de o número escapar: a chave, o formato pontuado e
+            # onze dígitos soltos. O que sai no log é a CONTAGEM — imprimir a
+            # ocorrência seria publicar o CPF que a sonda veio recusar.
+            CHAVE="$(grep -oE '"cpf"' /tmp/busca.json | wc -l)"
+            PONTUADO="$(grep -oE '[0-9]{3}\.[0-9]{3}\.[0-9]{3}-[0-9]{2}' /tmp/busca.json | wc -l)"
+            # O termo volta ecoado em `.query`; descontá-lo evita acusar a
+            # sonda de vazar a própria pergunta.
+            SOLTOS="$(jq -r '.results' /tmp/busca.json 2>/dev/null | grep -oE '[0-9]{11}' | wc -l)"
+            echo "q=$TERMO → HTTP $C · chave \"cpf\": $CHAVE · pontuado: $PONTUADO · 11 dígitos nos resultados: $SOLTOS"
+            [ "$C" = "200" ] || FALHOU=1
+            [ "$CHAVE" = "0" ] && [ "$PONTUADO" = "0" ] && [ "$SOLTOS" = "0" ] || FALHOU=1
+          done
+          if [ "$FALHOU" = "0" ]; then
+            echo '| `GET /search` × 3 termos | 200 e zero CPF | 200 e zero CPF | PASS |' >> /tmp/placar.md
+          else
+            echo '| `GET /search` × 3 termos | 200 e zero CPF | **ver log** | **FAIL** |' >> /tmp/placar.md
+            echo "FALHAS=$((FALHAS+1))" >> "$GITHUB_ENV"
+          fi
+
+      # -------------------------------------------------------- não-financeiro
+      # "Este aplicativo NÃO é um sistema financeiro." A higiene do repositório
+      # já recusa o módulo no código; isto confere a mesma coisa no ar.
+      - name: Nenhuma rota financeira no ar
+        run: |
+          ACHADAS=''
+          for R in payments checkout billing invoices subscriptions wallet orders; do
+            C="$(curl -sS -m 60 -o /dev/null -w '%{http_code}' "$API/api/v1/$R")"
+            echo "/$R → $C"
+            case "$C" in 404|405) ;; *) ACHADAS="$ACHADAS /$R($C)" ;; esac
+          done
+          if [ -z "$ACHADAS" ]; then
+            echo '| 7 rotas financeiras | 404 | 404 | PASS |' >> /tmp/placar.md
+          else
+            echo "| 7 rotas financeiras | 404 | **$ACHADAS** | **FAIL** |" >> /tmp/placar.md
+            echo "FALHAS=$((FALHAS+1))" >> "$GITHUB_ENV"
+          fi
+
+      # ------------------------------------------------------------- veredito
+      - name: Nada foi escrito
+        run: |
+          echo "Este job fez apenas GET. Nenhum POST, PATCH, PUT ou DELETE."
+          echo '| Escrita em produção | nenhuma | nenhuma | PASS |' >> /tmp/placar.md
+
+      - name: Placar
+        if: always()
+        run: |
+          { echo '## §18 — smoke test somente leitura'; echo; cat /tmp/placar.md; } >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/placar.md
+
+      - name: O veredito
+        run: |
+          echo "Campeonatos na vista pública: ${EVENTOS:-?}"
+          if [ "${FALHAS:-0}" = "0" ]; then
+            echo "PASS — §18 completo, sem falha."
+          else
+            echo "::error::FAIL — ${FALHAS} sonda(s) do §18 reprovaram. Ver o placar acima."
+            exit 1
+          fi
