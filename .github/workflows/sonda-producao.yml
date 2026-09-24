@@ -585,7 +585,7 @@ jobs:
           fi
 
   # ==========================================================================
-  # O CARTÃO "RESULTADOS PUBLICADOS" EM PRODUÇÃO
+  # O CARTÃO "RESULTADOS PUBLICADOS" E A ENTIDADE OFICIAL, EM PRODUÇÃO
   #
   # POR QUE ESTE JOB EXISTE
   #
@@ -594,24 +594,29 @@ jobs:
   # escreve — e o histórico importado, que é a maior parte do acervo desta
   # plataforma, não passa por ali. Ver §20 de docs/AUDITORIA-FINAL-E2E.md.
   #
-  # A correção foi medida contra banco local. Este job mede NO AR.
+  # E O CAMPO "ENTIDADE DE FILIAÇÃO" APARECIA VAZIO na tela do atleta, porque a
+  # entidade oficial e o estado do autocadastro existiam apenas como clique
+  # manual. Ver §3.4 de docs/DEPLOY.md.
   #
-  # E ELE RESOLVE UM SEGUNDO PROBLEMA: não havia meio confiável de saber QUAL
+  # As duas correções foram medidas contra banco local. Este job mede NO AR.
+  #
+  # E ELE RESOLVE UM TERCEIRO PROBLEMA: não havia meio confiável de saber QUAL
   # versão está implantada — nada na aplicação expõe o commit. O campo
-  # `publishedResultsBreakdown` nasceu com a correção, então a presença dele na
-  # resposta é evidência COMPORTAMENTAL de que o código novo está no ar, e a
-  # ausência é evidência de que ainda não está. Não é o SHA; é a pergunta que o
-  # SHA responderia.
+  # `publishedResultsBreakdown` nasceu com a correção do cartão, então a
+  # presença dele na resposta é evidência COMPORTAMENTAL de que o código novo
+  # está no ar. Não é o SHA; é a pergunta que o SHA responderia.
   #
-  # SOMENTE LEITURA, ANÔNIMO: um GET numa rota que já é pública. Nenhuma
+  # SOMENTE LEITURA, ANÔNIMO: dois GET em rotas que já são públicas. Nenhuma
   # escrita, nenhum token, nenhuma credencial.
   #
-  # O log é público, então saem CONTAGENS e nunca o corpo: `/public/summary`
-  # devolve `upcoming` com nomes de campeonato, e despejá-los aqui seria
-  # publicá-los de novo num lugar onde ninguém foi avisado que estariam.
+  # O log é público, então saem CONTAGENS e nunca o corpo. As contagens saem
+  # TAMBÉM COMO ANOTAÇÃO porque o log de Actions fica em
+  # results-receiver.actions.githubusercontent.com, que a política de egresso
+  # deste projeto recusa: medir e não conseguir ler a medição é o mesmo que não
+  # medir.
   # ==========================================================================
   cartao:
-    name: O cartão de resultados publicados, no ar
+    name: O cartão e a entidade oficial, no ar
     needs: sondar
     runs-on: ubuntu-latest
     env:
@@ -636,77 +641,7 @@ jobs:
           echo "  do histórico importado ..... $IMPORTADOS"
           echo "campeonatos na vitrine ....... $EVENTOS"
 
-          # AS CONTAGENS TAMBÉM COMO ANOTAÇÃO, e não só no log.
-          #
-          # O log de Actions fica em results-receiver.actions.githubusercontent.com,
-          # que a política de egresso deste projeto recusa — então quem trabalha
-          # daqui lê a CONCLUSÃO de cada passo e nunca os números. Medir e não
-          # conseguir ler a medição é o mesmo que não medir.
-          #
-          # Anotação sai pela API de check-runs, que é alcançável. São as mesmas
-          # contagens que já vão para o log e para o resumo: nenhum dado novo é
-          # exposto, e corpo nenhum é impresso.
-          echo "::notice title=Cartão em produção::publishedResults=$TOTAL composicao=$TEM recebidos=$RECEBIDOS importados=$IMPORTADOS campeonatos=$EVENTOS"
-
-      # ------------------------------------------------------------------
-      # A ENTIDADE DE FILIAÇÃO OFICIAL, NO AR.
-      #
-      # O sintoma que abriu a fase da NPC foi o campo "Entidade de filiação"
-      # vazio na tela do atleta, e a vitrine devolvendo lista vazia. Esta é a
-      # rota que a tela consome, e é a única forma de saber, de fora, se o
-      # provisionamento chegou a produção.
-      #
-      # NÃO REPROVA quando a lista está vazia: uma federação pode
-      # legitimamente manter o autocadastro fechado, e
-      # MCI_NPC_ORGANIZATION_ID pode não estar configurada — os dois são
-      # estados administrativos, não indisponibilidade. O job RELATA, e
-      # tratar decisão da federação como falha ensinaria a ignorar o
-      # vermelho.
-      #
-      # Somente leitura, anônimo, contagens e nomes de entidade — que são
-      # públicos por construção nesta rota. Nenhum dado pessoal.
-      # ------------------------------------------------------------------
-      - name: A entidade de filiação oficial está na vitrine
-        run: |
-          set -u
-          OFICIAL='NPC - National Physique Committe'
-          CODIGO="$(curl -sS -m 120 -o /tmp/f.json -w '%{http_code}' "$API/api/v1/public/affiliations" || echo 000)"
-          echo "HTTP $CODIGO"
-          [ "$CODIGO" = "200" ] || { echo "::error::/public/affiliations respondeu $CODIGO."; exit 1; }
-
-          N="$(jq -r '.items | length' /tmp/f.json 2>/dev/null || echo 0)"
-          TEM_NPC="$(jq -r --arg n "$OFICIAL" '[.items[]? | select(.name == $n)] | length' /tmp/f.json 2>/dev/null || echo 0)"
-          CODIGOS="$(jq -r '[.items[]?.code] | join(",")' /tmp/f.json 2>/dev/null || echo '')"
-          KIND="$(jq -r --arg n "$OFICIAL" '[.items[]? | select(.name == $n) | .kind] | join(",")' /tmp/f.json 2>/dev/null || echo '')"
-
-          echo "entidades na vitrine ......... $N"
-          echo "com o nome oficial ........... $TEM_NPC"
-          echo "códigos ...................... ${CODIGOS:-(nenhum)}"
-          echo "kind da oficial .............. ${KIND:-(ausente)}"
-
-          echo "::notice title=Entidade oficial em producao::entidades=$N comNomeOficial=$TEM_NPC codigos=${CODIGOS:-nenhum} kind=${KIND:-ausente}"
-
-          {
-            echo '## A entidade de filiação oficial, no ar'
-            echo
-            echo '| Medição | Valor |'
-            echo '|---|---|'
-            echo "| entidades na vitrine | $N |"
-            echo "| com o nome oficial | $TEM_NPC |"
-            echo "| códigos | ${CODIGOS:-(nenhum)} |"
-            echo "| kind da oficial | ${KIND:-(ausente)} |"
-            echo
-            if [ "$TEM_NPC" -ge 1 ] 2>/dev/null; then
-              echo 'A entidade oficial ESTÁ na vitrine: o atleta pode selecioná-la.'
-            elif [ "$N" = "0" ]; then
-              echo '**Vitrine VAZIA.** Nenhuma federação tem autocadastro aberto, ou'
-              echo '`MCI_NPC_ORGANIZATION_ID` não está configurada no ambiente. Os dois são'
-              echo 'estados administrativos: o provisionamento não os adivinha, e este job'
-              echo 'não os trata como indisponibilidade.'
-            else
-              echo '**A vitrine tem entidade, mas nenhuma com o nome oficial.** Ver os códigos acima.'
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Cartão em producao::publishedResults=$TOTAL composicao=$TEM recebidos=$RECEBIDOS importados=$IMPORTADOS campeonatos=$EVENTOS"
 
           {
             echo '## O cartão de resultados publicados, no ar'
@@ -739,4 +674,70 @@ jobs:
             echo "::error::O total ($TOTAL) não é a soma das parcelas ($RECEBIDOS + $IMPORTADOS = $SOMA)."
             exit 1
           fi
-          echo "PASS — a correção está no ar, e o total confere com as parcelas."
+          echo "PASS — a correção do cartão está no ar, e o total confere com as parcelas."
+
+      # ------------------------------------------------------------------
+      # A ENTIDADE DE FILIAÇÃO OFICIAL, NO AR.
+      #
+      # O sintoma que abriu a fase da NPC foi o campo "Entidade de filiação"
+      # vazio na tela do atleta, e a vitrine devolvendo lista vazia. Esta é a
+      # rota que a tela consome, e é a única forma de saber, de fora, se o
+      # provisionamento chegou a produção.
+      #
+      # NÃO REPROVA COM A VITRINE VAZIA. Uma federação pode legitimamente manter
+      # o autocadastro fechado, e `MCI_NPC_ORGANIZATION_ID` pode não estar
+      # configurada no ambiente — os dois são estados ADMINISTRATIVOS, não
+      # indisponibilidade. Tratar decisão da federação como falha ensinaria a
+      # ignorar o vermelho. O job RELATA, e o resumo diz qual dos casos é.
+      #
+      # `continue-on-error` NÃO é usado aqui: o passo não falha por construção, e
+      # esconder falha com bandeira de tolerância é o oposto de medir.
+      # ------------------------------------------------------------------
+      - name: A entidade de filiação oficial está na vitrine
+        run: |
+          set -u
+          OFICIAL='NPC - National Physique Committe'
+          CODIGO="$(curl -sS -m 120 -o /tmp/f.json -w '%{http_code}' "$API/api/v1/public/affiliations" || echo 000)"
+          echo "HTTP $CODIGO"
+          [ "$CODIGO" = "200" ] || { echo "::error::/public/affiliations respondeu $CODIGO, e o esperado é 200."; exit 1; }
+
+          N="$(jq -r '.items | length' /tmp/f.json 2>/dev/null || echo 0)"
+          COM_NOME="$(jq -r --arg n "$OFICIAL" '[.items[]? | select(.name == $n)] | length' /tmp/f.json 2>/dev/null || echo 0)"
+          CODIGOS="$(jq -r '[.items[]?.code] | join(",")' /tmp/f.json 2>/dev/null || echo '')"
+          KIND="$(jq -r --arg n "$OFICIAL" '[.items[]? | select(.name == $n) | .kind] | join(",")' /tmp/f.json 2>/dev/null || echo '')"
+
+          echo "entidades na vitrine ......... $N"
+          echo "com o nome oficial ........... $COM_NOME"
+          echo "códigos ...................... ${CODIGOS:-(nenhum)}"
+          echo "kind da oficial .............. ${KIND:-(ausente)}"
+
+          echo "::notice title=Entidade oficial em producao::entidades=$N comNomeOficial=$COM_NOME codigos=${CODIGOS:-nenhum} kind=${KIND:-ausente}"
+
+          {
+            echo
+            echo '## A entidade de filiação oficial, no ar'
+            echo
+            echo '| Medição | Valor |'
+            echo '|---|---|'
+            echo "| entidades na vitrine | $N |"
+            echo "| com o nome oficial | $COM_NOME |"
+            echo "| códigos | ${CODIGOS:-(nenhum)} |"
+            echo "| kind da oficial | ${KIND:-(ausente)} |"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$COM_NOME" != "0" ]; then
+            echo 'A entidade oficial ESTÁ na vitrine: o atleta pode selecioná-la.' >> "$GITHUB_STEP_SUMMARY"
+            echo "PASS — a entidade oficial está no ar."
+          elif [ "$N" = "0" ]; then
+            {
+              echo '**Vitrine VAZIA.** Nenhuma federação tem autocadastro aberto, ou'
+              echo '`MCI_NPC_ORGANIZATION_ID` não está configurada no ambiente. Os dois são'
+              echo 'estados administrativos: o provisionamento não os adivinha, e este job'
+              echo 'não os trata como indisponibilidade.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::A vitrine de filiações está vazia — ver o resumo do job."
+          else
+            echo '**A vitrine tem entidade, mas nenhuma com o nome oficial.** Ver os códigos acima.' >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::Há entidade na vitrine, mas nenhuma com o nome oficial."
+          fi
