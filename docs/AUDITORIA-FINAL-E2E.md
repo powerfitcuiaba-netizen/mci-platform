@@ -1061,3 +1061,66 @@ três federações legadas. Não é paráfrase do que o Render fará — é o co
 
 RLS, regra de conciliação, testes já aprovados, e nenhum dado de produção. A
 mudança é de pipeline e de ordem de verificação dentro do script.
+
+---
+
+## §19 O teto de tempo da CI — uma premissa que contradizia o dado ao lado dela
+
+### 19.1 O que aconteceu
+
+A CI da main (#324), no merge desta fase, foi **cancelada aos 40 minutos**
+exatos no passo de testes. Nenhum teste falhou: o job foi cortado no teto de
+`timeout-minutes: 40`.
+
+Não era o código, e a prova é direta: a **mesma árvore** (`a62b54f`, idêntica
+em `53c8b55` e `da03a48`) passou em **19,8 min** na #323 e em **19,4 min** na
+reexecução da própria #324.
+
+### 19.2 O erro não foi o número, foi a premissa
+
+O comentário que justificava o 40 dizia: *"o dobro do tempo local"*. Supõe que
+a variância do runner cabe em 2×.
+
+**Não cabe — e o próprio comentário, duas linhas acima, já dizia isso:** ele
+registrava que o job *"JÁ VARIOU de 7m36s a 24m29s no mesmo código"*, que é
+**3,2×**. A justificativa contradizia o dado que estava imediatamente ao lado
+dela, e ninguém notou porque o número parecia generoso.
+
+A #324 mostrou mais de 2× sobre o típico atual — e não sabemos quanto de fato
+precisaria, porque foi cortada antes de terminar.
+
+### 19.3 A conta refeita
+
+`timeout-minutes: 75`, que é **~3,9× o típico medido** (19,4 min).
+
+| Referência | Valor |
+|---|---|
+| Típico medido (duas execuções) | 19,4 / 19,8 min |
+| Variância histórica registrada | 7m36s → 24m29s (3,2×) |
+| Teto anterior | 40 min — **estourado** |
+| Teto novo | 75 min (~3,9×) |
+| Padrão do GitHub | 360 min |
+
+Cobre a variância observada e a histórica com margem, e um job de fato
+pendurado morre em 75 minutos em vez de seis horas.
+
+### 19.4 Por que isto não é enfraquecer teste
+
+Nenhuma suíte foi tocada, nenhum teste pulado, nenhuma cobertura reduzida. O
+que estava errado era o **instrumento**, que reprovava por relógio e não por
+defeito — e um gate que reprova sem defeito é um gate que se aprende a ignorar,
+o que é pior do que não ter gate.
+
+O comentário registra que, se o típico passar de ~25 min, a conta precisa ser
+**REFEITA** e não elevada por reflexo. Foi exatamente o reflexo que produziu o
+40: subir o número sem revisar a premissa.
+
+### 19.5 Verificação
+
+As duas suítes que leem `ci.yml` — `higiene-repositorio` e
+`empacotamento-importador` — passaram 14/14. O teste que confere o padrão de
+segredos da CI não é afetado: ele compara a regex, não o teto.
+
+A regressão completa **não foi repetida** de propósito: a árvore difere de
+`da03a48` apenas por `.github/workflows/ci.yml`, e nada em `src/` ou `tests/`
+mudou desde a medição de 1920 verdes. Repeti-la mediria o mesmo número.
