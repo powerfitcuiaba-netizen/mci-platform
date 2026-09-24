@@ -99,6 +99,33 @@ services:
       - key: PROVISIONAR_ADMIN_EMAIL
         sync: false
 
+      # QUAL ORGANIZAÇÃO É A OFICIAL DO CAMPEONATO — a dona da entidade
+      # `NPC - National Physique Committe`.
+      #
+      # `sync: false` porque é um id do banco de produção, e o repositório é
+      # público: fixá-lo aqui seria versionar configuração de ambiente.
+      #
+      # POR QUE UMA VARIÁVEL, E NÃO DESCOBERTA PELO SISTEMA
+      #
+      # Resolver a organização por semelhança de nome, ou pela primeira que o
+      # banco devolver, é como se provisiona a federação errada em silêncio — e
+      # aí a entidade oficial nasce pendurada em quem não é dono dela, com
+      # histórico atrás. O id é declarado, e nenhuma outra organização é
+      # escolhida no lugar dele.
+      #
+      # RESPONSABILIDADE ÚNICA, e por isso não se reaproveita
+      # `PROVISIONAR_ADMIN_EMAIL`: derivar a organização do vínculo de quem
+      # autoriza o deploy faria a federação oficial mudar quando trocasse o
+      # administrador.
+      #
+      # Ausente: o script NÃO verifica a entidade oficial e diz isso no log;
+      # o deploy segue. Apontando para organização inexistente ou inativa, ou
+      # havendo conflito de entidade: o script FALHA e o Render não promove a
+      # versão — o que é o comportamento certo, porque uma federação sem a
+      # entidade no ar tem o autocadastro quebrado.
+      - key: MCI_NPC_ORGANIZATION_ID
+        sync: false
+
       # A string vem do banco gerenciado; ninguém digita credencial.
       - key: DATABASE_URL
         fromDatabase:

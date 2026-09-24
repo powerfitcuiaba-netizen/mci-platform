@@ -233,6 +233,96 @@ federações que já existiam foram criadas antes desta fase, e a migration que
 acrescentou as colunas não cria linha nenhuma — migration altera ESTRUTURA, e a
 conta de serviço é DADO.
 
+### 3.4 A entidade de filiação oficial — `MCI_NPC_ORGANIZATION_ID`
+
+O **mesmo** `preDeployCommand` garante também a entidade de filiação oficial do
+Campeonato Brasileiro Muscle Contest:
+
+| Campo | Valor |
+|---|---|
+| `name` | `NPC - National Physique Committe` |
+| `code` | `NPC` |
+| `kind` | `ENTITY` |
+| `active` | `true` |
+
+e deixa `Organization.selfRegistrationOpen = true` **apenas** na organização
+configurada.
+
+Configure no painel do Render, uma vez, a variável `MCI_NPC_ORGANIZATION_ID`
+(declarada com `sync: false`) com o **id** da organização oficial.
+
+#### O defeito que isto corrige
+
+Na tela "Solicitar perfil de atleta" o campo **Entidade de filiação** aparecia
+vazio, com *"Nenhuma entidade de filiação ativa está disponível para a sua
+conta."* — e sem entidade o atleta não conclui o autocadastro.
+
+Não era a tela e não era RLS: `Affiliation` e `Organization` não têm política
+nenhuma (`relrowsecurity = false` nas duas, medido em `pg_class`). Era **dado
+que nunca foi provisionado**:
+
+- `selfRegistrationOpen` nasce `false` e era ligado em **exatamente um lugar**
+  do código — `POST /organizations/:id/self-registration`, clique manual;
+- **nada** no repositório criava uma `Affiliation`, fora aquele endpoint e
+  `scripts/qa/dataset.mjs`, que é QA. `importar-campeonatos.js`, que carregou os
+  47 campeonatos, nunca toca a tabela.
+
+Ou seja: a entidade oficial existia apenas como clique manual. Não sobrevivia a
+um ambiente novo, não era reproduzível, e não havia como conferi-la sem abrir o
+banco.
+
+#### Responsabilidade única de cada variável
+
+| Variável | Responde |
+|---|---|
+| `PROVISIONAR_ADMIN_EMAIL` | **quem** autoriza — a auditoria grava o nome dele |
+| `MCI_NPC_ORGANIZATION_ID` | **qual** organização é a oficial |
+
+Uma **não** serve para descobrir a outra. Derivar a organização do vínculo de
+quem autoriza o deploy faria a federação oficial mudar quando trocasse o
+administrador.
+
+A organização **nunca** é descoberta: nem por nome aproximado, nem pela primeira
+que o banco devolver, nem por nada vindo do frontend.
+
+#### O que acontece em cada estado
+
+| Estado | Comportamento | Saída |
+|---|---|---|
+| variável ausente | a entidade **não é verificada**, e o log diz isso; o deploy segue | `0` |
+| organização inexistente | falha explícita; **nenhuma outra é escolhida** | `1` |
+| organização inativa | falha explícita | `1` |
+| entidade ausente | cria, ativa, abre o autocadastro | `0` |
+| entidade inativa, ou com nome/tipo fora | normaliza **só** o que divergir | `0` |
+| entidade já correta | **não escreve nada**, nem auditoria | `0` |
+| conflito de entidade | **PARA**, nada é alterado, e reporta os vínculos de cada candidata | `1` |
+
+Falhar é o comportamento certo nos casos de `1`: o Render não promove a versão,
+a antiga continua no ar, e ninguém fica com o autocadastro quebrado.
+
+#### Diagnóstico, somente leitura
+
+```bash
+MCI_NPC_ORGANIZATION_ID='<id>' node scripts/provisionar-contas-de-servico.js --conferir
+```
+
+`--conferir` **não exige** `PROVISIONAR_ADMIN_EMAIL`: ele não escreve, e pedir
+credencial para *olhar* é o que faz um diagnóstico não ser usado. Ele imprime
+`organizationId`, `organizationName`, `organizationActive`,
+`selfRegistrationOpen`, `affiliationId`, `affiliationName`, `affiliationCode`,
+`affiliationKind`, `affiliationActive` e a quantidade de vínculos — atletas,
+inscrições, solicitações, lançamentos e identidades externas.
+
+Saídas: `0` nada a fazer · `2` há pendência · `1` conflito ou configuração
+inválida.
+
+#### O que o provisionamento nunca faz
+
+Não apaga filiação, não apaga histórico, e **não renomeia `code`** — que é
+chave de reconhecimento da importação MuscleWar: trocá-lo desligaria a
+conciliação por matrícula para tudo que já está no ledger. Em conflito ele para
+e reporta; quem decide é a federação, com o histórico na mão.
+
 Sem este passo, `POST /athlete-requests` responde **503
 `SERVICE_ACCOUNT_MISSING` para todas as federações existentes**: o autocadastro
 não conclui, e o sintoma só aparece quando o primeiro atleta tenta se cadastrar.

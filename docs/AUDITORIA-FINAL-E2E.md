@@ -1324,3 +1324,49 @@ Nenhuma regra esportiva, nenhuma tabela de pontos, nenhuma política de RLS,
 nenhuma migration, nenhuma regra de conciliação. Nenhum dado de produção foi
 lido, alterado ou apagado: a investigação inteira rodou contra banco local, e a
 única evidência de produção continua sendo o que as vistas públicas expõem.
+
+### 20.13 A medição EM PRODUÇÃO, depois do deploy
+
+Sonda de produção, GET anônimo em `/public/summary`, somente leitura:
+
+```
+publishedResults ............. 191
+composição presente .......... sim
+  recebidos no MCI ........... 0
+  do histórico importado ..... 191
+campeonatos na vitrine ....... 47
+```
+
+**191 é o Ipiranga.** É o mesmo número que aparece nos comentários de
+`muscleWarService.js`, `rankingService.js` e três migrations desde a
+importação — e era o número inteiro que o cartão não contava.
+
+`recebidos = 0` fecha o diagnóstico: a produção do MCI **não tem uma única
+apuração recebida**. O acervo é todo histórico importado. O defeito não escondia
+parte do número; escondia **todo** ele.
+
+### 20.14 Como a versão implantada passou a ser verificável
+
+Não havia meio confiável de saber qual commit está no ar: nada na aplicação
+expõe o SHA, o egresso deste ambiente não alcança o Render, e o log de Actions
+fica em `results-receiver.actions.githubusercontent.com`, que a política de
+egresso recusa.
+
+`publishedResultsBreakdown` nasceu com esta correção. A presença dele na
+resposta é evidência **comportamental** de que o código novo está no ar; a
+ausência é evidência de que ainda não está. Não é o SHA — é a pergunta que o SHA
+responderia, e é verificável sem credencial nenhuma.
+
+O job novo da sonda mede isso, e trata os dois desfechos de forma diferente:
+composição ausente **avisa e sai zero** (versão antiga no ar é estado legítimo
+durante um deploy, e tratá-la como indisponibilidade ensina a ignorar o
+vermelho); total que não bate com a soma das parcelas **reprova**, porque aí a
+conta está errada em produção.
+
+**Registro honesto de um passo em falso:** a primeira versão do job só escrevia
+no log, e o log não é legível daqui. A sonda passou e eu não conseguia dizer
+QUANTO ela havia medido — pior, `success` num job com dois desfechos não
+distinguia um do outro. Desambiguei pela ausência de anotação de aviso, o que
+funciona mas é inferência, não leitura. As contagens passaram a sair também como
+anotação, que a API de check-runs entrega. Medir e não conseguir ler a medição é
+o mesmo que não medir.
