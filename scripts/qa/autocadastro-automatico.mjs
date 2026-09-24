@@ -54,6 +54,12 @@ const LARGURAS_DE_TOQUE = new Set([320, 375, 390, 414, 430]);
 const ALVO_MINIMO = 40;
 const SENHA = 'senha-de-qa-123';
 
+// A ENTIDADE OFICIAL DO CAMPEONATO, literal. O gate compara o texto da tela com
+// esta constante: um caractere fora já é outro nome, e o atleta precisa
+// reconhecer a entidade à qual ele é filiado.
+const NOME_OFICIAL = 'NPC - National Physique Committe';
+const CODIGO_OFICIAL = 'NPC';
+
 const problemas = [];
 const conferir = (rotulo, passou, detalhe = '') => {
   console.log(`  ${passou ? 'PASS  ' : 'FALHOU'}  ${rotulo}${detalhe ? `  ${detalhe}` : ''}`);
@@ -123,13 +129,21 @@ async function semear() {
     corpo: { name: 'Federação QA Autocadastro', slug: `qa-auto-${Date.now().toString(36)}`, state: 'MT' }
   });
 
-  // A PORTA ABERTA É PARTE DA SEMEADURA, e não um padrão.
-  // Em produção o autocadastro nasce FECHADO, e abrir é ato administrativo
-  // com auditoria. Aqui ele é aberto explicitamente, pela rota real, para que
-  // fique visível que o gate depende disso — e para que, se o interruptor
-  // parar de funcionar, o gate inteiro caia em vez de medir outra coisa.
-  await chamar(`/organizations/${org.id}/self-registration`, {
-    metodo: 'POST', token: tokenAdmin, corpo: { open: true }
+  // A PORTA E A ENTIDADE OFICIAL VÊM DO PROVISIONAMENTO REAL DO DEPLOY.
+  //
+  // Em produção o autocadastro nasce FECHADO — é o padrão da coluna, e abrir é
+  // ato administrativo com auditoria. Foi exatamente esse estado que deixou o
+  // campo "Entidade de filiação" vazio na tela, e por isso o gate deixou de
+  // abrir a porta por conta própria: ele roda o MESMO script que o
+  // `preDeployCommand` roda, com a MESMA variável, contra este banco de QA.
+  //
+  // Assim o gate mede a cadeia inteira — provisionamento, banco, endpoint,
+  // frontend — em vez de semear o estado final e medir só a tela. Se o
+  // provisionamento parar de funcionar, o gate cai aqui.
+  console.log('  provisionando a entidade oficial pelo script do deploy…');
+  execSync('node scripts/provisionar-contas-de-servico.js', {
+    stdio: 'pipe',
+    env: { ...env, DATABASE_URL, MCI_NPC_ORGANIZATION_ID: org.id, PROVISIONAR_ADMIN_EMAIL: admin.user.email }
   });
 
   const diretor = await chamar('/auth/register', { metodo: 'POST', corpo: conta('diretor') });
@@ -140,10 +154,23 @@ async function semear() {
   }
   const tokenDiretor = (await chamar('/auth/login', { metodo: 'POST', corpo: { email: diretor.user.email, password: SENHA } })).token;
 
-  const filiacao = await chamar('/affiliations', {
-    metodo: 'POST', token: tokenDiretor,
-    corpo: { organizationId: org.id, name: 'NPC Mato Grosso (QA)', code: 'QA-NPC-MT' }
-  });
+  // A ENTIDADE OFICIAL, LIDA DE VOLTA DA VITRINE PÚBLICA — a mesma rota que a
+  // tela do atleta consome. Ler daqui, e não de um INSERT de fixture, é o que
+  // torna o gate capaz de reprovar um endpoint quebrado.
+  const vitrine = await chamar('/public/affiliations');
+  const filiacao = (vitrine.items || []).find(f => f.code === CODIGO_OFICIAL);
+  conferir(
+    `a vitrine pública devolve a entidade oficial (code ${CODIGO_OFICIAL})`,
+    Boolean(filiacao),
+    filiacao ? '' : `recebido: ${JSON.stringify(vitrine).slice(0, 200)}`
+  );
+  if (!filiacao) throw new Error('sem entidade oficial na vitrine: o resto do gate mediria outra coisa');
+  conferir(
+    'e com o NOME OFICIAL exato',
+    filiacao.name === NOME_OFICIAL,
+    `recebido: ${JSON.stringify(filiacao.name)}`
+  );
+  conferir('kind ENTITY', filiacao.kind === 'ENTITY', `recebido: ${filiacao.kind}`);
 
   const temporada = await chamar('/seasons', {
     metodo: 'POST', token: tokenDiretor,
@@ -168,9 +195,9 @@ async function semear() {
   // matrícula ambígua e um CPF DIFERENTE, para o desfecho "precisa confirmar".
   const cabecalho = 'external_result_id,cpf,atleta,filiacao,matricula,categoria,classe,colocacao,evento';
   const linhas = [
-    `QA-1,${CPF_COM_HISTORICO},MARIANA QA,QA-NPC-MT,QA-777,BIKINI,Women's Bikini - Open Class A,1,Etapa QA do Autocadastro`,
-    `QA-2,${CPF_COM_HISTORICO},MARIANA QA,QA-NPC-MT,QA-777,BIKINI,Women's Bikini - Open Class A,2,Etapa QA do Autocadastro`,
-    `QA-3,${CPF_DIVERGENTE},OUTRA PESSOA QA,QA-NPC-MT,${MATRICULA_AMBIGUA},BIKINI,Women's Bikini - Open Class A,3,Etapa QA do Autocadastro`
+    `QA-1,${CPF_COM_HISTORICO},MARIANA QA,${CODIGO_OFICIAL},QA-777,BIKINI,Women's Bikini - Open Class A,1,Etapa QA do Autocadastro`,
+    `QA-2,${CPF_COM_HISTORICO},MARIANA QA,${CODIGO_OFICIAL},QA-777,BIKINI,Women's Bikini - Open Class A,2,Etapa QA do Autocadastro`,
+    `QA-3,${CPF_DIVERGENTE},OUTRA PESSOA QA,${CODIGO_OFICIAL},${MATRICULA_AMBIGUA},BIKINI,Women's Bikini - Open Class A,3,Etapa QA do Autocadastro`
   ];
   const lote = await chamar('/musclewar/imports', {
     metodo: 'POST', token: tokenDiretor,
@@ -293,13 +320,52 @@ async function entrarComoNovaPessoa(navegador, sufixo, erros) {
 // que é exatamente o que se quer de uma tela que uma pessoa precisa entender.
 const MATRICULA = /^Número de registro/i;
 
+/**
+ * A ENTIDADE NA TELA, conferida no navegador de verdade.
+ *
+ * É o sintoma que abriu esta fase: o campo aparecia vazio, com "Nenhuma
+ * entidade de filiação ativa está disponível para a sua conta." As três
+ * conferências abaixo são as três metades do defeito — a opção existir, o texto
+ * ser o oficial, e a mensagem de impedimento ter ido embora.
+ */
+async function conferirEntidadeNaTela(pagina) {
+  const seletor = pagina.getByLabel(/^Entidade de filiação/i);
+
+  const opcoes = await seletor.evaluate(el =>
+    [...el.options].map(o => ({ valor: o.value, texto: o.textContent.trim() })));
+  const reais = opcoes.filter(o => o.valor);
+
+  conferir('o select de entidade traz ao menos uma opção', reais.length >= 1,
+    `opções: ${JSON.stringify(opcoes)}`);
+
+  const oficial = reais.find(o => o.texto.startsWith(NOME_OFICIAL));
+  conferir(`a opção mostra o texto exato "${NOME_OFICIAL}"`, Boolean(oficial),
+    oficial ? '' : `textos: ${JSON.stringify(reais.map(o => o.texto))}`);
+
+  // A PROVA NEGATIVA. A mensagem de impedimento é o sintoma original, e ela
+  // precisa ter desaparecido da tela — não basta a opção existir ao lado dela.
+  const corpo = await pagina.locator('body').innerText();
+  conferir('a mensagem "Nenhuma entidade de filiação ativa" NÃO aparece',
+    !/Nenhuma entidade de filia/i.test(corpo));
+
+  return oficial;
+}
+
 async function preencher(pagina, { cpf, matricula }) {
   await pagina.goto(`${BASE_WEB}/#minha-solicitacao`, { waitUntil: 'networkidle' });
   await esperar(900);
   await pagina.getByLabel(/^CPF/i).fill(cpf);
   await pagina.getByLabel(/^Categoria de competição/i).selectOption('FEMALE');
   await esperar(500);
-  // A entidade de filiação vem pré-selecionada quando é a única — e é.
+
+  // A ENTIDADE É SELECIONADA EXPLICITAMENTE, pelo valor que veio do endpoint.
+  //
+  // A versão anterior confiava em ela vir pré-selecionada por ser a única. Isso
+  // media a conveniência, e não a escolha: com duas entidades na vitrine o gate
+  // passaria sem que ninguém tivesse selecionado nada.
+  const oficial = await conferirEntidadeNaTela(pagina);
+  if (oficial) await pagina.getByLabel(/^Entidade de filiação/i).selectOption(oficial.valor);
+
   await pagina.getByLabel(MATRICULA).fill(matricula);
   await esperar(200);
 }
