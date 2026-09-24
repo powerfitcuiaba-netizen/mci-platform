@@ -503,3 +503,24 @@ export const criterioDeMatch = codigo =>
 // nem chega a pedir — cai direto nas iniciais.
 export const caminhoDoAvatar = perfil =>
   (perfil?.id && perfil?.hasAvatar ? `/media/profiles/${perfil.id}/avatar` : null);
+
+// A COMPOSIÇÃO DO CARTÃO "RESULTADOS PUBLICADOS", EM UMA LINHA.
+//
+// O número sozinho já mentiu uma vez: quando ele contava só a apuração
+// recebida, uma etapa inteira importada aparecia como zero, e nada na tela
+// dizia de onde o zero vinha. A legenda existe para que o total seja
+// CONFERÍVEL sem abrir o banco.
+//
+// Devolve `null` quando não há nada a acrescentar — legenda que repete o
+// número é ruído. Recebe `t` em vez de traduzir aqui porque a frase tem
+// interpolação, que é do dicionário e não dos rótulos de enum.
+export function dicaDeResultadosPublicados(composicao, t) {
+  const importados = composicao?.imported ?? 0;
+  const recebidos = composicao?.received ?? 0;
+
+  // O histórico importado primeiro: é a metade que estava invisível, e é a
+  // maior parte do acervo desta plataforma.
+  if (importados > 0) return t('publico.resultadosDoHistorico', { n: importados });
+  if (recebidos > 0) return t('publico.resultadosRecebidos', { n: recebidos });
+  return null;
+}

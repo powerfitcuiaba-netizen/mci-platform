@@ -664,6 +664,8 @@ export default {
   'publico.atletas': 'Atletas',
   'publico.atletasPro': 'Atletas PRO',
   'publico.resultadosPublicados': 'Resultados publicados',
+  'publico.resultadosDoHistorico': '{n} del historial importado',
+  'publico.resultadosRecebidos': '{n} registrados en el MCI',
   'publico.destinoCampeonatos': 'los campeonatos',
   'publico.destinoAtletas': 'los atletas',
   'publico.destinoRanking': 'el ranking',

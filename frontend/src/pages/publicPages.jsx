@@ -3,7 +3,7 @@ import { CalendarDays, ChevronRight, MapPin, Search, Trophy, Users } from 'lucid
 import api from '../services/api';
 import { useDebounce, useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Metric, PageHead, Paginacao } from '../components/ui';
-import { formatarData, formatarDataHora, seloDoEvento, estadoDaBateria, estadoPro } from '../lib/format';
+import { dicaDeResultadosPublicados, formatarData, formatarDataHora, seloDoEvento, estadoDaBateria, estadoPro } from '../lib/format';
 import { PulsoAoVivo, Revelacao } from '../components/experiencia';
 import { useIdioma, TextoRico } from '../lib/idioma';
 
@@ -57,6 +57,7 @@ export function Inicio({ navegar }) {
               <Revelacao indice={3}>
                 <Metric
                   label={t('publico.resultadosPublicados')} value={dados.publishedResults}
+                  hint={dicaDeResultadosPublicados(dados.publishedResultsBreakdown, t)}
                   onClick={() => navegar('ranking')} destino={t('publico.destinoRanking')}
                 />
               </Revelacao>
