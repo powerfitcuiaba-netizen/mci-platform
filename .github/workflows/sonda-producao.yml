@@ -648,6 +648,66 @@ jobs:
           # exposto, e corpo nenhum é impresso.
           echo "::notice title=Cartão em produção::publishedResults=$TOTAL composicao=$TEM recebidos=$RECEBIDOS importados=$IMPORTADOS campeonatos=$EVENTOS"
 
+      # ------------------------------------------------------------------
+      # A ENTIDADE DE FILIAÇÃO OFICIAL, NO AR.
+      #
+      # O sintoma que abriu a fase da NPC foi o campo "Entidade de filiação"
+      # vazio na tela do atleta, e a vitrine devolvendo lista vazia. Esta é a
+      # rota que a tela consome, e é a única forma de saber, de fora, se o
+      # provisionamento chegou a produção.
+      #
+      # NÃO REPROVA quando a lista está vazia: uma federação pode
+      # legitimamente manter o autocadastro fechado, e
+      # MCI_NPC_ORGANIZATION_ID pode não estar configurada — os dois são
+      # estados administrativos, não indisponibilidade. O job RELATA, e
+      # tratar decisão da federação como falha ensinaria a ignorar o
+      # vermelho.
+      #
+      # Somente leitura, anônimo, contagens e nomes de entidade — que são
+      # públicos por construção nesta rota. Nenhum dado pessoal.
+      # ------------------------------------------------------------------
+      - name: A entidade de filiação oficial está na vitrine
+        run: |
+          set -u
+          OFICIAL='NPC - National Physique Committe'
+          CODIGO="$(curl -sS -m 120 -o /tmp/f.json -w '%{http_code}' "$API/api/v1/public/affiliations" || echo 000)"
+          echo "HTTP $CODIGO"
+          [ "$CODIGO" = "200" ] || { echo "::error::/public/affiliations respondeu $CODIGO."; exit 1; }
+
+          N="$(jq -r '.items | length' /tmp/f.json 2>/dev/null || echo 0)"
+          TEM_NPC="$(jq -r --arg n "$OFICIAL" '[.items[]? | select(.name == $n)] | length' /tmp/f.json 2>/dev/null || echo 0)"
+          CODIGOS="$(jq -r '[.items[]?.code] | join(",")' /tmp/f.json 2>/dev/null || echo '')"
+          KIND="$(jq -r --arg n "$OFICIAL" '[.items[]? | select(.name == $n) | .kind] | join(",")' /tmp/f.json 2>/dev/null || echo '')"
+
+          echo "entidades na vitrine ......... $N"
+          echo "com o nome oficial ........... $TEM_NPC"
+          echo "códigos ...................... ${CODIGOS:-(nenhum)}"
+          echo "kind da oficial .............. ${KIND:-(ausente)}"
+
+          echo "::notice title=Entidade oficial em producao::entidades=$N comNomeOficial=$TEM_NPC codigos=${CODIGOS:-nenhum} kind=${KIND:-ausente}"
+
+          {
+            echo '## A entidade de filiação oficial, no ar'
+            echo
+            echo '| Medição | Valor |'
+            echo '|---|---|'
+            echo "| entidades na vitrine | $N |"
+            echo "| com o nome oficial | $TEM_NPC |"
+            echo "| códigos | ${CODIGOS:-(nenhum)} |"
+            echo "| kind da oficial | ${KIND:-(ausente)} |"
+            echo
+            if [ "$TEM_NPC" -ge 1 ] 2>/dev/null; then
+              echo 'A entidade oficial ESTÁ na vitrine: o atleta pode selecioná-la.'
+            elif [ "$N" = "0" ]; then
+              echo '**Vitrine VAZIA.** Nenhuma federação tem autocadastro aberto, ou'
+              echo '`MCI_NPC_ORGANIZATION_ID` não está configurada no ambiente. Os dois são'
+              echo 'estados administrativos: o provisionamento não os adivinha, e este job'
+              echo 'não os trata como indisponibilidade.'
+            else
+              echo '**A vitrine tem entidade, mas nenhuma com o nome oficial.** Ver os códigos acima.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
           {
             echo '## O cartão de resultados publicados, no ar'
             echo
