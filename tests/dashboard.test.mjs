@@ -36,8 +36,16 @@ describe('painel administrativo', () => {
   // Exatamente os campos que frontend/src/pages/adminPlatform.jsx consome.
   const CAMPOS = [
     'events', 'athletes', 'registrations', 'checkIns',
-    'weighIns', 'batches', 'publishedResults', 'muscleWarImports', 'alerts'
+    'weighIns', 'batches', 'publishedResults', 'publishedResultsBreakdown',
+    'muscleWarImports', 'alerts'
   ];
+
+  // `publishedResultsBreakdown` entrou com a correção do cartão "Resultados
+  // publicados": o total passou a somar a apuração RECEBIDA e o histórico
+  // IMPORTADO, e a composição existe para que o operador possa conferir de
+  // onde o número vem sem abrir o banco. Esta lista reprovou a mudança antes
+  // de ela chegar à tela, que é exatamente para o que ela serve — o campo novo
+  // é deliberado, e o contrato foi atualizado junto.
 
   it('entrega exatamente os campos que a tela consome, sem sobra nem falta', async () => {
     const resposta = await api().get('/api/v1/dashboard/admin').query({ organizationId: orgId }).set(diretor.auth());

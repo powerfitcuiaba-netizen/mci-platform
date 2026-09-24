@@ -31,9 +31,29 @@ jobs:
     # registrado em fases anteriores. A suíte cresceu 9% (799s para 871s
     # medidos localmente), o suficiente para um runner lento cruzar os 25.
     #
-    # 40 dá folga real sem esconder travamento: o dobro do tempo local, e ainda
-    # bem abaixo do ponto em que um job pendurado passaria despercebido.
-    timeout-minutes: 40
+    # 40 TAMBÉM NÃO BASTOU, e a medição está registrada.
+    #
+    # A execução #324, o merge da conciliação automática na main, foi CANCELADA
+    # aos 40 minutos exatos no passo de testes. Nenhum teste falhou: o job foi
+    # cortado no teto. E a evidência de que não era o código é direta — a
+    # MESMA ÁRVORE (`a62b54f`, idêntica em 53c8b55 e da03a48) passou em 19,8
+    # min na #323 e em 19,4 min na reexecução da própria #324.
+    #
+    # O erro do raciocínio anterior não foi o número, foi a premissa: "o dobro
+    # do tempo local" supõe que a variância do runner cabe em 2x. Não cabe. O
+    # histórico ali em cima já dizia 7m36s a 24m29s no mesmo código — 3,2x — e
+    # a #324 mostrou mais de 2x sobre o típico atual, sem sequer termos o
+    # número real, porque ela foi cortada antes de terminar.
+    #
+    # 75 é ~3,9x o típico medido (19,4 min). Cobre a variância observada e a
+    # histórica com margem, e continua muito abaixo dos 360 minutos que o
+    # GitHub usa por padrão — um job de fato pendurado morre em 75 minutos, não
+    # em seis horas.
+    #
+    # A suíte cresceu de novo nesta fase: 1877 para 1920 testes, cinco arquivos
+    # novos. Se o típico passar de ~25 min, este teto volta a ficar apertado e
+    # a conta precisa ser refeita — não elevada por reflexo.
+    timeout-minutes: 75
 
     # A suíte exige PostgreSQL de verdade: o RLS é testado executando as
     # políticas, não lendo o SQL.

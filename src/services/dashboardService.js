@@ -3,6 +3,7 @@ const { AppError } = require('../utils/errors');
 const { organizationFilter } = require('../utils/tenant');
 const { can } = require('../utils/permissions');
 const { profilePublic, athleteFor } = require('../utils/visibility');
+const publishedResults = require('./publishedResultsService');
 
 // Painéis. Toda métrica sai de contagem real no banco — nenhum número aqui é
 // estimado, arredondado ou fabricado para preencher tela.
@@ -23,7 +24,11 @@ async function adminOverview(filtros, actor) {
     prisma.checkIn.count({ where: { status: 'CHECKED_IN', registration: eventoNoEscopo } }),
     prisma.weighIn.count({ where: { registration: eventoNoEscopo } }),
     prisma.stageBatch.count({ where: escopo.organizationId ? { event: escopo } : {} }),
-    prisma.result.count({ where: { ...(escopo.organizationId ? { event: escopo } : {}), status: 'PUBLISHED' } }),
+    // NÃO é `result.count`. Contar só `Result` deixava o painel de uma
+    // federação cujo acervo é histórico importado marcando zero com o ledger
+    // cheio. A regra mora em publishedResultsService.js, a mesma dos dois
+    // cartões — o defeito era justamente ela estar escrita duas vezes.
+    publishedResults.paraOOperador(escopo),
     prisma.muscleWarImport.count({ where: escopo }),
     prisma.result.count({ where: { ...(escopo.organizationId ? { event: escopo } : {}), hasUnresolvedTie: true } }),
     prisma.muscleWarImportItem.count({ where: { import: escopo, matchStatus: { in: ['MATCH_PENDING', 'CONFLICT'] } } })
@@ -40,7 +45,13 @@ async function adminOverview(filtros, actor) {
     checkIns: checkins,
     weighIns: pesagens,
     batches: baterias,
-    publishedResults: resultadosPublicados,
+    publishedResults: resultadosPublicados.total,
+    // A COMPOSIÇÃO do número, para o operador poder responder de onde ele vem
+    // sem abrir o banco.
+    publishedResultsBreakdown: {
+      received: resultadosPublicados.received,
+      imported: resultadosPublicados.imported
+    },
     muscleWarImports: importacoes,
     alerts: alertas
   };

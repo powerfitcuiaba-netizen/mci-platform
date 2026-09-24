@@ -1,6 +1,7 @@
 const prisma = require('../config/prisma');
 const { AppError } = require('../utils/errors');
 const { athletePublic } = require('../utils/visibility');
+const publishedResults = require('./publishedResultsService');
 
 // Vitrine pública: só dado público, e sempre da base real.
 // Nenhuma rota daqui expõe CPF, telefone, e-mail, documento ou resultado ainda
@@ -13,7 +14,12 @@ async function summary() {
     prisma.event.count({ where: { status: { in: EVENTOS_VISIVEIS } } }),
     prisma.athlete.count(),
     prisma.athlete.count({ where: { proStatus: 'ACTIVE' } }),
-    prisma.result.count({ where: { status: 'PUBLISHED' } }),
+    // NÃO é `result.count`. A conta anterior contava só a apuração recebida
+    // pelo MCI, e o histórico importado — que é a maior parte do acervo desta
+    // plataforma — ficava de fora: uma etapa inteira aplicada devolvia zero.
+    // A regra mora em publishedResultsService.js, um lugar só para os dois
+    // cartões que a exibem.
+    publishedResults.paraOPublico(),
     prisma.rankingSeason.count({ where: { status: 'OPEN' } })
   ]);
 
@@ -24,7 +30,18 @@ async function summary() {
     take: 5
   });
 
-  return { events: eventos, athletes: atletas, proAthletes: pros, publishedResults: resultados, openSeasons: temporadas, upcoming: proximos };
+  return {
+    events: eventos,
+    athletes: atletas,
+    proAthletes: pros,
+    publishedResults: resultados.total,
+    // A COMPOSIÇÃO, e não só o total. O defeito que este campo evita é o que
+    // acabou de custar uma investigação: um número sozinho não diz se o zero é
+    // "não há resultado" ou "há, e a conta não os vê".
+    publishedResultsBreakdown: { received: resultados.received, imported: resultados.imported },
+    openSeasons: temporadas,
+    upcoming: proximos
+  };
 }
 
 async function listEvents(filtros) {

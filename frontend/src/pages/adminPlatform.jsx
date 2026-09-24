@@ -7,7 +7,7 @@ import { permissoesDe, podeCom } from '../lib/permissoes';
 import { AsyncSection, AtualizadoEm, Avatar, Badge, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead, Paginacao } from '../components/ui';
 // Só a classe de cartão clicável é usada aqui — é CSS, não precisa do motor
 // em JS. Importar o que não se usa é ruído que o lint acusa e o leitor não.
-import { criterioDeMatch, estadoDeMatch, formatarDataHora, ocultarCpf, papel, estadoDoUsuario, tipoDeFiliacao, estadoDaImportacao } from '../lib/format';
+import { criterioDeMatch, dicaDeResultadosPublicados, estadoDeMatch, formatarDataHora, ocultarCpf, papel, estadoDoUsuario, tipoDeFiliacao, estadoDaImportacao } from '../lib/format';
 import { useIdioma } from '../lib/idioma';
 
 // Painel administrativo, ranking, importação MuscleWar, auditoria e
@@ -54,6 +54,7 @@ export function AdminPainel({ navegar }) {
               <Metric label={t('plataforma.baterias')} value={dados.batches}
                 onClick={() => navegar('admin/palco')} destino="Palco" />
               <Metric label="Resultados publicados" value={dados.publishedResults}
+                hint={dicaDeResultadosPublicados(dados.publishedResultsBreakdown, t)}
                 onClick={() => navegar('admin/resultados')} destino="Resultados" />
               <Metric label={t('plataforma.importacoes')} value={dados.muscleWarImports}
                 onClick={() => navegar('admin/musclewar')} destino="MuscleWare" />

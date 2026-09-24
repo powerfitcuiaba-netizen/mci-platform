@@ -1061,3 +1061,266 @@ três federações legadas. Não é paráfrase do que o Render fará — é o co
 
 RLS, regra de conciliação, testes já aprovados, e nenhum dado de produção. A
 mudança é de pipeline e de ordem de verificação dentro do script.
+
+---
+
+## §19 O teto de tempo da CI — uma premissa que contradizia o dado ao lado dela
+
+### 19.1 O que aconteceu
+
+A CI da main (#324), no merge desta fase, foi **cancelada aos 40 minutos**
+exatos no passo de testes. Nenhum teste falhou: o job foi cortado no teto de
+`timeout-minutes: 40`.
+
+Não era o código, e a prova é direta: a **mesma árvore** (`a62b54f`, idêntica
+em `53c8b55` e `da03a48`) passou em **19,8 min** na #323 e em **19,4 min** na
+reexecução da própria #324.
+
+### 19.2 O erro não foi o número, foi a premissa
+
+O comentário que justificava o 40 dizia: *"o dobro do tempo local"*. Supõe que
+a variância do runner cabe em 2×.
+
+**Não cabe — e o próprio comentário, duas linhas acima, já dizia isso:** ele
+registrava que o job *"JÁ VARIOU de 7m36s a 24m29s no mesmo código"*, que é
+**3,2×**. A justificativa contradizia o dado que estava imediatamente ao lado
+dela, e ninguém notou porque o número parecia generoso.
+
+A #324 mostrou mais de 2× sobre o típico atual — e não sabemos quanto de fato
+precisaria, porque foi cortada antes de terminar.
+
+### 19.3 A conta refeita
+
+`timeout-minutes: 75`, que é **~3,9× o típico medido** (19,4 min).
+
+| Referência | Valor |
+|---|---|
+| Típico medido (duas execuções) | 19,4 / 19,8 min |
+| Variância histórica registrada | 7m36s → 24m29s (3,2×) |
+| Teto anterior | 40 min — **estourado** |
+| Teto novo | 75 min (~3,9×) |
+| Padrão do GitHub | 360 min |
+
+Cobre a variância observada e a histórica com margem, e um job de fato
+pendurado morre em 75 minutos em vez de seis horas.
+
+### 19.4 Por que isto não é enfraquecer teste
+
+Nenhuma suíte foi tocada, nenhum teste pulado, nenhuma cobertura reduzida. O
+que estava errado era o **instrumento**, que reprovava por relógio e não por
+defeito — e um gate que reprova sem defeito é um gate que se aprende a ignorar,
+o que é pior do que não ter gate.
+
+O comentário registra que, se o típico passar de ~25 min, a conta precisa ser
+**REFEITA** e não elevada por reflexo. Foi exatamente o reflexo que produziu o
+40: subir o número sem revisar a premissa.
+
+### 19.5 Verificação
+
+As duas suítes que leem `ci.yml` — `higiene-repositorio` e
+`empacotamento-importador` — passaram 14/14. O teste que confere o padrão de
+segredos da CI não é afetado: ele compara a regex, não o teto.
+
+A regressão completa **não foi repetida** de propósito: a árvore difere de
+`da03a48` apenas por `.github/workflows/ci.yml`, e nada em `src/` ou `tests/`
+mudou desde a medição de 1920 verdes. Repeti-la mediria o mesmo número.
+
+---
+
+## §20 O cartão "RESULTADOS PUBLICADOS" marcava zero com o ledger cheio
+
+### 20.1 O que foi observado
+
+A federação importou o campeonato do **Ipiranga**, aplicou o lote, e o cartão
+continuou dizendo:
+
+```
+RESULTADOS PUBLICADOS
+0
+```
+
+A pergunta da investigação não era "por que o número é baixo". Era a distinção
+que o zero apagava: **existem resultados** é uma pergunta, **resultados
+publicados** é outra, e o histórico importado responde sim às duas.
+
+### 20.2 A cadeia completa, traçada
+
+| Camada | Onde | O que faz |
+|---|---|---|
+| Tela (vitrine) | `frontend/src/pages/publicPages.jsx:59` | `<Metric label={t('publico.resultadosPublicados')} value={dados.publishedResults}>` |
+| Tela (painel) | `frontend/src/pages/adminPlatform.jsx:56` | `<Metric label="Resultados publicados" value={dados.publishedResults}>` |
+| Cliente | `frontend/src/services/api.js:458,453` | `GET /public/summary` · `GET /dashboard/admin` |
+| Rota | `src/routes/index.js` | `/public/summary` anônima · `/dashboard/admin` com `analytics.read` |
+| Controller | `src/controllers/index.js` | `publicApi.summary` · `dashboard.admin` |
+| Service | `src/services/publicService.js:16` | `prisma.result.count({ where: { status: 'PUBLISHED' } })` |
+| Service | `src/services/dashboardService.js:26` | idem, com escopo por `event` |
+| Tabela | `Result` | uma linha por `(eventId, classId)`, `@@unique([eventId, classId])` |
+
+As duas telas mostravam o **mesmo rótulo** calculado pela **mesma consulta
+escrita duas vezes** — e é essa duplicação que permitiu o defeito sobreviver.
+
+### 20.3 A causa raiz
+
+`Result` é a apuração **RECEBIDA** pelo MCI. Só `resultService.js` escreve nela,
+e cada `ResultEntry` está amarrada a uma `RegistrationItem`: existe inscrição,
+existe classe de evento, existe atleta cadastrado.
+
+O histórico **IMPORTADO** não passa por ali, e isso não é lacuna — é o projeto.
+O MCI carrega campeonato que já aconteceu, muitas vezes antes de existir um
+único atleta cadastrado. Conferido no importador: os únicos `create` de
+`muscleWarService.js` são
+
+```
+MuscleWarImport · MuscleWarImportItem · ExternalAthlete · ExternalResult · RankingPoint
+```
+
+`Result` não aparece na lista. **Logo, campeonato importado nunca podia aparecer
+naquele contador** — nem o Ipiranga, nem nenhum dos 47.
+
+### 20.4 A reprodução, medida e não deduzida
+
+Uma etapa no formato real, importada e **APLICADA**, contra base de atletas
+vazia. Antes da correção:
+
+| Tabela / rota | Valor |
+|---|---|
+| `Result` | **0** |
+| `ResultEntry` | **0** |
+| `ExternalResult` | 30 |
+| `ExternalAthlete` | 30 |
+| `RankingPoint` | 30 |
+| `PublicRankingEntry` (não invalidadas) | 30 |
+| `MuscleWarImport.status` | `APPLIED`, `appliedCount: 30` |
+| `GET /public/summary → publishedResults` | **0** |
+| `GET /dashboard/admin → publishedResults` | **0** |
+
+Depois da correção, mesmo cenário, mesmo banco: **30 / 30**, com a composição
+`{ received: 0, imported: 30 }`.
+
+### 20.5 A resposta objetiva
+
+- **(A) O Ipiranga está publicado segundo a regra do cartão?** NÃO — e não
+  poderia estar. A regra olhava para uma tabela em que o importador não escreve.
+- **(B) Está apenas importado/processado?** Ele está **aplicado**: lote
+  `APPLIED`, `ExternalResult` gravado, `RankingPoint` no ledger, projeção
+  pública em dia. Não existe, nem deveria existir, um passo "publicar" separado
+  para histórico importado — **aplicar o lote É publicar**.
+- **(C) O cartão consultava a entidade errada?** SIM. Esta é a causa raiz.
+- **(D) Havia filtro de organização, temporada ou status causando o zero?** NÃO.
+  O escopo estava correto; o zero vinha da tabela escolhida. Conferido: o mesmo
+  zero aparece com o escopo cross-tenant do `SUPER_ADMIN`.
+
+### 20.6 A definição que passa a valer
+
+`src/services/publishedResultsService.js` — **um lugar só**, porque o defeito era
+justamente a regra estar escrita duas vezes:
+
+```
+resultados publicados = PARTICIPAÇÕES com resultado publicado
+                      = as recebidas pelo MCI
+                      + as do histórico importado que ainda valem
+```
+
+A unidade é a **participação**, e não o documento de apuração da classe. É essa
+escolha que torna as duas origens somáveis: contar `Result` (uma linha por
+classe) junto de `ExternalResult` (uma linha por competidor) daria um número sem
+significado.
+
+**"Que ainda valem", e não "que existem".** `ExternalResult` **não** é removido
+quando um lote é invalidado — ele é a chave de idempotência, e apagá-lo faria a
+reimportação do mesmo arquivo pontuar de novo. Quem registra a invalidação é
+`RankingPoint.voidedAt`. Contar `ExternalResult` chamaria de publicado
+exatamente o resultado que a federação acabou de tirar do ar.
+
+### 20.7 Por que são duas consultas para a mesma pergunta
+
+| Audiência | Recebidas | Importadas | Por quê |
+|---|---|---|---|
+| Operador | `ResultEntry` (result `PUBLISHED`, escopo por `event`) | `RankingPoint` (`source: MUSCLEWAR`, `voidedAt: null`) | o ledger é a fonte |
+| Público | `ResultEntry` (result `PUBLISHED`) | `PublicRankingEntry` (`classId: null`, `voided: false`) | `RankingPoint` tem política de operador: o anônimo contaria zero |
+
+Isto é a RLS funcionando, não um contorno dela. `PublicRankingEntry` abre-se por
+`mci_operator_of(org) OR mci_ranking_publicado(season)`, e
+`mci_ranking_publicado` é "a organização da temporada está ativa". Os dois
+números coincidem enquanto a organização está ativa; divergir é informação
+verdadeira. **Há teste comparando os dois.**
+
+### 20.8 O discriminador de origem na projeção, e por que ele deixou de ser comentário
+
+`PublicRankingEntry` não tem coluna `source`; `RankingPoint` tem. O que a
+projeção carrega é `classId`, e ele separa as origens com exatidão:
+
+- caminho interno — `awardForResult` grava `classId: result.classId`, e
+  `Result.classId` é obrigatório: **nunca nulo**;
+- caminho importado — o importador **nunca** grava `classId`. Conferido: a única
+  menção a `classId` em `muscleWarService.js` é um comentário.
+
+O schema já afirmava isso. A afirmação passou a ser **load-bearing**, então
+virou teste: a suíte confere, contra o ledger, que importado ⇒ `classId` nulo e
+recebido ⇒ `classId` preenchido. Se alguém passar a gravar `classId` no caminho
+importado, a suíte reprova **antes** de o cartão voltar a mentir.
+
+**Nenhuma migration foi necessária.** A coluna que separa as origens já existia.
+
+### 20.9 A composição na tela
+
+Um total sozinho não diz se o zero é "não há resultado" ou "há, e a conta não os
+vê" — foi essa opacidade que transformou "o cartão está errado" numa
+investigação. Os dois endpoints passaram a devolver
+`publishedResultsBreakdown: { received, imported }`, e os dois cartões ganharam
+legenda (`191 do histórico importado`), nos três idiomas.
+
+`tests/dashboard.test.mjs` **reprovou** a mudança de contrato antes de ela
+chegar à tela, que é exatamente para o que aquela lista de campos serve. O campo
+novo é deliberado e o contrato foi atualizado junto.
+
+### 20.10 Teste de mutação — 10 mortos, 1 equivalente demonstrado
+
+| Mutante | O que faz | Veredito |
+|---|---|---|
+| M1 | `publicService` volta a contar só `Result` (**o defeito original**) | MORREU — 4 testes |
+| M2 | `dashboardService` volta a contar só `Result` | MORREU — 4 testes |
+| M3 | operador passa a contar lançamento invalidado | MORREU |
+| M4 | público passa a contar projeção invalidada | MORREU |
+| M5 | público perde `classId: null` e conta duas vezes | MORREU — 3 testes |
+| M6 | filtro de status sai **só** do ramo público | **SOBREVIVEU** |
+| M6b | filtro de status sai dos **dois** ramos | MORREU |
+| M7 | operador perde `source: MUSCLEWAR` e conta o interno duas vezes | MORREU — 4 testes |
+| M8 | escopo de organização sai da apuração recebida | MORREU |
+| M9 | legenda fala da apuração recebida antes da importada | MORREU |
+| M10 | ausência de legenda devolve `''` em vez de `null` | MORREU — 2 testes |
+
+**M6 é equivalente, e a equivalência está DEMONSTRADA, não afirmada.** A medição
+ficou versionada dentro da suíte: contada sem filtro de status nenhum, pelo
+caminho anônimo, a entrada do rascunho devolve **0**; pelo caminho do operador, a
+mesma contagem devolve **1**. É a política `entrada_do_resultado` exigindo que o
+`Result` seja visível, e `resultado_publicado` só abrindo o rascunho ao operador.
+No ramo público o filtro é redundante com a RLS — e M6b prova que apagá-lo dos
+dois ramos **é** observável.
+
+**M8 e M6 sobreviveram na primeira rodada.** M8 era falha real do meu teste: o
+cenário de escopo só criava histórico importado, e sem apuração recebida na
+organização dona não havia o que vazar. O teste passou a publicar as duas
+metades. Fica registrado que a bateria encontrou o furo que a revisão não tinha
+encontrado.
+
+### 20.11 Desempenho
+
+A vitrine é a página mais pedida da plataforma, e o cartão passou de **uma**
+contagem para **duas**. As duas são agregados (`count`, não laço): o custo é
+constante no volume e não há N+1 a nascer aqui. O tempo sai medido na suíte, com
+teto, para que a afirmação não fique só no comentário.
+
+**Ressalva honesta:** não existe índice para `classId IS NULL AND voided = false`
+em `PublicRankingEntry` — os índices da tabela começam todos por `seasonId`. Com
+o acervo atual (191 lançamentos, ~10 mil no horizonte de 47 campeonatos) é
+varredura de tabela estreita, sub-milissegundo, e uma migration por isso seria
+peso sem contrapartida. Se a projeção passar da ordem de 10⁵ linhas, um índice
+parcial é o próximo passo.
+
+### 20.12 O que NÃO foi tocado
+
+Nenhuma regra esportiva, nenhuma tabela de pontos, nenhuma política de RLS,
+nenhuma migration, nenhuma regra de conciliação. Nenhum dado de produção foi
+lido, alterado ou apagado: a investigação inteira rodou contra banco local, e a
+única evidência de produção continua sendo o que as vistas públicas expõem.
