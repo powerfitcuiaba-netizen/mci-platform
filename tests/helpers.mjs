@@ -115,12 +115,37 @@ export async function criarUsuario({ role = 'ATHLETE', name = 'Usuário', email 
   };
 }
 
-export async function criarOrganizacao(admin, { name = 'MCI Brasil', slug } = {}) {
+// A FEDERAÇÃO DE TESTE NASCE RECEBENDO AUTOCADASTRO — e isto é decisão da
+// FIXTURE, não do produto.
+//
+// Em produção o padrão continua FECHADO: `selfRegistrationOpen` é false, e
+// abrir é ato administrativo com auditoria. Aqui, "uma federação" quase sempre
+// quer dizer "uma federação em funcionamento", e exigir o interruptor em cada
+// cenário só encheria as suítes de preparação repetida.
+//
+// O caminho FECHADO não deixou de ter prova por causa disto: ele é medido de
+// propósito em `autocadastro-conclusao-automatica` ("federação com autocadastro
+// fechado recusa, mesmo com o id da filiação em mãos") e em
+// `autocadastro-da-organizacao`, que é a suíte do próprio interruptor.
+//
+// Quem precisar do padrão de produção passa `autocadastroAberto: false`.
+export async function criarOrganizacao(admin, { name = 'MCI Brasil', slug, autocadastroAberto = true } = {}) {
   const resposta = await api()
     .post('/api/v1/organizations')
     .set(admin.auth())
     .send({ name, slug: slug || unico('org') });
   if (resposta.status !== 201) throw new Error(`falha ao criar organização: ${resposta.status} ${JSON.stringify(resposta.body)}`);
+
+  if (autocadastroAberto) {
+    const abertura = await api()
+      .post(`/api/v1/organizations/${resposta.body.id}/self-registration`)
+      .set(admin.auth())
+      .send({ open: true });
+    if (abertura.status !== 200) {
+      throw new Error(`falha ao abrir o autocadastro: ${abertura.status} ${JSON.stringify(abertura.body)}`);
+    }
+  }
+
   return resposta.body;
 }
 

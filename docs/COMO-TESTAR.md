@@ -138,3 +138,43 @@ empatados saem **sem colocação**, marcados como empate não resolvido. Ver
 3. Se `/ready` responder **503**, o corpo diz qual das três conferências caiu
    — `database`, `storage` ou `rls`. A aplicação **recusa subir sem RLS
    efetivo**, e isso é comportamento desejado: ver `docs/DEPLOY.md`.
+
+## Gate E2E do autocadastro automático
+
+Sobe a pilha real (API + build de produção do frontend), semeia uma federação
+de QA com histórico importado e atravessa o fluxo num Chromium de verdade.
+
+```bash
+PLAYWRIGHT_MODULE=/opt/node22/lib/node_modules/playwright \
+PLAYWRIGHT_CHROMIUM=/opt/pw-browsers/chromium-1194/chrome-linux/chrome \
+node scripts/qa/autocadastro-automatico.mjs
+```
+
+Sai com código 1 e lista os problemas quando reprova. `--manter` deixa o
+ambiente de pé, com as credenciais impressas, para inspeção humana.
+
+**O que ele sabe dizer NÃO** (52 asserções):
+
+- o cadastro não concluir sozinho;
+- o histórico não ser vinculado quando o CPF confere;
+- **a fila do operador receber o pedido do caminho normal** — a prova negativa
+  que nenhum teste de unidade alcança, porque lá não existe ninguém para
+  aprovar e "não houve aprovação humana" seria verdade por construção;
+- a recusa por colisão devolver frase genérica em vez de instrução, ou dizer
+  qual identificador colidiu;
+- o formulário ser limpo numa recusa que a pessoa não pode resolver sozinha;
+- a tela `minha-solicitacao` estourar a largura ou ter alvo de toque pequeno,
+  em quinze larguras de 320 a 1920 — **ela nunca tinha sido medida**: o gate
+  visual da FASE 9 cobre `minha-filiacao`, `meu-historico` e `ranking`.
+
+Banco próprio (`mci_qa_auto`), recriado a cada execução. Portas 4601/5601, para
+não colidir com o gate visual (4599/5599). Nada toca produção.
+
+### Sobre o alvo de toque descartado
+
+O gate imprime, a cada execução, quais elementos abaixo de 40px ele descartou
+por estarem escondidos — hoje só o `input[type=file]` de 1×1 que vive atrás do
+rótulo estilizado da foto. A exclusão foi acrescentada **depois** de o gate
+reprovar, e mudar critério até a falha sumir é a pior coisa que se pode fazer
+com um gate; então o descarte é declarado em vez de sumido, e `label.button`
+entrou na medição — quem recebe o dedo é o rótulo, e ele passou a ser cobrado.

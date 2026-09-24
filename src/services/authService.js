@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const prisma = require('../config/prisma');
 const userRepository = require('../repositories/userRepository');
 const { AppError } = require('../utils/errors');
+const { DOMINIO_RESERVADO } = require('./serviceAccountService');
 const { createToken } = require('../utils/auth');
 const { sanitizeUser } = require('../utils/visibility');
 const { isSelfServiceRole } = require('../utils/roles');
@@ -31,6 +32,19 @@ async function register(data, contexto = {}) {
   const role = data.role || 'ATHLETE';
   if (!isSelfServiceRole(role)) {
     throw new AppError(403, 'ROLE_NOT_SELF_ASSIGNABLE', 'Este perfil só pode ser concedido por um administrador');
+  }
+
+  // O DOMÍNIO DAS CONTAS TÉCNICAS É RESERVADO.
+  //
+  // Sem isto, alguém registrava um endereço em `federacao.mci.local` antes de
+  // a federação existir e a criação dela falhava por unicidade de e-mail —
+  // impedir que a identidade técnica NASÇA é tão eficaz quanto tomá-la.
+  //
+  // A recusa vem ANTES da conferência de duplicidade de propósito: responder
+  // "e-mail já cadastrado" aqui contaria quais endereços técnicos existem.
+  // `EMAIL_DOMAIN_RESERVED` não confirma nem nega nenhum cadastro.
+  if (String(data.email).toLowerCase().endsWith(`@${DOMINIO_RESERVADO}`)) {
+    throw new AppError(422, 'EMAIL_DOMAIN_RESERVED', 'Este domínio de e-mail é reservado pelo sistema');
   }
 
   const existente = await userRepository.findByEmail(data.email);
@@ -96,6 +110,19 @@ async function login(data, contexto = {}) {
   const senhaConfere = await bcrypt.compare(data.password, hash);
 
   if (!user || !senhaConfere) throw new AppError(401, 'INVALID_CREDENTIALS', 'Credenciais inválidas');
+
+  // NINGUÉM ENTRA COMO A FEDERAÇÃO.
+  //
+  // A conta de serviço é identidade de EXECUÇÃO: o backend a assume para
+  // concluir um autocadastro e conciliar histórico, e nada mais. Ter senha
+  // impossível já a protegeria, mas senha é acidente — esta conferência é a
+  // regra, e ela vale mesmo que um dia alguém grave um hash conhecido ali.
+  //
+  // A recusa usa o MESMO código de credencial inválida: dizer "esta é uma
+  // conta de serviço" confirmaria a existência do endereço para quem estivesse
+  // procurando por ele.
+  if (user.isServiceAccount) throw new AppError(401, 'INVALID_CREDENTIALS', 'Credenciais inválidas');
+
   if (user.status !== 'ACTIVE') throw new AppError(403, 'USER_INACTIVE', 'Conta inativa');
 
   await audit.record({ actor: user, action: audit.ACTIONS.LOGIN, entity: 'User', entityId: user.id, ip: contexto.ip });

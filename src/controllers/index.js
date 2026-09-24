@@ -135,7 +135,39 @@ module.exports = {
   },
 
   athleteRequests: {
-    criar: async (req, res) => res.status(201).json(await athleteRequests.criar(req.body, req.user)),
+    // 201 quando o cadastro CONCLUIU; 409 quando ele precisou parar.
+    //
+    // O status vem do desfecho que o serviço devolve, e não de uma exceção:
+    // lançar derrubaria a transação e apagaria o pedido e a auditoria da
+    // recusa junto. Quando para, o pedido FICA pendente — é assim que a
+    // federação recebe o caso para resolver.
+    criar: async (req, res) => {
+      const pedido = await athleteRequests.criar(req.body, req.user);
+      if (pedido.conciliacao?.estado !== 'PRECISA_REVISAO') return res.status(201).json(pedido);
+
+      // A RECUSA SAI NO ENVELOPE DE ERRO, e não no formato de sucesso.
+      //
+      // Devolver 409 com o corpo de um pedido criado deixava a tela sem
+      // mensagem: o cliente lê `error.message` e ali não havia nenhum, então
+      // a pessoa recebia "não foi possível concluir a operação" — que não diz
+      // o que ela tem de fazer. Aqui ela recebe a frase que a manda procurar
+      // a federação, que é o único caminho que resolve.
+      //
+      // O `code` é o MESMO da corrida perdida em `concluirAutomaticamente`, de
+      // propósito: por fora, os dois casos são indistinguíveis. Distingui-los
+      // contaria que a colisão foi de identidade, e voltaria a abrir o oráculo
+      // que a recusa neutra fechou.
+      return res.status(409).json({
+        error: {
+          code: 'REGISTRATION_NEEDS_REVIEW',
+          message: 'Não foi possível concluir o seu cadastro automaticamente. '
+            + 'Procure a sua federação para finalizar.',
+          // Só o ESTADO, nunca o motivo: o motivo está na auditoria, para quem
+          // tem permissão de lê-la.
+          details: { conciliacao: pedido.conciliacao }
+        }
+      });
+    },
     meus: async (req, res) => res.json({ items: await athleteRequests.meusPedidos(req.user) }),
     cancelar: async (req, res) => res.json(await athleteRequests.cancelar(req.params.id, req.user)),
     listar: async (req, res) => res.json(await athleteRequests.listar(req.query, req.user)),

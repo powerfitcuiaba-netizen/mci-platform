@@ -26,6 +26,20 @@ import { useIdioma } from '../lib/idioma';
 // ============================================================================
 
 const TOM = { PENDING: 'atencao', APPROVED: 'sucesso', REJECTED: 'perigo', CANCELLED: 'neutro' };
+
+// O QUE A PESSOA LÊ DEPOIS DE CONCLUIR — uma frase por desfecho, e a tela
+// não deduz nenhum deles. Quem classifica é o servidor: `conciliacao.estado`
+// vem pronto, e inferi-lo aqui a partir de contagem faria a tela contradizer
+// a regra no dia em que a regra mudasse.
+//
+// Três desfechos, porque são três situações diferentes para quem acabou de
+// se cadastrar: não havia histórico; havia e já está no perfil; havia e a
+// federação precisa confirmar antes. Uma frase única serviria mal às três.
+const MENSAGEM_DO_DESFECHO = {
+  SEM_HISTORICO: 'solicitacao.concluidaSemHistorico',
+  VINCULADO: 'solicitacao.concluidaComHistorico',
+  PRECISA_CONFIRMAR: 'solicitacao.concluidaPrecisaConfirmar'
+};
 // O CÓDIGO do estado é o que vem da API e não muda de idioma; o mapa leva à
 // CHAVE do rótulo, e não ao rótulo.
 const ROTULO = {
@@ -389,10 +403,17 @@ function Formulario({ nomeDaConta, ultimaRecusa, aoEnviar, notificar }) {
       // o mantém visível para quem passar pelo computador.
       setForm({ ...VAZIO, name: nomeDaConta });
       setFoto(null);
-      notificar?.(t('solicitacao.enviada'));
+      notificar?.(t(MENSAGEM_DO_DESFECHO[pedido.conciliacao?.estado] ?? 'solicitacao.enviada'));
       aoEnviar();
     } catch (problema) {
-      setErroGeral(problema.message);
+      // 409 DE REVISÃO NÃO É FALHA DO FORMULÁRIO. O cadastro parou porque
+      // alguma coisa já existe nesta federação, e tentar de novo com os
+      // mesmos dados vai parar no mesmo lugar. Limpar o formulário aqui
+      // apagaria o que a pessoa digitou sem lhe dar o que fazer — então ele
+      // fica, e a frase diz para procurar a federação.
+      setErroGeral(problema.code === 'REGISTRATION_NEEDS_REVIEW'
+        ? t('solicitacao.precisaDaFederacao')
+        : problema.message);
     } finally {
       setEnviando(false);
     }

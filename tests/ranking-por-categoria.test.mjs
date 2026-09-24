@@ -300,9 +300,9 @@ describe('§6 a área do atleta mostra o desempenho SEGMENTADO', () => {
       affiliationId: npc.id, affiliationNumber: 'NPC-2727'
     });
     expect(pedido.status, JSON.stringify(pedido.body).slice(0, 300)).toBe(201);
-    const aprovado = await api().post(`/api/v1/athlete-requests/${pedido.body.id}/approve`)
-      .set(admin.auth()).send({});
-    expect(aprovado.status, JSON.stringify(aprovado.body).slice(0, 300)).toBe(200);
+    // O cadastro conclui sozinho: não há aprovação a chamar, e o histórico
+    // já está vinculado quando a tela abre.
+    expect(pedido.body.status).toBe('APPROVED');
 
     const historico = await api().get('/api/v1/me/history').set(pessoa.auth());
     expect(historico.status, JSON.stringify(historico.body).slice(0, 300)).toBe(200);
@@ -348,7 +348,7 @@ describe('§6 a área do atleta mostra o desempenho SEGMENTADO', () => {
       fullName: 'ATLETA A', cpf, sex: 'MALE', birthDate: '1995-03-10',
       affiliationId: npc.id, affiliationNumber: 'NPC-3838'
     });
-    await api().post(`/api/v1/athlete-requests/${pedido.body.id}/approve`).set(admin.auth()).send({});
+    expect(pedido.body.status, JSON.stringify(pedido.body).slice(0, 300)).toBe('APPROVED');
 
     const primeira = await api().get('/api/v1/me/history').set(pessoa.auth());
     const segunda = await api().get('/api/v1/me/history').set(pessoa.auth());
@@ -365,7 +365,10 @@ describe('§6 a área do atleta mostra o desempenho SEGMENTADO', () => {
       fullName: 'SEM HISTORICO', cpf: gerarCpf(987654321), sex: 'MALE',
       birthDate: '1995-03-10', affiliationId: npc.id, affiliationNumber: 'NPC-0001'
     });
-    await api().post(`/api/v1/athlete-requests/${pedido.body.id}/approve`).set(admin.auth()).send({});
+    expect(pedido.body.status, JSON.stringify(pedido.body).slice(0, 300)).toBe('APPROVED');
+    // E o desfecho da conciliação diz, em voz alta, que não havia o que
+    // vincular — em vez de a tela ter de deduzir isso de uma lista vazia.
+    expect(pedido.body.conciliacao.estado).toBe('SEM_HISTORICO');
 
     const historico = await api().get('/api/v1/me/history').set(pessoa.auth());
     expect(historico.status).toBe(200);

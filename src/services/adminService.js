@@ -17,12 +17,34 @@ const audit = require('./auditService');
 // participam"), e que aqui faltava: `users.read` é permissão de EVENT_DIRECTOR
 // também, então sem escopo o diretor de uma federação enumerava todos os
 // usuários da plataforma, e-mail incluído.
+// CONTA DE SERVIÇO NÃO É GENTE, E ESTA TELA ADMINISTRA GENTE.
+//
+// A conta de serviço da federação é membro da organização — precisa ser, é daí
+// que `mci_operator_of` a reconhece. Sem este filtro ela aparecia na listagem
+// de usuários de todo operador da federação, com papel e situação editáveis
+// ao lado, como se fosse uma pessoa que alguém esqueceu de configurar.
+//
+// Não era escalonamento: `adminUserUpdate` só aceita `role` e `status`,
+// `FEDERATION_SERVICE` está fora de `USER_ROLES` (e portanto do enum do Zod),
+// `mci_operator_of` lê o papel da MEMBRESIA e não o global, e
+// `contaDaOrganizacao` ignora `status`. Medido, um a um. Era uma ferramenta de
+// administrar pessoas apontada para uma identidade técnica — e a próxima
+// pessoa a mexer ali não teria como saber disso.
+//
+// O filtro vale INCLUSIVE para cross-tenant: nem o SUPER_ADMIN administra esta
+// conta por aqui. Quem a cria e a mantém é `serviceAccountService`, e ele é o
+// único lugar onde ela muda.
+const SEM_CONTAS_DE_SERVICO = { isServiceAccount: false };
+
 function escopoDeUsuarios(actor) {
-  if (isCrossTenant(actor)) return {};
+  if (isCrossTenant(actor)) return { ...SEM_CONTAS_DE_SERVICO };
 
   const ids = organizationIdsOf(actor);
   // Sem vínculo nenhum a listagem é vazia, não irrestrita.
-  return { memberships: { some: { organizationId: { in: ids.length ? ids : ['__sem-organizacao__'] } } } };
+  return {
+    ...SEM_CONTAS_DE_SERVICO,
+    memberships: { some: { organizationId: { in: ids.length ? ids : ['__sem-organizacao__'] } } }
+  };
 }
 
 async function listUsers(filtros, actor) {
@@ -77,6 +99,11 @@ async function updateUser(id, data, actor) {
 
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'Usuário não encontrado');
+
+  // 404, e não 403: para esta tela a conta de serviço não existe, e é a mesma
+  // resposta que a listagem já dá ao omiti-la. Responder 403 confirmaria que o
+  // id existe — e ensinaria que há uma categoria de conta escondida ali.
+  if (user.isServiceAccount) throw new AppError(404, 'USER_NOT_FOUND', 'Usuário não encontrado');
 
   // Ninguém altera o próprio papel ou situação. Verificado antes de tudo: é a
   // condição mais específica, e responder com ela deixa claro o motivo real da

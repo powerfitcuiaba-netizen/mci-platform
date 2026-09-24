@@ -970,10 +970,18 @@ async function adotarLedger(externalAthleteId, athlete, actor) {
   // As temporadas são lidas ANTES da escrita: depois dela as linhas deixam de
   // casar com `athleteId: null` e não haveria como saber o que recalcular.
   const temporadas = new Set();
+  // Os IDs saem daqui pelo mesmo motivo das temporadas: depois da escrita as
+  // linhas deixam de casar com `athleteId: null`, e a auditoria não teria como
+  // dizer QUAIS lançamentos foram vinculados — só quantos, que é menos do que
+  // a regra pede.
+  const idsDosLancamentos = [];
   for (const ponto of await prisma.rankingPoint.findMany({
     where: { externalAthleteId, athleteId: null },
-    select: { seasonId: true }
-  })) temporadas.add(ponto.seasonId);
+    select: { id: true, seasonId: true }
+  })) {
+    temporadas.add(ponto.seasonId);
+    idsDosLancamentos.push(ponto.id);
+  }
 
   await prisma.externalResult.updateMany({
     where: { externalAthleteId, athleteId: null },
@@ -1009,7 +1017,7 @@ async function adotarLedger(externalAthleteId, athlete, actor) {
   // competidor externo para competidor com cadastro.
   for (const seasonId of temporadas) await ranking.recompute_(seasonId);
 
-  return { lancamentos: tocados.count, temporadas };
+  return { lancamentos: tocados.count, temporadas, idsDosLancamentos };
 }
 
 /**
@@ -1140,6 +1148,34 @@ async function linkItem(itemId, { athleteId }, actor) {
 
 const CHAVE_CPF = 'CPF';
 const CHAVE_MATRICULA = 'AFFILIATION_NUMBER';
+
+// OS TRÊS MÉTODOS DE CORRESPONDÊNCIA, e os dois desfechos em que não há
+// vínculo. São os nomes que saem na auditoria e no desfecho do autocadastro —
+// escritos uma vez, aqui, para que tela e registro não inventem variantes.
+const METODO_CPF = 'CPF';
+const METODO_CPF_FILIACAO = 'CPF_AFFILIATION';
+const METODO_FILIACAO = 'AFFILIATION';
+const SEM_HISTORICO = 'SEM_HISTORICO';
+const PRECISA_CONFIRMAR = 'PRECISA_CONFIRMAR';
+
+/**
+ * O método que a conciliação usou, para esta pessoa, nesta execução.
+ *
+ * Quando mais de uma chave alcançou linhas, vence a MAIS FORTE — CPF com
+ * filiação, depois CPF, depois filiação. Devolver a mais fraca daria a
+ * impressão de que o vínculo se apoiou em menos evidência do que de fato teve.
+ *
+ * Sem vínculo nenhum, o desfecho não é um método: é `PRECISA_CONFIRMAR` quando
+ * havia candidato e a regra recusou, e `SEM_HISTORICO` quando não havia nada a
+ * encontrar. Misturar os dois faria a tela dizer "não achamos nada" para quem
+ * tem histórico esperando confirmação.
+ */
+function metodoDeCorrespondencia(chavesUsadas, conflitos) {
+  if (chavesUsadas.has(METODO_CPF_FILIACAO)) return METODO_CPF_FILIACAO;
+  if (chavesUsadas.has(METODO_CPF)) return METODO_CPF;
+  if (chavesUsadas.has(METODO_FILIACAO)) return METODO_FILIACAO;
+  return conflitos > 0 ? PRECISA_CONFIRMAR : SEM_HISTORICO;
+}
 
 const MOTIVO_AUTO = 'AUTO_LINK_AFFILIATION_NUMBER';
 const MOTIVO_AUTO_CPF = 'AUTO_LINK_CPF';
@@ -1360,6 +1396,14 @@ async function vincularPendentesDoAtleta(athlete, actor) {
 
   let vinculados = 0;
   let conflitos = 0;
+  // Verdadeiro assim que QUALQUER candidato alcançado pela matrícula for
+  // recusado. Ver o uso na adoção do ledger, mais abaixo.
+  let matriculaImpedida = false;
+  // O QUE DECIDIU, e quais lançamentos foram alcançados. A auditoria da
+  // conciliação automática pede os dois, e depois da escrita já não dá para
+  // reconstruí-los.
+  const chavesUsadas = new Set();
+  const idsVinculados = new Set();
   const lotesTocados = new Map();
   const lotesParaAplicar = new Set();
   const itensVinculados = [];
@@ -1370,6 +1414,16 @@ async function vincularPendentesDoAtleta(athlete, actor) {
     });
 
     if (impedimento) {
+      // A MATRÍCULA FICOU IMPEDIDA, e isso vale para o ledger também.
+      //
+      // Todo impedimento nasce numa linha alcançada pela MATRÍCULA: a
+      // divergência de CPF não pode ocorrer na chave do documento (ali o CPF
+      // do item é, por construção, igual ao do cadastro), e as outras duas —
+      // homônimo e filiação divergente — são conferências da própria
+      // matrícula. Registrar isto aqui é o que impede a adoção do ledger mais
+      // abaixo de contornar a recusa que acabou de acontecer.
+      matriculaImpedida = true;
+
       // CONFLICT não escolhe e não altera o athleteId: só torna o impasse
       // visível na revisão, onde existe quem possa decidir.
       // Linha já aplicada não vira CONFLICT: o resultado está no ledger e
@@ -1381,7 +1435,18 @@ async function vincularPendentesDoAtleta(athlete, actor) {
           where: { id: item.id, athleteId: null, matchStatus: 'MATCH_PENDING' },
           data: { matchStatus: 'CONFLICT', reason: impedimento }
         });
-      if (marcados.count) { conflitos += 1; lotesTocados.set(item.importId, item.import); }
+      if (marcados.count) lotesTocados.set(item.importId, item.import);
+
+      // O IMPASSE É CONTADO MESMO QUANDO O RÓTULO NÃO MUDA.
+      //
+      // `conflitos` vinha de `marcados.count`, então linha já APLICADA — que
+      // de propósito não vira CONFLICT — não contava nada. O desfecho saía
+      // `SEM_HISTORICO`: a pessoa era informada de que não havia histórico
+      // algum quando na verdade havia um caso duvidoso, e a federação não era
+      // avisada de que tinha o que decidir. Rótulo e contagem são coisas
+      // diferentes: o rótulo descreve o ITEM, a contagem descreve o que ficou
+      // por resolver.
+      conflitos += 1;
       continue;
     }
 
@@ -1415,6 +1480,20 @@ async function vincularPendentesDoAtleta(athlete, actor) {
     vinculados += 1;
     itensVinculados.push(item.id);
     lotesTocados.set(item.importId, item.import);
+
+    // CPF E FILIAÇÃO NA MESMA LINHA É UM TERCEIRO CASO, e a auditoria precisa
+    // distingui-lo: `CPF` diz que o documento bateu; `CPF_AFFILIATION` diz que
+    // bateram os dois, que é evidência mais forte. Nenhum dos dois muda a
+    // DECISÃO — quem decide continua sendo `impedimentoDoVinculo` —, mas quem
+    // ler o registro depois saberá com o que o sistema contou.
+    const codigoDaLinha = String(item.affiliationCode || '').toUpperCase();
+    const codigoDoAtleta = String(filiacao?.code || '').toUpperCase();
+    const filiacaoTambemBate = Boolean(codigoDaLinha) && codigoDaLinha === codigoDoAtleta;
+    chavesUsadas.add(
+      chave === CHAVE_CPF
+        ? (filiacaoTambemBate ? METODO_CPF_FILIACAO : METODO_CPF)
+        : METODO_FILIACAO
+    );
     // Linha que estava esperando aplicação: esta sim precisa que o lote seja
     // reaplicado para virar ponto. A que já estava `APPLIED` não.
     if (item.matchStatus === 'MATCH_PENDING') lotesParaAplicar.add(item.importId);
@@ -1458,10 +1537,39 @@ async function vincularPendentesDoAtleta(athlete, actor) {
   // código, porque `importItemId` é único e aponta para trás.
   const identidades = new Set();
 
-  // A guarda de homônimos vale aqui também: matrícula com mais de um dono na
-  // organização é fato sobre o CADASTRO, e creditar o histórico "ao que
-  // apareceu primeiro" daria a carreira de uma pessoa para outra.
-  if (identidade && homonimosDeMatricula === 0) identidades.add(identidade.id);
+  // A GUARDA DA MATRÍCULA VALE AQUI, E NÃO SÓ NO ITEM.
+  //
+  // `identidade` é a identidade externa montada pela MATRÍCULA, e adotá-la dá
+  // ao cadastro todos os lançamentos que já estão no ledger sob ela. Era um
+  // caminho paralelo ao dos itens — e um caminho que não olhava para a recusa
+  // que os itens tinham acabado de sofrer.
+  //
+  // O caso medido: o arquivo afirma um CPF, o cadastro afirma outro, e a
+  // matrícula é a mesma. O item era corretamente recusado por CPF divergente
+  // — e o ledger era adotado assim mesmo, pela matrícula. A carreira de uma
+  // pessoa passava para outra, com a recusa registrada ao lado, sem efeito.
+  //
+  // Duas guardas, então, e pelo mesmo motivo: homônimo de matrícula é impasse
+  // sobre o CADASTRO; matrícula impedida é impasse sobre as LINHAS. Nos dois
+  // casos quem decide é gente, e até lá o histórico fica sem dono — que é o
+  // estado honesto, não uma perda.
+  //
+  // SOBRE `homonimosDeMatricula === 0` SER, HOJE, INALCANÇÁVEL.
+  //
+  // O teste de mutação apagou esta metade da condição e NENHUM teste falhou.
+  // Investigado: não é lacuna de cobertura, é mutante EQUIVALENTE. Existe
+  // índice único parcial em (organizationId, affiliationId, affiliationNumber)
+  // — ver `Athlete_organizationId_affiliationId_affiliationNumber_key` — e
+  // `homonimosDeMatricula` só é contado quando os dois campos são não-nulos,
+  // que é exatamente a condição do índice. A contagem, portanto, é sempre 0, e
+  // nenhum teste poderia distinguir o código do mutante.
+  //
+  // FICA. A guarda custa um booleano e protege contra o índice ser afrouxado,
+  // contra dado anterior a ele e contra qualquer caminho futuro que escreva
+  // `Athlete` por fora. O que ela evita, se um dia puder ser falsa, é creditar
+  // a carreira de uma pessoa a outra — e esse erro não se desfaz com um
+  // "desfazer".
+  if (identidade && homonimosDeMatricula === 0 && !matriculaImpedida) identidades.add(identidade.id);
 
   if (itensVinculados.length) {
     for (const externo of await prisma.externalResult.findMany({
@@ -1475,7 +1583,9 @@ async function vincularPendentesDoAtleta(athlete, actor) {
 
   let lancamentosVinculados = 0;
   for (const externalAthleteId of identidades) {
-    lancamentosVinculados += (await adotarLedger(externalAthleteId, athlete, actor)).lancamentos;
+    const adocao = await adotarLedger(externalAthleteId, athlete, actor);
+    lancamentosVinculados += adocao.lancamentos;
+    for (const id of adocao.idsDosLancamentos || []) idsVinculados.add(id);
   }
 
   for (const importId of lotesTocados.keys()) await recontar(importId);
@@ -1523,7 +1633,11 @@ async function vincularPendentesDoAtleta(athlete, actor) {
     });
   }
 
-  return { vinculados, conflitos, lotesAplicados, lancamentosVinculados };
+  return {
+    vinculados, conflitos, lotesAplicados, lancamentosVinculados,
+    matchMethod: metodoDeCorrespondencia(chavesUsadas, conflitos),
+    rankingPointIds: [...idsVinculados]
+  };
 }
 
 async function recontar(importId) {

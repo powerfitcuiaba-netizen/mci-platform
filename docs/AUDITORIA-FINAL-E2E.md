@@ -474,3 +474,590 @@ A mesma leitura fortalece o resultado do §10.2. A busca pública não devolve
 atleta **sob termo nenhum** — não é que o CPF esteja filtrado do payload: o
 ramo inteiro de atletas está fechado para quem não se autentica. O zero do §10.2
 é, portanto, mais forte do que a medição sozinha mostrava.
+
+---
+
+## §12 Auditoria de segurança da conta de serviço da federação
+
+A conclusão automática do autocadastro introduziu uma identidade nova que
+escreve no ledger. Antes de promover qualquer coisa, a pergunta a responder
+não é "funciona?", e sim **"quem escreveu podia escrever, e mais ninguém
+consegue vestir essa identidade?"**. Sete superfícies, medidas uma a uma.
+
+### 12.1 Como a identidade é escolhida — e por que o corpo não decide
+
+`pedido.organizationId` é resolvido no servidor a partir da **filiação**
+escolhida; a conta de serviço sai daí por consulta. Não existe parâmetro de
+entrada que nomeie a conta, o operador ou a organização.
+
+Medido pela porta da frente: um cadastro cujo corpo traz `serviceAccountId`,
+`operatorId`, `organizationId`, `federationId`, `reviewedById`, `status` e
+`isServiceAccount` — todos apontando para a **outra** federação — sai com a
+organização correta, `reviewedById` nulo, e a auditoria nomeando a conta
+**desta** federação. Nenhum dos sete campos é lido.
+
+### 12.2 Alcance no banco
+
+`mci_operator_of` ganhou um papel na lista e nada mais: continua exigindo
+membresia **naquela** organização. Perguntado direto ao Postgres sob a
+identidade da conta: `mci_operator_of(própria) = true`,
+`mci_operator_of(alheia) = false`.
+
+Leitura e escrita cruzadas também foram medidas no caminho real, e não por
+inspeção: a conta de uma federação lê `null` para o atleta da outra, e o
+`UPDATE` é recusado. A distinção importa — ler nulo poderia ser filtro de
+leitura; a escrita recusada prova que a política barra o `UPDATE`.
+
+### 12.3 Autenticação
+
+`login` recusa por `isServiceAccount` **antes** de qualquer comparação de
+senha, e devolve `INVALID_CREDENTIALS` — a mesma resposta de senha errada.
+Distinguir os dois casos entregaria a lista de contas técnicas da plataforma.
+
+A senha nasce aleatória, vira hash e é descartada na mesma linha. As duas
+barreiras são independentes de propósito: a recusa não depende de o segredo
+ser bom, e o segredo não depende de a recusa existir.
+
+`register` é o único outro caminho que emite token, e ele cria usuário novo —
+`FEDERATION_SERVICE` não está em `PAPEIS_DE_CADASTRO_ABERTO`.
+
+### 12.4 Permissão de aplicação
+
+Poder no banco e poder na aplicação são separados, e a conta só recebeu o
+primeiro. Medido contra a matriz real: o conjunto de permissões de
+`FEDERATION_SERVICE` **menos** o de `ATHLETE` é vazio.
+
+### 12.5 A fresta que a varredura encontrou — administração de usuários
+
+A conta **é** membro da organização; precisa ser. Sem filtro, ela aparecia na
+listagem de usuários de todo operador da federação, com papel e situação
+editáveis ao lado, como se fosse uma pessoa mal configurada.
+
+**Não era escalonamento, e isto foi medido campo a campo antes de concluir:**
+
+| Caminho | Resultado |
+|---|---|
+| `adminUserUpdate` aceita outros campos? | Não — só `role` e `status` |
+| `role: 'FEDERATION_SERVICE'` é atribuível? | Não — está fora de `USER_ROLES`, logo fora do `z.enum` |
+| Mudar o papel **global** afeta o RLS? | Não — `mci_operator_of` lê o papel da **membresia** |
+| `status: 'DISABLED'` quebra o autocadastro? | Não — `contaDaOrganizacao` ignora `status` |
+| A conta tem perfil social? | Não — invisível à busca e ao messenger |
+
+Era uma ferramenta de administrar **pessoas** apontada para uma identidade
+**técnica**, e a próxima pessoa a mexer ali não teria como saber de nenhuma
+das cinco linhas acima. Fechado: a conta sai da listagem e da leitura por id
+(404, inclusive para quem administra a plataforma), e `updateUser` a recusa.
+
+### 12.6 A armadilha na lista de papéis
+
+`USER_ROLES` **não** contém `FEDERATION_SERVICE`, embora o enum do banco
+contenha. A ausência é o que mantém o papel fora do `z.enum` do Zod — mas ela
+não estava escrita em lugar nenhum, e a lista se parece com um espelho do
+enum.
+
+Quem notasse a diferença iria "consertá-la". E como o papel **não** está em
+`PAPEIS_PRIVILEGIADOS`, consertá-la o tornaria atribuível por qualquer um com
+`users.manage` — não só pelo SUPER_ADMIN. O comentário agora diz isso, e há
+teste em `unidade-dominio` que falha antes, com o motivo junto.
+
+### 12.7 Atomicidade — não existe federação meio-construída
+
+`asyncHandler` abre **uma** transação por requisição autenticada e retém a
+resposta até o commit. Uma falha ao provisionar a conta desfaz a criação da
+federação inteira; não há estado em que a federação exista sem a identidade
+que o autocadastro precisa.
+
+### 12.8 Ressalva conhecida, medida, não corrigida
+
+O e-mail da conta é derivado do slug (`servico.<slug>@federacao.mci.local`).
+Quem registrasse esse endereço **antes** de a federação ser criada faria a
+criação falhar por unicidade de e-mail.
+
+Não é substituição: `contaDaOrganizacao` busca por `serviceOrganizationId` +
+`isServiceAccount`, que só `provisionar` escreve — uma conta squatted nunca é
+encontrada no lugar da verdadeira. E pelo §12.7 a falha é atômica e ruidosa.
+
+Severidade baixa, falha limpa e alta. **Não alterei o formato do e-mail**:
+mudá-lo é decisão de produto, e a alternativa (endereço sorteado) troca
+legibilidade operacional por uma proteção contra um cenário que exige adivinhar
+o slug antes da criação. Fica registrado para a sua decisão.
+
+### 12.9 DEMO = 0 no código
+
+`DEMO` não aparece em `src/`, `prisma/`, `scripts/` nem no frontend fora de
+testes: **0 ocorrências**. Varredura de segredos no diff contra `main`: nenhuma
+— o único casamento é a palavra "token" dentro de um comentário de teste.
+
+**A auditoria de DEMO nos DADOS DE PRODUÇÃO não está feita.** Ela exige
+consultar o banco de produção, e este ambiente não tem egresso nem credencial.
+O caminho é a sonda `sonda-producao.yml`, que roda no Actions e devolve
+contagens — ainda **NOT TESTED** para este item.
+
+---
+
+## §13 Teste de mutação dos caminhos novos
+
+13 mutantes, cada um com o teste nomeado que **deveria** matá-lo. Um mutante
+sobrevivente é um teste que não mede o que diz medir — e é o único resultado
+que interessa aqui.
+
+**Placar: 12 mortos, 1 equivalente comprovado.**
+
+| # | Mutação | Veredito |
+|---|---|---|
+| M1 | adota a identidade da matrícula mesmo impedida | MORTO |
+| M2 | volta a contar conflito só quando o rótulo muda | MORTO |
+| M3 | remove a guarda de homônimo na adoção do ledger | **EQUIVALENTE** |
+| M4 | ignora CPF divergente | MORTO |
+| M5 | remove a pré-checagem de CPF | MORTO |
+| M6 | remove a pré-checagem de matrícula | MORTO |
+| M7 | troca `\|\|` por `&&` na porta do autocadastro | MORTO |
+| M8 | grava revisor humano no vínculo automático | MORTO |
+| M9 | faz a conta de serviço vir do corpo da requisição | MORTO |
+| M10 | volta a listar a conta de serviço na administração | MORTO |
+| M11 | volta a permitir editá-la | MORTO |
+| M12 | remove a recusa de login da conta de serviço | MORTO *(na 2ª rodada)* |
+| M13 | devolve o CPF na resposta | MORTO |
+
+### 13.1 M12 — o teste que eu escrevi media o acaso, não a guarda
+
+Sobreviveu na primeira rodada, e estava certo em sobreviver.
+
+O teste tentava logar com a senha padrão da suíte contra o hash **aleatório**
+da conta. Recusava — mas recusava por **senha errada**, e teria recusado
+igual se a guarda `isServiceAccount` fosse apagada. A asserção falava sobre o
+acaso do segredo, não sobre a barreira.
+
+Corrigido: a conta recebe o hash de uma senha que a suíte conhece (o do
+próprio gerente, usuário comum criado com ela), há um **controle** provando
+que essa senha entra no usuário comum, e só então o login da conta de serviço
+é cobrado. Com a guarda apagada, o login passa e o teste falha. M12 morre.
+
+Sem mutação, este teste teria ficado verde para sempre guardando nada — e a
+frase "a conta de serviço não autentica" no relatório seria falsa sem que
+ninguém percebesse.
+
+### 13.2 M3 — mutante equivalente, e por que a guarda fica
+
+Investigado antes de concluir qualquer coisa: **não é lacuna de cobertura.**
+
+Existe índice único parcial
+`Athlete_organizationId_affiliationId_affiliationNumber_key`, com
+`WHERE affiliationId IS NOT NULL AND affiliationNumber IS NOT NULL`. E
+`homonimosDeMatricula` só é contado quando `filiacao` é verdadeiro, o que
+exige exatamente esses dois campos não-nulos. A contagem é, portanto,
+**estruturalmente sempre 0**: a condição não pode ser falsa, e nenhum teste
+poderia distinguir o código do mutante.
+
+**A guarda fica.** Custa um booleano e protege contra o índice ser afrouxado,
+contra dado anterior a ele e contra qualquer caminho futuro que escreva
+`Athlete` por fora. O que ela evita, se um dia puder ser falsa, é creditar a
+carreira de uma pessoa a outra — erro que não se desfaz com um "desfazer".
+
+O motivo está escrito no próprio código, ao lado da condição, para que o
+sobrevivente não seja lido depois como cobertura faltando e não gere um teste
+inventado para um estado inalcançável.
+
+**ATUALIZAÇÃO (hardening pré-main).** A equivalência deixou de ser afirmada e
+passou a ser DEMONSTRADA, das duas pontas, em
+`conciliacao-a-h-e-conta-de-servico`:
+
+1. o índice único parcial existe e cobre **exatamente** as três colunas da
+   contagem, com a mesma condição `IS NOT NULL` — lido de `pg_indexes`;
+2. o banco **recusa** dois atletas com a mesma matrícula na mesma filiação,
+   mesmo escrevendo direto, sem passar por regra de aplicação nenhuma.
+
+Com isso M3 passou a MORRER no teste de mutação — mas é preciso ser exato
+sobre COMO: ele morre por uma asserção que lê o CÓDIGO-FONTE e cobra que a
+guarda continue lá. **Em comportamento ele continua equivalente**, porque o
+estado que a guarda protege é inalcançável. A asserção de fonte é uma guarda
+contra REMOÇÃO, não uma prova comportamental, e chamá-la de outra coisa seria
+inflar o placar.
+
+---
+
+## §14 E2E em navegador e responsividade da tela do autocadastro
+
+`scripts/qa/autocadastro-automatico.mjs` — **52 asserções, GATE APROVADO.**
+
+### 14.1 A prova negativa, que só o navegador alcança
+
+O item 21 da especificação pede comprovar que **não existe aprovação humana
+intermediária**. Teste de unidade não pode provar isso: lá não há ninguém para
+aprovar, então a afirmação é verdadeira por construção e não mede nada.
+
+Aqui a fila do operador é aberta **de verdade**, por um operador de verdade,
+depois de um atleta se cadastrar pelo navegador — e o que se cobra é que ela
+esteja **vazia**. Conferido duas vezes, por caminhos independentes: a tela
+`#admin/solicitacoes` não mostra a pessoa, e a API responde `0 pendente(s)`.
+
+Os quatro desfechos foram atravessados no navegador:
+
+| Caminho | O que a tela diz |
+|---|---|
+| CPF com histórico | "Cadastro realizado" + histórico vinculado; `meu-historico` já mostra a participação |
+| CPF sem histórico | "Cadastro realizado", perfil **ativo**, sem prometer análise |
+| Matrícula ambígua | cadastro sai, e a federação **confirma** antes de vincular |
+| Colisão de identidade | "Procure a sua federação" — e **não** diz qual identificador colidiu |
+
+Na colisão, o formulário **não é limpo**: tentar de novo com os mesmos dados
+bate no mesmo lugar, e apagar o que a pessoa digitou custaria o trabalho dela
+sem lhe dar o que fazer.
+
+### 14.2 A tela que nunca tinha sido medida
+
+O gate visual da FASE 9 mede `minha-filiacao`, `meu-historico` e `ranking`.
+`minha-solicitacao` ficou de fora desde que existe — sendo a **primeira** tela
+que um atleta novo abre e a única com formulário longo, que é o pior candidato
+possível a ficar sem medição de largura.
+
+Medida agora em **quinze larguras (320 → 1920)**: sem overflow horizontal,
+nenhum elemento fora da viewport, alvos de toque conformes nas cinco larguras
+de telefone.
+
+### 14.3 Um critério que eu mudei, e por isso declarei
+
+O gate reprovou cinco vezes em "alvos de toque", apontando `input:` — tag sem
+texto, que não dizia qual campo era.
+
+Corrigi o diagnóstico antes de qualquer outra coisa, e o elemento apareceu:
+`input[type=file] id=entrada-da-foto`, **1×1 px**, escondido atrás do rótulo
+estilizado da foto. Quem recebe o dedo é o rótulo, não ele.
+
+A exclusão é correta — mas foi acrescentada **depois** da reprovação, e mudar
+critério até a falha sumir é a pior coisa que se pode fazer com um gate. Duas
+consequências, as duas permanentes:
+
+1. **O descarte é impresso a cada execução**, com elemento, altura e largura.
+   Quem lê o relatório vê o que o gate escolheu ignorar e pode discordar. Se um
+   campo de verdade aparecer nessa lista, é defeito.
+2. **`label.button` entrou na medição.** Descartar o input sem medir o rótulo
+   teria criado um ponto cego onde antes havia um falso positivo — a exclusão
+   teria piorado o gate em vez de corrigi-lo.
+
+### 14.4 Por que não está na CI
+
+O gate visual da FASE 9 também não está: ambos exigem Playwright e Chromium, e
+a CI não os instala. Mantive o mesmo padrão em vez de mudar a infraestrutura da
+CI por conta própria — a instrução de execução está em `docs/COMO-TESTAR.md`.
+Colocar os dois na CI é decisão de produto, e vale a pena; fica registrado.
+
+### 14.5 O gate visual da FASE 9 não subia mais — e o defeito era o mesmo
+
+Rodado como regressão das mudanças de frontend, `responsividade.mjs` nem chegou
+a abrir o navegador: `ERR_UNSUPPORTED_DIR_IMPORT`. O mesmo tropeço que o gate
+novo teve, pela mesma causa — o Playwright é CommonJS, e `await import()` de um
+caminho absoluto não devolve `chromium` como export nomeado.
+
+Enquanto o módulo estava em `node_modules`, o especificador nu resolvia e o
+defeito ficava escondido. Com instalação global, o gate inteiro deixa de subir
+— e um gate que não sobe reprova por motivo nenhum, que é pior do que não ter
+gate: dá a impressão de que alguma coisa foi medida.
+
+Corrigido com `createRequire` nos três scripts que tinham o padrão
+(`responsividade`, `estabilidade`, `preview-verificacao`).
+
+**Resultado depois da correção: 343 asserções, APROVADO.** As mudanças de
+frontend desta fase não quebraram nada do que já passava.
+
+---
+
+## §15 A sonda de DEMO em produção
+
+Executada em 2026-09-23T17:06Z, `workflow_dispatch`, run #7, commit `3bd68e6`.
+Seis jobs, todos `success`.
+
+### 15.1 Consultas executadas e contagens
+
+Somente `GET`, sem token, contra `https://mci-platform-api.onrender.com`:
+
+| Vista pública | Rota | Itens | Com marcador |
+|---|---|---|---|
+| Campeonatos | `/api/v1/events?limit=100` | 47 | **0** |
+| Filiações (vitrine) | `/api/v1/public/affiliations` | 0 | **0** |
+| Super Overall | `/api/v1/ranking/super-overall` | 5 | **0** |
+| Busca pública | `/api/v1/search?q=DEMO` | 0 | **0** |
+| Busca pública | `/api/v1/search?q=QA` | 0 | **0** |
+
+**DEMO_PUBLIC_COUNT = 0.**
+
+Marcadores procurados: `DEMO`, `Etapa QA`, `Federação QA`, `NPC Mato Grosso
+(QA)`, `QA-NPC-MT`, `Atleta QA`, `MARIANA QA`, `qa-auto-`, `qa-resp-`,
+`@mci.local`, `federacao.mci.local`, `Sistema ·`.
+
+### 15.2 Nenhuma mutação foi realizada
+
+O job só executa `curl -sS` com `GET`, sem `Authorization`. Nenhum DELETE,
+UPDATE, TRUNCATE, backfill, recompute ou importação. Não há credencial de
+escrita disponível ao workflow — todas as rotas de escrita exigem token, e ele
+não tem nenhum. Se encontrasse marcador, o job pararia com `exit 1` sem apagar
+nada.
+
+### 15.3 O alcance desta medição — e por que NÃO é "DEMO = 0 no banco"
+
+Evidência **parcial, e assumidamente parcial**.
+
+O que ela prova: nenhum dado de QA desta fase aparece nas superfícies que o
+público enxerga em produção.
+
+O que ela **não** prova: contagem por TABELA, listagem de ID, e qualquer coisa
+não pública — a conta de serviço da federação, por exemplo, nunca aparece em
+rota nenhuma, e é essa a intenção do §12.5. Para isso seria preciso consultar
+o banco de produção, e **nenhum workflow deste repositório tem
+`DATABASE_URL`**: não existe um único `secrets.*` em `.github/workflows`.
+Conferido, não suposto.
+
+**Veredito: DEMO PRODUCTION (vistas públicas) = PASS. DEMO PRODUCTION (por
+tabela, com ID) = NOT TESTED**, por falta de acesso, e não por escolha.
+
+### 15.4 Um achado lateral que vale registrar
+
+`/api/v1/public/affiliations` devolve **0 itens** em produção. Não é defeito: a
+vitrine só mostra filiação de organização com autocadastro ABERTO, e nenhuma
+está — o padrão de produção é fechado, e abrir é ato administrativo. É
+consistente, e é o que se espera antes de a federação abrir a porta.
+
+---
+
+## §16 DEFEITO BLOQUEANTE DE DEPLOY, encontrado ao preparar a sonda
+
+### 16.1 As federações que já existem não teriam conta de serviço
+
+`provisionar` é chamado em **um** lugar: `organizationService.create`. As
+federações de produção foram criadas antes desta fase, e a migration que
+acrescentou `isServiceAccount`/`serviceOrganizationId` **não cria linha
+nenhuma** — migration altera ESTRUTURA; a conta de serviço é DADO.
+
+Consequência no deploy: `contaDaOrganizacao` não encontra a conta e
+`POST /athlete-requests` responde **503 SERVICE_ACCOUNT_MISSING para todas as
+federações existentes**. A funcionalidade inteira desta fase não funcionaria em
+produção — e o sintoma só apareceria quando o primeiro atleta tentasse se
+cadastrar.
+
+Corrigido com `scripts/provisionar-contas-de-servico.js`, idempotente e
+somente-INSERT, que roda a **mesma** `provisionar()` da criação de organização.
+Reimplementá-la em SQL faria existirem dois caminhos para a mesma coisa, que é
+como as duas versões divergem sem ninguém notar.
+
+### 16.2 E o script falhou EM SILÊNCIO — o pior modo de falhar
+
+A primeira versão rodava sem ator (`withUserContext(null, …)`), o que parecia
+correto: num deploy não há operador humano.
+
+Ela devolvia a conta criada, **com id e tudo**, e o banco ficava **vazio**.
+
+A cadeia, medida passo a passo:
+
+1. a política `auditoria_escrita` exige `mci_member_of(organizationId)`, e sem
+   ator nenhuma das alternativas vale → o INSERT é recusado com **42501**;
+2. no PostgreSQL, um statement recusado **aborta a transação inteira**;
+3. `audit.record` **engole** o erro (`try/catch` que loga e devolve `null`);
+4. `provisionar` segue e retorna com sucesso;
+5. tudo volta atrás no commit.
+
+**NÃO afrouxei a política.** Provisionar é ato administrativo, e ato
+administrativo tem dono: o script passou a exigir `PROVISIONAR_ADMIN_EMAIL`, o
+administrador se identifica, e a auditoria grava o nome dele — que é a verdade,
+porque foi ele quem mandou rodar. É a mesma escolha de `criar-admin.js`.
+
+### 16.3 A ressalva geral que isto expõe
+
+`audit.record` captura o próprio erro e devolve `null`, como se a falha fosse
+contida. **No PostgreSQL ela não é**: qualquer statement recusado envenena a
+transação. Todo ponto que chama `audit.record` confiando em "auditoria que
+falha não derruba o resto" está, na verdade, desfazendo o trabalho inteiro.
+
+No caminho HTTP o estrago é menor — `asyncHandler` retém a resposta até o
+commit, então o cliente recebe 500 em vez de um sucesso mentiroso. Fora dele
+(scripts), o sucesso mentiroso é exatamente o que acontece.
+
+A correção geral seria um SAVEPOINT em torno do INSERT de auditoria. É mudança
+num caminho quentíssimo, chamado de toda parte, e **não a fiz nesta fase**:
+está registrada aqui para decisão sua. O que fiz foi tirar este script da
+armadilha.
+
+### 16.4 Suíte
+
+`tests/provisionamento-de-contas-de-servico.test.mjs` — 4 testes, verdes:
+o 503 acontece e não deixa resto; o provisionamento cria conta **e membresia**
+(sem a membresia `mci_operator_of` não a reconhece, e a conta existiria sem
+poder fazer nada — falha pior, porque parece certa); repetir não duplica; cada
+federação recebe a sua.
+
+
+---
+
+## §17 HARDENING PRÉ-MAIN
+
+### 17.1 `audit.record` — a correção central com SAVEPOINT
+
+**O defeito, reproduzido:** a política `auditoria_escrita` recusa o INSERT
+(42501) quando o ator não é membro da organização. No PostgreSQL, statement
+recusado **aborta a transação inteira**. O `try/catch` capturava o erro em
+JavaScript e devolvia `null`, como se a falha fosse contida — mas a transação
+seguia envenenada, todo comando posterior falhava com 25P02, e o commit
+desfazia tudo.
+
+**Quando falha:** sempre que a política recusa — ator sem vínculo, sem ator, ou
+organização de que ele não participa.
+**Qual transação aborta:** a da requisição inteira, aberta por `asyncHandler`.
+**O erro original é preservado?** Não era: no caminho de script, o chamador
+recebia sucesso; no caminho HTTP, o 25P02 seguinte mascarava a causa.
+**Muda conforme a operação?** Sim, e é isso que tornava o defeito traiçoeiro:
+em HTTP o cliente recebia 500 (ruim, mas visível); fora de HTTP, sucesso
+mentiroso.
+
+**A correção**, centralizada num lugar só porque são 44 chamadas: SAVEPOINT
+antes do INSERT, RELEASE no sucesso, ROLLBACK TO + RELEASE na recusa. A
+operação principal segue consistente, a transação continua utilizável, e a
+falha é registrada em nível `error` com código, ação, entidade e organização.
+
+Fora de transação o caminho antigo permanece: um INSERT avulso que falha não
+envenena nada.
+
+**Teste:** `auditoria-nao-envenena-transacao` — 4 testes. Prova que a operação
+principal COMMITA, que a transação continua utilizável depois da recusa, que
+auditorias recusadas seguidas não atrapalham uma à outra (pontos de retorno
+com nomes distintos), e — a guarda contra a correção fácil demais — que a
+auditoria ACEITA continua sendo gravada.
+
+### 17.2 Squatting do endereço da conta técnica
+
+Duas barreiras independentes:
+
+1. **O endereço vem do ID**, não do slug. O id é um cuid gerado pelo servidor
+   no instante da criação: ninguém o conhece antes, então não há o que
+   registrar antes.
+2. **O domínio é reservado.** `authService.register` recusa qualquer endereço
+   em `federacao.mci.local` com `EMAIL_DOMAIN_RESERVED`, **antes** da
+   conferência de duplicidade — responder "e-mail já cadastrado" ali contaria
+   quais endereços técnicos existem.
+
+### 17.3 O script de provisionamento, executado de verdade
+
+Até este ponto eu só havia chamado `provisionar()` direto; **o script nunca
+tinha rodado**. Rodou agora, contra banco real com três federações legadas:
+
+| Execução | Resultado |
+|---|---|
+| sem `PROVISIONAR_ADMIN_EMAIL` | falha explícita, exit 1 |
+| `--conferir` | lista 3 pendentes, **escreve 0 linhas**, exit 2 |
+| aplicar | 3 provisionadas, exit 0 |
+| repetir | "nada a fazer", exit 0 |
+
+Verificação final: **3 federações, 1 conta e 1 membresia cada.**
+
+**Dois defeitos encontrados só por executá-lo:**
+
+- **O cliente Prisma estava desatualizado** e o filtro `contaDeServico` não
+  existia nele. `prisma generate` faz parte do deploy, então produção estaria
+  coberta — mas eu não podia saber disso sem rodar.
+- **O código de saída do `--conferir` era a contagem crua** (`exit=3` para três
+  pendências). Código de saída é byte: com 256 federações pendentes daria 0, e
+  o deploy leria "nada a fazer" justamente no pior caso. Agora é fixo: 0 nada a
+  fazer, 1 erro, 2 há pendências.
+
+### 17.4 A auditoria do provisionamento — e um erro meu de medição
+
+Consultei `AuditLog` via `psql` e vi zero linhas. **Estava errado:** `psql`
+conecta sem `mci.user_id`, e a política `auditoria_leitura` escondia tudo.
+Lendo sob contexto de administrador aparecem as 3 linhas
+`SERVICE_ACCOUNT_PROVISIONED`, uma por federação, atribuídas ao admin que
+autorizou. Conferi antes de concluir, e registro o tropeço porque a conclusão
+apressada teria sido "o provisionamento não audita".
+
+### 17.5 O gate de navegador não dá falso PASS
+
+Medido de propósito, com o módulo do Playwright apontando para um caminho
+inexistente: **exit 1, zero PASS, "GATE REPROVADO"**. Um gate que não sobe
+reprova — não aprova vazio.
+
+### 17.6 Mutação da rodada de hardening
+
+7 mutantes, **7 mortos**: M3 (guarda de fonte), M12 (login), M14 (SAVEPOINT
+ausente), M15 (rollback até da auditoria aceita — a correção fácil demais),
+M16 (domínio não reservado), M17 (endereço volta a ser adivinhável), M18
+(conta sem membresia).
+
+### 17.7 Ressalva de ferramental: `vite preview` órfão entre execuções
+
+Ao encadear os gates encontrei **dois `vite preview` sobreviventes** de
+execuções anteriores, segurando as portas 5599 e 5601 havia mais de duas horas.
+
+Os gates sobem o preview com `--strictPort` de propósito — sem isso o Vite
+troca de porta sozinho e o gate mede um servidor que não é o dele, erro que já
+aconteceu na FASE 2.3. Mas a consequência é que uma porta ocupada faz o gate
+morrer com "preview do frontend não subiu", que manda investigar o build
+quando o problema é um processo esquecido.
+
+`encerrar()` mata os filhos no `finally`, e isso cobre a saída normal e a
+exceção. Não cobre o script ser **interrompido por sinal** — foi o que
+aconteceu quando cancelei execuções anteriores.
+
+**Não é defeito do produto**, é higiene do ferramental de QA, e o sintoma
+engana quem for depurar. Fica registrado; a limpeza antes de rodar é
+`pkill -f "vite preview --port 55"`. Um `trap` em SIGINT/SIGTERM nos quatro
+scripts resolveria de vez — não fiz nesta fase para não mexer em gate que
+estava passando às vésperas da promoção.
+
+---
+
+## §18 GATE DE DEPLOY — o provisionamento no pipeline automático
+
+### 18.1 O que o pipeline fazia, e o que faltava
+
+`render.yaml` executava apenas `preDeployCommand: npx prisma migrate deploy`.
+**O provisionamento não estava no pipeline** — era passo manual documentado, e
+passo manual documentado é passo que alguém esquece. Um deploy automático
+deixaria todas as federações existentes sem conta de serviço.
+
+### 18.2 A correção
+
+```
+preDeployCommand: npx prisma migrate deploy && node scripts/provisionar-contas-de-servico.js
+```
+
+mais `PROVISIONAR_ADMIN_EMAIL` declarada com `sync: false` (o valor é decisão
+de quem opera, não algo que o repositório fixe).
+
+**Por que `preDeployCommand`:** roda depois de o banco estar migrado e antes de
+a nova versão receber tráfego. Se falhar, o Render não promove — a versão
+antiga, sem conclusão automática, continua no ar. Falha fechada, que é a certa:
+melhor o deploy parar do que subir uma versão em que o autocadastro responde
+503 para toda federação existente.
+
+**Por que o `&&` e não `;`:** migration que falha aborta o provisionamento. A
+ordem é obrigatória — primeiro a estrutura, depois o dado.
+
+### 18.3 Uma mudança no script, exigida pelo deploy automático
+
+A contagem passou a vir **antes** da exigência do administrador.
+
+Exigi-lo sempre quebraria dois casos legítimos em que não há nada a autorizar:
+a instalação nova (sem federação nem admin) e o deploy seguinte (tudo já
+provisionado). Nos dois, pedir autorização para não fazer nada derrubaria o
+deploy por burocracia.
+
+Conferindo primeiro, o script só exige o administrador quando existe trabalho
+de verdade — e aí falha alto.
+
+### 18.4 Os cenários, medidos contra bancos reais
+
+| Cenário | Comando | Resultado |
+|---|---|---|
+| Instalação nova | script | "nada a fazer", **exit 0** |
+| Existentes, sem a variável | script | falha explícita, **exit 1** |
+| Existentes, com a variável | script | 3 provisionadas, **exit 0** |
+| Deploy seguinte, sem a variável | script | "nada a fazer", **exit 0** |
+| Ponta a ponta | `preDeployCommand` literal | 0 → 3 contas, **exit 0** |
+
+Estado final em todos: **1 federação = 1 conta + 1 membresia**.
+
+O último caso é o que importa: executei o texto extraído do próprio
+`render.yaml` com `grep -oP '(?<=preDeployCommand: ).*'`, contra um banco com
+três federações legadas. Não é paráfrase do que o Render fará — é o comando.
+
+### 18.5 O que NÃO foi tocado
+
+RLS, regra de conciliação, testes já aprovados, e nenhum dado de produção. A
+mudança é de pipeline e de ordem de verificação dentro do script.

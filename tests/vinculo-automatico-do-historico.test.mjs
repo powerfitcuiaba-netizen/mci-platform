@@ -67,22 +67,29 @@ const contagens = () => comoAtor(gerente, async tx => ({
   atletas: await tx.athlete.count()
 }));
 
-// O cadastro pela porta da frente: o próprio interessado pede, o operador
-// aprova. Não é atalho — é o fluxo que o vínculo automático escuta.
-async function cadastrarPelaPortaDaFrente({ nome, cpf, matricula = null, aprovar = true }) {
+// O cadastro pela porta da frente: o próprio interessado pede, e ACABOU —
+// não há operador no meio. É o fluxo que o vínculo automático escuta, e a
+// ausência do passo de aprovação é parte do que estes testes provam.
+async function cadastrarPelaPortaDaFrente({ nome, cpf, matricula = null }) {
   const pessoa = await criarUsuario({ name: nome });
   const pedido = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
     fullName: nome, cpf, sex: 'FEMALE', birthDate: '1994-03-08',
     affiliationId: npc.id, affiliationNumber: matricula ?? `LIVRE-${unico('m')}`
   });
   expect(pedido.status, JSON.stringify(pedido.body).slice(0, 300)).toBe(201);
-  if (!aprovar) return { pessoa, pedido: pedido.body, athleteId: null };
 
-  const aprovado = await api().post(`/api/v1/athlete-requests/${pedido.body.id}/approve`).set(admin.auth()).send({});
-  expect(aprovado.status, JSON.stringify(aprovado.body).slice(0, 300)).toBe(200);
+  // NINGUÉM APROVOU. O cadastro já nasce concluído e sem revisor assinado —
+  // e se algum dia voltar a nascer PENDENTE, é aqui que se descobre.
+  expect(pedido.body.status, 'o autocadastro voltou a enfileirar').toBe('APPROVED');
+  expect(pedido.body.reviewedById, 'alguém consta como revisor de um cadastro automático').toBeNull();
 
   const sessao = await api().get('/api/v1/auth/me').set(pessoa.auth());
-  return { pessoa, pedido: pedido.body, athleteId: sessao.body.user.athleteId };
+  return {
+    pessoa,
+    pedido: pedido.body,
+    athleteId: sessao.body.user.athleteId,
+    conciliacao: pedido.body.conciliacao
+  };
 }
 
 beforeAll(() => garantirCatalogo());
@@ -95,6 +102,12 @@ beforeEach(async () => {
   organizationId = (await criarOrganizacao(admin, { name: 'MCI Brasil' })).id;
   await vincular(organizationId, gerente, 'RANKING_MANAGER');
   await vincular(organizationId, gerente, 'EVENT_DIRECTOR');
+
+  // A federação precisa estar RECEBENDO autocadastro. A conferência desceu da
+  // vitrine para o serviço: esconder a filiação nunca impediu quem já tivesse
+  // o id dela, e com a conclusão automática o furo passaria a criar atleta.
+  await api().post(`/api/v1/organizations/${organizationId}/self-registration`)
+    .set(admin.auth()).send({ open: true });
 
   npc = (await api().post('/api/v1/affiliations').set(admin.auth())
     .send({ organizationId, name: 'NPC Brasil', code: 'NPC' })).body;
@@ -267,11 +280,31 @@ describe('ambiguidade vai para revisão, e não para o atleta errado', () => {
       fullName: 'CARLA DIAS', cpf: gerarCpf(910123), sex: 'FEMALE',
       affiliationId: npc.id, affiliationNumber: 'NPC-777'
     });
-    expect(pedidoDaSegunda.status).toBe(201);
 
-    const aprovacaoDaSegunda = await api()
-      .post(`/api/v1/athlete-requests/${pedidoDaSegunda.body.id}/approve`).set(admin.auth()).send({});
-    expect(aprovacaoDaSegunda.status).toBeGreaterThanOrEqual(400);
+    // A RECUSA AGORA É NO CADASTRO, e não numa aprovação que nunca virá. A
+    // ambiguidade não chega a nascer: a segunda pessoa não vira atleta.
+    expect(pedidoDaSegunda.status, JSON.stringify(pedidoDaSegunda.body).slice(0, 300)).toBe(409);
+
+    // E A RECUSA É MUDA. Ela não confirma que a matrícula existe, não diz de
+    // quem é, não devolve nome nem documento — porque quem recebe esta
+    // resposta é qualquer um que preencheu o formulário, e uma recusa
+    // específica transformaria o cadastro num detector de matrículas.
+    expect(pedidoDaSegunda.body.error.code).toBe('REGISTRATION_NEEDS_REVIEW');
+    expect(pedidoDaSegunda.body.error.details.conciliacao.estado).toBe('PRECISA_REVISAO');
+
+    // O pedido FICA pendente: a federação recebe o caso em vez de o cadastro
+    // sumir sem rastro. Conferido onde a dona o veria, porque a recusa deixou
+    // de devolver o pedido — e ele continuar existindo é o ponto.
+    const dela = await api().get('/api/v1/athlete-requests/me').set(segunda.auth());
+    expect(dela.body.items[0].status).toBe('PENDING');
+    expect(dela.body.items[0].athleteId).toBeNull();
+
+    // A recusa não diz QUAL identificador colidiu — e agora não devolve nem
+    // a matrícula que a pessoa digitou.
+    const texto = JSON.stringify(pedidoDaSegunda.body);
+    expect(texto, 'a recusa disse qual identificador colidiu').not.toContain('AFFILIATION_NUMBER_IN_USE');
+    expect(texto, 'a recusa ecoou a matrícula').not.toContain('NPC-777');
+    expect(texto).not.toMatch(/"motivo"/);
 
     // O histórico ficou com a ÚNICA dona possível da matrícula, e o sistema
     // nunca teve de escolher entre duas.

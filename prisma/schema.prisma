@@ -70,6 +70,9 @@ model Organization {
 
   @@index([active])
   @@index([selfRegistrationOpen])
+
+  /// A identidade técnica desta federação. Uma, ou nenhuma.
+  contaDeServico User? @relation("ContaDeServicoDaFederacao")
 }
 
 model OrganizationMember {
@@ -125,6 +128,11 @@ enum UserRole {
   BRAND
   SPONSOR
   MEDIA
+  /// Identidade TÉCNICA da federação. Não é conta de pessoa: ninguém se
+  /// autentica com ela, e ela não recebe permissão de aplicação nenhuma. O
+  /// único poder que tem é no banco — `mci_operator_of` a reconhece — e o RLS
+  /// o confina à organização de `User.serviceOrganizationId`.
+  FEDERATION_SERVICE
 }
 
 enum UserStatus {
@@ -139,6 +147,14 @@ model User {
   email        String     @unique
   passwordHash String
   status       UserStatus @default(ACTIVE)
+  /// Marca a identidade técnica. O login recusa quem a tem, e o cadastro
+  /// aberto nunca a produz.
+  isServiceAccount Boolean @default(false)
+  /// A federação que esta identidade representa — UMA, e única no sistema.
+  /// Não é convenção: há índice único e restrição de coerência no banco, de
+  /// modo que conta de serviço sem organização (ou com duas) não existe.
+  serviceOrganizationId String? @unique
+  serviceOrganization   Organization? @relation("ContaDeServicoDaFederacao", fields: [serviceOrganizationId], references: [id], onDelete: Cascade)
 
   // Cadastro completo. TUDO opcional: as contas que já existem foram criadas
   // antes destes campos e continuam válidas — o cadastro novo é que exige o

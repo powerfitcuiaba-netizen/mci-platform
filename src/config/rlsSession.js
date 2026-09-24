@@ -52,7 +52,26 @@ function withUserContext(userId, callback, opcoes = undefined) {
     try {
       return await executarComContexto({ tx, userId: ator }, () => callback(tx));
     } finally {
-      if (jaEmContexto) await definirAtor(tx, anterior);
+      // RESTAURAR NÃO PODE ENGOLIR O ERRO QUE CAUSOU A SAÍDA.
+      //
+      // Medido: uma violação de unicidade dentro do contexto aninhado ABORTA a
+      // transação. O `SET LOCAL` daqui então falha com 25P02 ("current
+      // transaction is aborted"), e como ele acontece no `finally`, essa falha
+      // SUBSTITUI a original — o serviço devolvia 500 genérico no lugar do
+      // P2002 que sabia explicar o que houve.
+      //
+      // Restaurar o ator serve a uma transação que CONTINUA. Uma transação
+      // abortada não continua: tudo nela será desfeito, inclusive o
+      // `set_config`. Então, se a restauração falhar, o certo é seguir em
+      // frente e deixar o erro de verdade subir.
+      if (jaEmContexto) {
+        try {
+          await definirAtor(tx, anterior);
+        } catch {
+          // Transação já abortada: não há contexto para restaurar, e insistir
+          // só trocaria a causa real por um sintoma.
+        }
+      }
     }
   }, opcoes);
 }

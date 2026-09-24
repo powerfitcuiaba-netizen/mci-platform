@@ -480,3 +480,106 @@ jobs:
             # que é ESTA aplicação é o título, não o código.
             echo "$U → HTTP $C · título: ${TITULO:-(sem título)}"
           done
+
+  # ==========================================================================
+  # DEMO = 0 EM PRODUÇÃO — o que esta sonda PODE e o que NÃO PODE provar.
+  #
+  # PODE: varrer as vistas públicas (campeonatos, filiações, ranking) atrás dos
+  # marcadores que esta fase usou nos ambientes de QA, e contar quantos
+  # aparecem. Zero aqui é evidência real de que nenhum dado de QA vazou para as
+  # superfícies que o público enxerga.
+  #
+  # NÃO PODE: contar por TABELA, listar ID, ou enxergar o que não é público —
+  # a conta de serviço da federação, por exemplo, nunca aparece em rota
+  # nenhuma (é essa a intenção do §12.5). Para isso seria preciso consultar o
+  # banco de produção, e NENHUM workflow deste repositório tem `DATABASE_URL`:
+  # não há um único `secrets.*` em `.github/workflows`. Conferido, não suposto.
+  #
+  # Então este job entrega evidência PARCIAL, e diz que é parcial. Chamar o
+  # zero daqui de "DEMO = 0 no banco" seria afirmar o que não foi medido.
+  #
+  # SOMENTE LEITURA: só `GET`. Nenhum DELETE, UPDATE, TRUNCATE, backfill,
+  # recompute ou importação. O job não tem credencial para escrever nem que
+  # quisesse — todas as rotas de escrita exigem token, e ele não tem nenhum.
+  #
+  # O repositório é PÚBLICO: imprime contagens e vereditos, nunca corpos.
+  # ==========================================================================
+  demo:
+    name: DEMO = 0 nas vistas públicas
+    needs: sondar
+    runs-on: ubuntu-latest
+    env:
+      API: ${{ inputs.api || 'https://mci-platform-api.onrender.com' }}
+    steps:
+      - name: Varrer os marcadores de QA desta fase
+        run: |
+          set -u
+          # Os marcadores que os ambientes de QA desta fase usaram, e mais os
+          # genéricos. `Etapa QA do Autocadastro` e `Federação QA Autocadastro`
+          # vêm de scripts/qa/autocadastro-automatico.mjs; `Etapa QA de
+          # Responsividade` e `NPC Mato Grosso (QA)` vêm de
+          # scripts/qa/responsividade.mjs.
+          MARCADORES='DEMO|Etapa QA|Federação QA|Federacao QA|NPC Mato Grosso \(QA\)|QA-NPC-MT|Atleta QA|MARIANA QA|qa-auto-|qa-resp-|@mci\.local|federacao\.mci\.local|Sistema ·'
+
+          TOTAL=0
+          echo '| Vista pública | Itens | Marcadores DEMO/QA |' >> /tmp/demo.md
+          echo '|---|---|---|' >> /tmp/demo.md
+
+          sondar() {
+            local rotulo="$1" rota="$2"
+            local codigo n encontrados
+            codigo="$(curl -sS -m 120 -o /tmp/d.json -w '%{http_code}' "$API$rota" || echo 000)"
+            if [ "$codigo" != "200" ]; then
+              echo "| $rotulo | HTTP $codigo | (não consultada) |" >> /tmp/demo.md
+              echo "$rotulo → HTTP $codigo"
+              return
+            fi
+            n="$(jq -r 'if type=="array" then length elif .items then (.items|length) else 0 end' /tmp/d.json 2>/dev/null || echo 0)"
+            # `-c` conta LINHAS casadas; o JSON é achatado para uma linha por
+            # item para que a contagem seja de ITENS, e não de ocorrências.
+            encontrados="$(jq -r 'if type=="array" then .[] elif .items then .items[] else empty end | tostring' /tmp/d.json 2>/dev/null \
+              | grep -icE "$MARCADORES" || true)"
+            encontrados="${encontrados:-0}"
+            TOTAL=$((TOTAL + encontrados))
+            echo "$rotulo → $n itens, $encontrados com marcador"
+            echo "| $rotulo | $n | $encontrados |" >> /tmp/demo.md
+          }
+
+          sondar 'Campeonatos'            '/api/v1/events?limit=100'
+          sondar 'Filiações (vitrine)'    '/api/v1/public/affiliations'
+          sondar 'Super Overall'          '/api/v1/ranking/super-overall'
+          sondar 'Busca pública (DEMO)'   '/api/v1/search?q=DEMO'
+          sondar 'Busca pública (QA)'     '/api/v1/search?q=QA'
+
+          echo "DEMO_PUBLIC_COUNT=$TOTAL" >> "$GITHUB_ENV"
+
+      - name: O veredito
+        run: |
+          {
+            echo '## DEMO = 0 nas vistas públicas'
+            echo
+            cat /tmp/demo.md
+            echo
+            echo "**DEMO_PUBLIC_COUNT = ${DEMO_PUBLIC_COUNT}**"
+            echo
+            if [ "${DEMO_PUBLIC_COUNT}" = "0" ]; then
+              echo 'Nenhum marcador de QA desta fase aparece nas vistas públicas de produção.'
+            else
+              echo '**ATENÇÃO — marcador encontrado.** NADA foi apagado: esta sonda é'
+              echo 'somente leitura. Ver a tabela acima para saber em qual vista.'
+            fi
+            echo
+            echo '### O alcance desta medição'
+            echo
+            echo 'Evidência **parcial, e assumidamente parcial**: só enxerga o que é'
+            echo 'público. Contagem por tabela, ID e marcador exigiria consultar o banco'
+            echo 'de produção, e nenhum workflow deste repositório tem `DATABASE_URL` —'
+            echo 'não há um único `secrets.*` em `.github/workflows`.'
+            echo
+            echo 'Somente leitura: apenas `GET`, sem token, sem rota de escrita.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${DEMO_PUBLIC_COUNT}" != "0" ]; then
+            echo "DEMO_PUBLIC_COUNT=${DEMO_PUBLIC_COUNT} — parando para tratamento humano"
+            exit 1
+          fi

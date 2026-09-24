@@ -42,7 +42,19 @@ const { can } = require('../src/utils/permissions.js');
 const PAPEIS = [
   'EVENT_DIRECTOR', 'EVENT_COORDINATOR', 'RESULTS_OPERATOR', 'RANKING_MANAGER',
   'REGISTRATION_OPERATOR', 'CHECKIN_OPERATOR', 'WEIGHIN_OPERATOR',
-  'JUDGE_COORDINATOR', 'JUDGE', 'STAFF', 'SOCIAL_ADMIN', 'MODERATOR', 'COACH', 'ATHLETE'
+  'JUDGE_COORDINATOR', 'JUDGE', 'STAFF', 'SOCIAL_ADMIN', 'MODERATOR', 'COACH', 'ATHLETE',
+  // FEDERATION_SERVICE entra na matriz porque é o papel com a separação mais
+  // afiada do sistema — e a mais fácil de desfazer sem ninguém notar.
+  //
+  // No BANCO ele é operador: `mci_operator_of` o reconhece, e é daí que a
+  // conclusão automática do autocadastro tira o direito de escrever no ledger.
+  // Na APLICAÇÃO ele não pode nada além da base autenticada.
+  //
+  // Vincular um usuário com este papel à organização o torna operador de
+  // banco de verdade. A matriz então cobra, rota por rota, que TODA operação
+  // continue recusada — se um dia alguém acrescentar uma permissão a este
+  // papel "para facilitar", são dezenas de asserções que ficam vermelhas.
+  'FEDERATION_SERVICE'
 ];
 
 let ctx = {};

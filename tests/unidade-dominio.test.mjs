@@ -75,6 +75,28 @@ describe('RBAC', () => {
     for (const role of USER_ROLES) expect(ROLE_PERMISSIONS[role], role).toBeDefined();
   });
 
+  // A AUSÊNCIA É DELIBERADA, E ESTE TESTE EXISTE PARA QUE CONTINUE SENDO.
+  //
+  // `FEDERATION_SERVICE` está no enum do banco e na matriz de permissões, mas
+  // NÃO em `USER_ROLES` — e a diferença é o que impede que um operador
+  // atribua a identidade técnica do sistema a uma pessoa: `adminUserUpdate`
+  // é `z.enum(USER_ROLES)`, então o papel sequer passa pela validação.
+  //
+  // A lista se parece com um espelho do enum, e a próxima pessoa que notar a
+  // diferença vai querer "consertá-la". Se fizer isso, o papel vira
+  // atribuível — e como ele não está em `PAPEIS_PRIVILEGIADOS`, por QUALQUER
+  // um com `users.manage`, não só pelo SUPER_ADMIN. Este teste falha antes.
+  it('FEDERATION_SERVICE não é atribuível a uma pessoa', () => {
+    expect(USER_ROLES, 'a identidade técnica virou papel atribuível')
+      .not.toContain('FEDERATION_SERVICE');
+    expect(isSelfServiceRole('FEDERATION_SERVICE'),
+      'o cadastro aberto passou a criar conta de serviço').toBe(false);
+    // E ela continua existindo onde precisa existir: a matriz responde por
+    // ela, senão a conta de serviço ficaria sem permissão declarada nenhuma e
+    // qualquer `permissionsForRole` sobre ela seria um vazio acidental.
+    expect(ROLE_PERMISSIONS.FEDERATION_SERVICE, 'a matriz esqueceu a conta de serviço').toBeDefined();
+  });
+
   it('nenhuma matriz cita permissão inexistente', () => {
     const conhecidas = new Set(PERMISSIONS);
     for (const [role, lista] of Object.entries(ROLE_PERMISSIONS)) {

@@ -7,6 +7,8 @@ const imagem = require('./imagemService');
 const audit = require('./auditService');
 const logger = require('../utils/logger');
 const muscleWar = require('./muscleWarService');
+const contasDeServico = require('./serviceAccountService');
+const { withUserContext } = require('../config/rlsSession');
 
 // ============================================================================
 // FILA DE PERFIL DE ATLETA.
@@ -54,7 +56,11 @@ const cpfDoPedido = { ...CAMPOS_PUBLICOS, cpf: true };
 // nenhuma rota nova volte a devolvê-la por esquecimento.
 const semChaves = pedido => {
   if (!pedido) return pedido;
-  const { photoKey, ...resto } = pedido;
+  // `cpf` é DESESTRUTURADO PARA FICAR DE FORA. O prefixo `_` é a convenção do
+  // lint para "existe e não se usa" — e aqui não usar é o ponto: desde que a
+  // conclusão automática precisa ler o documento, a resposta passou a correr o
+  // risco de devolvê-lo por esquecimento. Removê-lo aqui fecha o caminho todo.
+  const { photoKey, cpf: _cpf, ...resto } = pedido;
   return { ...resto, hasPhoto: Boolean(photoKey) };
 };
 
@@ -63,10 +69,29 @@ async function criar(data, actor) {
   // deixaria qualquer pessoa endereçar o pedido à federação que quisesse.
   const filiacao = await prisma.affiliation.findUnique({
     where: { id: data.affiliationId },
-    select: { id: true, organizationId: true, active: true, name: true }
+    select: {
+      id: true, organizationId: true, active: true, name: true,
+      organization: { select: { active: true, selfRegistrationOpen: true } }
+    }
   });
   if (!filiacao) throw new AppError(422, 'AFFILIATION_INVALID', 'Entidade de filiação não encontrada');
   if (!filiacao.active) throw new AppError(422, 'AFFILIATION_INACTIVE', 'Entidade de filiação inativa');
+
+  // A PORTA, E NÃO A VITRINE.
+  //
+  // `publicService.listAffiliations` já escondia as filiações de quem não
+  // recebe pedido espontâneo — mas esconder não é recusar. O id de uma
+  // filiação sai na página pública do atleta, e com ele em mãos dava para
+  // enviar solicitação a uma federação de porta fechada.
+  //
+  // Enquanto a solicitação só entrava numa fila para um operador analisar, o
+  // furo custava uma linha a mais na fila. Com a CONCLUSÃO AUTOMÁTICA ele
+  // passaria a criar atleta — e aí o interruptor que a federação controla não
+  // controlaria nada. A conferência tinha de descer para cá.
+  if (!filiacao.organization?.active || !filiacao.organization?.selfRegistrationOpen) {
+    throw new AppError(422, 'SELF_REGISTRATION_CLOSED',
+      'Esta federação não está recebendo autocadastro no momento.');
+  }
 
   const cpf = normalizeCpf(data.cpf);
   if (!isValidCpf(cpf)) throw new AppError(422, 'INVALID_CPF', 'CPF inválido');
@@ -103,7 +128,10 @@ async function criar(data, actor) {
       cpf,
       photoKey: data.photoKey || null
     },
-    select: CAMPOS_PUBLICOS
+    // `cpfDoPedido` porque a conclusão automática, logo abaixo, precisa do
+    // documento para criar a identidade. Ele NÃO sai na resposta: `semChaves`
+    // o remove, e agora remove sempre, por construção e não por lembrança.
+    select: cpfDoPedido
   });
 
   // O CPF NÃO entra nos metadados: auditoria é lida por muita gente e guardar
@@ -115,7 +143,9 @@ async function criar(data, actor) {
     metadata: { affiliationId: filiacao.id, affiliationNumber: data.affiliationNumber }
   });
 
-  return semChaves(pedido);
+  const conciliacao = await concluirAutomaticamente(pedido, actor);
+
+  return { ...semChaves(conciliacao.pedido ?? pedido), conciliacao: conciliacao.resumo };
 }
 
 // ============================================================================
@@ -133,19 +163,52 @@ async function criar(data, actor) {
 
 // Carrega o pedido conferindo que é DESTA pessoa e que ainda está aberto.
 // 404 para pedido alheio, e não 403: confirmar que o id existe já é informação.
+// A JANELA DA FOTO NÃO FECHA NA CONCLUSÃO.
+//
+// A foto é enviada DEPOIS que o pedido existe — não há id antes disso, e o
+// arquivo fica em memória no navegador até haver um. Enquanto a conclusão
+// dependia de um operador, o pedido ficava PENDING tempo de sobra. Com a
+// conclusão automática ele nasce APPROVED, e exigir PENDING aqui deixaria
+// TODO autocadastro sem foto — medido: a suíte acusou `PHOTO_NOT_FOUND`
+// logo depois de um envio que respondera 200.
+//
+// APPROVED entra, então, e só para o DONO do pedido. Decidido — recusado ou
+// cancelado — continua fora: ali o arquivo já foi descartado de propósito, e
+// reabri-lo traria de volta um objeto que a regra mandou apagar.
+const ABERTO_PARA_FOTO = new Set(['PENDING', 'APPROVED']);
+
 async function pedidoProprioEmAberto(id, actor) {
   const pedido = await prisma.athleteProfileRequest.findUnique({
-    where: { id }, select: { id: true, userId: true, status: true, photoKey: true, organizationId: true }
+    where: { id },
+    select: {
+      id: true, userId: true, status: true, photoKey: true,
+      organizationId: true, athleteId: true
+    }
   });
   if (!pedido || pedido.userId !== actor.id) {
     throw new AppError(404, 'REQUEST_NOT_FOUND', 'Solicitação não encontrada');
   }
-  if (pedido.status !== 'PENDING') {
+  if (!ABERTO_PARA_FOTO.has(pedido.status)) {
     throw new AppError(422, 'REQUEST_NOT_PENDING', `Solicitação já está ${pedido.status}`);
   }
   // Devolve a linha CRUA, com a chave: é uso interno (gravar, apagar, promover
   // o objeto). Nada daqui vai para a resposta sem passar por `semChaves`.
   return pedido;
+}
+
+/**
+ * Leva a foto do pedido para o atleta que ele criou.
+ *
+ * Silencioso quando não há atleta: no caminho manual o pedido ainda está
+ * PENDING e não há a quem propagar — e não é erro, é a ordem normal das
+ * coisas ali.
+ */
+async function propagarFotoParaOAtleta(pedido, chave) {
+  if (!pedido.athleteId) return;
+
+  const contaDeServico = await contasDeServico.contaDaOrganizacao(pedido.organizationId);
+  await withUserContext(contaDeServico.id, async tx =>
+    tx.athlete.update({ where: { id: pedido.athleteId }, data: { photoKey: chave } }));
 }
 
 async function definirFoto(id, arquivo, actor) {
@@ -175,6 +238,17 @@ async function definirFoto(id, arquivo, actor) {
   // inversa, uma falha de gravação deixaria o pedido apontando para um objeto
   // que já não existe. Órfão é muito melhor que foto quebrada.
   if (anterior && anterior !== chave) await storage.descartar(anterior, { motivo: 'foto substituida', requestId: pedido.id });
+
+  // O ATLETA JÁ EXISTE: a foto tem de chegar nele.
+  //
+  // Na conclusão automática o `Athlete` nasceu antes de a foto ser enviada, e
+  // ele copiou um `photoKey` que ainda era nulo. Sem esta propagação o perfil
+  // ficaria sem foto para sempre, com o arquivo guardado e apontado só pelo
+  // pedido — que ninguém abre depois.
+  //
+  // Quem escreve é a conta de serviço da federação, pelo mesmo motivo de
+  // sempre: `Athlete` só aceita escrita de operador, e o atleta não é um.
+  await propagarFotoParaOAtleta(pedido, chave);
 
   await audit.record({
     actor, action: 'ATHLETE_PROFILE_REQUEST_PHOTO_SET', entity: 'AthleteProfileRequest', entityId: pedido.id,
@@ -268,9 +342,266 @@ async function carregarParaAnalise(id, actor) {
 
 // A transação da aprovação, separada para que a tradução do erro fique
 // legível — e para não repetir `prisma.$transaction` num `try` gigante.
-async function executarAprovacao(pedido, actor) {
+/**
+ * A RECUSA NEUTRA, e o registro do que de fato aconteceu.
+ *
+ * Para fora, as duas colisões possíveis recebem a MESMA frase: "CPF já
+ * cadastrado" e "matrícula já cadastrada" revelam a mesma coisa para quem
+ * está do lado de fora — as duas confirmam que aquele identificador existe
+ * nesta federação, e bastaria variar o número para mapear quem está cadastrado.
+ *
+ * Para dentro, a auditoria diz QUAL das duas caiu: é o que o operador lê
+ * quando a pessoa ligar reclamando, e mandá-lo conferir o documento quando o
+ * problema é o número da filiação custa o atendimento inteiro.
+ */
+async function recusarNeutro(pedido, actor, contaDeServico, motivo) {
+  await audit.record({
+    actor, action: 'ATHLETE_PROFILE_REQUEST_AUTO_BLOCKED',
+    entity: 'AthleteProfileRequest', entityId: pedido.id,
+    organizationId: pedido.organizationId,
+    metadata: {
+      actorType: 'SYSTEM_SERVICE_ACCOUNT',
+      serviceAccountId: contaDeServico.id,
+      motivo,
+      affiliationId: pedido.affiliationId,
+      origem: 'AUTOCADASTRO'
+    }
+  });
+
+  // O PEDIDO NÃO É DESFEITO — e é isso que faz a auditoria existir.
+  //
+  // Lançar aqui derrubaria a transação da requisição inteira, e com ela o
+  // registro que acabou de ser gravado: a recusa não deixaria rastro nenhum no
+  // banco, só no log. Devolvendo o desfecho, a transação fecha, o pedido fica
+  // PENDENTE e a federação tem o que resolver — que é exatamente o que a
+  // mensagem manda a pessoa procurar.
+  //
+  // A fila foi aposentada como caminho NORMAL. Ela continua sendo o lugar da
+  // EXCEÇÃO, e este é o único jeito de a exceção chegar lá.
+  return {
+    pedido: null,
+    resumo: {
+      estado: 'PRECISA_REVISAO',
+      matchMethod: 'PRECISA_CONFIRMAR',
+      vinculados: 0,
+      exigeConfirmacao: 0,
+      rankingPointIds: []
+    }
+  };
+}
+
+/**
+ * CONCLUI O AUTOCADASTRO NA HORA E CONCILIA O HISTÓRICO.
+ *
+ * A regra de negócio mudou: um atleta com histórico não fica mais numa fila
+ * só para que alguém aperte "aprovar" e o vínculo aconteça. Ele conclui o
+ * cadastro, e o sistema procura os resultados que já são dele.
+ *
+ * O QUE NÃO MUDOU, E NÃO PODE MUDAR
+ *
+ * Quem decide QUAIS linhas são desta pessoa continua sendo
+ * `vincularPendentesDoAtleta`, com as mesmas chaves e as mesmas recusas: CPF
+ * exato vincula; CPF divergente bloqueia; matrícula só vincula quando é única
+ * na federação e a filiação confere; nome nunca vincula. Tirar o operador da
+ * frente NÃO afrouxou nenhuma dessas conferências — só deixou de exigir que
+ * uma pessoa aperte o botão quando a regra já era inequívoca.
+ *
+ * O AMBÍGUO CONTINUA PARANDO. Quando há mais de um candidato possível, nada é
+ * vinculado e o desfecho diz que falta confirmação. É a única coisa que a
+ * automação não pode resolver sozinha, e a que mais estraga se resolver errado:
+ * histórico vinculado à pessoa errada não se desfaz com um "desfazer".
+ *
+ * FORA DA TRANSAÇÃO DO CADASTRO, de propósito. Se a conciliação falhar, o
+ * atleta continua existindo e o processo pode ser repetido — é idempotente.
+ * Dentro dela, uma falha em resultado antigo desfaria um cadastro correto.
+ */
+async function concluirAutomaticamente(pedido, actor) {
+  // A IDENTIDADE VEM DO BACKEND, E DE UM LUGAR SÓ.
+  //
+  // `pedido.organizationId` foi resolvido no servidor, a partir da FILIAÇÃO
+  // escolhida — nunca do corpo da requisição. Daí sai a conta de serviço, por
+  // consulta, e não por parâmetro: não existe entrada que nomeie o operador, a
+  // conta ou a organização a usar. Mandar `organizationId` ou
+  // `serviceAccountId` no corpo não muda nada, porque nada lê esses campos.
+  const contaDeServico = await contasDeServico.contaDaOrganizacao(pedido.organizationId);
+
+  // A CONFERÊNCIA PRÉVIA SÓ PASSOU A SER POSSÍVEL AGORA, e é por isso que ela
+  // não existia antes.
+  //
+  // Enquanto quem consultava era o solicitante, `AthleteIdentity` sob RLS
+  // devolvia zero linhas SEMPRE — inclusive quando o CPF existia. Uma
+  // verificação que não enxerga nada não protege; ela aparenta proteger, que é
+  // pior. Quem consulta agora é a conta de serviço, que é operadora desta
+  // federação e enxerga o que existe nela.
+  //
+  // E isto NÃO substitui a unicidade do banco: ela continua sendo a autoridade
+  // e continua pegando a corrida entre a conferência e a escrita. O que a
+  // conferência evita é a transação ABORTADA — porque, depois de um 23505, não
+  // dá para escrever mais nada nela, nem a auditoria do bloqueio. Era
+  // exatamente isso que estava acontecendo: o registro do bloqueio nunca
+  // chegava ao banco.
+  const colisao = await withUserContext(contaDeServico.id, async tx => {
+    const [comMesmoCpf, comMesmaMatricula] = await Promise.all([
+      tx.athleteIdentity.findFirst({
+        where: { organizationId: pedido.organizationId, cpf: pedido.cpf },
+        select: { athleteId: true }
+      }),
+      pedido.affiliationId && pedido.affiliationNumber
+        ? tx.athlete.findFirst({
+          where: {
+            organizationId: pedido.organizationId,
+            affiliationId: pedido.affiliationId,
+            affiliationNumber: pedido.affiliationNumber
+          },
+          select: { id: true }
+        })
+        : null
+    ]);
+    if (comMesmoCpf) return 'CPF_ALREADY_REGISTERED';
+    if (comMesmaMatricula) return 'AFFILIATION_NUMBER_IN_USE';
+    return null;
+  });
+
+  if (colisao) return recusarNeutro(pedido, actor, contaDeServico, colisao);
+
+  let resultado;
   try {
-    return await prisma.$transaction(async tx => aprovacaoAtomica(tx, pedido, actor));
+    // A PARTIR DAQUI QUEM ESCREVE É A FEDERAÇÃO, NÃO O ATLETA.
+    //
+    // `withUserContext` troca `mci.user_id` para a conta de serviço, e é o RLS
+    // — não este código — que decide o que ela alcança: `mci_operator_of` só
+    // responde verdadeiro para a organização em que ela tem membresia, que é
+    // uma. O atleta continua sem poder escrever em `Athlete`, `AthleteIdentity`
+    // ou `RankingPoint`; as políticas dessas três tabelas não foram tocadas.
+    //
+    // O ator da AUDITORIA continua sendo quem se cadastrou, com `actorType`
+    // dizendo que a execução foi do sistema. Trocar o ator aqui apagaria de
+    // quem foi o cadastro.
+    resultado = await withUserContext(contaDeServico.id, async () =>
+      executarAprovacao(pedido, contaDeServico, { automatico: true }));
+  } catch (erro) {
+    // A RECUSA AUTOMÁTICA É NEUTRA.
+    //
+    // No caminho do operador, "este CPF já pertence a um atleta desta
+    // federação" é informação útil para quem está com o documento na mão. Dita
+    // a QUEM SE CADASTRA, a mesma frase vira um oráculo: digita-se um CPF
+    // qualquer e a resposta conta se aquela pessoa está cadastrada aqui.
+    //
+    // Então o que sai daqui não confirma nem nega nada sobre o documento. O
+    // motivo real fica na auditoria, para o operador que for atender.
+    // As duas colisões de identidade recebem a MESMA resposta neutra. Para
+    // quem está do lado de fora, "CPF já cadastrado" e "matrícula já
+    // cadastrada" são igualmente reveladores: as duas confirmam que aquele
+    // identificador existe nesta federação. O motivo verdadeiro vai para a
+    // auditoria, que é lida por quem tem permissão.
+    if (erro instanceof AppError
+      && (erro.code === 'CPF_ALREADY_REGISTERED' || erro.code === 'AFFILIATION_NUMBER_IN_USE')) {
+      // CORRIDA: a conferência acima passou e a unicidade pegou mesmo assim.
+      // A transação já está abortada, então NÃO dá para registrar auditoria
+      // aqui — o log fica com o que se sabe, e a pessoa recebe a mesma recusa
+      // neutra.
+      logger.warn({ requestId: pedido.id, motivo: erro.code },
+        'cadastro automático bloqueado por unicidade; auditoria impossível: transação abortada');
+      throw new AppError(409, 'REGISTRATION_NEEDS_REVIEW',
+        'Não foi possível concluir o seu cadastro automaticamente. '
+        + 'Procure a sua federação para finalizar.');
+    }
+    throw erro;
+  }
+
+  await audit.record({
+    actor, action: 'ATHLETE_PROFILE_REQUEST_AUTO_APPROVE',
+    entity: 'AthleteProfileRequest', entityId: pedido.id,
+    organizationId: pedido.organizationId,
+    metadata: {
+      // QUEM EXECUTOU, e não só o que aconteceu. `SYSTEM_SERVICE_ACCOUNT`
+      // distingue esta linha de uma aprovação humana, que grava
+      // `HUMAN_OPERATOR` — sem essa distinção, ler a auditoria um ano depois
+      // não diria se alguém conferiu o documento ou se a regra concluiu
+      // sozinha.
+      actorType: 'SYSTEM_SERVICE_ACCOUNT',
+      serviceAccountId: contaDeServico.id,
+      athleteId: resultado.athlete.id,
+      affiliationId: pedido.affiliationId,
+      origem: 'AUTOCADASTRO'
+    }
+  });
+
+  // A conciliação não pode derrubar o cadastro. Se ela falhar, o atleta existe
+  // e o histórico continua pendente — estado recuperável, e a repetição é
+  // inofensiva. Derrubar o cadastro por causa de resultado antigo seria trocar
+  // um problema pequeno por um grande.
+  let vinculo = null;
+  try {
+    // Mesma identidade: escrever `athleteId` num `RankingPoint` é escrita no
+    // ledger, e o ledger só aceita operador da federação.
+    vinculo = await withUserContext(contaDeServico.id, async () =>
+      muscleWar.vincularPendentesDoAtleta(resultado.athlete, contaDeServico));
+  } catch (erro) {
+    logger.error({ erro: erro.message, athleteId: resultado.athlete.id },
+      'cadastro concluído, mas a conciliação do histórico falhou');
+  }
+
+  const resumo = resumoDaConciliacao(vinculo);
+
+  await audit.record({
+    actor, action: 'ATHLETE_HISTORY_RECONCILED',
+    entity: 'Athlete', entityId: resultado.athlete.id,
+    organizationId: pedido.organizationId,
+    metadata: {
+      actorType: 'SYSTEM_SERVICE_ACCOUNT',
+      serviceAccountId: contaDeServico.id,
+      athleteId: resultado.athlete.id,
+      matchMethod: resumo.matchMethod,
+      rankingPointIds: resumo.rankingPointIds,
+      vinculados: resumo.vinculados,
+      exigeConfirmacao: resumo.exigeConfirmacao,
+      resultado: resumo.estado,
+      origem: 'AUTOCADASTRO'
+    }
+  });
+
+  return { pedido: resultado.pedido, resumo };
+}
+
+/**
+ * O DESFECHO QUE A TELA MOSTRA — e só o desfecho.
+ *
+ * Três estados, porque são três coisas diferentes para quem acabou de se
+ * cadastrar: não havia histórico; havia e foi vinculado; havia e alguém
+ * precisa confirmar. A tela não deduz nenhum deles a partir de contagem: quem
+ * classifica é o servidor, que é quem tem a regra.
+ *
+ * Nenhum número de CPF, nenhum nome de terceiro, nenhum id de resultado sai
+ * daqui. Quem se cadastra recebe o estado do PRÓPRIO cadastro.
+ */
+function resumoDaConciliacao(vinculo) {
+  const vazio = {
+    estado: 'SEM_HISTORICO', matchMethod: 'SEM_HISTORICO',
+    vinculados: 0, exigeConfirmacao: 0, rankingPointIds: []
+  };
+  if (!vinculo) return vazio;
+
+  const vinculados = vinculo.lancamentosVinculados || vinculo.vinculados || 0;
+  const exigeConfirmacao = vinculo.conflitos || 0;
+  const rankingPointIds = vinculo.rankingPointIds || [];
+  const matchMethod = vinculo.matchMethod || 'SEM_HISTORICO';
+
+  if (vinculados > 0) {
+    return { estado: 'VINCULADO', matchMethod, vinculados, exigeConfirmacao, rankingPointIds };
+  }
+  if (exigeConfirmacao > 0) {
+    return {
+      estado: 'PRECISA_CONFIRMAR', matchMethod: 'PRECISA_CONFIRMAR',
+      vinculados: 0, exigeConfirmacao, rankingPointIds: []
+    };
+  }
+  return vazio;
+}
+
+async function executarAprovacao(pedido, actor, opcoes = {}) {
+  try {
+    return await prisma.$transaction(async tx => aprovacaoAtomica(tx, pedido, actor, opcoes));
   } catch (erro) {
     // P2002 é violação de índice único. Aqui ela tem UM significado prático:
     // outro atleta desta federação já tem este CPF. Deixá-la subir daria 500
@@ -278,6 +609,17 @@ async function executarAprovacao(pedido, actor) {
     // esperada, e sem dizer o que fazer. Medido no navegador: a aprovação
     // devolvia 500.
     if (erro?.code === 'P2002') {
+      // QUAL unicidade caiu, e não "alguma". São duas colisões possíveis e
+      // elas pedem coisas diferentes do operador: conferir o documento, ou
+      // conferir a matrícula com a federação. Chamar as duas de CPF duplicado
+      // mandaria alguém procurar o problema no lugar errado — e mandaria a
+      // AUDITORIA registrar uma causa que não aconteceu.
+      const alvo = [].concat(erro.meta?.target ?? []).join(',');
+      if (alvo.includes('affiliationNumber')) {
+        throw new AppError(409, 'AFFILIATION_NUMBER_IN_USE',
+          'Esta matrícula já pertence a outro atleta desta filiação. '
+          + 'Confira o número com a federação antes de aprovar.');
+      }
       throw new AppError(409, 'CPF_ALREADY_REGISTERED',
         'Este CPF já pertence a um atleta desta federação. Confira o documento com o solicitante antes de aprovar.');
     }
@@ -288,7 +630,7 @@ async function executarAprovacao(pedido, actor) {
 // O corpo da transação. Atleta, documento e desfecho do pedido nascem juntos
 // ou não nascem: meio atleta criado seria pior que aprovação falhada — ficaria
 // um atleta sem CPF, que ninguém encontra pela busca.
-async function aprovacaoAtomica(tx, pedido, actor) {
+async function aprovacaoAtomica(tx, pedido, actor, { automatico = false } = {}) {
   const athlete = await tx.athlete.create({
     data: {
       organizationId: pedido.organizationId,
@@ -317,7 +659,13 @@ async function aprovacaoAtomica(tx, pedido, actor) {
       status: 'APPROVED',
       athleteId: athlete.id,
       reviewedAt: new Date(),
-      reviewedById: actor.id,
+      // NINGUÉM REVISOU, ENTÃO NINGUÉM ASSINA.
+      //
+      // No caminho automático `reviewedById` fica NULO de propósito. Gravar
+      // aqui o id de quem pediu diria, para sempre e por escrito, que a pessoa
+      // analisou o próprio pedido — que é exatamente o que `aprovar` proíbe.
+      // Nulo é o registro honesto: a conclusão foi da regra, não de alguém.
+      reviewedById: automatico ? null : actor.id,
       // O documento sai daqui: a partir de agora ele vive em
       // `AthleteIdentity`, que é onde a RLS de CPF o protege.
       cpf: null

@@ -34,7 +34,13 @@ beforeEach(async () => {
   admin = await criarUsuario({ role: 'SUPER_ADMIN', name: 'Administrador' });
   gerente = await criarUsuario({ name: 'Gerente de Ranking' });
 
-  const org = await criarOrganizacao(admin, { name: 'MCI Brasil' });
+  // O PADRÃO DE PRODUÇÃO, e não o da fixture.
+  //
+  // `criarOrganizacao` abre o autocadastro por conveniência das outras
+  // suítes, onde "uma federação" quer dizer "uma federação funcionando". Esta
+  // suíte é a DO INTERRUPTOR: ela precisa vê-lo como ele nasce no produto —
+  // fechado —, senão estaria medindo a fixture em vez da regra.
+  const org = await criarOrganizacao(admin, { name: 'MCI Brasil', autocadastroAberto: false });
   organizationId = org.id;
   await vincular(organizationId, gerente, 'RANKING_MANAGER');
 

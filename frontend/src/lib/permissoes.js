@@ -30,7 +30,12 @@ export const PERMISSOES_POR_PAPEL = {
   MODERATOR: [],
   ATHLETE: [],
   COACH: ['registrations.read'],
-  GYM: [], TEAM: [], BRAND: [], SPONSOR: [], MEDIA: []
+  GYM: [], TEAM: [], BRAND: [], SPONSOR: [], MEDIA: [],
+
+  // VAZIO, e é o desenho. A conta de serviço da federação não tem permissão
+  // de aplicação nenhuma: o poder dela existe só no banco, onde o RLS a prende
+  // a uma federação. Este mapa é o espelho do backend, e lá também está vazio.
+  FEDERATION_SERVICE: []
 };
 
 /** União das permissões do papel global do usuário e dos vínculos por organização. */

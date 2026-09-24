@@ -394,7 +394,24 @@ describe('o calendário não pede migration nenhuma', () => {
       // As duas tabelas nascem com ENABLE + FORCE ROW LEVEL SECURITY — e é por
       // isso que a contagem de `tests/rls-runtime` subiu de 28 para 30, no
       // mesmo commit e pela mesma razão.
-      '20260923010000_mensagem_de_abertura_ao_atleta'
+      '20260923010000_mensagem_de_abertura_ao_atleta',
+
+      // A CONTA DE SERVIÇO DA FEDERAÇÃO, em duas migrations e não uma.
+      //
+      // A primeira cria a coluna, a chave estrangeira, o índice único e a
+      // restrição de coerência, e acrescenta o valor ao enum `UserRole`. A
+      // segunda ensina `mci_operator_of` a reconhecê-lo.
+      //
+      // Estão SEPARADAS porque o PostgreSQL não deixa usar um valor de enum na
+      // mesma transação em que ele foi acrescentado — juntá-las faria o deploy
+      // falhar no primeiro ambiente limpo, que é exatamente onde ninguém quer
+      // descobrir isso.
+      //
+      // Nenhuma das duas é destrutiva: só acrescentam. A `mci_operator_of`
+      // ganha UM papel na lista e mantém a exigência de membresia NAQUELA
+      // organização — nenhuma política foi afrouxada, nenhum FORCE removido.
+      '20260923060000_conta_de_servico_da_federacao',
+      '20260923060100_operator_of_reconhece_conta_de_servico'
     ]);
   });
 });

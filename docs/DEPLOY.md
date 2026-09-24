@@ -198,6 +198,84 @@ npx prisma migrate status   # precisa dizer que nada ficou pendente
 As migrations são *forward-only*: o baseline do domínio, as políticas de RLS e
 a evolução do domínio esportivo desde então.
 
+### 3.3 Provisionar a conta de serviço das federações — AUTOMÁTICO NO DEPLOY
+
+**O pipeline já faz isto.** `render.yaml` executa, antes de a nova versão
+receber tráfego:
+
+```
+preDeployCommand: npx prisma migrate deploy && node scripts/provisionar-contas-de-servico.js
+```
+
+A ordem é obrigatória: primeiro a ESTRUTURA, depois o DADO que a estrutura não
+cria. E o gancho é `preDeployCommand` porque ele roda **depois** de o banco
+estar migrado e **antes** de o autocadastro novo ficar disponível — se falhar,
+o Render não promove a versão, a antiga continua no ar, e ninguém fica com
+autocadastro quebrado.
+
+Configure uma vez, no painel do Render, a variável `PROVISIONAR_ADMIN_EMAIL`
+(declarada com `sync: false`) com o e-mail de um ADMIN ou SUPER_ADMIN
+existente. A auditoria registra `SERVICE_ACCOUNT_PROVISIONED` em nome dele.
+
+Para rodar à mão — plano sem `preDeployCommand`, ou conferência avulsa:
+
+```bash
+# Confere, sem escrever nada:
+PROVISIONAR_ADMIN_EMAIL='admin@dominio' node scripts/provisionar-contas-de-servico.js --conferir
+
+# Aplica:
+PROVISIONAR_ADMIN_EMAIL='admin@dominio' node scripts/provisionar-contas-de-servico.js
+```
+
+**Não é opcional, e migration nenhuma faz isto por você.** A conta de serviço
+da federação nasce junto com a organização (`organizationService.create`). As
+federações que já existiam foram criadas antes desta fase, e a migration que
+acrescentou as colunas não cria linha nenhuma — migration altera ESTRUTURA, e a
+conta de serviço é DADO.
+
+Sem este passo, `POST /athlete-requests` responde **503
+`SERVICE_ACCOUNT_MISSING` para todas as federações existentes**: o autocadastro
+não conclui, e o sintoma só aparece quando o primeiro atleta tenta se cadastrar.
+
+O e-mail do administrador é exigido porque provisionar é ato administrativo e
+ato administrativo tem dono — a auditoria grava quem autorizou. Sem ator, a
+política `auditoria_escrita` recusa o INSERT, o PostgreSQL aborta a transação, e
+o provisionamento volta atrás **em silêncio**. Medido; ver §16.2 da auditoria.
+
+É **idempotente**: rode a cada deploy, sem precisar lembrar quais federações já
+foram atendidas. Só faz INSERT.
+
+Códigos de saída — **nunca a contagem**, que como byte daria 0 em 256
+pendências e o deploy leria "nada a fazer" justamente no pior caso:
+
+| Código | Significado |
+|---|---|
+| 0 | nada a fazer, ou provisionamento concluído |
+| 1 | erro: variável ausente, usuário inexistente, sem permissão, falha |
+| 2 | `--conferir` encontrou federações pendentes |
+
+Exige `prisma generate` antes (já é o passo 3.1): o script filtra organizações
+pela relação `contaDeServico`, que não existe num cliente Prisma desatualizado.
+
+A variável só é lida **quando há federação sem conta**. Instalação nova (zero
+federações) e deploy seguinte (tudo provisionado) saem com 0 sem consultá-la —
+pedir autorização para não fazer nada derrubaria o deploy por burocracia.
+Quando há trabalho de verdade e a variável falta, o script falha alto e o
+deploy para, que é o comportamento certo.
+
+Medido contra bancos reais, os três cenários de deploy:
+
+| Cenário | Resultado |
+|---|---|
+| Instalação nova, sem federação nem admin | "nada a fazer", exit 0 |
+| Federações existentes, **sem** a variável | falha explícita, exit 1 — deploy para |
+| Federações existentes, **com** a variável | 3 provisionadas, exit 0 |
+| Deploy seguinte, sem a variável | "nada a fazer", exit 0 |
+| `preDeployCommand` literal, ponta a ponta | 0 → 3 contas, exit 0 |
+
+Resultado final em todos: **1 federação = 1 conta + 1 membresia**. Ver §17.3 e
+§18 da auditoria.
+
 #### Preflight obrigatório em base que já tem dado
 
 A migration `20260921120000_matricula_identifica_um_atleta` cria um índice

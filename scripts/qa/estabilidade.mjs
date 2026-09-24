@@ -104,7 +104,14 @@ const conferir = (rotulo, passou, detalhe = '') => {
   if (!passou) problemas.push(rotulo);
 };
 
-const { chromium } = await import(CAMINHO_PLAYWRIGHT);
+// `createRequire`, e não `import()`: o Playwright é CommonJS. Resolvido por
+// CAMINHO ABSOLUTO, o namespace ESM de um CJS não expõe `chromium` como export
+// nomeado — vem `undefined`, e o erro só aparece lá no `.launch`. Com o módulo
+// instalado em `node_modules` o especificador nu funcionava e o defeito ficava
+// escondido; numa instalação global, o gate inteiro não sobe.
+const { createRequire } = await import('node:module');
+const exigir = createRequire(import.meta.url);
+const { chromium } = exigir(CAMINHO_PLAYWRIGHT);
 const navegador = await chromium.launch(CHROMIUM ? { executablePath: CHROMIUM } : {});
 const contexto = await navegador.newContext({ viewport: { width: 1440, height: 900 } });
 await contexto.addInitScript(SONDA);
