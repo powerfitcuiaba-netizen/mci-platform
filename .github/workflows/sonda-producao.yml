@@ -636,6 +636,18 @@ jobs:
           echo "  do histórico importado ..... $IMPORTADOS"
           echo "campeonatos na vitrine ....... $EVENTOS"
 
+          # AS CONTAGENS TAMBÉM COMO ANOTAÇÃO, e não só no log.
+          #
+          # O log de Actions fica em results-receiver.actions.githubusercontent.com,
+          # que a política de egresso deste projeto recusa — então quem trabalha
+          # daqui lê a CONCLUSÃO de cada passo e nunca os números. Medir e não
+          # conseguir ler a medição é o mesmo que não medir.
+          #
+          # Anotação sai pela API de check-runs, que é alcançável. São as mesmas
+          # contagens que já vão para o log e para o resumo: nenhum dado novo é
+          # exposto, e corpo nenhum é impresso.
+          echo "::notice title=Cartão em produção::publishedResults=$TOTAL composicao=$TEM recebidos=$RECEBIDOS importados=$IMPORTADOS campeonatos=$EVENTOS"
+
           {
             echo '## O cartão de resultados publicados, no ar'
             echo
