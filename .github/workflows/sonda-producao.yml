@@ -583,3 +583,88 @@ jobs:
             echo "DEMO_PUBLIC_COUNT=${DEMO_PUBLIC_COUNT} — parando para tratamento humano"
             exit 1
           fi
+
+  # ==========================================================================
+  # O CARTÃO "RESULTADOS PUBLICADOS" EM PRODUÇÃO
+  #
+  # POR QUE ESTE JOB EXISTE
+  #
+  # O cartão marcava ZERO com o ledger cheio: os dois endpoints contavam
+  # `Result WHERE status = 'PUBLISHED'`, tabela em que só a recepção de apuração
+  # escreve — e o histórico importado, que é a maior parte do acervo desta
+  # plataforma, não passa por ali. Ver §20 de docs/AUDITORIA-FINAL-E2E.md.
+  #
+  # A correção foi medida contra banco local. Este job mede NO AR.
+  #
+  # E ELE RESOLVE UM SEGUNDO PROBLEMA: não havia meio confiável de saber QUAL
+  # versão está implantada — nada na aplicação expõe o commit. O campo
+  # `publishedResultsBreakdown` nasceu com a correção, então a presença dele na
+  # resposta é evidência COMPORTAMENTAL de que o código novo está no ar, e a
+  # ausência é evidência de que ainda não está. Não é o SHA; é a pergunta que o
+  # SHA responderia.
+  #
+  # SOMENTE LEITURA, ANÔNIMO: um GET numa rota que já é pública. Nenhuma
+  # escrita, nenhum token, nenhuma credencial.
+  #
+  # O log é público, então saem CONTAGENS e nunca o corpo: `/public/summary`
+  # devolve `upcoming` com nomes de campeonato, e despejá-los aqui seria
+  # publicá-los de novo num lugar onde ninguém foi avisado que estariam.
+  # ==========================================================================
+  cartao:
+    name: O cartão de resultados publicados, no ar
+    needs: sondar
+    runs-on: ubuntu-latest
+    env:
+      API: ${{ inputs.api || 'https://mci-platform-api.onrender.com' }}
+    steps:
+      - name: Medir o resumo público
+        run: |
+          set -u
+          CODIGO="$(curl -sS -m 120 -o /tmp/s.json -w '%{http_code}' "$API/api/v1/public/summary" || echo 000)"
+          echo "HTTP $CODIGO"
+          [ "$CODIGO" = "200" ] || { echo "::error::/public/summary respondeu $CODIGO, e o esperado é 200."; exit 1; }
+
+          TOTAL="$(jq -r '.publishedResults // "ausente"' /tmp/s.json)"
+          TEM="$(jq -r 'if has("publishedResultsBreakdown") then "sim" else "nao" end' /tmp/s.json)"
+          RECEBIDOS="$(jq -r '.publishedResultsBreakdown.received // "-"' /tmp/s.json)"
+          IMPORTADOS="$(jq -r '.publishedResultsBreakdown.imported // "-"' /tmp/s.json)"
+          EVENTOS="$(jq -r '.events // "-"' /tmp/s.json)"
+
+          echo "publishedResults ............. $TOTAL"
+          echo "composição presente .......... $TEM"
+          echo "  recebidos no MCI ........... $RECEBIDOS"
+          echo "  do histórico importado ..... $IMPORTADOS"
+          echo "campeonatos na vitrine ....... $EVENTOS"
+
+          {
+            echo '## O cartão de resultados publicados, no ar'
+            echo
+            echo '| Medição | Valor |'
+            echo '|---|---|'
+            echo "| \`publishedResults\` | $TOTAL |"
+            echo "| composição presente | $TEM |"
+            echo "| recebidos no MCI | $RECEBIDOS |"
+            echo "| do histórico importado | $IMPORTADOS |"
+            echo "| campeonatos na vitrine | $EVENTOS |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # A AUSÊNCIA DA COMPOSIÇÃO NÃO É FALHA DA PRODUÇÃO: é a versão antiga
+          # ainda no ar. O job relata a diferença em vez de confundir as duas.
+          if [ "$TEM" != "sim" ]; then
+            {
+              echo
+              echo '**A versão no ar é ANTERIOR à correção** — o campo de composição não veio.'
+              echo 'Aguardar o deploy do Render e sondar de novo. Não é indisponibilidade.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::A versão no ar ainda não tem a correção do cartão (composição ausente)."
+            exit 0
+          fi
+
+          # Com a correção no ar, o total tem de ser a soma das duas parcelas.
+          # Se não for, a conta está errada em produção — e isso é falha.
+          SOMA=$((RECEBIDOS + IMPORTADOS))
+          if [ "$TOTAL" != "$SOMA" ]; then
+            echo "::error::O total ($TOTAL) não é a soma das parcelas ($RECEBIDOS + $IMPORTADOS = $SOMA)."
+            exit 1
+          fi
+          echo "PASS — a correção está no ar, e o total confere com as parcelas."
