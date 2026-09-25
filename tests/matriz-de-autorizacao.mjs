@@ -156,7 +156,14 @@ export function matriz(f) {
     // `organizationId` (conferido no schema): o catálogo oficial de categorias é
     // GLOBAL, e a guarda é a permissão `categories.manage`, não o tenant. Logo o
     // caso cross-tenant não se aplica — não existe "categoria de outra
-    // federação" para alcançar. Ver achado F2 no relatório de T1.
+    // federação" para alcançar.
+    //
+    // FASE F2 FECHOU A OUTRA METADE. Quando o T1 escreveu esta linha,
+    // `categories.manage` estava com `EVENT_DIRECTOR`: o escopo de plataforma
+    // era da TABELA, mas a chave estava com a federação. A permissão saiu do
+    // papel de federação, e quem mede isso é
+    // `tests/f2-governanca-do-catalogo-global.test.mjs`, não esta matriz — aqui
+    // o ator positivo é a plataforma, que continua podendo.
     permissao('POST', '/categories', '/categories',
       { code: `QACAT${f.codigo}`, name: 'Categoria QA', sex: 'MALE' }, 'categories.manage',
       { escopoDePlataforma: true }),
@@ -253,7 +260,13 @@ export function matriz(f) {
     permissao('POST', '/teams', '/teams', { organizationId: f.orgA, name: 'Equipe QA' }, 'teams.manage'),
     permissao('POST', '/gyms', '/gyms', { organizationId: f.orgA, name: 'Academia QA' }, 'gyms.manage'),
     // ESCOPO DE PLATAFORMA pelo mesmo motivo: `Coach` também não tem
-    // `organizationId` no schema. Ver achado F2.
+    // `organizationId` no schema — e aqui a globalidade é o DESENHO, não um
+    // descuido: um técnico atende atletas de várias federações
+    // (`partnerService.js`). A fase F2 confirmou isso e manteve
+    // `coaches.manage` com o diretor do evento. O corpo desta linha é
+    // deliberadamente SEM `userId`: amarrar o cadastro a uma conta da
+    // plataforma virou `coaches.link_account`, que o diretor não tem, e é
+    // medido na suíte do F2.
     permissao('POST', '/coaches', '/coaches', { name: 'Treinador QA' }, 'coaches.manage',
       { escopoDePlataforma: true }),
     permissao('POST', '/brands', '/brands',

@@ -1,6 +1,7 @@
 const prisma = require('../config/prisma');
 const { AppError } = require('../utils/errors');
 const { assertCan, organizationFilter } = require('../utils/tenant');
+const { can } = require('../utils/permissions');
 const audit = require('./auditService');
 
 // Equipes, coaches, academias, marcas, patrocinadores e parcerias.
@@ -44,11 +45,31 @@ const createGym = criarComEscopo({ model: 'gym', permission: 'gyms.manage', conf
 const listGyms = listarComEscopo({ model: 'gym', count: { athletes: true } });
 
 // Coach não pertence a uma organização: um técnico atende atletas de várias.
+//
+// Essa globalidade é o desenho, e a fase F2 a manteve — o que ela separou foi
+// AMARRAR o cadastro a uma conta da plataforma. `Coach.userId` é UNIQUE, então
+// o vínculo é um recurso de uma só vaga por conta: quem o ocupa impede todos os
+// outros, inclusive a federação do próprio técnico. Num cadastro global, isso
+// atravessa federações — e é a única parte do técnico que fazia isso.
+//
+// Nenhuma política e nenhum serviço deriva autorização de `Coach` (medido:
+// zero helper `mci_` e zero policy citam coach), então o vínculo não dá poder
+// a ninguém. O que ele faz é bloquear, e é disso que a permissão trata.
 async function createCoach(data, actor) {
   const { assertPermission } = require('../utils/tenant');
   assertPermission(actor, 'coaches.manage');
 
   if (data.userId) {
+    // A conferência vem ANTES de olhar a conta, de propósito: consultar
+    // primeiro e recusar depois transformaria a rota em oráculo de existência
+    // de usuário — 404 para o id que NÃO existe, 403 para o que existe. Quem
+    // não pode vincular enumeraria contas da plataforma pela diferença.
+    if (!can(actor, 'coaches.link_account')) {
+      throw new AppError(403, 'FORBIDDEN',
+        'Vincular o cadastro de técnico a uma conta da plataforma é operação de administrador. '
+        + 'Cadastre o técnico sem o vínculo e solicite o vínculo da conta.');
+    }
+
     const user = await prisma.user.findUnique({ where: { id: data.userId } });
     if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'Usuário não encontrado');
   }

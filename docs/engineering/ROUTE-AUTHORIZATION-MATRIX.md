@@ -292,7 +292,160 @@ versão da migration, e um único teste o pega.
   audita ato social ordinário; só a moderação grava `CONTENT_MODERATION`. Não
   acrescentei auditoria para não mudar comportamento além da correção. O teste afirma
   o que existe.
-- **F2 segue aberto** por instrução: `Category` e `Coach` sem `organizationId`.
+- **F2 foi fechado na fase seguinte.** Ver a seção F2 no fim deste documento.
 - **S4, S5, S6 e a RLS das outras 49 tabelas** seguem abertos, como determinado.
 - **Não há typecheck** neste projeto: é JavaScript com ESLint, sem TypeScript. O item
   "typecheck" do pedido não tem correspondente — `npm run lint` é o gate equivalente.
+
+---
+
+# F2 — Governança do catálogo global
+
+Fase seguinte ao T2, autorizada em escopo fechado: fechar o achado **F2**, sem tocar
+em S4, S5, S6 nem na RLS das outras tabelas. Aplicada **somente em QA local**. Sem
+deploy, sem push para produção, sem alteração em dado real.
+
+## A gravidade estava subestimada, e a medição corrigiu isso
+
+O T1 classificou F2 como **P2 de governança**, com o risco descrito como "uma
+federação pode criar categoria que aparece para todas". Esta fase percorreu o
+caminho inteiro e mediu um alcance maior: não é a lista, é **a guarda do
+importador**.
+
+`muscleWarService.js:406` recusa a linha cuja categoria não está no catálogo, com o
+motivo `Categoria desconhecida no MCI`. A guarda pergunta ao catálogo — e quem
+escreve no catálogo escolhe a resposta.
+
+Cadeia medida ponta a ponta, pelo caminho HTTP real, contra o código **sem**
+correção:
+
+| Passo | Medido |
+| --- | --- |
+| O mesmo lote, ANTES | `conflicts: 1` — "Categoria desconhecida no MCI: …" |
+| `POST /categories` como `EVENT_DIRECTOR` | **201** |
+| O mesmo lote, DEPOIS | `conflicts: 0`, `recognized: 1` |
+| `POST …/apply` | **200**, `applied: 1` |
+| Ledger oficial | **1 `RankingPoint`**, 5 pontos, 1º lugar, `categoryId` = a categoria inventada |
+| Sobrevive ao `limparBanco` | **SIM** |
+
+Ou seja: o diretor de evento de qualquer federação conseguia **colocar ponto no
+ledger oficial sob um recorte que a Muscle Contest nunca homologou**. Isso é **P1**,
+não P2. A reclassificação é da medição, não de opinião.
+
+A persistência também foi medida de um jeito que não estava no plano: a primeira
+versão da suíte usava um código de categoria fixo e recebeu **409** na segunda
+execução. `Category` não está em `TABELAS` de `helpers.mjs` — o catálogo é
+pré-requisito de domínio e não é truncado entre testes. Ao limpar o banco de QA,
+`DELETE 7`: sete categorias plantadas pelas execuções de medição tinham sobrevivido a
+todo `limparBanco`. **A poluição do catálogo não é transitória.**
+
+## A decisão não é simétrica, e cada metade tem a medição que a sustenta
+
+A auditoria ofereceu duas opções técnicas — restringir as permissões a papéis de
+plataforma, ou dar escopo de organização às tabelas. Nenhuma das duas serve para as
+duas tabelas, porque `Category` e `Coach` são globais por motivos **opostos**.
+
+### `Category` — global porque é OFICIAL
+
+- São **onze** categorias, provisionadas por
+  `20260922210000_catalogo_oficial_de_categorias`, fixadas por
+  `tests/catalogo-oficial-de-categorias.test.mjs`, anunciadas ao público como "onze
+  categorias oficiais".
+- Dar `organizationId` a `Category` fragmentaria o catálogo **nacional** por
+  federação. Isso seria inventar estrutura esportiva, e está fora do que posso
+  decidir.
+- O próprio código já dizia a resposta: `eventService.js:250` — *"O catálogo é
+  global: gerenciá-lo não é permissão de um tenant."* A matriz de permissões
+  contradizia o comentário ao lado da guarda.
+
+**Decisão:** `categories.manage` sai de `EVENT_DIRECTOR`. Passa a ser de plataforma
+— `SUPER_ADMIN` e `ADMIN`, por construção da matriz. É o mesmo desenho que
+`results.override` já tinha, pelo mesmo motivo, e com o teste equivalente ao que já
+existia para ele em `tests/unidade-dominio.test.mjs`.
+
+### `Coach` — global porque um técnico atende várias federações
+
+- Está escrito em `partnerService.js` e é anterior a esta fase. Aqui a lista
+  compartilhada **não é defeito, é o modelo.**
+- Medido: **nenhuma** política e **nenhum** serviço deriva autorização de `Coach` —
+  zero helper `mci_` e zero policy citam coach. O vínculo não dá poder a ninguém.
+- Medido: `prisma.coach.create` existe em **um único lugar**, alcançável só por
+  `POST /coaches`. Nenhum fluxo de autocadastro cria `Coach`.
+- O que **era** defeito é uma coisa só: `Coach.userId` é **UNIQUE**. Quem ocupa o
+  vínculo de uma conta impede todos os outros — inclusive a federação do próprio
+  técnico. Num cadastro global, esse bloqueio atravessa federações.
+
+**Decisão:** `coaches.manage` **fica** com o diretor do evento — a capacidade de
+cadastrar técnico não foi retirada de ninguém. O que saiu é amarrar o cadastro a uma
+conta: nasce a permissão `coaches.link_account`, que só papéis de plataforma têm.
+
+## O que mudou, e só isso
+
+| Arquivo | Natureza |
+| --- | --- |
+| `src/utils/permissions.js` | `categories.manage` sai de `EVENT_DIRECTOR`; nasce `coaches.link_account` |
+| `src/services/partnerService.js` | `createCoach` confere `coaches.link_account` quando há `userId` |
+| `frontend/src/pages/adminPlatform.jsx` | o botão "Nova categoria" só aparece para quem pode usá-lo |
+| `tests/f2-governanca-do-catalogo-global.test.mjs` | 21 testes do comportamento correto |
+| `scripts/qa/mutantes-f2.mjs` | 5 mutantes que revertem a decisão |
+| `tests/matriz-de-autorizacao.mjs` | comentários: F2 deixou de ser achado aberto |
+| `package.json` | alias `qa:mutantes:f2` |
+
+**Nenhuma migration. Nenhuma alteração de schema. Nenhuma política de RLS tocada.**
+A correção é de matriz de permissões e de uma conferência no serviço — o modelo de
+dados ficou exatamente como estava.
+
+### A ordem das duas conferências em `createCoach` é decisão de segurança
+
+A conferência de `coaches.link_account` vem **antes** da busca do usuário. Consultar
+primeiro e recusar depois transformaria a rota em oráculo de existência de conta:
+404 para id que não existe, 403 para id que existe — e qualquer diretor de federação
+enumeraria contas da plataforma uma por uma, sem nunca conseguir criar nada. Há um
+teste só para isso, e é o único que mata o mutante F2-M4.
+
+### O frontend não é autoridade, e continua não sendo
+
+O menu `admin/configuracoes` é liberado no espelho do frontend por `users.read`, que
+o diretor do evento **tem** — ele chega à tela para **ler** o catálogo, e é certo que
+chegue. Sem a conferência, veria um botão que só responderia 403 depois do clique.
+O espelho `frontend/src/lib/permissoes.js` **não precisou mudar**: ele nunca
+concedeu `categories.manage` a papel de federação, então `podeCom(...)` já responde
+`false` para todos eles e `true` só para `SUPER_ADMIN`/`ADMIN`, que têm `'*'`.
+
+## Mutation testing
+
+| # | Mutante | Veredito | |
+| --- | --- | --- | --- |
+| F2-M1 | `categories.manage` volta para `EVENT_DIRECTOR` | **MORREU** | 5 testes |
+| F2-M2 | a conferência de `coaches.link_account` desaparece | **MORREU** | 4 testes |
+| F2-M3 | `coaches.link_account` é concedida ao diretor | **MORREU** | 4 testes |
+| F2-M4 | a conferência do vínculo vai para depois da busca — volta o oráculo | **MORREU** | 1 teste |
+| F2-M5 | `coaches.link_account` sai da lista mestra | **MORREU** | 5 testes |
+
+**5/5 mortos, 5/5 conforme a expectativa**, com controle antes (a suíte passa sem
+mutante) e controle depois (a restauração devolve o verde — sem isso, "MORREU"
+poderia ser arquivo corrompido em vez de garantia medida). Nenhum equivalente
+declarado nesta fase.
+
+## O que esta fase NÃO fez
+
+- **Não fechou a leitura.** Categoria e técnico continuam visíveis para todos, que é
+  o desenho. Há teste de prova negativa para isso: se alguém der escopo de
+  organização ao técnico, ele falha e a decisão volta à mesa.
+- **Não tocou em `athletes.update`.** Atribuir a um atleta um técnico já cadastrado
+  continua sendo do operador da federação — não foi nem podia ser afetado.
+- **Não criou fluxo de solicitação de vínculo.** A mensagem do 403 orienta o
+  operador a cadastrar o técnico sem vínculo e pedir o vínculo à plataforma. Se você
+  quiser que a federação faça isso sozinha, é feature nova e outra autorização.
+- **Não mexeu em S4, S5, S6 nem na RLS das outras 49 tabelas.**
+
+## Consequência operacional a registrar
+
+Depois desta fase, **cadastrar categoria no catálogo oficial exige administrador da
+plataforma**. Se a intenção for que uma federação possa propor recorte novo, isso
+precisa de desenho próprio (proposta + homologação), não de devolver a permissão —
+devolver a permissão é exatamente o mutante F2-M1.
+
+Nenhum fluxo de produto fechou: a tela de criação de categoria já vivia no painel da
+plataforma (`adminPlatform.jsx`), e `POST /coaches` **não tem nenhuma tela que o
+chame** — medido em todo `frontend/src/`.

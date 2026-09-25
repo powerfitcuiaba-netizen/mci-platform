@@ -1723,11 +1723,21 @@ function Categorias({ notificar }) {
   const estado = useFetch(() => api.categories.list(), []);
   const [criando, setCriando] = useState(false);
 
+  // O catálogo é OFICIAL e da plataforma (fase F2): gerenciá-lo não é
+  // permissão de federação. O menu "Configurações" é liberado por
+  // `users.read`, que o diretor do evento TEM — então ele chega a esta tela
+  // para LER o catálogo, e sem esta conferência veria um botão que só
+  // responderia 403. Quem autoriza continua sendo a API.
+  const { user } = useAuth();
+  const podeGerenciar = podeCom(permissoesDe(user))('categories.manage');
+
   return (
     <>
-      <div className="toolbar">
-        <button type="button" className="button button-primary" onClick={() => setCriando(true)}><Plus size={14} />{t('plataforma.novaCategoria')}</button>
-      </div>
+      {podeGerenciar && (
+        <div className="toolbar">
+          <button type="button" className="button button-primary" onClick={() => setCriando(true)}><Plus size={14} />{t('plataforma.novaCategoria')}</button>
+        </div>
+      )}
 
       <section className="panel">
         <div className="panel-head"><h2>{t('plataforma.catalogoOficial')}</h2></div>

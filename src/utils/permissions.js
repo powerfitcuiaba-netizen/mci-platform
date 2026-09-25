@@ -35,6 +35,12 @@ const PERMISSIONS = Object.freeze([
   'pro.read', 'pro.manage',
   'musclewar.import', 'musclewar.review', 'musclewar.apply',
   'teams.manage', 'companies.manage', 'coaches.manage', 'gyms.manage',
+  // Cadastrar um técnico é uma coisa; amarrar esse cadastro a uma CONTA da
+  // plataforma é outra, e por isso são duas permissões. `Coach.userId` é
+  // UNIQUE: quem ocupa o vínculo de uma conta impede que qualquer outro o
+  // faça depois — inclusive a federação a que o técnico pertence. Como
+  // `Coach` é global por desenho, esse bloqueio atravessaria federações.
+  'coaches.link_account',
   'brands.manage', 'sponsors.manage',
   'social.read', 'social.write', 'social.moderate', 'social.delete',
   'messenger.use', 'messenger.moderate',
@@ -69,7 +75,24 @@ const ROLE_PERMISSIONS = Object.freeze({
   EVENT_DIRECTOR: operacional(
     'organizations.read',
     'events.create', 'events.update', 'events.publish', 'events.delete',
-    'categories.manage', 'affiliations.manage',
+    // `categories.manage` NÃO está aqui, e a ausência é a decisão da fase F2.
+    //
+    // O catálogo de categorias é OFICIAL e NACIONAL: onze categorias,
+    // provisionadas por `20260922210000_catalogo_oficial_de_categorias` e
+    // fixadas por `tests/catalogo-oficial-de-categorias.test.mjs`. `Category`
+    // não tem `organizationId` — não existe catálogo "da federação".
+    //
+    // Enquanto esta permissão esteve aqui, o diretor de QUALQUER federação
+    // escrevia no catálogo de TODAS. E o alcance medido não era cosmético: a
+    // guarda do importador (`muscleWarService.js:406`) recusa a linha cuja
+    // categoria não está no catálogo, então quem escreve no catálogo escolhe a
+    // resposta da guarda. Medido ponta a ponta: categoria criada com 201, o
+    // mesmo lote saindo de CONFLICT para reconhecido, apply 200 e 5 pontos no
+    // ledger sob um recorte que a Muscle Contest nunca homologou.
+    //
+    // É o mesmo desenho de `results.override`, pelo mesmo motivo: o que é
+    // oficial e divulgado pertence à plataforma, não a quem conduz a etapa.
+    'affiliations.manage',
     'athletes.create', 'athletes.update', 'athletes.manage', 'athletes.read_sensitive',
     'athletes.transfer',
     'registrations.read', 'registrations.create', 'registrations.cancel',
