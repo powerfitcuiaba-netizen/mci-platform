@@ -411,7 +411,25 @@ describe('o calendário não pede migration nenhuma', () => {
       // ganha UM papel na lista e mantém a exigência de membresia NAQUELA
       // organização — nenhuma política foi afrouxada, nenhum FORCE removido.
       '20260923060000_conta_de_servico_da_federacao',
-      '20260923060100_operator_of_reconhece_conta_de_servico'
+      '20260923060100_operator_of_reconhece_conta_de_servico',
+      // F1 e F3 — o banco passa a concordar com o serviço. ADITIVA e de POLÍTICA:
+      // substitui `comentario_leitura` e `atleta_alteracao`, e não cria, altera
+      // nem apaga coluna, tabela, índice ou dado.
+      //
+      // `comentario_leitura` ganha as ramificações que `comentario_alteracao` já
+      // reconhecia — moderação, autor do comentário e autor da PUBLICAÇÃO. Sem
+      // elas, o soft delete gravava a linha que a política proibia e a rota
+      // respondia 500 para todo ator autorizado (PostgreSQL 42501, medido).
+      //
+      // `atleta_alteracao` ganha o DONO no WITH CHECK, que é quem
+      // `athleteService.update` já autorizava pela ramificação `ehODono`. Não é
+      // afrouxamento: `"userId" = mci_current_user_id()` é avaliado na LINHA NOVA,
+      // então o dono também não consegue reatribuir o atleta para outra conta.
+      //
+      // A proteção por COLUNA (filiação, matrícula, número de atleta, treinador,
+      // academia, situação) continua sendo do serviço, via `camposRestritos` —
+      // RLS é row-level e não compara coluna a coluna.
+      '20260925070000_f1_f3_autorizacao_coerente'
     ]);
   });
 });
