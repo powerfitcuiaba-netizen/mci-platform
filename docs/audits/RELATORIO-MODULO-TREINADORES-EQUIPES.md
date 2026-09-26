@@ -21,8 +21,8 @@ implementadas e medidas; o bloqueio de §8.3 está implementado **como bloqueio*
 | --- | --- |
 | Branch | `claude/mci-platform-muscle-contest-o6haz9` |
 | HEAD ao iniciar | `13b8bc8` (T4) |
-| Commits criados | nenhum — aguardando autorização |
-| Push | **não executado** |
+| Commit local | `8906cff` — autorizado por §0 ("commits de trabalho locais") |
+| Push | **não executado** — depende de autorização expressa |
 | Migrations em produção | **não aplicadas** |
 | Arquivos novos | 11 |
 | Arquivos alterados | 25 |
