@@ -331,9 +331,16 @@ perda passou sem ser notada.
 **Consequência:** não há trilha de auditoria de entrada no sistema. Para uma
 plataforma com dado pessoal de atleta, isso merece decisão explícita.
 
-**Não corrigi**, e a razão é de escopo: consertar exige mexer em RLS ou no
-caminho de autenticação, fora do módulo desta entrega e fora da autorização
-desta fase, que é de QA visual. Fica registrado para virar tarefa própria.
+**Não corrigi nesta fase**, e a razão era de escopo: consertar exige mexer em RLS
+ou no caminho de autenticação, fora do módulo desta entrega e fora da autorização
+de uma fase de QA visual.
+
+> **Atualização.** Este achado virou tarefa própria e foi corrigido em seguida,
+> por autorização expressa. O desenho está em
+> `docs/audits/DESENHO-AUDITORIA-DE-AUTENTICACAO.md` e o resultado em
+> `docs/audits/RELATORIO-AUDITORIA-DE-AUTENTICACAO.md`. **Nenhuma política de RLS
+> foi alterada**: o registro do evento passou a acontecer dentro do contexto do
+> ator que a própria autenticação estabelece.
 
 ### 9.3 — `select` cru de 23px em telas anteriores ao módulo
 

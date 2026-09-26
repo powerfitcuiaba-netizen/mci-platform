@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const { contextoAtual } = require('../config/rlsContext');
+const { withUserContext } = require('../config/rlsSession');
 const logger = require('../utils/logger');
 const { AppError } = require('../utils/errors');
 const { can } = require('../utils/permissions');
@@ -9,6 +10,11 @@ const { can } = require('../utils/permissions');
 // string, mas o domínio usa estas.
 const ACTIONS = Object.freeze({
   LOGIN: 'LOGIN',
+  // Estava como literal solto no serviço de autenticação. Entrou no catálogo
+  // junto da correção da trilha de autenticação: o nome da ação é o que alguém
+  // vai procurar na trilha daqui a um ano, e nome que só existe num literal é
+  // nome que a próxima pessoa escreve diferente.
+  USER_REGISTER: 'USER_REGISTER',
   ATHLETE_CREATE: 'ATHLETE_CREATE',
   ATHLETE_UPDATE: 'ATHLETE_UPDATE',
   ATHLETE_CPF_VIEW: 'ATHLETE_CPF_VIEW',
@@ -170,6 +176,59 @@ function sanitize(valor, profundidade = 0) {
 // política de INSERT, que é a que de fato governa quem pode auditar.
 // ============================================================================
 
+// ============================================================================
+// FALHA DE AUDITORIA PRECISA SER CONTÁVEL, E NÃO APENAS REGISTRÁVEL.
+//
+// A perda da trilha de LOGIN e de USER_REGISTER passou meses sem ser notada por
+// um motivo simples: só o log sabia dela, e log só é lido por quem já
+// desconfia. Foi um gate de QA visual olhando o log do servidor por outro
+// motivo que a encontrou — ou seja, por acaso.
+//
+// O contador conserta isso: o processo passa a saber quantas vezes a trilha
+// falhou e qual foi a última falha, e `GET /audit/integrity` entrega isso a quem
+// tem permissão de ler a trilha. O teste afirma zero no caminho feliz, então um
+// retrocesso reprova o gate em vez de sumir.
+//
+// O QUE O RESUMO NÃO GUARDA: `metadata`, e-mail, IP, nada que possa ser segredo
+// ou dado pessoal. Ação, entidade, código do erro e instante bastam para saber
+// que a trilha falhou e onde olhar — e a rota que os expõe, ainda que
+// autenticada e permissionada, não é lugar de dado sensível.
+// ============================================================================
+let falhas = 0;
+let ultimaFalha = null;
+
+function contabilizarFalha(dados, error) {
+  falhas += 1;
+  ultimaFalha = {
+    action: dados.action,
+    entity: dados.entity,
+    codigo: error?.code ?? null,
+    quando: new Date().toISOString()
+  };
+}
+
+/**
+ * Saúde da trilha desde a partida do processo.
+ *
+ * Contagem de processo, e não de banco: é exatamente o que se quer saber — esta
+ * instância está conseguindo gravar auditoria? Uma contagem persistida não
+ * responderia isso sem confundir falha de agora com falha de ontem.
+ */
+function estadoDaTrilha() {
+  return {
+    falhas,
+    ultimaFalha,
+    desdeSegundos: Math.round(process.uptime())
+  };
+}
+
+// Apenas para a suíte: zera a contagem entre casos, para que um teste não leia a
+// falha provocada por outro. Não há rota que chame isto.
+function reiniciarContagemDeFalhas() {
+  falhas = 0;
+  ultimaFalha = null;
+}
+
 // Nome único por chamada: auditorias aninhadas na mesma transação não podem
 // disputar o mesmo ponto de retorno.
 let sequencia = 0;
@@ -196,6 +255,7 @@ async function record({ actor, action, entity, entityId = null, organizationId =
     try {
       return await inserir(dados);
     } catch (error) {
+      contabilizarFalha(dados, error);
       logger.error('falha ao registrar auditoria', {
         action: dados.action, entity: dados.entity, erro: error.message
       });
@@ -220,6 +280,7 @@ async function record({ actor, action, entity, entityId = null, organizationId =
     // `error` E NÃO `warn`: auditoria que não grava é perda de trilha, e
     // trilha perdida só se descobre quando alguém precisa dela. O motivo real
     // vai junto, porque "falhou" sem o porquê não deixa ninguém consertar.
+    contabilizarFalha(dados, error);
     logger.error('falha ao registrar auditoria (a operação seguiu; a transação foi preservada)', {
       action: dados.action, entity: dados.entity, entityId: dados.entityId,
       organizationId: dados.organizationId, temAtor: Boolean(dados.userId),
@@ -227,6 +288,49 @@ async function record({ actor, action, entity, entityId = null, organizationId =
     });
     return null;
   }
+}
+
+// ============================================================================
+// O EVENTO DE AUTENTICAÇÃO — QUANDO O ATOR EXISTE, MAS O CONTEXTO AINDA NÃO.
+//
+// O PROBLEMA, medido em `scripts/qa/diagnostico-auditoria-autenticacao.mjs`:
+// `/auth/login` e `/auth/register` são as ÚNICAS rotas que gravam trilha sem
+// `req.user` — por construção, porque é dentro delas que a identidade nasce.
+// Sem `req.user`, `asyncHandler` não abre transação; sem transação, não há
+// `SET LOCAL mci.user_id`; e a política `auditoria_escrita`, que exige que o
+// `userId` da linha seja o ator da sessão, recusava o INSERT com 42501. O login
+// funcionava, a trilha se perdia, e só o log sabia. 17 eventos foram medidos
+// perdidos numa única execução de QA.
+//
+// A CORREÇÃO NÃO TOCA A POLÍTICA. Depois de conferir a senha — ou de criar o
+// usuário —, o servidor SABE quem é o ator. Basta gravar o evento dentro do
+// contexto desse ator, que é o mesmo mecanismo de toda requisição autenticada.
+// A política então encontra `userId = mci_current_user_id()` e aceita. Medido:
+// o MESMO INSERT recusado sem contexto passa com ele (sondas P1 e P2).
+//
+// POR QUE ISTO NÃO É UMA PORTA DOS FUNDOS:
+//
+//   * o ator vem de `actor.id` — um registro que o servidor leu do banco depois
+//     de conferir a credencial, ou que ele acabou de criar. NUNCA do corpo, da
+//     query ou de cabeçalho. Quem chama não escolhe em nome de quem assina.
+//   * a política continua conferindo tudo o que conferia: assinar no lugar de
+//     outro segue recusado, e escrever na trilha de federação alheia também.
+//     Nada foi afrouxado para isto funcionar.
+//   * sem credencial válida não existe `actor`, e sem `actor` esta função se
+//     recusa a inventar um: cai para `record`, que a política recusa — que é o
+//     comportamento correto para visitante.
+//
+// POR QUE EM TRANSAÇÃO PRÓPRIA: a autenticação já terminou quando este registro
+// acontece. Se a gravação falhar, o login continua válido (é o que a tarefa pede
+// preservar) e a falha entra no contador — não desaparece.
+//
+// JÁ EM CONTEXTO, NÃO ABRE OUTRO: se um dia um caminho autenticado chamar esta
+// função, ela usa o contexto que existe. Abrir um segundo sobrescreveria o ator
+// corrente e travaria outra conexão do pool sem necessidade.
+async function registrarComContextoDoAtor(evento) {
+  const ator = evento?.actor?.id ?? null;
+  if (!ator || contextoAtual()?.tx) return record(evento);
+  return withUserContext(ator, () => record(evento));
 }
 
 async function list(filtros, actor) {
@@ -272,4 +376,15 @@ async function list(filtros, actor) {
   };
 }
 
-module.exports = { record, list, sanitize, ACTIONS };
+/** A saúde da trilha, para quem tem permissão de lê-la. */
+async function integridade(actor) {
+  if (!can(actor, 'audit.read', null)) {
+    throw new AppError(403, 'FORBIDDEN', 'Sem permissão para consultar a auditoria');
+  }
+  return estadoDaTrilha();
+}
+
+module.exports = {
+  record, registrarComContextoDoAtor, list, sanitize, ACTIONS,
+  integridade, estadoDaTrilha, reiniciarContagemDeFalhas
+};

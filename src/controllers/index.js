@@ -535,7 +535,13 @@ module.exports = {
   },
 
   audit: {
-    list: async (req, res) => res.json(await auditService.list(req.query, req.user))
+    list: async (req, res) => res.json(await auditService.list(req.query, req.user)),
+    // A SAÚDE DA TRILHA, para quem tem permissão de lê-la.
+    //
+    // Existe porque a perda de trilha de autenticação ficou meses invisível: só
+    // o log do servidor sabia, e log só é lido por quem já desconfia. Quem pode
+    // ler a auditoria precisa poder perguntar se ela está sendo gravada.
+    integrity: async (req, res) => res.json(await auditService.integridade(req.user))
   },
 
   admin: {

@@ -581,6 +581,10 @@ router.post('/notifications/read-all', requireAuth, wrap(c.notifications.markAll
 
 // ================================================================= AUDITORIA
 router.get('/audit', requireAuth, perm('audit.read', orgDaQuery), validate(s.auditQuery, 'query'), wrap(c.audit.list));
+// Integridade da trilha: quantas gravações falharam nesta instância e qual foi a
+// última. Mesma permissão da leitura da trilha — quem audita precisa saber se a
+// auditoria está funcionando. Sem parâmetro, sem escrita, sem dado sensível.
+router.get('/audit/integrity', requireAuth, perm('audit.read'), wrap(c.audit.integrity));
 
 // ================================================================== USUÁRIOS
 router.get('/admin/users', requireAuth, perm('users.read'), validate(s.adminUserQuery, 'query'), wrap(c.admin.listUsers));

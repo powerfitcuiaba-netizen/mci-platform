@@ -79,7 +79,14 @@ async function register(data, contexto = {}) {
   await criarPerfilSocial(user);
   const completo = await userRepository.findById(user.id);
 
-  await audit.record({ actor: completo, action: 'USER_REGISTER', entity: 'User', entityId: completo.id, ip: contexto.ip });
+  // `registrarComContextoDoAtor` E NÃO `record`: aqui não há contexto de RLS —
+  // o cadastro é rota aberta, e `asyncHandler` só abre transação com `req.user`.
+  // Sem contexto, a política `auditoria_escrita` recusava o INSERT (exige que o
+  // `userId` da linha seja o ator da sessão) e o cadastro concluía SEM deixar
+  // rastro. A razão completa está na função, em `auditService`.
+  await audit.registrarComContextoDoAtor({
+    actor: completo, action: audit.ACTIONS.USER_REGISTER, entity: 'User', entityId: completo.id, ip: contexto.ip
+  });
 
   return { token: createToken(completo), user: sanitizeUser(completo) };
 }
@@ -125,7 +132,12 @@ async function login(data, contexto = {}) {
 
   if (user.status !== 'ACTIVE') throw new AppError(403, 'USER_INACTIVE', 'Conta inativa');
 
-  await audit.record({ actor: user, action: audit.ACTIONS.LOGIN, entity: 'User', entityId: user.id, ip: contexto.ip });
+  // Mesma razão do cadastro: a entrada é rota aberta, o ator só passa a existir
+  // depois de a senha ser conferida, e o registro precisa do contexto DELE para
+  // a política aceitar. Sem isto, todo login entrava sem deixar trilha.
+  await audit.registrarComContextoDoAtor({
+    actor: user, action: audit.ACTIONS.LOGIN, entity: 'User', entityId: user.id, ip: contexto.ip
+  });
 
   return { token: createToken(user), user: sanitizeUser(user) };
 }
