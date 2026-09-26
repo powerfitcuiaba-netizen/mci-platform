@@ -463,13 +463,63 @@ describe('§9 a superfície pública não depende de privilégio', () => {
     // décima política incondicional passa a exigir decisão consciente, em vez
     // de entrar junto com outra mudança qualquer.
     //
-    // A LISTA ENCOLHEU DE NOVE PARA SETE, e o encolhimento é o ponto.
+    // A LISTA ENCOLHEU DE NOVE PARA SETE, E DEPOIS DE SETE PARA QUATRO.
     //
+    // O encolhimento é o ponto, e cada saída tem de estar contada aqui.
+    //
+    // PRIMEIRA REDUÇÃO, de nove para sete:
     // `AthleteTeamMembership.vinculo_leitura` era `USING (true)`: o histórico
     // de equipe inteiro — datas, motivo de saída, quem registrou — legível por
     // qualquer um. `AuditLog.auditoria_restrita` era `WITH CHECK (true)`: a
     // leitura restrita e a ESCRITA sem predicado, então uma linha podia ser
     // gravada com o `userId` de outra pessoa. As duas foram fechadas.
+    //
+    // SEGUNDA REDUÇÃO, de sete para quatro — fase T4, achado S6.
+    //
+    // Quatro políticas saíram e uma entrou. `WITH CHECK (true)` não é detalhe:
+    // `USING` diz quais linhas o ator ALCANÇA, `WITH CHECK` diz como a linha
+    // NOVA pode ficar. Com `true`, quem alcança pode reescrever em qualquer
+    // coisa — e, em política `FOR ALL`, INSERIR sem restrição nenhuma, porque
+    // para o INSERT só o `WITH CHECK` vale.
+    //
+    //   `Comment.comentario_alteracao` — o autor reescrevia `authorId` para
+    //   outro perfil, forjando comentário em nome de terceiro. Passou a
+    //   espelhar o `USING` (moderação, autor do comentário, autor da
+    //   publicação).
+    //
+    //   `Conversation.conversa_atualizacao` — o participante reescrevia
+    //   `participantIds`, entregava a conversa a estranhos e se apagava dela.
+    //   NÃO virou espelho do `USING`, porque isso bloquearia SAIR da conversa:
+    //   `messengerService.sair` grava, na mesma instrução, `participantIds`
+    //   sem o ator e `formerParticipantIds` com ele. A regra passou a ser "o
+    //   ator continua rastreável", como participante ou ex-participante.
+    //
+    //   `ConversationMember.membro_participante` — era o pior dos quatro:
+    //   política `FOR ALL` com INSERT irrestrito, então qualquer autenticado
+    //   entrava sozinho em conversa privada alheia. Espelhar o `USING` TAMBÉM
+    //   não serviria: a primeira alternativa dele é `profileId = ator`,
+    //   satisfeita justamente por quem se insere a si mesmo. O `WITH CHECK`
+    //   passou a exigir a CONVERSA, e não o perfil.
+    //
+    //   `Notification.notificacao_do_dono` — o dono reatribuía a própria
+    //   notificação para outra conta, plantando aviso na caixa de terceiro. O
+    //   UPDATE, o SELECT e o DELETE passaram a exigir `userId = ator`.
+    //
+    // A QUE ENTROU, e por que ela é diferente das outras:
+    //
+    //   `Notification.notificacao_entrega` — `FOR INSERT WITH CHECK (true)`,
+    //   escrita ampla por DESENHO. `notificationService.createMany` grava
+    //   linhas com os `userIds` de OUTRAS pessoas: é o que avisar alguém
+    //   significa, e um atleta que comenta numa publicação notifica o autor
+    //   dela. Não existe predicado de LINHA que expresse "o sistema pode avisar
+    //   quem for pertinente" sem reimplementar em SQL a autorização do serviço.
+    //
+    //   Ela fica ISOLADA numa política de INSERT, e não colada num `FOR ALL`
+    //   onde o mesmo `true` governaria o UPDATE sem ninguém perceber. Controles
+    //   compensatórios: `notificationService` é o único escritor, título e
+    //   mensagem são literais do serviço, a leitura segue fechada ao dono, e
+    //   ninguém mais MOVE notificação de dono. A justificativa completa está na
+    //   migration `20260925230000_t4_with_check_coerente`.
     //
     // A asserção pinça a lista EXATA, e não um teto. Isso a faz falhar nos
     // dois sentidos, de propósito: uma política incondicional a mais passa a
@@ -478,9 +528,7 @@ describe('§9 a superfície pública não depende de privilégio', () => {
     // trabalho é de redução.
     //
     // As três de `qual=true` que sobram são tabelas de referência lidas pela
-    // superfície pública: catálogo de classes, empresas e títulos Overall. As
-    // quatro de `check=true` restringem a LEITURA por `USING` e deixam a
-    // escrita para o serviço decidir.
+    // superfície pública: catálogo de classes, empresas e títulos Overall.
     const abertas = await prisma.$queryRaw`
       SELECT tablename::text AS tabela, policyname::text AS politica
       FROM pg_policies
@@ -489,12 +537,9 @@ describe('§9 a superfície pública não depende de privilégio', () => {
 
     expect(abertas.map(l => `${l.tabela}.${l.politica}`)).toEqual([
       'ClassCatalog.catalogo_leitura',
-      'Comment.comentario_alteracao',
       'Company.empresa_leitura',
-      'Conversation.conversa_atualizacao',
-      'ConversationMember.membro_participante',
       'EventOverallTitle.overall_leitura',
-      'Notification.notificacao_do_dono'
+      'Notification.notificacao_entrega'
     ]);
   });
 

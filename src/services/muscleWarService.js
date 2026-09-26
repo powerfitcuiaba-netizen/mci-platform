@@ -1733,6 +1733,36 @@ async function aplicarLote(lote, actor) {
   // virava 500 antes de a aplicação começar.
   await prisma.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`musclewar:apply:${importId}`}))`;
 
+  // A CHAVE DA TEMPORADA NÃO É PEDIDA AQUI, E A DECISÃO É DELIBERADA.
+  //
+  // A trava acima protege o LOTE de si mesmo. O recurso que a aplicação de fato
+  // disputa é outro — o ledger e a projeção pública DA TEMPORADA —, e era essa
+  // divergência de chave o achado S4. Mas quem precisa da chave da temporada é
+  // o RECÁLCULO, e é lá que ela passou a ser pedida (`rankingService.recompute_`).
+  //
+  // POR QUE ISSO BASTA, e não é economia de correção:
+  //
+  // `asyncHandler` abre UMA transação por requisição, e o proxy de
+  // `config/prisma.js` roteia tudo para ela. Então os `rankingPoint.create`
+  // deste laço são INVISÍVEIS para outras transações até o commit — e o commit
+  // só acontece depois do `recompute_` no fim desta função, que ESPERA a chave
+  // da temporada. Ou seja: esta requisição não consegue publicar nada no ledger
+  // sem antes ter passado pela chave canônica. A serialização existe; ela mora
+  // no ponto onde é necessária.
+  //
+  // POR QUE NÃO PEDIR AQUI TAMBÉM, "por segurança": pedir no início seguraria a
+  // chave da temporada durante a importação INTEIRA. A FASE 13.6 mediu lotes de
+  // 100.000 linhas; travar a temporada por todo esse tempo bloquearia cada
+  // correção de lançamento daquela temporada, sem fechar nenhuma janela que o
+  // recálculo já não feche. Seria serializar sem necessidade.
+  //
+  // FOI O MUTATION TESTING QUE MOSTROU ISSO. A primeira versão desta correção
+  // pedia a trava aqui; os mutantes T4-M2 e T4-M3, que a removiam e que a
+  // trocavam por uma chave divergente, SOBREVIVERAM — e sobreviveram porque a
+  // garantia real vinha do `recompute_`, não desta linha. Uma trava que nenhum
+  // teste consegue sentir a falta não é defesa em profundidade: é custo sem
+  // efeito, e neste caso custo de contenção.
+
   // O QUE É APLICÁVEL MUDOU, E ESSA É A MUDANÇA DE MODELO DESTA FASE.
   //
   // Antes: só `MATCHED` com atleta. O MCI é um sistema novo e não tem cadastro

@@ -933,8 +933,28 @@ async function republicarProjecao(tx, seasonId, pontos, competidorDe) {
   });
 }
 
+// A TRAVA FALTAVA AQUI, E ERA ESTE O S4.
+//
+// `recomputarEm` reescreve a projeção pública da temporada INTEIRA:
+// `republicarProjecao` faz `deleteMany({ seasonId })` e em seguida
+// `createMany(...)` com `id: ponto.id` — DETERMINÍSTICO. Duas execuções
+// concorrentes sobre a mesma temporada inserem exatamente os mesmos ids, e a
+// segunda colide na chave primária.
+//
+// Medido antes da correção, com seis recomputes simultâneos da mesma
+// temporada: 1×200 e 5×409. O recálculo legítimo do operador falhava por
+// conflito, e no caminho do importador o mesmo conflito aborta a transação da
+// requisição — ou seja, o lote inteiro volta atrás depois de já ter escrito.
+//
+// A chave é a MESMA que a correção de lançamento e o ajuste em lote já usavam
+// (`travarTemporada`). O recurso disputado é a temporada, então a chave é a da
+// temporada; quem recalculava sem pedi-la era este caminho. Nenhuma abstração
+// nova: a que existia passou a valer para todos.
 async function recompute_(seasonId) {
-  return prisma.$transaction(tx => recomputarEm(tx, seasonId), OPCOES_TRANSACAO);
+  return prisma.$transaction(async tx => {
+    await travarTemporada(tx, seasonId);
+    return recomputarEm(tx, seasonId);
+  }, OPCOES_TRANSACAO);
 }
 
 /**
@@ -3027,7 +3047,13 @@ async function voidRankingPoints(rankingPointIds, { reason }, actor, organizatio
   // Um lote vive numa temporada só; travar a de cada lançamento seria travar a
   // mesma várias vezes. O conjunto existe porque um lote antigo pode ter
   // lançamentos migrados, e nesse caso cada temporada é travada uma vez.
-  const temporadas = [...new Set(alvos.map(ponto => ponto.seasonId))];
+  //
+  // ORDENADAS, e a ordem importa: duas invalidações em lote que tocassem as
+  // MESMAS duas temporadas em ordens opostas travariam uma a primeira e a outra
+  // a segunda, e cada uma esperaria a chave que a outra já tem — deadlock
+  // clássico de aquisição fora de ordem. Ordem total e igual para todos remove
+  // o ciclo por construção, sem custo nenhum.
+  const temporadas = [...new Set(alvos.map(ponto => ponto.seasonId))].sort();
 
   const registrados = [];
 

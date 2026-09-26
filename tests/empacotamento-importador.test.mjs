@@ -429,7 +429,26 @@ describe('o calendário não pede migration nenhuma', () => {
       // A proteção por COLUNA (filiação, matrícula, número de atleta, treinador,
       // academia, situação) continua sendo do serviço, via `camposRestritos` —
       // RLS é row-level e não compara coluna a coluna.
-      '20260925070000_f1_f3_autorizacao_coerente'
+      '20260925070000_f1_f3_autorizacao_coerente',
+      // T4/S6 — as quatro políticas que tinham `WITH CHECK = true`.
+      //
+      // `USING` diz quais linhas o ator alcança; `WITH CHECK` diz como a linha
+      // NOVA pode ficar. Com `true`, quem alcançava uma linha podia reescrevê-la
+      // em qualquer coisa — e, em política `FOR ALL`, inserir sem restrição
+      // alguma, porque para o INSERT só o `WITH CHECK` vale.
+      //
+      // As quatro não tinham o mesmo risco, e espelhar o `USING` só serve em
+      // uma: em `Conversation` isso bloquearia SAIR da conversa, em
+      // `ConversationMember` não fecharia o auto-ingresso em conversa alheia, e
+      // em `Notification` desligaria a notificação da plataforma, que existe
+      // justamente para avisar OUTRA pessoa.
+      //
+      // Sobra UMA escrita ampla, agora declarada e isolada num policy de INSERT
+      // (`notificacao_entrega`), com justificativa e controles compensatórios
+      // escritos na própria migration. ADITIVA: substitui quatro políticas,
+      // acrescenta uma quinta, e não cria, altera nem apaga coluna, tabela,
+      // índice ou dado.
+      '20260925230000_t4_with_check_coerente'
     ]);
   });
 });
