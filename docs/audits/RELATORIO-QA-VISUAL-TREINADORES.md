@@ -11,6 +11,7 @@ módulo. Nada foi publicado, promovido nem implantado.
 | --- | --- |
 | Ramo | `claude/mci-platform-muscle-contest-o6haz9` |
 | Commits do módulo (locais, já existentes) | `8906cff`, `8536d29` |
+| Commit desta fase de QA visual (local) | `95979aa` |
 | Commit anterior ao módulo | `13b8bc8` |
 | Navegador | Chromium (Playwright), executado com `--no-sandbox` |
 | Ambiente | API `http://127.0.0.1:4611/api/v1`, web `http://127.0.0.1:5611` |
