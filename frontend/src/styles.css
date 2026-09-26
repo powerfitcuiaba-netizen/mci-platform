@@ -596,6 +596,20 @@ h1, h2, h3 { margin: 0; }
   margin: var(--e5) calc(var(--e6) * -1) calc(var(--e6) * -1);
   padding: var(--e4) var(--e6) var(--e6); flex-wrap: wrap;
 }
+/* AÇÕES NO PÉ DE UM CARTÃO — E NÃO DE UM DIÁLOGO.
+   ---------------------------------------------------------------------------
+   `.modal-actions` acima existe para grudar nas bordas do diálogo: as margens
+   negativas cancelam o padding do `.modal-body`. Fora de um diálogo essa mesma
+   regra vaza para fora do `.card` — medido no gate visual em Chromium, a faixa
+   de botões do painel do treinador ultrapassava o cartão nas oito larguras da
+   matriz (360 a 1920). Esta classe é a mesma faixa de botões SEM o
+   deslocamento negativo e SEM o `sticky`, que só faz sentido em conteúdo que
+   rola dentro de um diálogo. */
+.acoes-do-cartao {
+  display: flex; justify-content: flex-end; gap: var(--e2);
+  margin-top: var(--e4); flex-wrap: wrap;
+}
+
 /* VARIANTE DO FORMULÁRIO DE IMPORTAÇÃO.
    Sete campos numa coluna de 560px viravam uma tira alta e estreita: o diálogo
    batia no teto da viewport e o operador rolava para achar o botão. Em tela
@@ -1272,6 +1286,10 @@ h1, h2, h3 { margin: 0; }
     padding: var(--e3) var(--e4) var(--e4);
   }
   .modal-actions .button { flex: 1; }
+  /* Mesma decisão do diálogo: com 360px de largura dois botões lado a lado
+     ficam estreitos demais para o dedo, então cada um ocupa a linha. */
+  .acoes-do-cartao { justify-content: stretch; }
+  .acoes-do-cartao .button { flex: 1; }
   .modal-layer { padding: var(--e3); }
   /* Em tela baixa o recorte da tabela encolhe junto: o rodapé tem prioridade. */
   /* Sete métricas em quatro linhas de duas: o resto custa o dobro. */

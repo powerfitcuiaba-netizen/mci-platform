@@ -34,6 +34,9 @@ const api = {
     mine: vi.fn(), confirm: vi.fn(), reject: vi.fn(), cancel: vi.fn()
   },
   centralAuthorizations: { list: vi.fn(), grant: vi.fn(), revoke: vi.fn() },
+  // O cartão de ranking precisa da TEMPORADA antes de pedir a projeção: a rota
+  // recusa com 422 quando ela falta (ver o teste de regressão no fim do arquivo).
+  ranking: { seasons: vi.fn() },
   organizations: { list: vi.fn() },
   admin: { users: vi.fn() }
 };
@@ -65,6 +68,7 @@ beforeEach(() => {
   api.centralAuthorizations.list.mockResolvedValue({ items: [] });
   api.organizations.list.mockResolvedValue({ items: [{ id: 'o1', name: 'Federação A' }] });
   api.admin.users.mockResolvedValue({ items: [] });
+  api.ranking.seasons.mockResolvedValue([{ id: 's2026', name: 'Temporada 2026', year: 2026 }]);
 });
 afterEach(cleanup);
 
@@ -141,7 +145,11 @@ describe('painel do treinador', () => {
     expect(screen.getByText(/ainda não foi homologada/i)).toBeTruthy();
     // O total da EQUIPE aparece, porque ele já é oficial. O do treinador não
     // existe, e a tela não o inventa somando as equipes.
-    expect(screen.getByText('42')).toBeTruthy();
+    //
+    // `findByText` e não `getByText`: o cartão resolve a TEMPORADA antes de
+    // pedir a projeção (a rota recusa sem ela), então o número chega um salto
+    // depois do aviso de homologação, que é texto fixo.
+    expect(await screen.findByText('42')).toBeTruthy();
     const corpo = document.body.textContent;
     expect(/posição/i.test(corpo), 'não há posição de treinador na tela').toBe(false);
   });
@@ -296,5 +304,128 @@ describe('mesa central', () => {
     expect(screen.getByText(/ninguém concede para si mesmo/i)).toBeTruthy();
     expect(screen.getByText(/Nenhuma delegação em vigor/i)).toBeTruthy();
     expect(screen.getByText(/restritos ao administrador máximo/i)).toBeTruthy();
+  });
+});
+
+// ==========================================================================
+// REGRESSÃO DO QA VISUAL EM CHROMIUM.
+//
+// Os quatro defeitos abaixo não apareceram em teste de unidade nenhum: só
+// existem quando há layout, largura de viewport e navegador de verdade. Foram
+// MEDIDOS no gate `scripts/qa/visual-treinadores.mjs` e estão presos aqui na
+// forma que o jsdom alcança — a estrutura do DOM e a chamada de API — para que
+// a correção não se perca numa edição futura. O gate visual continua sendo a
+// medida da largura; estes testes são a trava da estrutura.
+// ==========================================================================
+describe('regressão do QA visual', () => {
+  it('toda tabela mora dentro de .table-wrap — é ela que rola de lado', async () => {
+    api.coaches.me.mockResolvedValue(CADASTRO());
+    api.coaches.myAthletes.mockResolvedValue({
+      items: [{
+        membershipId: 'm1', teamId: 't1', since: '2026-02-01T12:00:00.000Z',
+        athlete: {
+          id: 'a1', fullName: 'Carla Souza', stageName: null, sex: 'FEMALE',
+          status: 'ACTIVE', proStatus: 'NONE', affiliationNumber: '5001',
+          affiliation: { id: 'af1', name: 'NPC Mato Grosso', code: 'NPC-MT' },
+          team: { id: 't1', name: 'Equipe Marta' }
+        }
+      }]
+    });
+
+    const { container } = render(<PainelDoTreinador notificar={vi.fn()} />);
+    await screen.findByText(/Carla Souza/i);
+
+    const tabelas = [...container.querySelectorAll('table')];
+    expect(tabelas.length, 'há tabela para conferir').toBeGreaterThan(0);
+    for (const tabela of tabelas) {
+      // `.table` sozinha não rola: quem rola é o embrulho (`styles.css`,
+      // `.table-wrap { overflow-x: auto }`). Sem ele, medido em Chromium, a
+      // tabela empurrava o documento inteiro para fora da viewport em 360px.
+      expect(tabela.closest('.table-wrap'), 'a tabela está dentro de .table-wrap').toBeTruthy();
+    }
+  });
+
+  it('.modal-actions só existe dentro de diálogo — fora dele a faixa vaza do cartão', async () => {
+    api.coaches.me.mockResolvedValue(CADASTRO());
+
+    const { container } = render(<PainelDoTreinador notificar={vi.fn()} />);
+    await screen.findByText(/Situação cadastral/i);
+
+    // A regra de `.modal-actions` cancela o padding do diálogo com margem
+    // horizontal NEGATIVA. Dentro de um `.card` essa mesma margem faz a faixa
+    // de botões ultrapassar o cartão — medido nas oito larguras da matriz.
+    for (const faixa of container.querySelectorAll('.modal-actions')) {
+      expect(faixa.closest('[role="dialog"]'), '.modal-actions fora de diálogo').toBeTruthy();
+    }
+  });
+
+  it('todo select tem a classe que garante o alvo de toque de 40px', async () => {
+    api.coaches.me.mockResolvedValue(CADASTRO());
+    api.coaches.myTeams.mockResolvedValue({ items: [...EQUIPES, { id: 't2', name: 'Equipe Beta', organizationId: 'o1', organization: { id: 'o1', name: 'Federação A' }, _count: { athletes: 0 } }] });
+
+    const { container } = render(<PainelDoTreinador notificar={vi.fn()} />);
+    await screen.findByText(/Situação cadastral/i);
+
+    for (const seletor of container.querySelectorAll('select')) {
+      // `select` cru mediu 23px de altura em Chromium, contra o piso de 40.
+      // `.select-control` (ou o `.field` que embrulha o campo de formulário) é
+      // quem carrega o `min-height`.
+      const temClasse = seletor.classList.contains('select-control') || seletor.closest('.field');
+      expect(temClasse, `select sem classe de alvo de toque: ${seletor.outerHTML.slice(0, 80)}`).toBeTruthy();
+    }
+  });
+
+  it('a projeção do ranking só é pedida COM temporada, e nunca sem ela', async () => {
+    api.coaches.me.mockResolvedValue(CADASTRO());
+
+    render(<PainelDoTreinador notificar={vi.fn()} />);
+    // A temporada chega primeiro; a projeção, depois dela.
+    await vi.waitFor(() => expect(api.coaches.projection).toHaveBeenCalled());
+
+    for (const [, consulta] of api.coaches.projection.mock.calls) {
+      // Sem `seasonId` a rota responde 422 SEASON_REQUIRED — e está certa: somar
+      // temporadas diferentes não significa nada. Quem errava era a tela.
+      expect(consulta?.seasonId, 'a projeção foi pedida sem temporada').toBe('s2026');
+    }
+  });
+
+  it('os convites aparecem mesmo quando as equipes chegam DEPOIS do cadastro', async () => {
+    // O DEFEITO QUE ESTE TESTE PRENDE, medido em Chromium real: a equipe
+    // escolhida vinha de `useState(equipes[0]?.id)`, que lê a lista uma única
+    // vez. Quando `GET /coaches/me/teams` respondia depois de `GET /coaches/me`
+    // — ordem que o navegador decide, não o código —, o estado nascia vazio e
+    // nunca se corrigia: o painel dizia "Nenhum convite enviado" sem NUNCA
+    // chamar `GET /membership-requests`. Aqui a demora é forçada, para que a
+    // ordem ruim seja a ordem certa do teste.
+    api.coaches.me.mockResolvedValue(CADASTRO());
+    api.coaches.myTeams.mockImplementation(
+      () => new Promise(resolve => setTimeout(() => resolve({ items: EQUIPES }), 60))
+    );
+    api.membershipRequests.ofTeam.mockResolvedValue({
+      items: [{
+        id: 'pr1', status: 'PENDING', requestedAt: '2026-03-01T12:00:00.000Z',
+        athlete: { id: 'a9', fullName: 'Joana Ferreira', stageName: null }
+      }]
+    });
+
+    render(<PainelDoTreinador notificar={vi.fn()} />);
+
+    expect(await screen.findByText(/Joana Ferreira/i)).toBeTruthy();
+    expect(api.membershipRequests.ofTeam).toHaveBeenCalledWith({ teamId: 't1' });
+  });
+
+  it('sem temporada cadastrada a projeção NÃO é chamada, e o aviso de homologação continua', async () => {
+    api.coaches.me.mockResolvedValue(CADASTRO());
+    api.ranking.seasons.mockResolvedValue([]);
+
+    render(<PainelDoTreinador notificar={vi.fn()} />);
+
+    // O aviso do §8.3 não depende de número nenhum: é ele que fica no lugar da
+    // classificação que não existe.
+    expect(await screen.findByText(/Ranking em homologação/i)).toBeTruthy();
+    // Esperar a lista de temporadas CHEGAR antes de afirmar a ausência: sem
+    // isso o teste passaria por ser rápido, e não por estar certo.
+    await vi.waitFor(() => expect(api.ranking.seasons).toHaveBeenCalled());
+    expect(api.coaches.projection).not.toHaveBeenCalled();
   });
 });

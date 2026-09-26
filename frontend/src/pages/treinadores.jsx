@@ -119,7 +119,7 @@ function FormularioDeAutocadastro({ notificar, aoConcluir }) {
         <textarea rows={4} value={dados.bio} onChange={evento => campo('bio', evento.target.value)} maxLength={1000} />
       </Field>
 
-      <div className="modal-actions">
+      <div className="acoes-do-cartao">
         <button type="submit" className="button button-primary" disabled={enviando}>
           {t('treinador.enviarCadastro')}
         </button>
@@ -136,14 +136,18 @@ function FormularioDeAutocadastro({ notificar, aoConcluir }) {
 // requisições e a auditoria de cada consulta).
 function DialogoDeConvite({ equipes, notificar, onClose }) {
   const { t } = useIdioma();
-  const [teamId, setTeamId] = useState(equipes[0]?.id ?? '');
+  // Derivada, e não congelada — a mesma razão explicada em
+  // `PedidosDasMinhasEquipes`. Aqui a consequência seria pior: o pedido sairia
+  // sem equipe e a API o recusaria, sem que a tela soubesse dizer por quê.
+  const [teamId, setTeamId] = useState('');
   const [matricula, setMatricula] = useState('');
   const [achado, setAchado] = useState(null);
   const [buscando, setBuscando] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [recusa, setRecusa] = useState(null);
 
-  const equipe = equipes.find(item => item.id === teamId) ?? null;
+  const escolhida = teamId || equipes[0]?.id || '';
+  const equipe = equipes.find(item => item.id === escolhida) ?? null;
 
   const localizar = async evento => {
     evento.preventDefault();
@@ -191,7 +195,7 @@ function DialogoDeConvite({ equipes, notificar, onClose }) {
         )}
 
         <Field label={t('pedidoEquipe.campoEquipe')} required>
-          <select value={teamId} onChange={evento => { setTeamId(evento.target.value); setAchado(null); }}>
+          <select value={escolhida} onChange={evento => { setTeamId(evento.target.value); setAchado(null); }}>
             {equipes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
         </Field>
@@ -244,7 +248,7 @@ function DialogoDeConvite({ equipes, notificar, onClose }) {
             </div>
           )}
 
-          <div className="modal-actions">
+          <div className="acoes-do-cartao">
             <button
               type="button"
               className="button button-primary"
@@ -267,10 +271,29 @@ function DialogoDeConvite({ equipes, notificar, onClose }) {
 // publica — nada é somado, ponderado ou ordenado aqui.
 function CartaoDeRanking({ coachId }) {
   const { t } = useIdioma();
+  // A TEMPORADA VEM ANTES DA PROJEÇÃO, E NÃO DEPOIS.
+  //
+  // `GET /coaches/:id/ranking/projection` recusa com 422 SEASON_REQUIRED quando
+  // não há temporada na consulta, e é o comportamento certo: somar temporadas
+  // diferentes não significa nada (a razão está em `rankingService.temporadaPadrao`).
+  // A primeira versão desta tela chamava a projeção sem temporada e engolia a
+  // recusa no `catch`, então o cartão nunca mostrava equipe alguma e o console
+  // acumulava um 422 por carregamento — medido no gate visual em Chromium, nos
+  // quatro perfis. A tela agora escolhe a temporada como a tela pública de
+  // ranking escolhe, e só então pergunta.
+  const temporadas = useFetch(() => api.ranking.seasons().catch(() => []), []);
+  const listaDeTemporadas = Array.isArray(temporadas.data) ? temporadas.data : temporadas.data?.items ?? [];
+  const [seasonId, setSeasonId] = useState('');
+  // A lista chega ordenada por ano decrescente (`rankingService.listSeasons`):
+  // a primeira é a mais recente, e é a escolha padrão.
+  const escolhida = seasonId || listaDeTemporadas[0]?.id || '';
+
   const projecao = useFetch(
-    () => (coachId ? api.coaches.projection(coachId, {}).catch(() => null) : Promise.resolve(null)),
-    [coachId],
-    { ativo: Boolean(coachId) }
+    () => (coachId && escolhida
+      ? api.coaches.projection(coachId, { seasonId: escolhida }).catch(() => null)
+      : Promise.resolve(null)),
+    [coachId, escolhida],
+    { ativo: Boolean(coachId && escolhida) }
   );
 
   const dados = projecao.data;
@@ -286,8 +309,23 @@ function CartaoDeRanking({ coachId }) {
         </div>
       </div>
 
+      {listaDeTemporadas.length > 1 && (
+        <div className="toolbar">
+          <select
+            className="select-control"
+            value={escolhida}
+            onChange={evento => setSeasonId(evento.target.value)}
+            aria-label={t('publico.temporada')}
+          >
+            {listaDeTemporadas.map(temporada => (
+              <option key={temporada.id} value={temporada.id}>{temporada.name || temporada.year}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {dados?.teams?.length > 0 && (
-        <table className="table">
+        <div className="table-wrap"><table className="table">
           <thead>
             <tr>
               <th>{t('treinador.colunaEquipe')}</th>
@@ -302,7 +340,7 @@ function CartaoDeRanking({ coachId }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
     </section>
   );
@@ -429,7 +467,7 @@ export function PainelDoTreinador({ notificar }) {
             documento nem de CPF porque a API não os entrega. */}
         <AsyncSection state={atletas} empty={dados => !dados?.items?.length}>
           {dados => (
-            <table className="table">
+            <div className="table-wrap"><table className="table">
               <thead>
                 <tr>
                   <th>{t('treinador.colunaAtleta')}</th>
@@ -448,7 +486,7 @@ export function PainelDoTreinador({ notificar }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           )}
         </AsyncSection>
         {!atletas.loading && !(atletas.data?.items?.length) && (
@@ -469,11 +507,25 @@ export function PainelDoTreinador({ notificar }) {
 // confirma ou recusa é o atleta, e por isso não há botão disso aqui.
 function PedidosDasMinhasEquipes({ equipes, notificar }) {
   const { t } = useIdioma();
-  const [teamId, setTeamId] = useState(equipes[0]?.id ?? '');
+  // A EQUIPE ESCOLHIDA É DERIVADA, E NÃO CONGELADA NA PRIMEIRA RENDERIZAÇÃO.
+  //
+  // `useState(equipes[0]?.id)` lê a lista UMA vez: se as equipes ainda não
+  // chegaram (elas vêm de `GET /coaches/me/teams`, outra requisição que a do
+  // cadastro), o estado nasce vazio e NUNCA se corrige, porque o valor inicial
+  // de `useState` é ignorado nas renderizações seguintes. O resultado, medido em
+  // Chromium: "Nenhum convite enviado" para sempre, sem uma única chamada a
+  // `GET /membership-requests` — o treinador não via os convites que acabou de
+  // mandar. Passava e falhava conforme a ORDEM em que as duas respostas
+  // voltavam, que é o pior tipo de defeito: some quando se vai olhar.
+  //
+  // `escolhida` cobre os dois casos com um só valor: o que a pessoa escolheu no
+  // seletor, ou a primeira equipe assim que a lista existir.
+  const [teamId, setTeamId] = useState('');
+  const escolhida = teamId || equipes[0]?.id || '';
   const pedidos = useFetch(
-    () => (teamId ? api.membershipRequests.ofTeam({ teamId }).catch(() => ({ items: [] })) : Promise.resolve({ items: [] })),
-    [teamId],
-    { ativo: Boolean(teamId) }
+    () => (escolhida ? api.membershipRequests.ofTeam({ teamId: escolhida }).catch(() => ({ items: [] })) : Promise.resolve({ items: [] })),
+    [escolhida],
+    { ativo: Boolean(escolhida) }
   );
 
   const cancelar = async id => {
@@ -492,7 +544,7 @@ function PedidosDasMinhasEquipes({ equipes, notificar }) {
       <div className="card-head">
         <h3>{t('pedidoEquipe.meusPedidos')}</h3>
         {equipes.length > 1 && (
-          <select value={teamId} onChange={evento => setTeamId(evento.target.value)} aria-label={t('pedidoEquipe.campoEquipe')}>
+          <select className="select-control" value={escolhida} onChange={evento => setTeamId(evento.target.value)} aria-label={t('pedidoEquipe.campoEquipe')}>
             {equipes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
         )}
@@ -500,7 +552,7 @@ function PedidosDasMinhasEquipes({ equipes, notificar }) {
 
       <AsyncSection state={pedidos} empty={dados => !dados?.items?.length}>
         {dados => (
-        <table className="table">
+        <div className="table-wrap"><table className="table">
           <thead>
             <tr>
               <th>{t('treinador.colunaAtleta')}</th>
@@ -525,7 +577,7 @@ function PedidosDasMinhasEquipes({ equipes, notificar }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
         )}
       </AsyncSection>
       {!pedidos.loading && !(pedidos.data?.items?.length) && (
@@ -593,7 +645,7 @@ export function MinhaEquipe({ notificar }) {
               </div>
             </div>
 
-            <div className="modal-actions">
+            <div className="acoes-do-cartao">
               <button type="button" className="button button-secondary" disabled={emCurso === pedido.id} onClick={() => responder(pedido.id, 'recusar')}>
                 {t('minhaEquipe.recusar')}
               </button>
@@ -607,7 +659,7 @@ export function MinhaEquipe({ notificar }) {
         {decididos.length > 0 && (
           <section className="card">
             <h3>{t('minhaEquipe.historico')}</h3>
-            <table className="table">
+            <div className="table-wrap"><table className="table">
               <thead>
                 <tr>
                   <th>{t('treinador.colunaEquipe')}</th>
@@ -624,7 +676,7 @@ export function MinhaEquipe({ notificar }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           </section>
         )}
       </>
@@ -773,7 +825,7 @@ export function AdminTreinadores({ notificar }) {
       <section className="card">
         <div className="card-head">
           <h3>{t('analiseTreinador.fila')}</h3>
-          <select value={status} onChange={evento => setStatus(evento.target.value)} aria-label={t('analiseTreinador.filtrarPorSituacao')}>
+          <select className="select-control" value={status} onChange={evento => setStatus(evento.target.value)} aria-label={t('analiseTreinador.filtrarPorSituacao')}>
             {FILTROS_DE_ANALISE.map(valor => (
               <option key={valor} value={valor}>{t(ROTULO_DO_CADASTRO[valor])}</option>
             ))}
@@ -782,7 +834,7 @@ export function AdminTreinadores({ notificar }) {
 
         <AsyncSection state={fila} empty={dados => !dados?.items?.length}>
           {dados => (
-          <table className="table">
+          <div className="table-wrap"><table className="table">
             <thead>
               <tr>
                 <th>{t('treinador.campoNome')}</th>
@@ -821,7 +873,7 @@ export function AdminTreinadores({ notificar }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
           )}
         </AsyncSection>
         {!fila.loading && !(fila.data?.items?.length) && (
@@ -888,7 +940,7 @@ function DelegacaoCentral({ notificar }) {
 
       <AsyncSection state={concessoes} empty={dados => !dados?.items?.length}>
         {dados => (
-        <table className="table">
+        <div className="table-wrap"><table className="table">
           <thead>
             <tr>
               <th>{t('delegacao.colunaPessoa')}</th>
@@ -911,7 +963,7 @@ function DelegacaoCentral({ notificar }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
         )}
       </AsyncSection>
       {!concessoes.loading && !(concessoes.data?.items?.length) && (

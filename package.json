@@ -17,6 +17,8 @@
     "db:seed": "node prisma/seed.js",
     "qa:estabilidade": "node scripts/qa/estabilidade.mjs",
     "qa:responsividade": "node scripts/qa/responsividade.mjs",
+    "qa:visual:treinadores": "node scripts/qa/visual-treinadores.mjs",
+    "qa:visual:treinadores:manter": "node scripts/qa/visual-treinadores.mjs --manter",
     "qa:ambiente": "node scripts/qa/ambiente.mjs",
     "qa:ambiente:gate": "node scripts/qa/responsividade.mjs --manter",
     "qa:carga": "node scripts/qa/carga.mjs",
