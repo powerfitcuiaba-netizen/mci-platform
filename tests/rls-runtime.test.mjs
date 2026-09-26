@@ -94,7 +94,33 @@ describe('FORCE ROW LEVEL SECURITY — o dono da tabela também é filtrado', ()
     // UPDATE nem de DELETE. Numa federação, "eu não fui avisado" é disputa
     // real — fabricar a prova de que alguém foi comunicado, ou apagá-la, não
     // pode ser possível nem para quem opera.
-    expect(linhas.length).toBe(30);
+    // E de 30 para 34 com o MÓDULO TREINADORES & EQUIPES: `CoachDocument`,
+    // `CoachOrganization`, `TeamMembershipRequest` e `CentralAuthorization`.
+    //
+    // As quatro NASCERAM com RLS forçada, e cada uma guarda coisa que a
+    // ausência de política deixaria exposta:
+    //
+    //   `CoachDocument` é documentação de análise cadastral. Por decisão R-05
+    //   ela não aparece nem para o treinador que a enviou: só a mesa central de
+    //   aprovação lê.
+    //
+    //   `CoachOrganization` é ONDE o treinador pode atuar. Sem política, a
+    //   federação A escreveria a autorização da federação B — e o predicado é
+    //   sobre `organizationId` da própria linha, no USING e no WITH CHECK, para
+    //   que nem a troca de escopo no meio do UPDATE passe.
+    //
+    //   `TeamMembershipRequest` é o convite dirigido a uma PESSOA, e enxergam a
+    //   linha apenas quatro atores: o atleta dela, o treinador que pediu, o
+    //   operador da federação da equipe e a administração da plataforma. É por
+    //   isso que o pedido de outra pessoa responde 404 e não 403 — ele não
+    //   existe para quem não é nenhum dos quatro.
+    //
+    //   `CentralAuthorization` é a mais sensível das quatro: ela É a permissão
+    //   de alterar atribuição de pontos. Escrever nela é privilégio da
+    //   plataforma; ler é da plataforma e do próprio delegado, porque saber que
+    //   poder se tem é legítimo. Não há política de DELETE — concessão se
+    //   revoga, não se apaga.
+    expect(linhas.length).toBe(34);
     const semForce = linhas.filter(linha => !linha.forcado).map(linha => linha.tabela);
     expect(semForce, 'tabela com RLS mas sem FORCE volta a isentar o dono').toEqual([]);
   });

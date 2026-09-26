@@ -241,6 +241,51 @@ beforeAll(async () => {
   expect((await api().patch(`/api/v1/athletes/${athleteSemEquipe}`).set(admin.auth())
     .send({ userId: dono.id })).status, 'positivo: admin vincula a conta ao atleta').toBeLessThan(300);
 
+  // ------------------------------------- módulo Treinadores & Equipes (POSITIVOS)
+  //
+  // O treinador é criado pela rota que já existia (`POST /coaches`), e nasce
+  // PENDING: o `status` com valor padrão é a decisão R-03 aplicada ao cadastro
+  // que a federação abre em nome de terceiro tanto quanto ao autocadastro.
+  const treinador = await api().post('/api/v1/coaches').set(admin.auth())
+    .send({ name: 'Treinador QA Base' });
+  expect(treinador.status, 'positivo: admin cria treinador').toBeLessThan(300);
+  expect(treinador.body.status, 'o treinador nasce PENDING (R-03)').toBe('PENDING');
+
+  const docDoTreinador = await api().post(`/api/v1/coaches/${treinador.body.id}/documents`).set(admin.auth())
+    .attach('file', PNG_MINIMO, 'coach.png');
+  expect(docDoTreinador.status, 'positivo: a mesa central anexa documento do treinador').toBeLessThan(300);
+
+  // A CONCESSÃO CENTRAL. `atletaA` é o alvo — nunca o próprio autor, porque o
+  // serviço recusa autoconcessão, e é essa recusa que impede autoelevação.
+  const concessao = await api().post('/api/v1/central-authorizations').set(admin.auth())
+    .send({ userId: atletaA.id, permission: 'athletes.transfer', reason: 'Concessão base de QA para a matriz.' });
+  expect(concessao.status, 'positivo: admin concede delegação central').toBeLessThan(300);
+  // E ela é REVOGADA em seguida, de propósito: se ficasse viva, `atletaA` — que é
+  // o ator "sem permissão" de todo o gate — passaria a TER `athletes.transfer`, e
+  // as linhas que medem a recusa dessa permissão virariam falso vermelho. A
+  // concessão existe aqui para dar id à rota de revogação, não para valer.
+  const revogada = await api().post(`/api/v1/central-authorizations/${concessao.body.id}/revoke`).set(admin.auth())
+    .send({ reason: 'Revogada na fixture para não contaminar o ator sem permissão.' });
+  expect(revogada.status, 'positivo: admin revoga a delegação central').toBeLessThan(300);
+  const concessaoViva = await api().post('/api/v1/central-authorizations').set(admin.auth())
+    .send({ userId: atletaB.id, permission: 'athletes.transfer', reason: 'Concessão de QA com alvo fora da organização A.' });
+  expect(concessaoViva.status, 'positivo: admin concede a um alvo que não é o ator do gate').toBeLessThan(300);
+
+  // OS DOIS PEDIDOS DE VÍNCULO. Um é do `dono` (a conta vinculada a
+  // `athleteSemEquipe`) e serve de alvo próprio do autosserviço; o outro é de um
+  // terceiro SEM conta, e é o alvo alheio. São dois atletas porque a trava do
+  // banco só admite UM pedido pendente por atleta.
+  const athleteTerceiro = (await criarAtleta(admin, orgA, {
+    fullName: 'Atleta QA Terceiro', cpf: gerarCpf(510003), affiliationId: afiliacao.body.id, affiliationNumber: '9003'
+  })).id;
+
+  const pedidoDoDono = await api().post('/api/v1/team-membership-requests').set(admin.auth())
+    .send({ athleteId: athleteSemEquipe, teamId: equipe.body.id, reason: 'Pedido base de QA.' });
+  expect(pedidoDoDono.status, 'positivo: admin abre pedido de vínculo').toBeLessThan(300);
+  const pedidoAlheio = await api().post('/api/v1/team-membership-requests').set(admin.auth())
+    .send({ athleteId: athleteTerceiro, teamId: equipe.body.id, reason: 'Pedido base alheio de QA.' });
+  expect(pedidoAlheio.status, 'positivo: admin abre o segundo pedido de vínculo').toBeLessThan(300);
+
   // ------------------------------------------------- pedidos de autocadastro
   const pedidoA = await api().post('/api/v1/athlete-requests').set(atletaA.auth())
     .send({ fullName: 'Atleta Da Casa', cpf: gerarCpf(510011), sex: 'MALE', affiliationId: afiliacao.body.id, affiliationNumber: '9011' });
@@ -336,7 +381,12 @@ beforeAll(async () => {
     mensagemAlheia: mensagemAlheia.body?.id ?? 'cmzzzzzzz0012zzzzzzzzzzzz',
     comunidadeSlug: comunidade.body.slug,
     notificacaoDoAtletaA: notificacaoDoAtletaA ?? 'cmzzzzzzz0013zzzzzzzzzzzz',
-    notificacaoAlheia: notificacaoAlheia ?? 'cmzzzzzzz0014zzzzzzzzzzzz'
+    notificacaoAlheia: notificacaoAlheia ?? 'cmzzzzzzz0014zzzzzzzzzzzz',
+    coachA: treinador.body.id,
+    documentoDoCoachA: docDoTreinador.body?.id ?? 'cmzzzzzzz0015zzzzzzzzzzzz',
+    concessaoCentralA: concessaoViva.body?.id ?? 'cmzzzzzzz0016zzzzzzzzzzzz',
+    pedidoDeVinculoDoDono: pedidoDoDono.body?.id ?? 'cmzzzzzzz0017zzzzzzzzzzzz',
+    pedidoDeVinculoAlheio: pedidoAlheio.body?.id ?? 'cmzzzzzzz0018zzzzzzzzzzzz'
   };
 
   f.dono = dono;
@@ -369,7 +419,8 @@ describe('a matriz e a superfície são o MESMO conjunto', () => {
 });
 
 describe('401 — sem sessão, nenhuma rota mutante executa', () => {
-  it('as 118 rotas mutantes autenticadas recusam requisição sem token', async () => {
+  it('as 138 rotas mutantes autenticadas recusam requisição sem token', async () => {
+    expect(entradas.length, 'a matriz cobre as rotas mutantes autenticadas').toBe(138);
     const falhas = [];
     for (const entrada of entradas) {
       const r = await disparar(entrada, null);
@@ -411,7 +462,30 @@ describe('autosserviço e social — o limite é o dono, não a permissão', () 
   it('cada rota de escopo de plataforma declara por que o tenant não se aplica', () => {
     const daPlataforma = entradas.filter(e => e.escopoDePlataforma);
     expect(daPlataforma.map(e => `${e.m} ${e.p}`).sort())
-      .toEqual(['POST /categories', 'POST /coaches']);
+      .toEqual([
+        'DELETE /documents/coach/:id',
+        'POST /categories',
+        'POST /central-authorizations',
+        'POST /central-authorizations/:id/revoke',
+        'POST /coaches',
+        'POST /coaches/:id/approve',
+        'POST /coaches/:id/cancel',
+        'POST /coaches/:id/documents',
+        'POST /coaches/:id/reactivate',
+        'POST /coaches/:id/reject',
+        'POST /coaches/:id/suspend'
+      ]);
+  });
+
+  // A exclusão do cross-tenant não pode ser barata: ela desliga a única
+  // asserção que mede `assertOrganization` naquela rota. Cada linha que a usa
+  // declara por escrito por que não há tenant a cruzar.
+  it('cada rota de escopo de plataforma diz por escrito por que não há tenant', () => {
+    const semJustificativa = entradas
+      .filter(e => e.escopoDePlataforma)
+      .filter(e => !e.porQue || e.porQue.length < 40)
+      .map(e => `${e.m} ${e.p}`);
+    expect(semJustificativa, 'exclusão de cross-tenant sem justificativa escrita').toEqual([]);
   });
 
   it('cada rota de autosserviço/social declara por que não é bypass', () => {

@@ -448,7 +448,37 @@ describe('o calendário não pede migration nenhuma', () => {
       // escritos na própria migration. ADITIVA: substitui quatro políticas,
       // acrescenta uma quinta, e não cria, altera nem apaga coluna, tabela,
       // índice ou dado.
-      '20260925230000_t4_with_check_coerente'
+      '20260925230000_t4_with_check_coerente',
+      // MÓDULO TREINADORES & EQUIPES — o modelo de dados.
+      //
+      // ADITIVA e reversível por omissão: acrescenta três enums, quatro tabelas
+      // (`CoachDocument`, `CoachOrganization`, `TeamMembershipRequest`,
+      // `CentralAuthorization`), colunas em `Coach` e `Team`, três CHECK de
+      // coerência de estado e as políticas das tabelas novas — que nascem com
+      // `ENABLE` e `FORCE ROW LEVEL SECURITY`. Não apaga nem renomeia nada.
+      //
+      // `Coach.status` nasce com `DEFAULT 'PENDING'` e as linhas EXISTENTES são
+      // atualizadas para `APPROVED` na própria migration: os técnicos já
+      // cadastrados continuam operando, e só os novos passam pela aprovação
+      // central de R-03.
+      '20260926020000_modulo_treinadores_equipes',
+      // O TREINADOR PASSA A SER UM ATOR QUE O BANCO CONHECE.
+      //
+      // Cinco correções de política, todas medidas contra o comportamento real e
+      // todas ADITIVAS no sentido de acrescentarem cláusula a política
+      // existente, sem remover nenhuma das anteriores:
+      //
+      //   `Athlete` e `AthleteTeamMembership` passam a ser LEGÍVEIS pelo
+      //   treinador aprovado e autorizado (antes: lista vazia no painel dele);
+      //   `CoachOrganization` passa a ser ESCRITA pelo operador da própria
+      //   federação, que é quem autoriza a atuação por R-04 (antes: 42501);
+      //   `AthleteTeamMembership` aceita INSERT do PRÓPRIO atleta, porque é a
+      //   confirmação dele que cria o vínculo (antes: 42501) — e o `FOR ALL`
+      //   virou INSERT/UPDATE/DELETE separados justamente para que ele NÃO possa
+      //   encerrar o vínculo sozinho;
+      //   `AuditLog` aceita a trilha do treinador na federação em que ele atua
+      //   (antes: a busca por matrícula não deixava rastro).
+      '20260926040000_treinador_como_ator_de_rls'
     ]);
   });
 });

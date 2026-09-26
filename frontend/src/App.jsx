@@ -35,6 +35,7 @@ import { AdminAtletas } from './pages/adminAtletas';
 import { AdminAtleta } from './pages/adminAtleta';
 import { AdminMensagens } from './pages/adminMensagens';
 import MensagemDaFederacao from './components/mensagemDaFederacao';
+import { AdminTreinadores, MinhaEquipe, PainelDoTreinador } from './pages/treinadores';
 
 // A navegação é montada a partir das permissões efetivas do usuário: um item
 // que a API recusaria não aparece no menu. A autoridade continua no servidor —
@@ -53,7 +54,18 @@ const NAVEGACAO_PRINCIPAL = [
   // são as duas perguntas que o atleta faz sobre si mesmo, e as duas têm de
   // estar a um toque.
   { rota: 'minha-filiacao', rotulo: 'Minha filiação', icone: IdCard },
-  { rota: 'meu-historico', rotulo: 'Meu histórico', icone: History }
+  { rota: 'meu-historico', rotulo: 'Meu histórico', icone: History },
+  // MINHA EQUIPE é item fixo do menu, e não uma aba dentro do painel: é aqui
+  // que o atleta CONFIRMA o vínculo, e a confirmação dele é o que cria o
+  // vínculo. Um convite que espera resposta não pode depender de a pessoa
+  // procurar onde ele está.
+  { rota: 'minha-equipe', rotulo: 'Minha equipe', icone: Users2 },
+  // O PAINEL DO TREINADOR aparece para quem é treinador. A tela decide sozinha
+  // o que mostrar — formulário de autocadastro para quem não tem cadastro,
+  // painel para quem tem —, então não há permissão a conferir no menu: uma
+  // conta que ainda não é treinadora precisa justamente do caminho para se
+  // tornar uma.
+  { rota: 'treinador', rotulo: 'Treinador', icone: IdCard }
 ];
 
 // Cada item administrativo declara a permissão que o habilita.
@@ -66,6 +78,12 @@ const NAVEGACAO_ADMIN = [
   // pedidos esvazia, o cadastro de atletas não. Quem precisa suspender alguém
   // ou conferir um histórico não está olhando para uma fila.
   { rota: 'admin/atletas', rotulo: 'Atletas', icone: Users, permissao: 'athletes.manage' },
+  // TREINADORES é item próprio porque reúne DUAS decisões que ninguém encontra
+  // dentro de outra tela: aprovar cadastro (administração central, R-03) e
+  // autorizar atuação numa federação (a federação, R-04). A permissão declarada
+  // é a da federação, que é a que mais gente tem; quem só tem
+  // `coaches.approve` chega pela URL e a tela funciona igual.
+  { rota: 'admin/treinadores', rotulo: 'Treinadores', icone: IdCard, permissao: 'coaches.authorize_org' },
   // A mensagem de abertura da federação aos seus atletas. Item próprio porque
   // é comunicação para TODA a base — não é uma configuração escondida numa
   // aba, e quem precisa publicá-la costuma estar com pressa.
@@ -339,6 +357,8 @@ function Shell() {
       case 'minha-filiacao': return <MinhaFiliacao />;
       case 'meu-historico': return <MeuHistorico />;
       case 'minha-solicitacao': return <MinhaSolicitacao notificar={notificar} />;
+      case 'minha-equipe': return <MinhaEquipe notificar={notificar} />;
+      case 'treinador': return <PainelDoTreinador notificar={notificar} />;
       // Laboratório de experiência: existe para calibrar os efeitos num lugar
       // só, antes de espalhá-los. Fica FORA do pacote de produção (ver o
       // `import.meta.env.DEV` abaixo) — não é tela de usuário.
@@ -367,6 +387,7 @@ function Shell() {
         if (segundo === 'lancamentos') return <AdminLancamentos notificar={notificar} />;
         if (segundo === 'musclewar') return <AdminMuscleWar notificar={notificar} />;
         if (segundo === 'mensagens') return <AdminMensagens notificar={notificar} />;
+        if (segundo === 'treinadores') return <AdminTreinadores notificar={notificar} />;
         if (segundo === 'auditoria') return <AdminAuditoria />;
         if (segundo === 'configuracoes') return <AdminConfiguracoes notificar={notificar} />;
         return <AdminPainel navegar={navegar} />;

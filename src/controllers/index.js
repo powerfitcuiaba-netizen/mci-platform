@@ -28,6 +28,10 @@ const auditService = require('../services/auditService');
 const admin = require('../services/adminService');
 const health = require('../services/healthService');
 const memberships = require('../services/membershipService');
+const coachesService = require('../services/coachService');
+const membershipRequests = require('../services/membershipRequestService');
+const centralAuthorizations = require('../services/centralAuthorizationService');
+const coachRanking = require('../services/coachRankingService');
 
 const visibility = require('../utils/visibility');
 
@@ -320,9 +324,70 @@ module.exports = {
     adotarIdentidade: async (req, res) => res.json(await muscleWar.adotarIdentidadeExterna(req.params.id, req.params.externalAthleteId, req.user))
   },
 
+  // ================================================ MÓDULO TREINADORES & EQUIPES
+  coaches: {
+    // O treinador e o seu próprio cadastro.
+    autocadastro: async (req, res) => res.status(201).json(await coachesService.autocadastro(req.body, req.user)),
+    meuCadastro: async (req, res) => res.json(await coachesService.meuCadastro(req.user)),
+    atualizarMeuCadastro: async (req, res) => res.json(await coachesService.atualizarMeuCadastro(req.body, req.user)),
+    minhasEquipes: async (req, res) => res.json({ items: await coachesService.minhasEquipes(req.user) }),
+    meusAtletas: async (req, res) => res.json({ items: await coachesService.meusAtletas(req.query, req.user) }),
+
+    // A mesa de análise da administração central (R-03).
+    listarParaAnalise: async (req, res) => res.json({ items: await coachesService.listarParaAnalise(req.query, req.user) }),
+    carregarParaAnalise: async (req, res) => res.json(await coachesService.carregarParaAnalise(req.params.id, req.user)),
+    aprovar: async (req, res) => res.json(await coachesService.aprovar(req.params.id, req.body, req.user)),
+    rejeitar: async (req, res) => res.json(await coachesService.rejeitar(req.params.id, req.body, req.user)),
+    suspender: async (req, res) => res.json(await coachesService.suspender(req.params.id, req.body, req.user)),
+    reativar: async (req, res) => res.json(await coachesService.reativar(req.params.id, req.body, req.user)),
+    cancelar: async (req, res) => res.json(await coachesService.cancelar(req.params.id, req.body, req.user)),
+
+    // A autorização por federação (R-04).
+    autorizarOrganizacao: async (req, res) => res.json(await coachesService.autorizarOrganizacao(req.params.id, req.body, req.user)),
+    revogarOrganizacao: async (req, res) => res.json(await coachesService.revogarOrganizacao(req.params.id, req.body, req.user)),
+
+    // Documentos da análise. Listagem e download são da mesa central — R-05.
+    anexarDocumento: async (req, res) => res.status(201).json(await coachesService.anexarDocumento(req.params.id, req.file, req.body, req.user)),
+    listarDocumentos: async (req, res) => res.json({ items: await coachesService.listarDocumentos(req.params.id, req.user) }),
+    baixarDocumento: async (req, res) => {
+      const { stream, document } = await coachesService.baixarDocumento(req.params.id, req.user);
+      enviarArquivo(res, stream, { mimeType: document.mimeType, fileName: document.fileName });
+    },
+    removerDocumento: async (req, res) => res.json(await coachesService.removerDocumento(req.params.id, req.user)),
+
+    // Ranking de treinadores: elegibilidade e projeção. A CLASSIFICAÇÃO não
+    // existe — a fórmula não está homologada, e a recusa é a resposta correta.
+    elegibilidade: async (req, res) => res.json(await coachRanking.elegibilidade({ coachId: req.params.id, seasonId: req.query.seasonId }, req.user)),
+    projecao: async (req, res) => res.json(await coachRanking.projecao({
+      coachId: req.params.id, seasonId: req.query.seasonId,
+      categoryId: req.query.categoryId ?? null, organizationId: req.query.organizationId ?? null
+    }, req.user)),
+    divergencias: async (req, res) => res.json(await coachRanking.divergencias(req.query, req.user)),
+    classificacao: async (req, res) => res.json(await coachRanking.classificacao(req.query, req.user))
+  },
+
+  membershipRequests: {
+    localizarAtleta: async (req, res) => res.json(await membershipRequests.localizarAtleta(req.body, req.user)),
+    solicitar: async (req, res) => res.status(201).json(await membershipRequests.solicitar(req.body, req.user)),
+    listarDaEquipe: async (req, res) => res.json({ items: await membershipRequests.listarDaEquipe(req.query, req.user) }),
+    meusPedidos: async (req, res) => res.json({ items: await membershipRequests.meusPedidos(req.user) }),
+    confirmar: async (req, res) => res.json(await membershipRequests.confirmar(req.params.id, req.user)),
+    rejeitar: async (req, res) => res.json(await membershipRequests.rejeitar(req.params.id, req.body, req.user)),
+    cancelar: async (req, res) => res.json(await membershipRequests.cancelar(req.params.id, req.body, req.user)),
+    aprovarPorDecisao: async (req, res) => res.json(await membershipRequests.aprovarPorDecisaoAdministrativa(req.params.id, req.body, req.user))
+  },
+
+  centralAuthorizations: {
+    conceder: async (req, res) => res.status(201).json(await centralAuthorizations.conceder(req.body, req.user)),
+    revogar: async (req, res) => res.json(await centralAuthorizations.revogar(req.params.id, req.body, req.user)),
+    listar: async (req, res) => res.json({ items: await centralAuthorizations.listar(req.query, req.user) }),
+    minhas: async (req, res) => res.json({ items: await centralAuthorizations.minhasDelegacoes(req.user) })
+  },
+
   partners: {
     listTeams: async (req, res) => res.json({ items: await partners.listTeams(req.query, req.user) }),
     createTeam: async (req, res) => res.status(201).json(await partners.createTeam(req.body, req.user)),
+    setTeamCoach: async (req, res) => res.json(await partners.setTeamCoach(req.params.id, req.body, req.user)),
     createCompany: async (req, res) => res.status(201).json(await partners.createCompany(req.body, req.user)),
     listCompanies: async (req, res) => res.json({ items: await partners.listCompanies(req.query, req.user) }),
     listGyms: async (req, res) => res.json({ items: await partners.listGyms(req.query, req.user) }),

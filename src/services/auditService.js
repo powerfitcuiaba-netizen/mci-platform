@@ -49,6 +49,45 @@ const ACTIONS = Object.freeze({
   // quem audita precisa distinguir os dois na trilha sem interpretar metadado.
   OVERALL_REVOKE: 'OVERALL_REVOKE',
   CLASS_CATALOG_SET: 'CLASS_CATALOG_SET',
+  // -------------------------------------------- módulo Treinadores & Equipes
+  //
+  // Uma ação por DECISÃO, e não uma ação genérica com o estado no metadata.
+  // Quem audita precisa distinguir 'a administração central aprovou' de 'a
+  // administração central suspendeu' sem abrir o payload — é a mesma razão que
+  // separou RANKING_POINT_EDITED de RANKING_POINT_VOIDED.
+  COACH_REGISTER: 'COACH_REGISTER',
+  COACH_UPDATE: 'COACH_UPDATE',
+  COACH_APPROVE: 'COACH_APPROVE',
+  COACH_REJECT: 'COACH_REJECT',
+  COACH_SUSPEND: 'COACH_SUSPEND',
+  COACH_REACTIVATE: 'COACH_REACTIVATE',
+  COACH_CANCEL: 'COACH_CANCEL',
+  // Autorizar o treinador global a atuar numa federação (R-04). Separado da
+  // aprovação cadastral de propósito: são decisões de autoridades diferentes.
+  // A equipe passou a ter responsável, e trocar responsável muda quem vê os
+  // atletas dela. É decisão, não metadado de atualização de cadastro.
+  TEAM_COACH_SET: 'TEAM_COACH_SET',
+  COACH_ORG_AUTHORIZE: 'COACH_ORG_AUTHORIZE',
+  COACH_ORG_REVOKE: 'COACH_ORG_REVOKE',
+  COACH_DOCUMENT_UPLOAD: 'COACH_DOCUMENT_UPLOAD',
+  COACH_DOCUMENT_DOWNLOAD: 'COACH_DOCUMENT_DOWNLOAD',
+  COACH_DOCUMENT_DELETE: 'COACH_DOCUMENT_DELETE',
+  // Localizar atleta por matrícula é acesso a dado de pessoa, mesmo sem CPF.
+  // Fica registrado quem procurou e se achou — é o que permite detectar
+  // varredura de matrículas depois do fato.
+  ATHLETE_LOOKUP_AFFILIATION: 'ATHLETE_LOOKUP_AFFILIATION',
+  MEMBERSHIP_REQUEST_CREATE: 'MEMBERSHIP_REQUEST_CREATE',
+  MEMBERSHIP_REQUEST_CONFIRM: 'MEMBERSHIP_REQUEST_CONFIRM',
+  MEMBERSHIP_REQUEST_REJECT: 'MEMBERSHIP_REQUEST_REJECT',
+  MEMBERSHIP_REQUEST_CANCEL: 'MEMBERSHIP_REQUEST_CANCEL',
+  // A confirmação feita POR DECISÃO ADMINISTRATIVA, substituindo a vontade do
+  // atleta. É o caso excepcional de R-01/R-02 e não pode ter o mesmo nome da
+  // confirmação comum na trilha.
+  MEMBERSHIP_REQUEST_ADMIN_APPROVE: 'MEMBERSHIP_REQUEST_ADMIN_APPROVE',
+  // Delegação central (R-02): conceder e revogar poder que altera atribuição
+  // de pontos.
+  CENTRAL_GRANT: 'CENTRAL_GRANT',
+  CENTRAL_REVOKE: 'CENTRAL_REVOKE',
   ATHLETE_TEAM_LINK: 'ATHLETE_TEAM_LINK',
   ATHLETE_TEAM_TRANSFER: 'ATHLETE_TEAM_TRANSFER',
   ATHLETE_TEAM_UNLINK: 'ATHLETE_TEAM_UNLINK',

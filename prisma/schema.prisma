@@ -73,6 +73,9 @@ model Organization {
 
   /// A identidade técnica desta federação. Uma, ou nenhuma.
   contaDeServico User? @relation("ContaDeServicoDaFederacao")
+  // ------------------------------------------------- módulo Treinadores
+  coachAuthorizations  CoachOrganization[]
+  centralAuthorizations CentralAuthorization[]
 }
 
 model OrganizationMember {
@@ -223,8 +226,65 @@ model User {
   membershipsCreated            AthleteTeamMembership[]  @relation("MembershipCreatedBy")
   membershipsEnded              AthleteTeamMembership[]  @relation("MembershipEndedBy")
 
+  // ------------------------------------------------- módulo Treinadores
+  coachesReviewed               Coach[]                  @relation("CoachReviewer")
+  coachDocumentsUploaded        CoachDocument[]           @relation("CoachDocumentUploader")
+  coachOrgsGranted              CoachOrganization[]       @relation("CoachOrgGrantedBy")
+  coachOrgsRevoked              CoachOrganization[]       @relation("CoachOrgRevokedBy")
+  membershipRequestsMade        TeamMembershipRequest[]    @relation("MembershipRequestedBy")
+  membershipRequestsDecided     TeamMembershipRequest[]    @relation("MembershipDecidedBy")
+  centralGrantsReceived         CentralAuthorization[]     @relation("CentralGrantee")
+  centralGrantsGiven            CentralAuthorization[]     @relation("CentralGrantor")
+  centralGrantsRevoked          CentralAuthorization[]     @relation("CentralRevoker")
+
   @@index([role])
   @@index([status])
+}
+
+// ===========================================================================
+// DELEGAÇÃO CENTRAL — a decisão R-02, tornada verificável.
+//
+// R-02 diz que transferência, desvínculo e correção que afetem a atribuição de
+// pontos só podem ser efetivados por `SUPER_ADMIN` ou por administradores
+// centrais FORMALMENTE AUTORIZADOS. "Formalmente autorizado" não pode ser um
+// papel genérico: precisa ter quem concedeu, quando, por quê, com que escopo e
+// até quando.
+//
+// MEDIDO antes de criar esta tabela: o projeto não tem mecanismo de delegação.
+// A autorização hoje vem de `User.role` e de `OrganizationMember.role`, e nenhum
+// dos dois carrega concessão, prazo nem revogação. Então não havia estrutura
+// existente para reusar — e essa é a justificativa que o escopo exige.
+//
+// SEM AUTOELEVAÇÃO: só quem já tem `central.grant` concede, e o serviço recusa
+// concessão para si mesmo. `central.grant` não é delegável por esta tabela, para
+// que a cadeia termine em `SUPER_ADMIN`.
+model CentralAuthorization {
+  id          String    @id @default(cuid())
+  userId      String
+  permission  String
+  // Escopo NULO = todas as federações. Escopo com organização = só ela.
+  organizationId String?
+  reason      String
+  grantedById String
+  grantedAt   DateTime  @default(now())
+  expiresAt   DateTime?
+  revokedById String?
+  revokedAt   DateTime?
+  revokeReason String?
+
+  user         User          @relation("CentralGrantee", fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy    User          @relation("CentralGrantor", fields: [grantedById], references: [id], onDelete: Restrict)
+  revokedBy    User?         @relation("CentralRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Uma concessão VIVA por usuário, permissão e escopo. A coluna carrega a
+  // chave enquanto a autorização vale, e vira NULL quando revogada — mesmo
+  // padrão de `AthleteTeamMembership.activeAthleteId`, e pelo mesmo motivo: a
+  // unicidade tem de ser do banco, não de um SELECT anterior.
+  activeKey String? @unique
+
+  @@index([userId, permission])
+  @@index([organizationId])
 }
 
 // ============================================================================
@@ -359,6 +419,7 @@ model Athlete {
   identity               AthleteIdentity?
   overallTitles          EventOverallTitle[]
   teamMemberships        AthleteTeamMembership[]
+  membershipRequests     TeamMembershipRequest[]
   athleteProfileRequests AthleteProfileRequest[]
   externalIdentities     ExternalAthlete[]
 
@@ -371,6 +432,53 @@ model Athlete {
   @@index([affiliationId, affiliationNumber])
   @@index([teamId])
   @@index([coachId])
+}
+
+// ===========================================================================
+// MÓDULO TREINADORES & EQUIPES
+// ===========================================================================
+
+// SITUAÇÃO CADASTRAL DO TREINADOR.
+//
+// Só entram estados com transição e efeito operacional definidos — a decisão
+// R-03 é que quem aprova é a administração CENTRAL da MuscleContest, e o
+// treinador nunca altera o próprio estado.
+//
+// `EM_ANALISE` e `RASCUNHO` NÃO existem de propósito: não há fluxo de análise
+// com efeito próprio nem salvamento parcial nesta etapa, e criar estado sem
+// transição definida é convidar estado morto.
+enum CoachStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+  CANCELLED
+}
+
+// SITUAÇÃO DA SOLICITAÇÃO DE VÍNCULO.
+//
+// Espelha `AthleteProfileRequestStatus`, que é a máquina de estados que o
+// autocadastro já usa — mesmo vocabulário, mesma forma, para que operador e
+// atleta não aprendam dois idiomas.
+//
+// `CONFIRMED` é a confirmação DO ATLETA, e é ela que autoriza o vínculo. Enviar
+// solicitação não vincula ninguém.
+enum TeamMembershipRequestStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+  CANCELLED
+}
+
+// A AUTORIZAÇÃO DO TREINADOR GLOBAL DENTRO DE UMA FEDERAÇÃO.
+//
+// Decisão R-04: o cadastro do treinador é GLOBAL e não se duplica por
+// federação. Mas cadastro global não concede acesso irrestrito — atuar numa
+// federação é outra pergunta, e é esta tabela que a responde.
+enum CoachOrganizationStatus {
+  PENDING
+  APPROVED
+  REVOKED
 }
 
 enum DocumentKind {
@@ -528,6 +636,10 @@ model Team {
   /// Empresa que inscreveu a equipe. Opcional: uma equipe pode competir sem
   /// empresa por trás, e nesse caso ela simplesmente não pontua para nenhuma.
   companyId      String?
+  /// O treinador responsável pela equipe — módulo Treinadores & Equipes.
+  /// Opcional: as equipes que já existem não têm treinador, e exigir um
+  /// quebraria o cadastro atual.
+  coachId        String?
   name           String
   city           String?
   state          String?
@@ -536,16 +648,22 @@ model Team {
 
   organization  Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   company       Company?                @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  // O treinador responsável pela equipe. É por aqui que as duas metades do
+  // módulo se ligam: a identidade global vive em `Coach`, o escopo de federação
+  // vive em `Team.organizationId`, e nada é duplicado.
+  coach         Coach?                  @relation(fields: [coachId], references: [id], onDelete: SetNull)
   athletes      Athlete[]
   socialProfile SocialProfile?
   sponsorships  Sponsorship[]
   rankingPoints RankingPoint[]
   memberships   AthleteTeamMembership[]
+  membershipRequests TeamMembershipRequest[]
 
   @@unique([organizationId, name])
   // Criado em 20260906260000, junto com a FK para Company. Mesma razão do
   // índice de RankingPoint: declarado para não sumir num `db push`.
   @@index([companyId])
+  @@index([coachId])
 }
 
 model Coach {
@@ -557,9 +675,135 @@ model Coach {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // ------------------------------------------------- módulo Treinadores
+  // SEM `organizationId`, e a ausência é a decisão R-04.
+  //
+  // O treinador é global: um técnico atende atletas de várias federações, e
+  // isso está escrito em `partnerService.js` desde antes deste módulo. Dar
+  // `organizationId` aqui duplicaria a identidade por federação, que é
+  // exatamente o que a decisão proíbe. Onde ele pode ATUAR é outra pergunta, e
+  // quem responde é `CoachOrganization`.
+  status          CoachStatus @default(PENDING)
+  registration    String?
+  bio             String?
+  phone           String?
+  email           String?
+  reviewedById    String?
+  reviewedAt      DateTime?
+  rejectionReason String?
+  suspendedReason String?
+
   user          User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  reviewedBy    User?          @relation("CoachReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
   athletes      Athlete[]
   socialProfile SocialProfile?
+  documents     CoachDocument[]
+  organizations CoachOrganization[]
+  teams         Team[]
+  membershipRequests TeamMembershipRequest[]
+
+  @@index([status])
+}
+
+// Documentação da análise cadastral. Espelha `AthleteDocument` — mesmo formato,
+// mesma guarda de armazenamento, mesmo `storageKey` único.
+//
+// NUNCA aparece no painel do treinador, no ranking público, em exportação nem
+// em log (decisão R-05). O acesso é da equipe central de aprovação, auditado.
+model CoachDocument {
+  id           String       @id @default(cuid())
+  coachId      String
+  kind         DocumentKind @default(OTHER)
+  title        String
+  fileName     String
+  mimeType     String       @default("application/octet-stream")
+  storageKey   String       @unique
+  sizeBytes    Int          @default(0)
+  uploadedById String?
+  createdAt    DateTime     @default(now())
+
+  coach      Coach @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  uploadedBy User? @relation("CoachDocumentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([coachId, kind])
+}
+
+// ONDE O TREINADOR GLOBAL PODE ATUAR.
+//
+// Uma linha por federação em que ele está autorizado. É o que separa
+// IDENTIDADE (global, em `Coach`) de AUTORIZAÇÃO (por organização, aqui) —
+// decisão R-04.
+model CoachOrganization {
+  id             String                  @id @default(cuid())
+  coachId        String
+  organizationId String
+  status         CoachOrganizationStatus @default(PENDING)
+  grantedById    String?
+  grantedAt      DateTime?
+  revokedById    String?
+  revokedAt      DateTime?
+  reason         String?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  coach        Coach        @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  grantedBy    User?        @relation("CoachOrgGrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
+  revokedBy    User?        @relation("CoachOrgRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  // Uma autorização por par treinador/federação. Reautorizar é atualizar a
+  // linha, não empilhar outra — senão o histórico de concessão fica ambíguo.
+  @@unique([coachId, organizationId])
+  @@index([organizationId, status])
+}
+
+// A SOLICITAÇÃO DE VÍNCULO, E POR QUE ELA É UMA TABELA.
+//
+// A confirmação do atleta é um ATO, com autor e data, e precisa sobreviver à
+// rejeição — é o mesmo raciocínio de `AthleteProfileRequest`. Um campo booleano
+// perderia quem confirmou, quando, e o que foi recusado antes.
+//
+// ENVIAR SOLICITAÇÃO NÃO VINCULA NINGUÉM. O vínculo em si continua entrando por
+// `membershipService.linkTeam`, que é o caminho que já existe e que carrega a
+// trava de unicidade do banco.
+model TeamMembershipRequest {
+  id        String                      @id @default(cuid())
+  athleteId String
+  teamId    String
+  coachId   String?
+  status    TeamMembershipRequestStatus @default(PENDING)
+
+  requestedById String?
+  requestedAt   DateTime  @default(now())
+  decidedById   String?
+  decidedAt     DateTime?
+  reason        String?
+
+  // O vínculo que a confirmação produziu. Fica registrado para que a
+  // solicitação e o vínculo sejam conferíveis um contra o outro.
+  membershipId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  athlete     Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  team        Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  coach       Coach?  @relation(fields: [coachId], references: [id], onDelete: SetNull)
+  requestedBy User?   @relation("MembershipRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  decidedBy   User?   @relation("MembershipDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  // UMA SOLICITAÇÃO PENDENTE POR ATLETA, garantida pelo BANCO.
+  //
+  // Mesmo truque de `AthleteTeamMembership.activeAthleteId`: a coluna carrega o
+  // id do atleta ENQUANTO a solicitação está pendente, e vira NULL quando ela é
+  // decidida. Com o índice único, dois treinadores não conseguem deixar dois
+  // pedidos abertos para a mesma pessoa — e a garantia não depende de SELECT
+  // anterior, que é justamente a janela que a fraude usaria.
+  pendingAthleteId String? @unique
+
+  @@index([athleteId, status])
+  @@index([teamId, status])
+  @@index([coachId, status])
 }
 
 model Gym {

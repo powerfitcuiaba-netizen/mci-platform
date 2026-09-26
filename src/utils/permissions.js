@@ -35,6 +35,27 @@ const PERMISSIONS = Object.freeze([
   'pro.read', 'pro.manage',
   'musclewar.import', 'musclewar.review', 'musclewar.apply',
   'teams.manage', 'companies.manage', 'coaches.manage', 'gyms.manage',
+  // ------------------------------------------- módulo Treinadores & Equipes
+  // Aprovar ou rejeitar cadastro de treinador. Decisão R-03: é da
+  // administração CENTRAL, e nenhuma federação a recebe por ter papel de
+  // operador.
+  'coaches.approve',
+  // Autorizar o treinador global a atuar numa federação. Decisão R-04:
+  // identidade é global, atuação é por organização — e conceder atuação não é
+  // ato de quem vai atuar.
+  'coaches.authorize_org',
+  // O treinador lendo o que é dele: o próprio cadastro e a própria equipe.
+  'coaches.read_own', 'teams.read_own',
+  // Localizar atleta por matrícula + entidade de filiação, sem CPF e sem
+  // documento. Existe separada de `athletes.read_sensitive` justamente para que
+  // o treinador possa identificar sem alcançar dado pessoal.
+  'athletes.lookup_affiliation',
+  // Pedir vínculo. Pedir NÃO é vincular: o vínculo depende da confirmação do
+  // atleta, e quem grava é `membershipService.linkTeam`.
+  'teams.request_membership',
+  // Conceder e revogar delegação central. Decisão R-02. NÃO é delegável (ver
+  // PERMISSOES_NAO_DELEGAVEIS), para que a cadeia termine em SUPER_ADMIN.
+  'central.grant',
   // Cadastrar um técnico é uma coisa; amarrar esse cadastro a uma CONTA da
   // plataforma é outra, e por isso são duas permissões. `Coach.userId` é
   // UNIQUE: quem ocupa o vínculo de uma conta impede que qualquer outro o
@@ -54,6 +75,38 @@ const PERMISSIONS = Object.freeze([
 
 const PERMISSION_SET = new Set(PERMISSIONS);
 
+// ============================================================================
+// PERMISSÕES QUE NÃO SE GANHA POR PAPEL — DECISÃO R-02.
+//
+// Transferir, desvincular e corrigir vínculo alteram a ATRIBUIÇÃO DE PONTOS. A
+// decisão R-02 diz que só `SUPER_ADMIN` ou administrador central FORMALMENTE
+// AUTORIZADO efetiva isso. "Formalmente autorizado" não é papel genérico: é uma
+// concessão com autor, motivo, escopo e prazo, que vive em
+// `CentralAuthorization`.
+//
+// O QUE MUDOU, E O QUE ISSO CUSTA
+//
+// Antes desta fase `athletes.transfer` estava na lista de `EVENT_DIRECTOR`, e
+// `ADMIN` a recebia por construção (a lista dele é `PERMISSIONS` menos
+// `organizations.manage`). Ou seja: diretor de evento e administrador de
+// plataforma transferiam atleta sem concessão nenhuma.
+//
+// Agora nenhum dos dois recebe por papel. `SUPER_ADMIN` continua tendo, por
+// construção. Qualquer outro — inclusive `ADMIN` — precisa de uma delegação
+// viva. É restrição de comportamento existente, aprovada em R-02, e há teste
+// que mede exatamente a recusa do diretor.
+const PERMISSOES_CENTRAIS_DELEGADAS = Object.freeze(['athletes.transfer']);
+
+// E ESTA NÃO SE DELEGA DE JEITO NENHUM.
+//
+// Se `central.grant` fosse delegável, um delegado poderia delegar para si mesmo
+// um poder maior — autoelevação com um passo a mais. A cadeia de concessão
+// termina em `SUPER_ADMIN`, sempre.
+const PERMISSOES_NAO_DELEGAVEIS = Object.freeze(['central.grant']);
+
+const DELEGADAS = new Set(PERMISSOES_CENTRAIS_DELEGADAS);
+const NAO_DELEGAVEIS = new Set(PERMISSOES_NAO_DELEGAVEIS);
+
 // Todo mundo que está autenticado tem isto, seja qual for o papel.
 const BASE_AUTENTICADO = Object.freeze([
   'events.read', 'categories.read', 'athletes.read', 'affiliations.read',
@@ -70,7 +123,10 @@ const ROLE_PERMISSIONS = Object.freeze({
   // permissões acrescentadas depois desta linha.
   SUPER_ADMIN: Object.freeze([...PERMISSIONS]),
 
-  ADMIN: Object.freeze(PERMISSIONS.filter(p => p !== 'organizations.manage')),
+  // ADMIN recebe tudo menos `organizations.manage` E menos as centrais
+  // delegadas (R-02). Ele continua sendo papel de plataforma; o que ele perdeu é
+  // o poder de mexer na atribuição de pontos SEM concessão registrada.
+  ADMIN: Object.freeze(PERMISSIONS.filter(p => p !== 'organizations.manage' && !DELEGADAS.has(p))),
 
   EVENT_DIRECTOR: operacional(
     'organizations.read',
@@ -94,7 +150,16 @@ const ROLE_PERMISSIONS = Object.freeze({
     // oficial e divulgado pertence à plataforma, não a quem conduz a etapa.
     'affiliations.manage',
     'athletes.create', 'athletes.update', 'athletes.manage', 'athletes.read_sensitive',
-    'athletes.transfer',
+    // `athletes.transfer` NÃO ESTÁ AQUI, e a ausência é a decisão R-02.
+    //
+    // Ele conduz a etapa inteira, mas tirar um atleta de uma equipe muda a
+    // atribuição de pontos — e isso passou a exigir `SUPER_ADMIN` ou delegação
+    // central registrada. Vincular atleta SEM equipe continua sendo dele, por
+    // `athletes.update`: é a distinção que `membershipService` já fazia.
+    //
+    // Ele ganha `athletes.lookup_affiliation` porque o operador da federação
+    // precisa localizar atleta por matrícula tanto quanto o treinador.
+    'athletes.lookup_affiliation',
     'registrations.read', 'registrations.create', 'registrations.cancel',
     'documents.read', 'documents.upload', 'documents.delete',
     'checkin.read', 'checkin.operate', 'weighin.read', 'weighin.operate',
@@ -104,6 +169,20 @@ const ROLE_PERMISSIONS = Object.freeze({
     'ranking.manage', 'pro.manage',
     'musclewar.import', 'musclewar.review', 'musclewar.apply',
     'teams.manage', 'companies.manage', 'coaches.manage', 'gyms.manage', 'brands.manage', 'sponsors.manage',
+    // AUTORIZAR O TREINADOR A ATUAR NESTA FEDERAÇÃO — decisão R-04.
+    //
+    // Fica com a federação de propósito, e a divisão é o ponto da decisão: quem
+    // APROVA o cadastro de treinador é a administração CENTRAL (R-03, permissão
+    // `coaches.approve`, que NÃO está nesta lista); quem decide se aquele
+    // treinador atua AQUI é a federação. Juntar as duas na administração central
+    // esvaziaria a separação entre identidade e atuação que R-04 criou; juntar as
+    // duas na federação devolveria a ela o poder de criar treinador reconhecido
+    // nacionalmente, que é justamente o que R-03 tirou.
+    //
+    // O tenant continua valendo: `perm('coaches.authorize_org', orgDoCorpo)` na
+    // rota e `assertCan` no serviço, ambos contra a organização do corpo. A
+    // federação A não autoriza atuação na federação B — medido.
+    'coaches.authorize_org',
     'analytics.read', 'search.sensitive', 'users.read'
   ),
 
@@ -161,7 +240,16 @@ const ROLE_PERMISSIONS = Object.freeze({
   FEDERATION_SERVICE: operacional(),
 
   ATHLETE: operacional(),
-  COACH: operacional('registrations.read'),
+  // O TREINADOR, e só o que é dele.
+  //
+  // Lê o próprio cadastro e a própria equipe, localiza atleta por matrícula
+  // (sem CPF, sem documento) e PEDE vínculo. Não aprova, não transfere, não
+  // desvincula, não toca em ponto, não lê dado sensível de ninguém.
+  COACH: operacional(
+    'registrations.read',
+    'coaches.read_own', 'teams.read_own',
+    'athletes.lookup_affiliation', 'teams.request_membership'
+  ),
   GYM: operacional(),
   TEAM: operacional(),
   BRAND: operacional(),
@@ -178,7 +266,7 @@ function permissionsForRole(role) {
 // Permissões efetivas: papel global + papéis do usuário na organização
 // informada. Sem organização, só o papel global conta — é assim que um
 // operador de uma organização não opera outra.
-function effectivePermissions(user, organizationId = null) {
+function effectivePermissions(user, organizationId = null, agora = new Date()) {
   if (!user) return new Set();
 
   const efetivas = permissionsForRole(user.role);
@@ -189,14 +277,55 @@ function effectivePermissions(user, organizationId = null) {
     for (const permissao of permissionsForRole(membership.role)) efetivas.add(permissao);
   }
 
+  // DELEGAÇÕES CENTRAIS — decisão R-02.
+  //
+  // Vêm do banco já filtradas por `revokedAt: null` (ver `userRepository`). Aqui
+  // se aplicam as três regras que sobram, e cada uma existe por um motivo:
+  //
+  //   PRAZO: concessão vencida não vale, e não depende de job para parar de
+  //   valer. Conferir na hora é o que faz a expiração ser real.
+  //
+  //   ESCOPO: `organizationId` nulo na concessão vale para todas as federações;
+  //   com organização, vale só para ela. Uma concessão da federação A não pode
+  //   autorizar operação na B — é a mesma regra de tenant do resto do sistema.
+  //
+  //   NÃO DELEGÁVEL: `central.grant` é ignorada mesmo se alguém a gravar na
+  //   tabela. Sem isso, um delegado delegaria para si mesmo um poder maior, e a
+  //   cadeia de concessão deixaria de terminar em SUPER_ADMIN.
+  const concessoes = Array.isArray(user.centralGrantsReceived) ? user.centralGrantsReceived : [];
+  for (const concessao of concessoes) {
+    if (NAO_DELEGAVEIS.has(concessao.permission)) continue;
+    if (!PERMISSION_SET.has(concessao.permission)) continue;
+    // A LISTA BRANCA VALE NA LEITURA TAMBÉM, e não só na escrita.
+    //
+    // `centralAuthorizationService.conceder` recusa conceder o que não está em
+    // `PERMISSOES_CENTRAIS_DELEGADAS` — mas a política `central_concessao`
+    // autoriza o administrador de plataforma a inserir QUALQUER linha, e um
+    // script, uma migration ou uma mão humana no banco não passam pelo serviço.
+    // Sem esta linha, uma linha com `permission: 'users.manage'` gravada por
+    // fora viraria poder de gerenciar contas da plataforma inteira.
+    //
+    // É a mesma razão pela qual `central.grant` é ignorada aqui: a autorização
+    // não pode depender de a escrita ter passado pelo caminho certo. Duas
+    // conferências, uma em cada ponta, e a da leitura é a que decide.
+    if (!DELEGADAS.has(concessao.permission)) continue;
+    if (concessao.expiresAt && new Date(concessao.expiresAt) <= agora) continue;
+    if (concessao.organizationId && organizationId && concessao.organizationId !== organizationId) continue;
+    // Concessão com escopo de organização NÃO vale para pergunta sem escopo: a
+    // ausência de organização significa "em qualquer lugar", e não é isso que
+    // uma delegação local concede.
+    if (concessao.organizationId && !organizationId) continue;
+    efetivas.add(concessao.permission);
+  }
+
   return efetivas;
 }
 
-function can(user, permission, organizationId = null) {
+function can(user, permission, organizationId = null, agora = new Date()) {
   if (!PERMISSION_SET.has(permission)) {
     throw new Error(`Permissão desconhecida: ${permission}`);
   }
-  return effectivePermissions(user, organizationId).has(permission);
+  return effectivePermissions(user, organizationId, agora).has(permission);
 }
 
 // Organizações às quais o usuário pertence. SUPER_ADMIN e ADMIN não são
@@ -219,6 +348,8 @@ function belongsToOrganization(user, organizationId) {
 module.exports = {
   PERMISSIONS,
   ROLE_PERMISSIONS,
+  PERMISSOES_CENTRAIS_DELEGADAS,
+  PERMISSOES_NAO_DELEGAVEIS,
   USER_ROLES,
   permissionsForRole,
   effectivePermissions,

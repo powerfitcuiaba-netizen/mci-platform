@@ -384,7 +384,69 @@ export const api = {
     createSponsorship: dados => post('/sponsorships', dados),
     partnerships: params => get('/partnerships', params),
     createPartnership: dados => post('/partnerships', dados),
-    setPartnershipStatus: (id, dados) => post(`/partnerships/${id}/status`, dados)
+    setPartnershipStatus: (id, dados) => post(`/partnerships/${id}/status`, dados),
+    // O TREINADOR RESPONSÁVEL pela equipe. `coachId: null` remove o vínculo, e
+    // remover é ato próprio — não é o mesmo que ter deixado o campo em branco
+    // na criação.
+    setTeamCoach: (id, coachId) => post(`/teams/${id}/coach`, { coachId: coachId ?? null })
+  },
+
+  // =================================================== TREINADORES & EQUIPES
+  //
+  // A divisão dos blocos segue a das AUTORIDADES, não a das telas: `coaches.me`
+  // é o que o treinador faz sobre si; `coaches.review` é a mesa central (R-03);
+  // `coaches.organizations` é a federação autorizando atuação (R-04). Uma tela
+  // pode usar dois blocos; o contrário — um bloco atendendo duas autoridades —
+  // é o que confunde quem lê depois.
+  coaches: {
+    // O treinador e o que é dele.
+    selfRegister: dados => post('/coaches/self-register', dados),
+    me: () => get('/coaches/me'),
+    updateMe: dados => patch('/coaches/me', dados),
+    myTeams: () => get('/coaches/me/teams'),
+    myAthletes: params => get('/coaches/me/athletes', params),
+    uploadDocument: (id, arquivo, campos) => upload(`/coaches/${id}/documents`, arquivo, campos),
+
+    // A mesa de análise central (R-03).
+    review: params => get('/coaches/review', params),
+    loadForReview: id => get(`/coaches/${id}/review`),
+    approve: (id, reason) => post(`/coaches/${id}/approve`, reason ? { reason } : {}),
+    reject: (id, reason) => post(`/coaches/${id}/reject`, { reason }),
+    suspend: (id, reason) => post(`/coaches/${id}/suspend`, { reason }),
+    reactivate: (id, reason) => post(`/coaches/${id}/reactivate`, reason ? { reason } : {}),
+    cancel: (id, reason) => post(`/coaches/${id}/cancel`, { reason }),
+    documents: id => get(`/coaches/${id}/documents`),
+
+    // A autorização por federação (R-04).
+    authorizeOrganization: (id, dados) => post(`/coaches/${id}/organizations`, dados),
+    revokeOrganization: (id, dados) => post(`/coaches/${id}/organizations/revoke`, dados),
+
+    // Ranking: elegibilidade e projeção. NÃO há classificação — a fórmula não
+    // está homologada, e a rota de classificação responde 409 com o motivo.
+    eligibility: (id, params) => get(`/coaches/${id}/ranking/eligibility`, params),
+    projection: (id, params) => get(`/coaches/${id}/ranking/projection`, params),
+    divergences: params => get('/coaches/ranking/divergences', params)
+  },
+
+  membershipRequests: {
+    // A busca é POST porque a matrícula não tem por que passar por URL, cache
+    // ou Referer — mesmo raciocínio do CPF em `athletes.revealCpf`.
+    lookupByAffiliation: dados => post('/athletes/lookup-affiliation', dados),
+    create: dados => post('/team-membership-requests', dados),
+    ofTeam: params => get('/team-membership-requests', params),
+    mine: () => get('/team-membership-requests/me'),
+    // CONFIRMAR é do ATLETA, e é a confirmação que cria o vínculo.
+    confirm: id => post(`/team-membership-requests/${id}/confirm`),
+    reject: (id, reason) => post(`/team-membership-requests/${id}/reject`, reason ? { reason } : {}),
+    cancel: (id, reason) => post(`/team-membership-requests/${id}/cancel`, reason ? { reason } : {}),
+    adminApprove: (id, reason) => post(`/team-membership-requests/${id}/admin-approve`, { reason })
+  },
+
+  centralAuthorizations: {
+    list: params => get('/central-authorizations', params),
+    mine: () => get('/central-authorizations/me'),
+    grant: dados => post('/central-authorizations', dados),
+    revoke: (id, reason) => post(`/central-authorizations/${id}/revoke`, { reason })
   },
 
   social: {

@@ -14,14 +14,37 @@ import {
 //
 // A trava é do banco. Estes testes cobrem os dois lados: a recusa educada no
 // caminho normal e a corrida concorrente, que só o índice único resolve.
+//
+// ---------------------------------------------------------------------------
+// O QUE MUDOU NESTA SUÍTE COM A DECISÃO R-02, E POR QUE NÃO FOI MASCARADO
+//
+// Quando esta suíte foi escrita, `EVENT_DIRECTOR` tinha `athletes.transfer`, e
+// `diretor` fazia as transferências. A decisão R-02 do módulo Treinadores &
+// Equipes tirou essa permissão de TODO papel: transferir, desvincular e corrigir
+// vínculo alteram a ATRIBUIÇÃO DE PONTOS, e isso passou a exigir `SUPER_ADMIN`
+// ou administrador central FORMALMENTE AUTORIZADO — uma concessão com autor,
+// motivo, escopo e prazo, em `CentralAuthorization`.
+//
+// Quatro testes desta suíte passaram a falhar com 403. Nenhum deles foi
+// afrouxado: o que entrou foi um ator NOVO, `centralAutorizado`, que recebe a
+// delegação pela rota real (`POST /central-authorizations`) e faz o que o
+// diretor fazia. Ou seja, a suíte agora exercita a delegação ponta a ponta, e
+// não apenas a transferência.
+//
+// E o comportamento que MUDOU ganhou teste próprio, no bloco "a decisão R-02":
+// o diretor de evento é recusado, e a concessão revogada deixa de valer na hora.
+// Sem essas duas medições, a mudança teria sido silenciosa — e uma restrição de
+// autorização que ninguém mede é uma restrição que a próxima refatoração desfaz.
 // ============================================================================
 
 let admin;
-let diretor;          // athletes.transfer — operador da Muscle Contest
+let diretor;           // athletes.update e a operação do evento — SEM transfer desde R-02
+let centralAutorizado; // athletes.transfer POR DELEGAÇÃO CENTRAL viva (R-02)
 let operadorInscricao; // athletes.update, SEM transfer — o "treinador"
 let orgId;
 let alpha;
 let beta;
+let concessaoId;
 
 const cpfSeq = (() => { let n = 700000000; return () => gerarCpf(n += 7717); })();
 
@@ -31,12 +54,39 @@ beforeEach(async () => {
   await limparBanco();
   admin = await criarUsuario({ role: 'SUPER_ADMIN', name: 'Administrador' });
   diretor = await criarUsuario({ name: 'Operadora MCI' });
+  // O DELEGADO É ADMINISTRADOR CENTRAL — `User.role = 'ADMIN'` —, e isso NÃO é
+  // um detalhe de conveniência da fixture. MEDIDO: com uma conta de papel
+  // `ATHLETE` e a mesma concessão viva, `POST .../team/unlink` responde 404, não
+  // 200. O motivo é o BANCO: a política `vinculo_leitura` de
+  // `AthleteTeamMembership` exige `mci_operator_of(organizationId)` ou ser o
+  // próprio atleta, e `mci_operator_of` reconhece administrador de plataforma ou
+  // papel operacional em `OrganizationMember` — nunca uma linha de
+  // `CentralAuthorization`.
+  //
+  // Ou seja: a delegação concede PERMISSÃO DE APLICAÇÃO, não VISIBILIDADE. As
+  // duas camadas são independentes por desenho, e a interseção delas falha
+  // FECHADA — quem tem a concessão e não tem visibilidade recebe 404, e não um
+  // 200 sobre dado que não devia ver. É o sentido certo do erro, e está medido
+  // no teste "a delegação não cria visibilidade que a RLS não dá".
+  //
+  // É também o que R-02 diz: `SUPER_ADMIN` OU administrador central formalmente
+  // autorizado. "Administrador central" nesta plataforma é `User.role = 'ADMIN'`,
+  // que desde R-02 perdeu `athletes.transfer` por construção e passou a
+  // depender da concessão.
+  centralAutorizado = await criarUsuario({ role: 'ADMIN', name: 'Administradora Central Delegada' });
   operadorInscricao = await criarUsuario({ name: 'Treinador' });
 
   const org = await criarOrganizacao(admin, { name: unico('Federação') });
   orgId = org.id;
   await vincular(orgId, diretor, 'EVENT_DIRECTOR');
   await vincular(orgId, operadorInscricao, 'REGISTRATION_OPERATOR');
+
+  const concessao = await api().post('/api/v1/central-authorizations').set(admin.auth()).send({
+    userId: centralAutorizado.id, permission: 'athletes.transfer', organizationId: orgId,
+    reason: 'Delegação formal para correção de vínculo de equipe (suíte de vínculo).'
+  });
+  expect(concessao.status, JSON.stringify(concessao.body)).toBe(201);
+  concessaoId = concessao.body.id;
 
   alpha = (await api().post('/api/v1/teams').set(diretor.auth())
     .send({ organizationId: orgId, name: unico('Team Alpha') })).body;
@@ -103,11 +153,11 @@ describe('o treinador não transfere sozinho', () => {
     const atleta = await criarAtletaLivre('Joao Silva');
     await api().post(`/api/v1/athletes/${atleta.id}/team`).set(diretor.auth()).send({ teamId: alpha.id });
 
-    const semMotivo = await api().post(`/api/v1/athletes/${atleta.id}/team/transfer`).set(diretor.auth())
+    const semMotivo = await api().post(`/api/v1/athletes/${atleta.id}/team/transfer`).set(centralAutorizado.auth())
       .send({ teamId: beta.id });
     expect(semMotivo.status, 'transferência sem motivo não entra no histórico').toBe(400);
 
-    const transferencia = await api().post(`/api/v1/athletes/${atleta.id}/team/transfer`).set(diretor.auth())
+    const transferencia = await api().post(`/api/v1/athletes/${atleta.id}/team/transfer`).set(centralAutorizado.auth())
       .send({ teamId: beta.id, reason: 'Autorizado pela federação' });
 
     expect(transferencia.status, JSON.stringify(transferencia.body)).toBe(200);
@@ -119,7 +169,7 @@ describe('o passado do atleta é preservado', () => {
   it('a transferência encerra o vínculo anterior em vez de apagá-lo', async () => {
     const atleta = await criarAtletaLivre('Joao Silva');
     await api().post(`/api/v1/athletes/${atleta.id}/team`).set(diretor.auth()).send({ teamId: alpha.id });
-    await api().post(`/api/v1/athletes/${atleta.id}/team/transfer`).set(diretor.auth())
+    await api().post(`/api/v1/athletes/${atleta.id}/team/transfer`).set(centralAutorizado.auth())
       .send({ teamId: beta.id, reason: 'Autorizado pela federação' });
 
     const historico = await api().get(`/api/v1/athletes/${atleta.id}/team-history`).set(diretor.auth());
@@ -132,18 +182,18 @@ describe('o passado do atleta é preservado', () => {
 
     expect(anterior.teamId, 'a Team Alpha continua no histórico').toBe(alpha.id);
     expect(anterior.endedAt).not.toBeNull();
-    expect(anterior.endedById).toBe(diretor.id);
+    expect(anterior.endedById).toBe(centralAutorizado.id);
   });
 
   it('a transferência fica na auditoria, com equipe de origem e destino', async () => {
     const atleta = await criarAtletaLivre('Joao Silva');
     await api().post(`/api/v1/athletes/${atleta.id}/team`).set(diretor.auth()).send({ teamId: alpha.id });
-    await api().post(`/api/v1/athletes/${atleta.id}/team/transfer`).set(diretor.auth())
+    await api().post(`/api/v1/athletes/${atleta.id}/team/transfer`).set(centralAutorizado.auth())
       .send({ teamId: beta.id, reason: 'Autorizado pela federação' });
 
     const trilha = await comoAtor(admin, tx => tx.auditLog.findMany({ where: { action: 'ATHLETE_TEAM_TRANSFER' } }));
     expect(trilha).toHaveLength(1);
-    expect(trilha[0].userEmail).toBe(diretor.email);
+    expect(trilha[0].userEmail).toBe(centralAutorizado.email);
     expect(trilha[0].metadata.previousTeamId).toBe(alpha.id);
     expect(trilha[0].metadata.teamId).toBe(beta.id);
   });
@@ -152,7 +202,7 @@ describe('o passado do atleta é preservado', () => {
     const atleta = await criarAtletaLivre('Joao Silva');
     await api().post(`/api/v1/athletes/${atleta.id}/team`).set(diretor.auth()).send({ teamId: alpha.id });
 
-    const encerrar = await api().post(`/api/v1/athletes/${atleta.id}/team/unlink`).set(diretor.auth())
+    const encerrar = await api().post(`/api/v1/athletes/${atleta.id}/team/unlink`).set(centralAutorizado.auth())
       .send({ reason: 'Encerrado a pedido' });
     expect(encerrar.status).toBe(200);
 
@@ -454,7 +504,7 @@ describe('a importação não é a porta dos fundos da trava', () => {
       where: { athleteId: atleta.id }, data: { startedAt: new Date('2026-01-15T00:00:00Z') }
     }));
 
-    await api().post(`/api/v1/athletes/${atleta.id}/team/transfer`).set(diretor.auth())
+    await api().post(`/api/v1/athletes/${atleta.id}/team/transfer`).set(centralAutorizado.auth())
       .send({ teamId: beta.id, reason: 'Mudança de equipe homologada' });
 
     const aplicacao = await importarEAplicar(
@@ -488,5 +538,100 @@ describe('CPF continua protegido', () => {
 
     const historico = await api().get(`/api/v1/athletes/${atleta.id}/team-history`).set(diretor.auth());
     expect(JSON.stringify(historico.body)).not.toContain(cpf);
+  });
+});
+
+// ============================================================================
+// A DECISÃO R-02 — o que MUDOU, medido.
+//
+// Estes três testes não existiam antes do módulo Treinadores & Equipes, e é
+// deliberado que eles fiquem nesta suíte e não numa nova: o comportamento que
+// mudou é o desta suíte, e é aqui que uma refatoração futura vai olhar.
+// ============================================================================
+describe('a decisão R-02: transferir deixou de ser poder de papel', () => {
+  it('o DIRETOR DE EVENTO não transfere mais, ainda que conduza a etapa inteira', async () => {
+    const atleta = await criarAtletaLivre('Joao Silva');
+    // Vincular atleta LIVRE continua sendo dele, por `athletes.update`: é a
+    // distinção que `membershipService` já fazia antes de R-02.
+    const vinculo = await api().post(`/api/v1/athletes/${atleta.id}/team`).set(diretor.auth())
+      .send({ teamId: alpha.id });
+    expect(vinculo.status, 'vincular atleta sem equipe continua sendo do diretor').toBe(201);
+
+    const transferencia = await api().post(`/api/v1/athletes/${atleta.id}/team/transfer`).set(diretor.auth())
+      .send({ teamId: beta.id, reason: 'Tentativa sem delegação central' });
+    expect(transferencia.status, JSON.stringify(transferencia.body)).toBe(403);
+
+    const desvinculo = await api().post(`/api/v1/athletes/${atleta.id}/team/unlink`).set(diretor.auth())
+      .send({ reason: 'Tentativa sem delegação central' });
+    expect(desvinculo.status, 'desvincular é o mesmo poder, e cai junto').toBe(403);
+
+    // A prova que importa não é o código de status: é o dado não ter mudado.
+    const ativo = await comoAtor(admin, tx => tx.athleteTeamMembership.findFirst({
+      where: { athleteId: atleta.id, endedAt: null }
+    }));
+    expect(ativo.teamId, 'o vínculo continua na equipe original').toBe(alpha.id);
+  });
+
+  it('a delegação REVOGADA deixa de valer na mesma hora, sem job e sem cache', async () => {
+    const atleta = await criarAtletaLivre('Joao Silva');
+    await api().post(`/api/v1/athletes/${atleta.id}/team`).set(diretor.auth()).send({ teamId: alpha.id });
+
+    const revogacao = await api().post(`/api/v1/central-authorizations/${concessaoId}/revoke`).set(admin.auth())
+      .send({ reason: 'Encerrada a atuação do delegado (QA).' });
+    expect(revogacao.status, JSON.stringify(revogacao.body)).toBe(200);
+
+    const transferencia = await api().post(`/api/v1/athletes/${atleta.id}/team/transfer`).set(centralAutorizado.auth())
+      .send({ teamId: beta.id, reason: 'Tentativa com delegação revogada' });
+    expect(transferencia.status, JSON.stringify(transferencia.body)).toBe(403);
+
+    const ativo = await comoAtor(admin, tx => tx.athleteTeamMembership.findFirst({
+      where: { athleteId: atleta.id, endedAt: null }
+    }));
+    expect(ativo.teamId).toBe(alpha.id);
+  });
+
+  it('a delegação não cria visibilidade que a RLS não dá — e falha FECHADA', async () => {
+    // O ator aqui tem a concessão e NADA mais: papel `ATHLETE`, membro da
+    // federação, sem papel operacional. A aplicação o autoriza; o banco não o
+    // deixa ver a linha. O resultado é 404, e não 200 — a interseção das duas
+    // camadas erra para o lado seguro.
+    //
+    // Este teste existe porque a alternativa tentadora seria "consertar" a RLS
+    // para reconhecer `CentralAuthorization`. Isso ampliaria a visibilidade de
+    // dado de vínculo a partir de uma tabela de permissão de aplicação, o que é
+    // exatamente o tipo de atalho que este projeto recusa. A delegação
+    // pressupõe quem já é administrador central.
+    const soConcessao = await criarUsuario({ name: 'Delegada Sem Papel' });
+    await vincular(orgId, soConcessao, 'ATHLETE');
+    const concedida = await api().post('/api/v1/central-authorizations').set(admin.auth()).send({
+      userId: soConcessao.id, permission: 'athletes.transfer', organizationId: orgId,
+      reason: 'Concessão a conta sem papel operacional (QA).'
+    });
+    expect(concedida.status, JSON.stringify(concedida.body)).toBe(201);
+
+    const atleta = await criarAtletaLivre('Joao Silva');
+    await api().post(`/api/v1/athletes/${atleta.id}/team`).set(diretor.auth()).send({ teamId: alpha.id });
+
+    const desvinculo = await api().post(`/api/v1/athletes/${atleta.id}/team/unlink`).set(soConcessao.auth())
+      .send({ reason: 'Tentativa com concessão mas sem visibilidade' });
+    expect(desvinculo.status, JSON.stringify(desvinculo.body)).toBe(404);
+
+    const ativo = await comoAtor(admin, tx => tx.athleteTeamMembership.findFirst({
+      where: { athleteId: atleta.id, endedAt: null }
+    }));
+    expect(ativo.teamId, 'o vínculo não mudou').toBe(alpha.id);
+  });
+
+  it('ninguém concede delegação central para si mesmo', async () => {
+    // Sem esta recusa, quem tem `central.grant` se concederia `athletes.transfer`
+    // e a exigência de duas pessoas viraria decoração. `admin` é SUPER_ADMIN, ou
+    // seja, o ator com o máximo de poder possível — e é justamente ele que a
+    // recusa tem de alcançar.
+    const autoconcessao = await api().post('/api/v1/central-authorizations').set(admin.auth()).send({
+      userId: admin.id, permission: 'athletes.transfer', organizationId: orgId,
+      reason: 'Tentativa de autoconcessão (QA).'
+    });
+    expect(autoconcessao.status, JSON.stringify(autoconcessao.body)).toBe(403);
+    expect(autoconcessao.body.error.code).toBe('SELF_GRANT_FORBIDDEN');
   });
 });

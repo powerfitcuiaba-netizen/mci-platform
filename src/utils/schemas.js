@@ -677,11 +677,109 @@ const teamCreate = z.object({
   // Empresa que inscreve a equipe. Opcional: equipe sem empresa compete
   // normalmente, apenas não pontua para nenhuma.
   companyId: opcional(id),
+  // Treinador responsável. Opcional pela mesma razão da coluna no schema: as
+  // equipes que já existem não têm treinador, e exigir um quebraria o cadastro
+  // atual. Quem confere se o treinador pode responder por esta federação é o
+  // serviço — aqui só se aceita a forma.
+  coachId: opcional(id),
   city: opcional(texto(2, 90)), state: opcional(texto(2, 2))
 });
+
+// Trocar o responsável é ato próprio, com rota própria: `null` remove o
+// vínculo, e remover não é o mesmo que esquecer de informar na criação.
+const teamCoachSet = z.object({ coachId: opcional(id) });
 const companyCreate = z.object({ organizationId: id, name: texto(2, 120), city: opcional(texto(2, 90)), state: opcional(texto(2, 2)) });
 const coachCreate = z.object({ name: texto(2, 120), userId: opcional(id), city: opcional(texto(2, 90)), state: opcional(texto(2, 2)) });
 const gymCreate = z.object({ organizationId: id, name: texto(2, 120), city: opcional(texto(2, 90)), state: opcional(texto(2, 2)) });
+
+// ===================================================== MÓDULO TREINADORES & EQUIPES
+//
+// `status` NÃO aparece em nenhum destes corpos, e a ausência é a decisão R-03:
+// o estado do cadastro é decisão da administração central, e aceitar o campo do
+// cliente devolveria ao interessado a caneta que a regra tirou dele. Cada
+// transição tem a sua rota própria.
+
+const coachSelfRegister = z.object({
+  name: texto(2, 120),
+  registration: opcional(texto(2, 60)),
+  bio: opcional(texto(2, 1000)),
+  phone: opcional(telefone),
+  email: opcional(z.string().trim().toLowerCase().email().max(160))
+});
+
+// `.partial()` sobre os mesmos campos: o treinador corrige um campo sem
+// reenviar os outros. `name` continua com o mesmo mínimo quando vem.
+const coachSelfUpdate = coachSelfRegister.partial();
+
+const coachReviewQuery = paginacao.extend({
+  status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED', 'CANCELLED']).optional(),
+  search: z.string().trim().max(120).optional()
+});
+
+// Motivo obrigatório onde a decisão é contra o interessado (rejeitar, suspender,
+// encerrar) e opcional onde é a favor (aprovar, reativar). Quem exige de fato é
+// o serviço; o schema apenas não deixa passar string vazia disfarçada de motivo.
+const coachDecision = z.object({ reason: opcional(texto(3, 500)) });
+const coachDecisionWithReason = z.object({ reason: texto(3, 500) });
+
+const coachOrgAuthorize = z.object({ organizationId: id, reason: opcional(texto(3, 300)) });
+const coachOrgRevoke = z.object({ organizationId: id, reason: texto(3, 300) });
+
+const coachDocumentUpload = z.object({
+  title: z.string().trim().max(160).optional(),
+  kind: z.enum(['ID', 'MEDICAL', 'TERM', 'AFFILIATION_PROOF', 'OTHER']).optional()
+});
+
+const coachTeamQuery = z.object({ teamId: id.optional() });
+
+// A BUSCA POR MATRÍCULA. Não há busca por nome, nem por prefixo, nem paginação:
+// a matrícula vem COMPLETA e a resposta é um registro ou nenhum. É a primeira
+// das três contenções de enumeração descritas em `membershipRequestService`.
+const athleteAffiliationLookup = z.object({
+  organizationId: id,
+  affiliationNumber: texto(1, 40),
+  affiliationId: opcional(id)
+});
+
+const membershipRequestCreate = z.object({
+  athleteId: id, teamId: id, reason: opcional(texto(3, 300))
+});
+const membershipRequestReason = z.object({ reason: opcional(texto(3, 500)) });
+const membershipRequestAdminApprove = z.object({ reason: texto(3, 500) });
+const membershipRequestQuery = paginacao.extend({
+  teamId: id,
+  status: z.enum(['PENDING', 'CONFIRMED', 'REJECTED', 'CANCELLED']).optional()
+});
+
+// -------------------------------------------------- delegação central (R-02)
+//
+// `permission` é string livre AQUI de propósito: a lista branca do que é
+// delegável vive em `src/utils/permissions.js` e é conferida pelo serviço. Um
+// `z.enum` aqui seria uma segunda cópia da lista, e as duas cópias divergiriam
+// na primeira mudança — com a agravante de que o Zod roda ANTES da autorização,
+// então um nome fora da lista viraria 400 no lugar do 422 que explica o motivo.
+const centralGrantCreate = z.object({
+  userId: id,
+  permission: texto(3, 60),
+  organizationId: opcional(id),
+  reason: texto(3, 500),
+  expiresAt: opcional(dataIso)
+});
+const centralGrantRevoke = z.object({ reason: texto(3, 500) });
+const centralGrantQuery = paginacao.extend({
+  userId: id.optional(),
+  permission: z.string().trim().max(60).optional(),
+  organizationId: id.optional(),
+  incluirRevogadas: booleano.optional()
+});
+
+const coachRankingQuery = z.object({
+  seasonId: id.optional(),
+  categoryId: opcional(id),
+  organizationId: id.optional()
+});
+const coachEligibilityQuery = z.object({ seasonId: id });
+const coachDivergenceQuery = paginacao.extend({ seasonId: id, teamId: id.optional() });
 
 const brandCreate = z.object({
   organizationId: id,
@@ -925,7 +1023,13 @@ module.exports = {
   classCatalogUpsert, classCatalogQuery, classesParaFiltroQuery, superOverallQuery,
   muscleWarImportCreate, muscleWarLink, muscleWarPreviewQuery,
   rankingPointEdit, rankingPointPreviewQuery, rankingPointReason, rankingPointAdjust,
-  teamCreate, companyCreate, coachCreate, gymCreate, brandCreate, sponsorCreate, sponsorshipCreate,
+  teamCreate, teamCoachSet, companyCreate, coachCreate, gymCreate, brandCreate, sponsorCreate, sponsorshipCreate,
+  coachSelfRegister, coachSelfUpdate, coachReviewQuery, coachDecision, coachDecisionWithReason,
+  coachOrgAuthorize, coachOrgRevoke, coachDocumentUpload, coachTeamQuery,
+  athleteAffiliationLookup, membershipRequestCreate, membershipRequestReason,
+  membershipRequestAdminApprove, membershipRequestQuery,
+  centralGrantCreate, centralGrantRevoke, centralGrantQuery,
+  coachRankingQuery, coachEligibilityQuery, coachDivergenceQuery,
   partnershipCreate, partnershipStatus,
   profileCreate, profileUpdateSocial, postCreate, commentCreate, shareCreate, storyCaption, feedQuery,
   reportCreate, reportResolve,

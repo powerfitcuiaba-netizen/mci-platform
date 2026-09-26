@@ -348,12 +348,120 @@ router.route('/companies')
 router.route('/teams')
   .get(requireAuth, validate(s.scopedListQuery, 'query'), wrap(c.partners.listTeams))
   .post(requireAuth, perm('teams.manage', orgDoCorpo), validate(s.teamCreate), wrap(c.partners.createTeam));
+// O treinador responsável pela equipe. `teams.manage` porque é cadastro de
+// equipe; a conferência de que o treinador pode responder por esta federação é
+// do serviço, que precisa ler `Coach` e `CoachOrganization`.
+router.post('/teams/:id/coach', requireAuth, validate(s.paramsWithId, 'params'), validate(s.teamCoachSet), wrap(c.partners.setTeamCoach));
 router.route('/gyms')
   .get(requireAuth, validate(s.scopedListQuery, 'query'), wrap(c.partners.listGyms))
   .post(requireAuth, perm('gyms.manage', orgDoCorpo), validate(s.gymCreate), wrap(c.partners.createGym));
 router.route('/coaches')
   .get(requireAuth, validate(s.scopedListQuery, 'query'), wrap(c.partners.listCoaches))
   .post(requireAuth, perm('coaches.manage'), validate(s.coachCreate), wrap(c.partners.createCoach));
+
+// ==================================================== TREINADORES & EQUIPES
+//
+// ORDEM IMPORTA: os caminhos fixos (`/me`, `/review`) vêm antes dos que têm
+// parâmetro, senão `me` casaria com `:id` e o treinador pediria o próprio
+// cadastro achando que pediu o de alguém.
+//
+// ONDE A PERMISSÃO É CONFERIDA, e por quê nem toda rota tem `perm(...)`: o
+// middleware roda ANTES do Zod, e o Zod roda antes do serviço. Onde a
+// autorização depende do RECURSO — de quem é a equipe, de quem é o atleta, de
+// qual federação é o pedido —, ela mora no serviço, junto do dado, porque a
+// rota não tem como saber. Onde ela é global e não depende do recurso
+// (`coaches.approve`, `central.grant`), fica aqui: a recusa vem antes de
+// qualquer leitura, que é o comportamento mais barato e o mais seguro.
+
+// ------------------------------------------------- o treinador e o que é dele
+//
+// O autocadastro NÃO tem `perm(...)`: qualquer conta autenticada pode se
+// cadastrar como treinador, e o cadastro nasce PENDING por R-03. O teto de
+// conteúdo segura a criação em massa.
+router.post('/coaches/self-register', requireAuth, limiteConteudo, validate(s.coachSelfRegister), wrap(c.coaches.autocadastro));
+router.route('/coaches/me')
+  .get(requireAuth, wrap(c.coaches.meuCadastro))
+  .patch(requireAuth, validate(s.coachSelfUpdate), wrap(c.coaches.atualizarMeuCadastro));
+router.get('/coaches/me/teams', requireAuth, wrap(c.coaches.minhasEquipes));
+router.get('/coaches/me/athletes', requireAuth, validate(s.coachTeamQuery, 'query'), wrap(c.coaches.meusAtletas));
+
+// ------------------------------------------- a mesa de análise central (R-03)
+router.get('/coaches/review', requireAuth, perm('coaches.approve'), validate(s.coachReviewQuery, 'query'), wrap(c.coaches.listarParaAnalise));
+router.get('/coaches/:id/review', requireAuth, perm('coaches.approve'), validate(s.paramsWithId, 'params'), wrap(c.coaches.carregarParaAnalise));
+router.post('/coaches/:id/approve', requireAuth, perm('coaches.approve'), validate(s.paramsWithId, 'params'), validate(s.coachDecision), wrap(c.coaches.aprovar));
+router.post('/coaches/:id/reject', requireAuth, perm('coaches.approve'), validate(s.paramsWithId, 'params'), validate(s.coachDecisionWithReason), wrap(c.coaches.rejeitar));
+router.post('/coaches/:id/suspend', requireAuth, perm('coaches.approve'), validate(s.paramsWithId, 'params'), validate(s.coachDecisionWithReason), wrap(c.coaches.suspender));
+router.post('/coaches/:id/reactivate', requireAuth, perm('coaches.approve'), validate(s.paramsWithId, 'params'), validate(s.coachDecision), wrap(c.coaches.reativar));
+router.post('/coaches/:id/cancel', requireAuth, perm('coaches.approve'), validate(s.paramsWithId, 'params'), validate(s.coachDecisionWithReason), wrap(c.coaches.cancelar));
+
+// -------------------------------------- a autorização por federação (R-04)
+//
+// `perm('coaches.authorize_org', orgDoCorpo)`: a organização vem do CORPO, e o
+// middleware já barra quem não pertence a ela. O serviço confere de novo com
+// `assertCan` — a barreira de tenant vale nos dois lugares, porque o serviço é
+// chamável de fora da rota.
+router.post('/coaches/:id/organizations', requireAuth, perm('coaches.authorize_org', orgDoCorpo), validate(s.paramsWithId, 'params'), validate(s.coachOrgAuthorize), wrap(c.coaches.autorizarOrganizacao));
+router.post('/coaches/:id/organizations/revoke', requireAuth, perm('coaches.authorize_org', orgDoCorpo), validate(s.paramsWithId, 'params'), validate(s.coachOrgRevoke), wrap(c.coaches.revogarOrganizacao));
+
+// ------------------------------------------- documentos da análise (R-05)
+//
+// Enviar é do treinador ou da mesa; LISTAR e BAIXAR são só da mesa. A assimetria
+// é a decisão R-05: documento não aparece no painel do treinador, nem para quem
+// o enviou.
+router.post('/coaches/:id/documents', requireAuth, limiteUpload, validate(s.paramsWithId, 'params'), uploadDocumento, validate(s.coachDocumentUpload), wrap(c.coaches.anexarDocumento));
+router.get('/coaches/:id/documents', requireAuth, perm('coaches.approve'), validate(s.paramsWithId, 'params'), wrap(c.coaches.listarDocumentos));
+router.get('/documents/coach/:id/download', requireAuth, perm('coaches.approve'), validate(s.paramsWithId, 'params'), wrap(c.coaches.baixarDocumento));
+router.delete('/documents/coach/:id', requireAuth, perm('coaches.approve'), validate(s.paramsWithId, 'params'), wrap(c.coaches.removerDocumento));
+
+// ------------------------------- ranking de treinadores: SEM classificação
+//
+// A fórmula não está homologada. `/ranking` responde 409 com o motivo, de
+// propósito: um 404 diria "não existe essa rota", e o que precisa ser dito é
+// "não existe classificação homologada".
+router.get('/coaches/:id/ranking/eligibility', requireAuth, validate(s.paramsWithId, 'params'), validate(s.coachEligibilityQuery, 'query'), wrap(c.coaches.elegibilidade));
+router.get('/coaches/:id/ranking/projection', requireAuth, validate(s.paramsWithId, 'params'), validate(s.coachRankingQuery, 'query'), wrap(c.coaches.projecao));
+// UMA rota, e não duas. A primeira versão disto tinha também
+// `GET /coaches/ranking`, um apelido — e o apelido custou: a auditoria de rotas
+// exige que toda rota fora da superfície pública declarada recuse requisição sem
+// sessão, e um caminho novo em `/coaches/...` respondendo 409 ao visitante
+// aparecia como vazamento. O namespace público do ranking é `/ranking/*`, e é
+// onde esta rota pertence. Superfície menor, nenhuma exceção a declarar.
+router.get('/ranking/coaches', optionalAuth, wrap(c.coaches.classificacao));
+// Conferência de R-01: o `teamId` congelado confere com o vínculo da data do
+// evento? Diagnóstico de homologação, não correção — por isso `ranking.manage`.
+router.get('/coaches/ranking/divergences', requireAuth, perm('ranking.manage'), validate(s.coachDivergenceQuery, 'query'), wrap(c.coaches.divergencias));
+
+// ----------------------------------------------- solicitação de vínculo
+//
+// A BUSCA POR MATRÍCULA é POST, e não GET, por duas razões medidas: a matrícula
+// não fica em log de acesso nem em histórico de navegador, e o teto de busca
+// próprio a segura — é a rota mais varrível do módulo.
+router.post('/athletes/lookup-affiliation', requireAuth, limiteBusca, validate(s.athleteAffiliationLookup), wrap(c.membershipRequests.localizarAtleta));
+
+router.route('/team-membership-requests')
+  .get(requireAuth, validate(s.membershipRequestQuery, 'query'), wrap(c.membershipRequests.listarDaEquipe))
+  .post(requireAuth, limiteConteudo, validate(s.membershipRequestCreate), wrap(c.membershipRequests.solicitar));
+// O atleta vê os pedidos dirigidos a ele. Antes de `/:id`, pelo mesmo motivo de
+// ordem de sempre.
+router.get('/team-membership-requests/me', requireAuth, wrap(c.membershipRequests.meusPedidos));
+// CONFIRMAR e REJEITAR são do ATLETA, e a autorização é por titularidade da
+// conta — não há permissão nomeada a conferir na rota.
+router.post('/team-membership-requests/:id/confirm', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.membershipRequests.confirmar));
+router.post('/team-membership-requests/:id/reject', requireAuth, validate(s.paramsWithId, 'params'), validate(s.membershipRequestReason), wrap(c.membershipRequests.rejeitar));
+router.post('/team-membership-requests/:id/cancel', requireAuth, validate(s.paramsWithId, 'params'), validate(s.membershipRequestReason), wrap(c.membershipRequests.cancelar));
+// A aprovação por DECISÃO ADMINISTRATIVA exige `athletes.transfer`, que desde
+// R-02 nenhum papel recebe por construção. A conferência é no serviço porque a
+// organização vem do pedido, não do corpo.
+router.post('/team-membership-requests/:id/admin-approve', requireAuth, validate(s.paramsWithId, 'params'), validate(s.membershipRequestAdminApprove), wrap(c.membershipRequests.aprovarPorDecisao));
+
+// ------------------------------------------------ delegação central (R-02)
+router.route('/central-authorizations')
+  .get(requireAuth, validate(s.centralGrantQuery, 'query'), wrap(c.centralAuthorizations.listar))
+  .post(requireAuth, perm('central.grant'), validate(s.centralGrantCreate), wrap(c.centralAuthorizations.conceder));
+// A própria pessoa vê o que recebeu. Ver a sua delegação não depende de poder
+// conceder — daí a ausência de `perm(...)` aqui.
+router.get('/central-authorizations/me', requireAuth, wrap(c.centralAuthorizations.minhas));
+router.post('/central-authorizations/:id/revoke', requireAuth, perm('central.grant'), validate(s.paramsWithId, 'params'), validate(s.centralGrantRevoke), wrap(c.centralAuthorizations.revogar));
 router.route('/brands')
   .get(optionalAuth, validate(s.scopedListQuery, 'query'), wrap(c.partners.listBrands))
   .post(requireAuth, perm('brands.manage', orgDoCorpo), validate(s.brandCreate), wrap(c.partners.createBrand));

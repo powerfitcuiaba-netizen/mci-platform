@@ -449,3 +449,83 @@ devolver a permissão é exatamente o mutante F2-M1.
 Nenhum fluxo de produto fechou: a tela de criação de categoria já vivia no painel da
 plataforma (`adminPlatform.jsx`), e `POST /coaches` **não tem nenhuma tela que o
 chame** — medido em todo `frontend/src/`.
+
+---
+
+# Módulo Treinadores & Equipes — o que mudou na matriz
+
+## A superfície mutante autenticada foi de 118 para 138 rotas
+
+Vinte rotas novas, cada uma com **linha declarada** em
+`tests/matriz-de-autorizacao.mjs`. O gate continua sendo igualdade de conjuntos: rota
+nova sem linha quebra o build, linha sem rota também.
+
+| Grupo | Rotas | Tipo na matriz |
+| --- | --- | --- |
+| Autocadastro e edição do próprio cadastro | `POST /coaches/self-register`, `PATCH /coaches/me` | **AUTOSSERVIÇO** |
+| Decisão central sobre o cadastro | `POST /coaches/:id/{approve,reject,suspend,reactivate,cancel}` | **PERMISSÃO** `coaches.approve`, escopo de plataforma |
+| Documento da análise | `POST /coaches/:id/documents`, `DELETE /documents/coach/:id` | **PERMISSÃO** `coaches.approve`, escopo de plataforma |
+| Autorização por federação | `POST /coaches/:id/organizations`, `.../organizations/revoke` | **PERMISSÃO** `coaches.authorize_org` — **com** tenant |
+| Treinador responsável pela equipe | `POST /teams/:id/coach` | **PERMISSÃO** `teams.manage` — com tenant |
+| Busca por matrícula | `POST /athletes/lookup-affiliation` | **PERMISSÃO** `athletes.lookup_affiliation` — com tenant |
+| Pedido de vínculo | `POST /team-membership-requests` | **PERMISSÃO** `teams.request_membership` |
+| Resposta do atleta | `POST /team-membership-requests/:id/{confirm,reject}` | **AUTOSSERVIÇO**, com limite de dono declarado |
+| Retirada e decisão administrativa | `.../cancel`, `.../admin-approve` | **PERMISSÃO** `athletes.update` / `athletes.transfer`, com 404 declarado |
+| Delegação central | `POST /central-authorizations`, `.../:id/revoke` | **PERMISSÃO** `central.grant`, escopo de plataforma |
+
+## O escopo de plataforma cresceu de 2 para 11 rotas — e passou a exigir justificativa
+
+A lista fixada pelo gate era `['POST /categories', 'POST /coaches']`. Com o módulo ela
+tem 11 entradas, e o gate **ganhou uma asserção nova**: toda rota que se declara de
+escopo de plataforma tem de dizer, por escrito e com pelo menos 40 caracteres, **por
+que não há tenant a cruzar**. A exclusão do cross-tenant desliga a única asserção que
+mede `assertOrganization` naquela rota; ela não pode ser barata.
+
+As duas entradas antigas ganharam a justificativa que nunca tiveram escrita ali:
+`Category` não tem `organizationId` (catálogo nacional) e `Coach` não tem
+`organizationId` (decisão R-04, técnico global).
+
+## Duas recusas chegam como 404, e isso está declarado
+
+`POST /team-membership-requests/:id/cancel` e `.../admin-approve` respondem **404** ao
+ator sem permissão, não 403. A causa é `TeamMembershipRequest` ter RLS de linha: o
+pedido só é visível ao atleta dele, ao treinador da equipe, ao operador da federação e
+ao administrador da plataforma. Para quem não é nenhum dos quatro, a linha **não
+existe** — e a rota não confirma que o id é válido. É a mesma não divulgação das rotas
+de lote de importação, e está na matriz como `recusasExtras: [404]` com o motivo.
+
+## Uma rota foi REMOVIDA por causa do gate
+
+A primeira versão tinha `GET /coaches/ranking` como apelido de `GET /ranking/coaches`.
+A auditoria de rotas (`tests/rotas.test.mjs`) exige que toda rota fora da superfície
+pública declarada recuse requisição sem sessão, e o apelido respondia 409 ao
+visitante — aparecia como vazamento. O namespace público do ranking é `/ranking/*`, e
+é onde a rota pertence. **Superfície menor, nenhuma exceção a declarar** — que é
+melhor do que uma exceção bem explicada.
+
+## `AppError` passou a carregar `details`
+
+Defeito **pré-existente**, achado aqui: o construtor recebia três parâmetros e
+descartava o quarto, enquanto `errorHandler.js:104` já copiava `err.details` para a
+resposta e **16 chamadas em 9 serviços** já o passavam. Nada disso chegava ao cliente.
+Medido em `POST /central-authorizations` com permissão fora da lista branca: 422 com
+`error.details` **undefined**, enquanto o serviço passava a lista do que é delegável.
+
+Não é canal novo de vazamento: `details` é escrito à mão em cada chamada, nunca vem de
+payload do cliente, e continua opcional — toda recusa que não o passa responde
+exatamente como antes.
+
+## Onde a permissão é conferida, e por que nem toda rota tem `perm(...)`
+
+O middleware roda **antes** do Zod, e o Zod antes do serviço. Onde a autorização
+depende do **recurso** — de quem é a equipe, de quem é o atleta, de qual federação é o
+pedido —, ela mora no serviço, junto do dado, porque a rota não tem como saber. Onde é
+global e não depende do recurso (`coaches.approve`, `central.grant`), fica na rota: a
+recusa vem antes de qualquer leitura.
+
+Uma exceção que merece nome: **o tenant do treinador não é `OrganizationMember`**. Ele
+não é membro da federação — a autorização dele é `CoachOrganization` (R-04). `assertCan`
+recusaria todo ato dele, e recusou: medido antes da correção, todo pedido de vínculo
+respondia 403 com cadastro aprovado e autorização viva. Quem resolve é
+`coachService.assertPodeAtuarNaOrganizacao`, que aceita qualquer das duas vias de
+tenant e **nunca** dispensa a permissão nomeada.

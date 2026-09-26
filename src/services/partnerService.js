@@ -33,7 +33,74 @@ const listarComEscopo = modelo => async (filtros, actor) => {
   });
 };
 
-const createTeam = criarComEscopo({ model: 'team', permission: 'teams.manage', conflictCode: 'TEAM_EXISTS', conflictMessage: 'Já existe equipe com este nome' });
+// ============================================================================
+// A EQUIPE E O SEU TREINADOR — módulo Treinadores & Equipes.
+//
+// A equipe não deixou de ser o que era: `organizationId` continua sendo o dono,
+// e a criação continua exigindo `teams.manage`. O que entrou é o responsável, e
+// com ele uma conferência que não pode ser só de forma.
+//
+// UM TREINADOR SÓ RESPONDE POR EQUIPE DE FEDERAÇÃO EM QUE ESTÁ AUTORIZADO. Sem
+// isso, a identidade global de `Coach` (decisão R-04) viraria acesso irrestrito
+// pela porta da equipe: bastaria uma federação qualquer apontar o treinador de
+// outra como responsável, e ele passaria a ver atletas de onde nunca foi
+// autorizado a atuar. A decisão R-04 diz exatamente o contrário — cadastro
+// global não concede atuação.
+// ============================================================================
+async function assertTreinadorPodeResponder(coachId, organizationId) {
+  const coach = await prisma.coach.findUnique({
+    where: { id: coachId },
+    select: { id: true, status: true, organizations: { select: { organizationId: true, status: true } } }
+  });
+  if (!coach) throw new AppError(404, 'COACH_NOT_FOUND', 'Treinador não encontrado');
+
+  if (coach.status !== 'APPROVED') {
+    throw new AppError(422, 'COACH_NOT_APPROVED',
+      'Somente treinador com cadastro aprovado pela administração da Muscle Contest pode responder por uma equipe.',
+      { status: coach.status });
+  }
+
+  const autorizacao = coach.organizations.find(item => item.organizationId === organizationId);
+  if (!autorizacao || autorizacao.status !== 'APPROVED') {
+    throw new AppError(422, 'COACH_ORG_NOT_AUTHORIZED',
+      'Este treinador não está autorizado a atuar nesta federação. Autorize-o antes de vinculá-lo a uma equipe.');
+  }
+}
+
+async function createTeam(data, actor) {
+  assertCan(actor, 'teams.manage', data.organizationId);
+  if (data.coachId) await assertTreinadorPodeResponder(data.coachId, data.organizationId);
+
+  try {
+    return await prisma.team.create({ data });
+  } catch (error) {
+    if (error.code === 'P2002') throw new AppError(409, 'TEAM_EXISTS', 'Já existe equipe com este nome');
+    throw error;
+  }
+}
+
+/** Define ou remove o treinador responsável pela equipe. */
+async function setTeamCoach(teamId, { coachId = null }, actor) {
+  const team = await prisma.team.findUnique({ where: { id: teamId }, select: { id: true, organizationId: true, coachId: true } });
+  if (!team) throw new AppError(404, 'TEAM_NOT_FOUND', 'Equipe não encontrada');
+
+  assertCan(actor, 'teams.manage', team.organizationId);
+  if (coachId) await assertTreinadorPodeResponder(coachId, team.organizationId);
+
+  const atualizada = await prisma.team.update({
+    where: { id: teamId },
+    data: { coachId },
+    select: { id: true, name: true, organizationId: true, coachId: true, coach: { select: { id: true, name: true, status: true } } }
+  });
+
+  await audit.record({
+    actor, action: 'TEAM_COACH_SET', entity: 'Team', entityId: teamId,
+    organizationId: team.organizationId, metadata: { de: team.coachId, para: coachId }
+  });
+
+  return atualizada;
+}
+
 const listTeams = listarComEscopo({ model: 'team', count: { athletes: true } });
 
 // A empresa entra com suas equipes: ela fica acima delas, e os pontos sobem por
@@ -253,7 +320,7 @@ async function listPartnerships(filtros) {
 }
 
 module.exports = {
-  createTeam, listTeams, createCompany, listCompanies, createGym, listGyms, createCoach, listCoaches,
+  createTeam, setTeamCoach, listTeams, createCompany, listCompanies, createGym, listGyms, createCoach, listCoaches,
   createBrand, listBrands, createSponsor, listSponsors,
   createSponsorship, listSponsorships,
   createPartnership, setPartnershipStatus, listPartnerships

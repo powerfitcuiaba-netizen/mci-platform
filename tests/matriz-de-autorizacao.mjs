@@ -166,7 +166,7 @@ export function matriz(f) {
     // o ator positivo é a plataforma, que continua podendo.
     permissao('POST', '/categories', '/categories',
       { code: `QACAT${f.codigo}`, name: 'Categoria QA', sex: 'MALE' }, 'categories.manage',
-      { escopoDePlataforma: true }),
+      { escopoDePlataforma: true, porQue: '`Category` não tem `organizationId`: o catálogo oficial de categorias é GLOBAL e nacional, então não existe categoria de outra federação a alcançar. A guarda é a permissão, não o tenant.' }),
     permissao('POST', '/classes-catalog', '/classes-catalog',
       { organizationId: f.orgA, code: `QACLS${f.codigo}`, displayName: 'Classe QA' }, 'ranking.manage'),
     permissao('POST', '/events', '/events',
@@ -258,6 +258,9 @@ export function matriz(f) {
     permissao('POST', '/companies', '/companies',
       { organizationId: f.orgA, name: 'Empresa QA' }, 'companies.manage'),
     permissao('POST', '/teams', '/teams', { organizationId: f.orgA, name: 'Equipe QA' }, 'teams.manage'),
+    // O responsável pela equipe. `teams.manage` porque é cadastro de equipe — e
+    // o tenant vale, porque a equipe É de uma federação.
+    permissao('POST', '/teams/:id/coach', `/teams/${f.teamA}/coach`, { coachId: f.coachA }, 'teams.manage'),
     permissao('POST', '/gyms', '/gyms', { organizationId: f.orgA, name: 'Academia QA' }, 'gyms.manage'),
     // ESCOPO DE PLATAFORMA pelo mesmo motivo: `Coach` também não tem
     // `organizationId` no schema — e aqui a globalidade é o DESENHO, não um
@@ -268,7 +271,7 @@ export function matriz(f) {
     // plataforma virou `coaches.link_account`, que o diretor não tem, e é
     // medido na suíte do F2.
     permissao('POST', '/coaches', '/coaches', { name: 'Treinador QA' }, 'coaches.manage',
-      { escopoDePlataforma: true }),
+      { escopoDePlataforma: true, porQue: '`Coach` não tem `organizationId`, e a globalidade é o desenho (decisão R-04): um técnico atende atletas de várias federações. Não há federação dona do cadastro, logo não há tenant a cruzar.' }),
     permissao('POST', '/brands', '/brands',
       { organizationId: f.orgA, name: 'Marca QA', slug: `marca-qa-${f.sufixo}` }, 'brands.manage'),
     permissao('POST', '/sponsors', '/sponsors', { organizationId: f.orgA, name: 'Patrocinador QA' }, 'sponsors.manage'),
@@ -276,6 +279,92 @@ export function matriz(f) {
     permissao('POST', '/partnerships', '/partnerships', { athleteId: f.athleteA, brandId: f.brandA }, 'brands.manage'),
     permissao('POST', '/partnerships/:id/status', `/partnerships/${f.partnershipA}/status`,
       { status: 'ACTIVE' }, 'brands.manage'),
+
+    // ============================================ MÓDULO TREINADORES & EQUIPES
+    //
+    // ESCOPO DE PLATAFORMA em tudo o que age sobre o CADASTRO do treinador:
+    // `Coach` não tem `organizationId` — é a decisão R-04, o técnico é global —,
+    // então não existe tenant a cruzar nessas rotas. A exclusão é declarada
+    // linha por linha, com o motivo, e o gate exige o motivo escrito.
+
+    auto('POST', '/coaches/self-register', '/coaches/self-register',
+      { name: 'Treinadora QA Autocadastro', phone: '65999887766' },
+      'Qualquer conta autenticada se cadastra como treinadora, e o cadastro nasce PENDING por R-03: quem aprova é a administração central. O serviço grava `userId = actor.id` e não aceita id de terceiro — `Coach.userId` é UNIQUE, então a vaga ocupada é sempre a da própria conta.'),
+    auto('PATCH', '/coaches/me', '/coaches/me', { bio: 'Apresentação de QA.' },
+      'O treinador corrige os próprios dados de contato. O serviço resolve o cadastro por `actor.id`, e `status` não é campo aceito: mudar o estado é decisão central (R-03), não do interessado.'),
+
+    permissao('POST', '/coaches/:id/approve', `/coaches/${f.coachA}/approve`,
+      { reason: 'Documentação conferida (QA).' }, 'coaches.approve',
+      { escopoDePlataforma: true, porQue: 'Aprovar cadastro de treinador é ato da administração CENTRAL (R-03), e `Coach` não tem organização: não há federação de que o recurso seja.' }),
+    permissao('POST', '/coaches/:id/reject', `/coaches/${f.coachA}/reject`,
+      { reason: 'Documentação insuficiente (QA).' }, 'coaches.approve',
+      { escopoDePlataforma: true, porQue: 'Mesma decisão central de R-03, sobre o mesmo cadastro global.' }),
+    permissao('POST', '/coaches/:id/suspend', `/coaches/${f.coachA}/suspend`,
+      { reason: 'Suspensão de QA.' }, 'coaches.approve',
+      { escopoDePlataforma: true, porQue: 'Mesma decisão central de R-03, sobre o mesmo cadastro global.' }),
+    permissao('POST', '/coaches/:id/reactivate', `/coaches/${f.coachA}/reactivate`,
+      { reason: 'Reativação de QA.' }, 'coaches.approve',
+      { escopoDePlataforma: true, porQue: 'Mesma decisão central de R-03, sobre o mesmo cadastro global.' }),
+    permissao('POST', '/coaches/:id/cancel', `/coaches/${f.coachA}/cancel`,
+      { reason: 'Encerramento de QA.' }, 'coaches.approve',
+      { escopoDePlataforma: true, porQue: 'Mesma decisão central de R-03, sobre o mesmo cadastro global.' }),
+
+    // A AUTORIZAÇÃO POR FEDERAÇÃO, ao contrário, TEM tenant: é exatamente a
+    // metade do módulo que separa identidade global de atuação local (R-04). A
+    // organização vem do corpo, e `perm(..., orgDoCorpo)` a confere antes de
+    // qualquer leitura.
+    permissao('POST', '/coaches/:id/organizations', `/coaches/${f.coachA}/organizations`,
+      { organizationId: f.orgA, reason: 'Autorização de QA.' }, 'coaches.authorize_org'),
+    permissao('POST', '/coaches/:id/organizations/revoke', `/coaches/${f.coachA}/organizations/revoke`,
+      { organizationId: f.orgA, reason: 'Revogação de QA.' }, 'coaches.authorize_org'),
+
+    // Documentos da análise cadastral. Enviar é do treinador ou da mesa; para
+    // quem não é nem um nem outro, é `coaches.approve` — e o cadastro é global,
+    // como acima.
+    permissao('POST', '/coaches/:id/documents', `/coaches/${f.coachA}/documents`, null, 'coaches.approve',
+      { arquivo: 'file', escopoDePlataforma: true, porQue: 'O documento pertence ao cadastro GLOBAL do treinador; não há organização dona dele.' }),
+    permissao('DELETE', '/documents/coach/:id', `/documents/coach/${f.documentoDoCoachA}`, null, 'coaches.approve',
+      { escopoDePlataforma: true, porQue: 'Mesmo documento do cadastro global — a leitura e a remoção são da mesa central por R-05.' }),
+
+    // ------------------------------------------------ solicitação de vínculo
+    //
+    // A busca por matrícula TEM tenant: a organização vem do corpo e o atleta é
+    // dela. É a rota mais varrível do módulo, e por isso tem teto próprio.
+    permissao('POST', '/athletes/lookup-affiliation', '/athletes/lookup-affiliation',
+      { organizationId: f.orgA, affiliationNumber: '9001' }, 'athletes.lookup_affiliation'),
+    permissao('POST', '/team-membership-requests', '/team-membership-requests',
+      { athleteId: f.athleteSemEquipe, teamId: f.teamA }, 'teams.request_membership'),
+
+    auto('POST', '/team-membership-requests/:id/confirm', `/team-membership-requests/${f.pedidoDeVinculoDoDono}/confirm`, null,
+      'Confirmar o vínculo é ato do PRÓPRIO atleta — é a confirmação dele que autoriza o vínculo, e é por isso que enviar solicitação não vincula ninguém. A autorização é por titularidade da conta (`Athlete.userId === actor.id`), conferida dentro de `membershipService.vincularPorConfirmacao`, junto da escrita. O limite prova que o pedido dirigido a outra pessoa não é alcançável nem com o id na mão.',
+      { alheio: () => `/team-membership-requests/${f.pedidoDeVinculoAlheio}/confirm` }),
+    auto('POST', '/team-membership-requests/:id/reject', `/team-membership-requests/${f.pedidoDeVinculoDoDono}/reject`,
+      { reason: 'Não aceito (QA).' },
+      'Recusar é o outro lado do mesmo ato do atleta, com a mesma titularidade. A recusa fica registrada: recusa é informação, não silêncio.',
+      { alheio: () => `/team-membership-requests/${f.pedidoDeVinculoAlheio}/reject` }),
+
+    // Cancelar é do SOLICITANTE. Para quem não é solicitante nem treinador do
+    // pedido, o serviço exige `athletes.update` na federação da equipe — que é
+    // permissão de operador, com tenant.
+    permissao('POST', '/team-membership-requests/:id/cancel', `/team-membership-requests/${f.pedidoDeVinculoAlheio}/cancel`,
+      { reason: 'Cancelamento de QA.' }, 'athletes.update',
+      { recusasExtras: [404], porQue: 'MEDIDO: a recusa chega como 404, e não 403, porque `TeamMembershipRequest` tem RLS de linha — o pedido só é visível ao atleta dele, ao treinador da equipe, ao operador da federação e ao administrador da plataforma. Para quem não é nenhum dos quatro a linha não existe, e a rota não confirma que o id é válido. É a mesma não divulgação das rotas de lote de importação.' }),
+
+    // A APROVAÇÃO POR DECISÃO ADMINISTRATIVA substitui a vontade do atleta, e
+    // por isso exige `athletes.transfer` — que desde R-02 nenhum papel recebe
+    // por construção, nem o diretor de evento nem o ADMIN de plataforma: só
+    // SUPER_ADMIN ou delegação central viva.
+    permissao('POST', '/team-membership-requests/:id/admin-approve', `/team-membership-requests/${f.pedidoDeVinculoAlheio}/admin-approve`,
+      { reason: 'Atleta sem conta na plataforma; vínculo registrado por decisão formal (QA).' }, 'athletes.transfer',
+      { recusasExtras: [404], porQue: 'Mesma RLS de linha do pedido: quem não o vê recebe 404, e a decisão administrativa nem chega a ser avaliada.' }),
+
+    // ------------------------------------------------- delegação central (R-02)
+    permissao('POST', '/central-authorizations', '/central-authorizations',
+      { userId: f.atletaB.id, permission: 'athletes.transfer', reason: 'Delegação formal de QA.' }, 'central.grant',
+      { escopoDePlataforma: true, porQue: 'A delegação central não é recurso de federação: o escopo de organização é um CAMPO opcional dela, e a permissão de conceder é da administração central. Não há tenant a cruzar.' }),
+    permissao('POST', '/central-authorizations/:id/revoke', `/central-authorizations/${f.concessaoCentralA}/revoke`,
+      { reason: 'Revogação de QA.' }, 'central.grant',
+      { escopoDePlataforma: true, porQue: 'A mesma concessão central da linha acima: revogar é o outro lado do mesmo ato, e o recurso continua não pertencendo a federação nenhuma.' }),
 
     // ----------------------------------------------------------------- social
     social('PATCH', '/social/me', '/social/me', { displayName: 'Perfil QA' },

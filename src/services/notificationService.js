@@ -19,7 +19,22 @@ const TYPES = Object.freeze({
   REGISTRATION_CANCELLED: 'REGISTRATION_CANCELLED',
   CHECKIN: 'CHECKIN',
   PRO_STATUS: 'PRO_STATUS',
-  MODERATION: 'MODERATION'
+  MODERATION: 'MODERATION',
+  // ------------------------------------------- módulo Treinadores & Equipes
+  // Os 16 tipos anteriores não cobriam nenhum destes fluxos: não havia
+  // aprovação cadastral de treinador, nem pedido de vínculo dirigido ao
+  // atleta, nem concessão de delegação. Tipo genérico deixaria a tela sem
+  // saber para onde levar a pessoa — o `type` é o que decide o destino.
+  COACH_APPROVED: 'COACH_APPROVED',
+  COACH_REJECTED: 'COACH_REJECTED',
+  COACH_SUSPENDED: 'COACH_SUSPENDED',
+  COACH_ORG_AUTHORIZED: 'COACH_ORG_AUTHORIZED',
+  // Chega ao ATLETA: um treinador pediu para incluí-lo na equipe.
+  MEMBERSHIP_REQUEST: 'MEMBERSHIP_REQUEST',
+  // Chegam ao TREINADOR: a resposta do atleta.
+  MEMBERSHIP_CONFIRMED: 'MEMBERSHIP_CONFIRMED',
+  MEMBERSHIP_REJECTED: 'MEMBERSHIP_REJECTED',
+  CENTRAL_AUTHORIZATION: 'CENTRAL_AUTHORIZATION'
 });
 
 async function list(userId, { onlyUnread = false, limit = 50 } = {}) {
