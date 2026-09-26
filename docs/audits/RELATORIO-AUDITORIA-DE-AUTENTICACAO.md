@@ -257,7 +257,7 @@ Quatro provas independentes, todas verificáveis por quem revisar:
 - Ramo: `claude/mci-platform-muscle-contest-o6haz9`
 - Commits locais anteriores, preservados: `8906cff`, `8536d29` (módulo
   Treinadores & Equipes), `95979aa`, `df66f83` (QA visual)
-- Commit desta correção: **COMMIT_DESTA_FASE**
+- Commit desta correção: **`9256c86`**
 
 **Nada foi publicado.** Sem `push`, sem PR, sem merge, sem release, sem deploy.
 Nenhuma migration aplicada em produção — nem existe migration nesta correção.
