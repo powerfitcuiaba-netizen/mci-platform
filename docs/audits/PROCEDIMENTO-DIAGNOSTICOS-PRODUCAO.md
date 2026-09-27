@@ -197,16 +197,20 @@ A saída esperada é **vazia** — e conferida assim nesta sessão. O parêntese
 é detalhe: sem ele, `c.createdAt` casa com `create` e a conferência acusa uma escrita que não
 existe. Um comando de verificação que dá falso positivo treina quem revisa a ignorá-lo.
 
-**Camada 2 — o banco recusa escrever.** Rode com a sessão marcada como somente leitura,
-acrescentando à URL de conexão:
+**Camada 2 — o banco recusa escrever.** Rode com a sessão marcada como somente leitura. O
+separador depende de a URL já ter query string, e a forma abaixo resolve isso **sem imprimir a
+URL**:
 
 ```
-?options=-c%20default_transaction_read_only%3Don
+SEP=$([ "${DATABASE_URL#*\?}" != "$DATABASE_URL" ] && echo '&' || echo '?')
+DATABASE_URL="${DATABASE_URL}${SEP}options=-c%20default_transaction_read_only%3Don" \
+  node scripts/diagnostico-treinadores-legados.js
 ```
 
-Testado nesta sessão: a leitura funciona normalmente e qualquer `UPDATE` é recusado pelo
-PostgreSQL com `ERROR: cannot execute UPDATE in a read-only transaction` (código `25006`). Não
-depende de o script se comportar bem — é o servidor que recusa.
+Testado nesta sessão, nas duas formas de URL (com e sem `?`): a leitura funciona normalmente,
+`set_config('mci.user_id', …, true)` continua funcionando — ele não é escrita de dado —, e
+qualquer `UPDATE` é recusado pelo PostgreSQL. Não depende de o script se comportar bem: é o
+servidor que recusa.
 
 **Camada 3 — a trilha.** Os scripts não gravam auditoria porque não fazem ato administrativo. O
 registro do que foi consultado é a saída guardada (seção 7), com data, hora e quem rodou.
@@ -216,6 +220,17 @@ registro do que foi consultado é a saída guardada (seção 7), com data, hora 
 ## 6. Como executar sem expor credenciais
 
 **Regra:** a `DATABASE_URL` **nunca** é digitada, colada, ecoada ou passada por argumento.
+
+### Pré-requisitos — conferidos no repositório
+
+| Requisito | Situação |
+| --- | --- |
+| Os scripts existem na imagem | **sim** — o `Dockerfile` faz `COPY scripts ./scripts` |
+| Diretório de trabalho | `/app`, com `/app/scripts/...` |
+| `@prisma/client` gerado | **sim** — `npx prisma generate` roda no build |
+| `DATABASE_URL` no ambiente | **sim** — é a mesma que a API usa |
+| Permissão de banco | a **mesma** da aplicação: usuário `mci`, sem `SUPERUSER` e sem `BYPASSRLS`. Nenhum privilégio novo é pedido |
+| Usuário do processo | `node` (uid 1000), não root |
 
 ### Caminho recomendado — Shell do serviço `mci-api` no Render
 
@@ -249,6 +264,17 @@ DATABASE_URL="$DATABASE_URL?options=-c%20default_transaction_read_only%3Don" \
 
 — a variável é **referenciada**, não escrita, e não aparece na tela. Confira antes se a
 `DATABASE_URL` já tem `?`; se tiver, troque `?` por `&`.
+
+### O RISCO DE RODAR FORA DO CONTÊINER
+
+`require('@prisma/client')` carrega o arquivo `.env` para dentro de `process.env`. Consequência
+medida: numa máquina de desenvolvimento com `.env` presente, rodar com `DATABASE_URL` ausente do
+ambiente **não falha** — o script conecta no banco do `.env` e imprime números perfeitamente
+plausíveis **de outro banco**. A saída não diz qual base foi lida.
+
+Em produção isso não acontece: `.env` está no `.dockerignore` (linhas 16–17) e não entra na
+imagem, então a variável de ambiente é a única fonte. Mas é mais uma razão para rodar **no Shell
+do serviço**, e não da sua máquina.
 
 ### O que NÃO fazer
 
