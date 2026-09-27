@@ -119,7 +119,10 @@ describe('o cadastro de Treinador (Equipe) exige a área de treinador', () => {
 
     const pedido = await pedirCadastro(treinador, 'Treinador Novo');
     expect(pedido.status, JSON.stringify(pedido.body)).toBe(201);
-    expect(pedido.body.status, 'quem decide o estado é a administração central (R-03)').toBe('PENDING');
+    // APPROVED, e não PENDING: a decisão que substituiu a análise central. O que
+    // NÃO mudou está medido em `aprovacao-automatica-de-treinador.test.mjs` —
+    // aprovar cadastro continua não autorizando atuação em federação nenhuma.
+    expect(pedido.body.status, 'o cadastro novo nasce aprovado').toBe('APPROVED');
 
     // A metade que faltava: o pedido tem de ser legível por quem o fez.
     const leitura = await api().get('/api/v1/coaches/me').set(treinador.auth());

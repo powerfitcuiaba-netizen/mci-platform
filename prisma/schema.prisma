@@ -68,14 +68,14 @@ model Organization {
   athleteProfileRequests  AthleteProfileRequest[]
   athleteNotices          AthleteNotice[]
 
+  /// A identidade técnica desta federação. Uma, ou nenhuma.
+  contaDeServico        User?                  @relation("ContaDeServicoDaFederacao")
+  // ------------------------------------------------- módulo Treinadores
+  coachAuthorizations   CoachOrganization[]
+  centralAuthorizations CentralAuthorization[]
+
   @@index([active])
   @@index([selfRegistrationOpen])
-
-  /// A identidade técnica desta federação. Uma, ou nenhuma.
-  contaDeServico User? @relation("ContaDeServicoDaFederacao")
-  // ------------------------------------------------- módulo Treinadores
-  coachAuthorizations  CoachOrganization[]
-  centralAuthorizations CentralAuthorization[]
 }
 
 model OrganizationMember {
@@ -145,18 +145,18 @@ enum UserStatus {
 }
 
 model User {
-  id           String     @id @default(cuid())
-  name         String
-  email        String     @unique
-  passwordHash String
-  status       UserStatus @default(ACTIVE)
+  id                    String        @id @default(cuid())
+  name                  String
+  email                 String        @unique
+  passwordHash          String
+  status                UserStatus    @default(ACTIVE)
   /// Marca a identidade técnica. O login recusa quem a tem, e o cadastro
   /// aberto nunca a produz.
-  isServiceAccount Boolean @default(false)
+  isServiceAccount      Boolean       @default(false)
   /// A federação que esta identidade representa — UMA, e única no sistema.
   /// Não é convenção: há índice único e restrição de coerência no banco, de
   /// modo que conta de serviço sem organização (ou com duas) não existe.
-  serviceOrganizationId String? @unique
+  serviceOrganizationId String?       @unique
   serviceOrganization   Organization? @relation("ContaDeServicoDaFederacao", fields: [serviceOrganizationId], references: [id], onDelete: Cascade)
 
   // Cadastro completo. TUDO opcional: as contas que já existem foram criadas
@@ -227,15 +227,15 @@ model User {
   membershipsEnded              AthleteTeamMembership[]  @relation("MembershipEndedBy")
 
   // ------------------------------------------------- módulo Treinadores
-  coachesReviewed               Coach[]                  @relation("CoachReviewer")
-  coachDocumentsUploaded        CoachDocument[]           @relation("CoachDocumentUploader")
-  coachOrgsGranted              CoachOrganization[]       @relation("CoachOrgGrantedBy")
-  coachOrgsRevoked              CoachOrganization[]       @relation("CoachOrgRevokedBy")
-  membershipRequestsMade        TeamMembershipRequest[]    @relation("MembershipRequestedBy")
-  membershipRequestsDecided     TeamMembershipRequest[]    @relation("MembershipDecidedBy")
-  centralGrantsReceived         CentralAuthorization[]     @relation("CentralGrantee")
-  centralGrantsGiven            CentralAuthorization[]     @relation("CentralGrantor")
-  centralGrantsRevoked          CentralAuthorization[]     @relation("CentralRevoker")
+  coachesReviewed           Coach[]                 @relation("CoachReviewer")
+  coachDocumentsUploaded    CoachDocument[]         @relation("CoachDocumentUploader")
+  coachOrgsGranted          CoachOrganization[]     @relation("CoachOrgGrantedBy")
+  coachOrgsRevoked          CoachOrganization[]     @relation("CoachOrgRevokedBy")
+  membershipRequestsMade    TeamMembershipRequest[] @relation("MembershipRequestedBy")
+  membershipRequestsDecided TeamMembershipRequest[] @relation("MembershipDecidedBy")
+  centralGrantsReceived     CentralAuthorization[]  @relation("CentralGrantee")
+  centralGrantsGiven        CentralAuthorization[]  @relation("CentralGrantor")
+  centralGrantsRevoked      CentralAuthorization[]  @relation("CentralRevoker")
 
   @@index([role])
   @@index([status])
@@ -259,18 +259,18 @@ model User {
 // concessão para si mesmo. `central.grant` não é delegável por esta tabela, para
 // que a cadeia termine em `SUPER_ADMIN`.
 model CentralAuthorization {
-  id          String    @id @default(cuid())
-  userId      String
-  permission  String
+  id             String    @id @default(cuid())
+  userId         String
+  permission     String
   // Escopo NULO = todas as federações. Escopo com organização = só ela.
   organizationId String?
-  reason      String
-  grantedById String
-  grantedAt   DateTime  @default(now())
-  expiresAt   DateTime?
-  revokedById String?
-  revokedAt   DateTime?
-  revokeReason String?
+  reason         String
+  grantedById    String
+  grantedAt      DateTime  @default(now())
+  expiresAt      DateTime?
+  revokedById    String?
+  revokedAt      DateTime?
+  revokeReason   String?
 
   user         User          @relation("CentralGrantee", fields: [userId], references: [id], onDelete: Cascade)
   grantedBy    User          @relation("CentralGrantor", fields: [grantedById], references: [id], onDelete: Restrict)
@@ -646,17 +646,17 @@ model Team {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization  Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  company       Company?                @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  organization       Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  company            Company?                @relation(fields: [companyId], references: [id], onDelete: SetNull)
   // O treinador responsável pela equipe. É por aqui que as duas metades do
   // módulo se ligam: a identidade global vive em `Coach`, o escopo de federação
   // vive em `Team.organizationId`, e nada é duplicado.
-  coach         Coach?                  @relation(fields: [coachId], references: [id], onDelete: SetNull)
-  athletes      Athlete[]
-  socialProfile SocialProfile?
-  sponsorships  Sponsorship[]
-  rankingPoints RankingPoint[]
-  memberships   AthleteTeamMembership[]
+  coach              Coach?                  @relation(fields: [coachId], references: [id], onDelete: SetNull)
+  athletes           Athlete[]
+  socialProfile      SocialProfile?
+  sponsorships       Sponsorship[]
+  rankingPoints      RankingPoint[]
+  memberships        AthleteTeamMembership[]
   membershipRequests TeamMembershipRequest[]
 
   @@unique([organizationId, name])
@@ -690,18 +690,34 @@ model Coach {
   email           String?
   reviewedById    String?
   reviewedAt      DateTime?
+  /// APROVADO PELA REGRA, e não por pessoa — a decisão que mudou R-03.
+  ///
+  /// O cadastro novo de Treinador (Equipe) nasce APPROVED e entra na hora.
+  /// Preenchida, esta coluna diz que não houve análise humana; nula num cadastro
+  /// aprovado diz que houve, e `reviewedById` aponta quem.
+  ///
+  /// Ela também é o que separa "aprovado pela regra" de "aprovado pela migration
+  /// 20260926020000" — o legado do achado A-05, que `20260927030000` devolve a
+  /// PENDING pelo predicado `reviewedById IS NULL AND reviewedAt IS NULL`. A
+  /// aprovação automática preenche `reviewedAt` junto, justamente para ficar
+  /// fora daquele predicado; sem isso o legado derrubaria treinador legítimo.
+  autoApprovedAt  DateTime?
   rejectionReason String?
   suspendedReason String?
 
-  user          User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
-  reviewedBy    User?          @relation("CoachReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
-  athletes      Athlete[]
-  socialProfile SocialProfile?
-  documents     CoachDocument[]
-  organizations CoachOrganization[]
-  teams         Team[]
+  user               User?                   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  reviewedBy         User?                   @relation("CoachReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  athletes           Athlete[]
+  socialProfile      SocialProfile?
+  documents          CoachDocument[]
+  organizations      CoachOrganization[]
+  teams              Team[]
   membershipRequests TeamMembershipRequest[]
 
+  // O índice de `autoApprovedAt` é PARCIAL e vive só na migration
+  // 20260927040000 — o Prisma não expressa `WHERE` em `@@index`, e declarar um
+  // índice cheio aqui faria o schema pedir a recriação do parcial em toda
+  // migração seguinte. Mesma convenção de `RankingPoint_voidedAt_idx`.
   @@index([status])
 }
 

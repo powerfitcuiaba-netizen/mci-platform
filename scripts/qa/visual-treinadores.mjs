@@ -179,7 +179,8 @@ async function semear() {
     metodo: 'POST', token: tokenTreinador,
     corpo: { name: 'QA Treinadora Marta', registration: 'CREF-QA-9999', phone: '65999887766' }
   });
-  await chamar(`/coaches/${cadastro.id}/approve`, { metodo: 'POST', token: tokenAdmin, corpo: { reason: 'Documentação conferida (QA).' } });
+  // O cadastro já nasce APROVADO desde a decisão que substituiu a análise
+  // central: chamar `approve` aqui devolveria 422 `COACH_STATUS_UNCHANGED`.
   await chamar(`/coaches/${cadastro.id}/organizations`, {
     metodo: 'POST', token: tokenDiretor, corpo: { organizationId: org.id, reason: 'Atuação autorizada (QA).' }
   });

@@ -120,6 +120,20 @@ export function errosDaEtapa(etapa, form) {
   if (etapa === 2) {
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email || '')) erros.email = 'form.erro.email';
     if ((form.password || '').length < 8) erros.password = 'form.erro.senha';
+    // A CONFIRMAÇÃO DE SENHA É VALIDADA AQUI, e só aqui — ela NUNCA viaja.
+    //
+    // `corpoDoCadastro` monta o corpo campo por campo e não inclui
+    // `passwordConfirm`: a confirmação existe para a pessoa não errar a digitação,
+    // não para o servidor conferir. Mandá-la seria transportar a mesma senha duas
+    // vezes pela rede e gravá-la duas vezes no log de requisição de quem tiver
+    // um, sem ganhar segurança nenhuma.
+    //
+    // A ordem importa: quando a senha é curta, o erro que a pessoa precisa ler é
+    // o da política, e não "as senhas não coincidem" — ela ainda vai trocar as
+    // duas. Por isso a divergência só acusa depois que a senha é válida.
+    if ((form.password || '').length >= 8 && form.password !== (form.passwordConfirm ?? '')) {
+      erros.passwordConfirm = 'form.erro.senhaConfirmacao';
+    }
     if (!telefoneValido(form.phone)) erros.phone = 'form.erro.telefone';
     if (!telefoneValido(form.whatsapp)) erros.whatsapp = 'form.erro.whatsapp';
   }

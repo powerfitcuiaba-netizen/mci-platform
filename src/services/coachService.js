@@ -47,7 +47,7 @@ const TRANSICOES = Object.freeze({
 const SELECT_MEU_CADASTRO = Object.freeze({
   id: true, name: true, status: true, registration: true, bio: true,
   phone: true, email: true, userId: true,
-  reviewedAt: true, rejectionReason: true, suspendedReason: true,
+  reviewedAt: true, autoApprovedAt: true, rejectionReason: true, suspendedReason: true,
   createdAt: true, updatedAt: true,
   organizations: {
     select: {
@@ -131,6 +131,32 @@ async function autocadastro(data, actor) {
       { coachId: existente.id, status: existente.status });
   }
 
+  // ========================================================================
+  // O CADASTRO NASCE APROVADO — a decisão que mudou R-03.
+  //
+  // R-03 dizia que só a administração central aprova cadastro de treinador. A
+  // decisão nova retira a análise manual do caminho do cadastro NOVO: quem
+  // preenche o formulário corretamente entra no sistema na hora, sem fila.
+  //
+  // O QUE ISSO **NÃO** CONCEDE, e é a metade que não mudou:
+  //
+  //   * atuar numa federação continua exigindo `CoachOrganization` concedida
+  //     PELA FEDERAÇÃO — R-04, intacta. Treinador aprovado e sem autorização não
+  //     recebe equipe, não convida atleta em federação nenhuma;
+  //   * as permissões do papel continuam as cinco de sempre;
+  //   * suspender, encerrar e reativar continuam sendo ato da central.
+  //
+  // POR QUE `autoApprovedAt` E `reviewedAt` JUNTOS
+  //
+  // `reviewedById` fica NULO porque não houve pessoa — inventar um revisor seria
+  // mentir na trilha. Mas APENAS status + nulos é exatamente a assinatura do
+  // legado do achado A-05, que a migration 20260927030000 devolve a PENDING pelo
+  // predicado `reviewedById IS NULL AND reviewedAt IS NULL`. Gravar `reviewedAt`
+  // tira a linha daquele predicado, e `autoApprovedAt` diz POR QUE ela está
+  // fora: decidida pela regra, neste instante, por ninguém.
+  // ========================================================================
+  const agora = new Date();
+
   let coach;
   try {
     coach = await prisma.coach.create({
@@ -141,7 +167,9 @@ async function autocadastro(data, actor) {
         bio: data.bio ?? null,
         phone: data.phone ?? null,
         email: data.email ?? null,
-        status: 'PENDING'
+        status: 'APPROVED',
+        reviewedAt: agora,
+        autoApprovedAt: agora
       },
       select: SELECT_MEU_CADASTRO
     });
@@ -155,9 +183,27 @@ async function autocadastro(data, actor) {
     throw error;
   }
 
+  // DUAS LINHAS DE TRILHA, porque foram dois fatos.
+  //
+  // O cadastro e a aprovação acontecem no mesmo instante, mas continuam sendo
+  // coisas diferentes: uma auditoria que registrasse só `COACH_REGISTER` faria a
+  // aprovação automática desaparecer do histórico, e quem lesse depois não teria
+  // como saber que o estado APPROVED não passou por pessoa.
+  //
+  // `actor` é o próprio treinador nos dois registros — é ele quem age. `automatic`
+  // no metadado é o que diz que a decisão não foi dele nem de ninguém: foi a regra.
   await audit.record({
     actor, action: audit.ACTIONS.COACH_REGISTER, entity: 'Coach', entityId: coach.id,
-    metadata: { status: 'PENDING' }
+    metadata: { status: 'APPROVED' }
+  });
+  await audit.record({
+    actor, action: audit.ACTIONS.COACH_APPROVE, entity: 'Coach', entityId: coach.id,
+    metadata: {
+      automatic: true,
+      from: 'PENDING',
+      to: 'APPROVED',
+      reason: 'Aprovação automática do cadastro no autocadastro (decisão que substituiu a análise central).'
+    }
   });
 
   return coach;

@@ -7,6 +7,7 @@ import {
   errosDaEtapa, corpoDoCadastro
 } from '../lib/formulario';
 import { useIdioma, TextoRico } from '../lib/idioma';
+import { Eye, EyeOff } from 'lucide-react';
 
 // ============================================================================
 // CADASTRO COMPLETO — assistente de 5 etapas.
@@ -37,7 +38,7 @@ const TOTAL = ETAPAS.length;
 
 const INICIAL = {
   name: '', birthDate: '', role: 'ATHLETE',
-  email: '', password: '', phone: '', whatsapp: '',
+  email: '', password: '', passwordConfirm: '', phone: '', whatsapp: '',
   postalCode: '', addressLine: '', addressNumber: '', addressComplement: '', state: '', city: ''
 };
 
@@ -71,6 +72,30 @@ function Erro({ id, texto }) {
   return <small id={id} className="campo-erro" role="alert">{t(texto)}</small>;
 }
 
+// MOSTRAR / OCULTAR SENHA.
+//
+// `type="button"` é obrigatório: dentro de um <form>, um <button> sem type é
+// `submit` por padrão — clicar no olho enviaria o cadastro.
+//
+// `tabIndex={-1}` NÃO está aqui de propósito. Tirar o botão da ordem de
+// tabulação esconderia de quem navega por teclado justamente o recurso que
+// existe para conferir a digitação. Ele é alcançável, e o `aria-pressed` diz em
+// que estado está — um rótulo que só muda de texto não informa leitor de tela
+// sobre alternância.
+function BotaoDeSenha({ visivel, aoAlternar }) {
+  const { t } = useIdioma();
+  const rotulo = t(visivel ? 'cadastro.ocultarSenha' : 'cadastro.mostrarSenha');
+
+  return (
+    <button
+      type="button" className="button button-ghost button-sm"
+      onClick={aoAlternar} aria-pressed={visivel} aria-label={rotulo} title={rotulo}
+    >
+      {visivel ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+    </button>
+  );
+}
+
 export default function CadastroWizard({ aoVoltarParaEntrada }) {
   const { t } = useIdioma();
   const { register } = useAuth();
@@ -80,6 +105,11 @@ export default function CadastroWizard({ aoVoltarParaEntrada }) {
   const [erroGeral, setErroGeral] = useState(null);
   const [enviando, setEnviando] = useState(false);
   const [cep, setCep] = useState({ estado: 'parado', mensagem: null });
+  // VISIBILIDADE SEPARADA POR CAMPO. Um estado só para os dois faria o olho de um
+  // revelar o outro — e quem quer conferir se digitou igual precisa justamente de
+  // olhar um campo por vez.
+  const [senhaVisivel, setSenhaVisivel] = useState(false);
+  const [confirmacaoVisivel, setConfirmacaoVisivel] = useState(false);
 
   const titulo = useRef(null);
   // `enviado` trava o envio DUPLO por fora do estado: `setEnviando` é
@@ -236,14 +266,37 @@ export default function CadastroWizard({ aoVoltarParaEntrada }) {
               </Field>
               <Erro id="erro-email" texto={erros.email} />
 
-              <Field label={t('cadastro.senha')} required hint={t('cadastro.senhaHint')}>
-                <input
-                  type="password" value={form.password} onChange={e => campo('password', e.target.value)}
-                  autoComplete="new-password"
-                  aria-invalid={!!erros.password} aria-describedby={erros.password ? 'erro-password' : undefined}
-                />
-              </Field>
+              {/* O BOTÃO FICA FORA DO `Field`, e não é estilo.
+                  `Field` envolve o conteúdo inteiro num <label>, e <button> é
+                  elemento ROTULÁVEL: dentro do label a associação fica ambígua e
+                  o clique no olho aciona o label junto. Irmão do campo, ele é só
+                  um botão — e o alinhamento com o input é do CSS. */}
+              <div className="campo-com-acao">
+                <Field label={t('cadastro.senha')} required hint={t('cadastro.senhaHint')}>
+                  <input
+                    type={senhaVisivel ? 'text' : 'password'}
+                    value={form.password} onChange={e => campo('password', e.target.value)}
+                    autoComplete="new-password"
+                    aria-invalid={!!erros.password} aria-describedby={erros.password ? 'erro-password' : undefined}
+                  />
+                </Field>
+                <BotaoDeSenha visivel={senhaVisivel} aoAlternar={() => setSenhaVisivel(v => !v)} />
+              </div>
               <Erro id="erro-password" texto={erros.password} />
+
+              <div className="campo-com-acao">
+                <Field label={t('cadastro.confirmarSenha')} required>
+                  <input
+                    type={confirmacaoVisivel ? 'text' : 'password'}
+                    value={form.passwordConfirm} onChange={e => campo('passwordConfirm', e.target.value)}
+                    autoComplete="new-password"
+                    aria-invalid={!!erros.passwordConfirm}
+                    aria-describedby={erros.passwordConfirm ? 'erro-passwordConfirm' : undefined}
+                  />
+                </Field>
+                <BotaoDeSenha visivel={confirmacaoVisivel} aoAlternar={() => setConfirmacaoVisivel(v => !v)} />
+              </div>
+              <Erro id="erro-passwordConfirm" texto={erros.passwordConfirm} />
 
               <div className="grade-dupla">
                 <div>

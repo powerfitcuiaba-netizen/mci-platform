@@ -2559,3 +2559,46 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
   .panel-head > div { min-width: 0; }
   .panel-head h2 { overflow-wrap: anywhere; }
 }
+
+/* ==========================================================================
+   CAMPO COM AÇÃO AO LADO — usado pelo mostrar/ocultar senha.
+   
+   `align-items: stretch` e não `center`: o botão precisa ter a MESMA altura do
+   input, senão o alvo de toque fica menor que o campo e, nas larguras de
+   telefone, cai abaixo dos 40px que o gate visual exige.
+   
+   O input leva `min-width: 0` porque item de flex não encolhe abaixo do
+   conteúdo por padrão: sem isso, em 360px o botão é empurrado para fora do
+   campo e o documento passa a rolar lateralmente.
+   ========================================================================== */
+.campo-com-acao {
+  display: flex;
+  /* `flex-end` e não `stretch`: o botão é irmão do CAMPO INTEIRO, que inclui o
+     texto do rótulo acima e a dica abaixo. Esticado, ele ficaria da altura dos
+     três e o olho cairia longe do input. Alinhado ao fim, ele encosta na base —
+     e como a dica fica DEPOIS do input dentro do label, o ajuste fino vem do
+     `margin-bottom` calculado abaixo. */
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.campo-com-acao > .field {
+  flex: 1 1 auto;
+  /* Item de flex não encolhe abaixo do conteúdo por padrão: sem isto, em 360px o
+     botão é empurrado para fora e o documento passa a rolar lateralmente. */
+  min-width: 0;
+}
+
+.campo-com-acao > .field > input {
+  width: 100%;
+}
+
+.campo-com-acao > .button {
+  flex: 0 0 auto;
+  /* Quadrado e com alvo confortável: o ícone sozinho não sustenta a área de
+     toque que um dedo precisa. */
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}

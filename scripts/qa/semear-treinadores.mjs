@@ -25,7 +25,7 @@
 //                           cadastro — a separação é o ponto do módulo
 //   Treinador (Equipe)      cadastro APROVADO, atuação autorizada, equipe
 //                           própria, atleta vinculado e convite pendente
-//   Treinador em análise     cadastro PENDING — para a fila de análise ter linha
+//   Treinador suspenso      cadastro SUSPENSO — para a central ter o que reativar
 //   Atleta                   com convite PENDENTE para confirmar, que é o ato
 //                           que cria o vínculo
 //   Delegado central         uma concessão VIVA com escopo e prazo, para a
@@ -147,22 +147,36 @@ async function principal() {
     metodo: 'POST', token: tokenTreinador,
     corpo: { name: 'QA Treinadora Marta', registration: 'CREF-QA-9999', phone: '65999887766' }
   });
-  // R-03: quem aprova o CADASTRO é a administração central.
-  await chamar(`/coaches/${cadastro.id}/approve`, {
-    metodo: 'POST', token: tokenCentral, corpo: { reason: 'Documentação conferida (QA).' }
-  });
-  // R-04: quem autoriza a ATUAÇÃO na federação é a federação.
+  // O CADASTRO JÁ NASCE APROVADO — a decisão que substituiu a análise central.
+  // Não há passo de aprovação a chamar aqui: `POST /coaches/:id/approve` devolveria
+  // 422 `COACH_STATUS_UNCHANGED`.
+  //
+  // R-04: quem autoriza a ATUAÇÃO na federação é a federação, e isso NÃO mudou.
   await chamar(`/coaches/${cadastro.id}/organizations`, {
     metodo: 'POST', token: tokenDiretor,
     corpo: { organizationId: org.id, reason: 'Atuação autorizada na federação (QA).' }
   });
 
-  // --------------------------------------------- O TREINADOR AINDA EM ANÁLISE
-  const pendente = await registrar('treinador.analise', 'Treinador Em Análise');
-  await definirPapel(pendente.user.id, 'COACH');
-  const tokenPendente = await entrar(pendente.user.email);
-  const cadastroPendente = await chamar('/coaches/self-register', {
-    metodo: 'POST', token: tokenPendente, corpo: { name: 'QA Treinador Em Analise' }
+  // ------------------------------------------------ O TREINADOR SUSPENSO
+  //
+  // ERA "EM ANÁLISE", E DEIXOU DE PODER SER. Com a aprovação automática, nenhum
+  // cadastro novo nasce PENDING, e não existe rota que devolva um APPROVED para
+  // análise — a máquina de estados não prevê essa volta. Montar um pendente aqui
+  // exigiria escrever no banco por fora das rotas, e este semeador não faz isso.
+  //
+  // A troca não é um consolo: SUSPENSO é justamente uma das decisões que
+  // CONTINUARAM humanas depois da mudança. O perfil existe para a administração
+  // central ter o que decidir na tela — reativar — e para o treinador suspenso
+  // poder conferir que a própria área fecha enquanto ele está suspenso.
+  const suspenso = await registrar('treinador.suspenso', 'Treinador Suspenso');
+  await definirPapel(suspenso.user.id, 'COACH');
+  const tokenSuspenso = await entrar(suspenso.user.email);
+  const cadastroSuspenso = await chamar('/coaches/self-register', {
+    metodo: 'POST', token: tokenSuspenso, corpo: { name: 'QA Treinador Suspenso' }
+  });
+  await chamar(`/coaches/${cadastroSuspenso.id}/suspend`, {
+    metodo: 'POST', token: tokenCentral,
+    corpo: { reason: 'Suspensão de QA, para a tela da central ter o que reativar.' }
   });
 
   // ------------------------------------------------------------- A EQUIPE
@@ -239,11 +253,11 @@ async function principal() {
   console.log(`TREINADORES_EMAIL_CENTRAL=${central.user.email}`);
   console.log(`TREINADORES_EMAIL_DIRETOR=${diretor.user.email}`);
   console.log(`TREINADORES_EMAIL_TREINADOR=${treinador.user.email}`);
-  console.log(`TREINADORES_EMAIL_PENDENTE=${pendente.user.email}`);
+  console.log(`TREINADORES_EMAIL_SUSPENSO=${suspenso.user.email}`);
   console.log(`TREINADORES_EMAIL_ATLETA=${atletaConta.user.email}`);
   console.log(`TREINADORES_EMAIL_DELEGADO=${delegado.user.email}`);
   console.log(`TREINADORES_COACH_APROVADO=${cadastro.id}`);
-  console.log(`TREINADORES_COACH_PENDENTE=${cadastroPendente.id}`);
+  console.log(`TREINADORES_COACH_SUSPENSO=${cadastroSuspenso.id}`);
   console.log(`TREINADORES_EQUIPE=${equipe.id}`);
   console.log('');
   console.log('=== MÓDULO TREINADORES & EQUIPES — CENÁRIO SEMEADO ===');
@@ -251,7 +265,7 @@ async function principal() {
   console.log(`  Administração Central ... ${central.user.email}`);
   console.log(`  Diretor de Federação ... ${diretor.user.email}`);
   console.log(`  Treinador (Equipe) ..... ${treinador.user.email}   cadastro APROVADO, atuação autorizada`);
-  console.log(`  Treinador em análise ... ${pendente.user.email}   cadastro PENDENTE`);
+  console.log(`  Treinador suspenso ..... ${suspenso.user.email}   cadastro SUSPENSO, para a central reativar`);
   console.log(`  Atleta ................. ${atletaConta.user.email}   convite PENDENTE para confirmar`);
   console.log(`  Delegado central ....... ${delegado.user.email}   delegação viva com escopo e prazo`);
   console.log('');

@@ -116,26 +116,35 @@ beforeAll(async () => {
     expect(r.status, JSON.stringify(r.body)).toBe(201);
     return r.body.id;
   };
-  const aprovar = async id => expect((await api().post(`/api/v1/coaches/${id}/approve`)
-    .set(ctx.central.auth()).send({ reason: 'Documentação conferida.' })).status).toBe(200);
+  // APROVAR DEIXOU DE SER PASSO: o autocadastro já nasce APPROVED desde a decisão
+  // que substituiu a análise central. Chamar `approve` aqui devolveria 422
+  // `COACH_STATUS_UNCHANGED`.
+  //
+  // O que precisou de caminho novo é o CONTRÁRIO: o perfil "treinador pendente"
+  // desta matriz não é mais criável pelo produto. Ele representa um cadastro
+  // feito ANTES da mudança, que ficou em análise e não foi aprovado
+  // retroativamente — e a única forma honesta de montar um estado que o produto
+  // não produz mais é escrevê-lo, dizendo que é isso que se está fazendo.
+  const voltarParaAnalise = async id => comoAtor(ctx.central, tx => tx.coach.update({
+    where: { id },
+    data: { status: 'PENDING', autoApprovedAt: null, reviewedAt: null }
+  }));
   const autorizar = async (id, org, diretor) => expect((await api().post(`/api/v1/coaches/${id}/organizations`)
     .set(diretor.auth()).send({ organizationId: org, reason: 'Atuação autorizada.' })).status).toBe(200);
 
   ctx.treinadorPendente = await criarUsuario({ role: 'COACH', name: 'Treinador Pendente' });
   ctx.coachPendente = await cadastrar(ctx.treinadorPendente, 'Treinador Pendente');
+  await voltarParaAnalise(ctx.coachPendente);
 
   ctx.treinadorSemOrg = await criarUsuario({ role: 'COACH', name: 'Treinador Sem Federação' });
   ctx.coachSemOrg = await cadastrar(ctx.treinadorSemOrg, 'Treinador Sem Federação');
-  await aprovar(ctx.coachSemOrg);
 
   ctx.treinadorSemEquipe = await criarUsuario({ role: 'COACH', name: 'Treinador Sem Equipe' });
   ctx.coachSemEquipe = await cadastrar(ctx.treinadorSemEquipe, 'Treinador Sem Equipe');
-  await aprovar(ctx.coachSemEquipe);
   await autorizar(ctx.coachSemEquipe, ctx.orgA, ctx.diretorA);
 
   ctx.treinador = await criarUsuario({ role: 'COACH', name: 'Treinadora Marta' });
   ctx.coachId = await cadastrar(ctx.treinador, 'Treinadora Marta');
-  await aprovar(ctx.coachId);
   await autorizar(ctx.coachId, ctx.orgA, ctx.diretorA);
   ctx.equipeA = (await api().post('/api/v1/teams').set(ctx.diretorA.auth())
     .send({ organizationId: ctx.orgA, name: unico('Equipe Marta') })).body;
@@ -144,7 +153,6 @@ beforeAll(async () => {
 
   ctx.treinadorDeB = await criarUsuario({ role: 'COACH', name: 'Treinador De B' });
   ctx.coachDeB = await cadastrar(ctx.treinadorDeB, 'Treinador De B');
-  await aprovar(ctx.coachDeB);
   await autorizar(ctx.coachDeB, ctx.orgB, ctx.diretorB);
   ctx.equipeB = (await api().post('/api/v1/teams').set(ctx.diretorB.auth())
     .send({ organizationId: ctx.orgB, name: unico('Equipe De B') })).body;

@@ -322,7 +322,7 @@ jobs:
             --admin-password "$SENHA_ADMIN" \
             --senha "$DEMO_PASSWORD" | tee /tmp/treinadores.log
 
-          for chave in CENTRAL DIRETOR TREINADOR PENDENTE ATLETA DELEGADO; do
+          for chave in CENTRAL DIRETOR TREINADOR SUSPENSO ATLETA DELEGADO; do
             linha="$(grep -oE "TREINADORES_EMAIL_${chave}=[^ ]+" /tmp/treinadores.log | head -1)"
             [ -n "$linha" ] || { echo "a semeadura não devolveu TREINADORES_EMAIL_${chave}" >&2; exit 1; }
             echo "$linha" >> "$GITHUB_ENV"
@@ -440,7 +440,7 @@ jobs:
             echo "| Administração Central | ${TREINADORES_EMAIL_CENTRAL} |"
             echo "| Diretor de Federação | ${TREINADORES_EMAIL_DIRETOR} |"
             echo "| Treinador (Equipe) — aprovado | ${TREINADORES_EMAIL_TREINADOR} |"
-            echo "| Treinador em análise | ${TREINADORES_EMAIL_PENDENTE} |"
+            echo "| Treinador suspenso | ${TREINADORES_EMAIL_SUSPENSO} |"
             echo "| Atleta com convite pendente | ${TREINADORES_EMAIL_ATLETA} |"
             echo "| Delegado central | ${TREINADORES_EMAIL_DELEGADO} |"
             echo
@@ -495,7 +495,7 @@ jobs:
           | Administração Central | ${TREINADORES_EMAIL_CENTRAL} | ${DEMO_PASSWORD} |
           | Diretor de Federação | ${TREINADORES_EMAIL_DIRETOR} | ${DEMO_PASSWORD} |
           | Treinador (Equipe) — cadastro **aprovado**, atuação autorizada | ${TREINADORES_EMAIL_TREINADOR} | ${DEMO_PASSWORD} |
-          | Treinador em análise — cadastro **pendente** | ${TREINADORES_EMAIL_PENDENTE} | ${DEMO_PASSWORD} |
+          | Treinador suspenso — para a central **reativar** | ${TREINADORES_EMAIL_SUSPENSO} | ${DEMO_PASSWORD} |
           | Atleta com **convite pendente** | ${TREINADORES_EMAIL_ATLETA} | ${DEMO_PASSWORD} |
           | Delegado central (delegação viva, com escopo e prazo) | ${TREINADORES_EMAIL_DELEGADO} | ${DEMO_PASSWORD} |
 

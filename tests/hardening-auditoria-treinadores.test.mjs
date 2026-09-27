@@ -69,9 +69,17 @@ beforeEach(async () => {
     .send({ organizationId: orgA, name: unico('Equipe Marta') })).body;
 });
 
+// A APROVAÇÃO DO CADASTRO SAIU DAS FIXTURES DESTE ARQUIVO.
+//
+// Ela passou a acontecer no próprio autocadastro — decisão que substituiu a
+// análise central. Chamar `POST /coaches/:id/approve` depois do autocadastro
+// agora devolve 422 `COACH_STATUS_UNCHANGED`, porque o cadastro JÁ está aprovado.
+//
+// O que continua medido aqui, e não mudou: a federação NÃO aprova cadastro
+// (403), autorizar atuação continua sendo ato dela, e suspender/reativar
+// continuam sendo da central. A aprovação automática e a fronteira que ela não
+// atravessa estão em `tests/aprovacao-automatica-de-treinador.test.mjs`.
 async function habilitarTreinador() {
-  expect((await api().post(`/api/v1/coaches/${coachId}/approve`).set(admin.auth())
-    .send({ reason: 'Documentação conferida.' })).status).toBe(200);
   expect((await api().post(`/api/v1/coaches/${coachId}/organizations`).set(diretorA.auth())
     .send({ organizationId: orgA, reason: 'Atuação autorizada.' })).status).toBe(200);
   expect((await api().post(`/api/v1/teams/${equipeA.id}/coach`).set(diretorA.auth())
@@ -472,8 +480,6 @@ describe('A-03: a leitura de atleta pelo treinador é estreitada e o limite fica
   it('treinador aprovado e autorizado mas SEM EQUIPE na federação não lê atleta nenhum dela', async () => {
     // Aprovado (R-03) e autorizado na federação A (R-04) — e nada mais. A equipe
     // NÃO é atribuída de propósito: é o estado do treinador recém-autorizado.
-    expect((await api().post(`/api/v1/coaches/${coachId}/approve`).set(admin.auth())
-      .send({ reason: 'Documentação conferida.' })).status).toBe(200);
     expect((await api().post(`/api/v1/coaches/${coachId}/organizations`).set(diretorA.auth())
       .send({ organizationId: orgA, reason: 'Atuação autorizada.' })).status).toBe(200);
 
@@ -543,8 +549,6 @@ describe('A-03: a leitura de atleta pelo treinador é estreitada e o limite fica
     expect(outro.status).toBe(201);
     // Responder por equipe exige cadastro aprovado (R-03) — o substituto passa
     // pela mesa central como qualquer outro.
-    expect((await api().post(`/api/v1/coaches/${outro.body.id}/approve`).set(admin.auth())
-      .send({ reason: 'Documentação conferida.' })).status).toBe(200);
     expect((await api().post(`/api/v1/coaches/${outro.body.id}/organizations`).set(diretorA.auth())
       .send({ organizationId: orgA, reason: 'Atuação autorizada.' })).status).toBe(200);
 
@@ -631,8 +635,6 @@ describe('A-05: o cadastro legado de treinador não fica aprovado por migration'
   );
 
   it('aprovar pela rota grava REVISOR e DATA — é o que protege o cadastro real', async () => {
-    expect((await api().post(`/api/v1/coaches/${coachId}/approve`).set(admin.auth())
-      .send({ reason: 'Documentação conferida.' })).status).toBe(200);
 
     const cadastro = await comoAtor(admin, tx => tx.coach.findUnique({
       where: { id: coachId }, select: { status: true, reviewedById: true, reviewedAt: true }
@@ -653,8 +655,6 @@ describe('A-05: o cadastro legado de treinador não fica aprovado por migration'
 
   it('o SQL da correção atinge o aprovado SEM revisor e NÃO toca o aprovado por pessoa', async () => {
     // Um cadastro aprovado por pessoa, pela rota real.
-    expect((await api().post(`/api/v1/coaches/${coachId}/approve`).set(admin.auth())
-      .send({ reason: 'Documentação conferida.' })).status).toBe(200);
 
     // E um cadastro no estado que a migration anterior produz: aprovado, sem
     // revisor, sem data — exatamente o `UPDATE` sem `WHERE`.
@@ -777,8 +777,6 @@ describe('F-04: a federação lista treinadores aprovados e autoriza a atuação
     api().get(`/api/v1/coaches/authorizable?organizationId=${organizationId}`).set(ator.auth());
 
   it('o diretor lista o treinador APROVADO e autoriza a atuação na própria federação', async () => {
-    expect((await api().post(`/api/v1/coaches/${coachId}/approve`).set(admin.auth())
-      .send({ reason: 'Documentação conferida.' })).status).toBe(200);
 
     const lista = await listar(diretorA, orgA);
     expect(lista.status, JSON.stringify(lista.body)).toBe(200);
@@ -797,8 +795,6 @@ describe('F-04: a federação lista treinadores aprovados e autoriza a atuação
   });
 
   it('a projeção é exatamente a necessária para decidir — e nada da análise cadastral', async () => {
-    expect((await api().post(`/api/v1/coaches/${coachId}/approve`).set(admin.auth())
-      .send({ reason: 'Documentação profissional conferida.' })).status).toBe(200);
 
     const lista = await listar(diretorA, orgA);
     const linha = lista.body.items.find(item => item.id === coachId);
@@ -838,8 +834,6 @@ describe('F-04: a federação lista treinadores aprovados e autoriza a atuação
   });
 
   it('o diretor da federação A não lista nem autoriza na federação B (R-04)', async () => {
-    expect((await api().post(`/api/v1/coaches/${coachId}/approve`).set(admin.auth())
-      .send({ reason: 'Documentação conferida.' })).status).toBe(200);
 
     expect((await listar(diretorA, orgB)).status, 'a lista de outra federação é recusada').toBe(403);
 
@@ -896,8 +890,6 @@ describe('F-04: a federação lista treinadores aprovados e autoriza a atuação
   it('a mesa central mantém todos os poderes — a correção não tirou nada dela', async () => {
     expect((await api().get('/api/v1/coaches/review?status=PENDING').set(admin.auth())).status).toBe(200);
     expect((await listar(admin, orgA)).status, 'a central também lê a lista da federação').toBe(200);
-    expect((await api().post(`/api/v1/coaches/${coachId}/approve`).set(admin.auth())
-      .send({ reason: 'Documentação conferida.' })).status).toBe(200);
     expect((await api().post(`/api/v1/coaches/${coachId}/organizations`).set(admin.auth())
       .send({ organizationId: orgA, reason: 'Autorização pela central.' })).status).toBe(200);
     expect((await api().get('/api/v1/central-authorizations').set(admin.auth())).status).toBe(200);

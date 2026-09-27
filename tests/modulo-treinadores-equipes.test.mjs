@@ -77,12 +77,19 @@ beforeEach(async () => {
     .send({ organizationId: orgA, name: unico('Equipe Marta') })).body;
 });
 
-/** Aprova o cadastro e autoriza a atuação na federação A. É o caminho feliz. */
+/**
+ * Autoriza a atuação na federação A e indica o responsável pela equipe. É o
+ * caminho feliz.
+ *
+ * A APROVAÇÃO DO CADASTRO SAIU DAQUI, e não porque deixou de importar: ela passou
+ * a acontecer no próprio autocadastro. Chamar `approve` aqui agora devolve 422
+ * `COACH_STATUS_UNCHANGED` — o cadastro já está aprovado quando esta função roda.
+ *
+ * O que continua sendo passo, e é o ponto do módulo: a federação autorizar a
+ * ATUAÇÃO. Aprovação automática de cadastro não autoriza ninguém a atuar em
+ * lugar nenhum (R-04).
+ */
 async function habilitarTreinador() {
-  const aprovacao = await api().post(`/api/v1/coaches/${coachId}/approve`).set(admin.auth())
-    .send({ reason: 'Documentação conferida.' });
-  expect(aprovacao.status, JSON.stringify(aprovacao.body)).toBe(200);
-
   const autorizacao = await api().post(`/api/v1/coaches/${coachId}/organizations`).set(diretorA.auth())
     .send({ organizationId: orgA, reason: 'Atuação autorizada na federação A.' });
   expect(autorizacao.status, JSON.stringify(autorizacao.body)).toBe(200);
@@ -93,8 +100,29 @@ async function habilitarTreinador() {
 }
 
 // ---------------------------------------------------------------------- R-03
-describe('R-03: quem aprova treinador é a administração central', () => {
-  it('o cadastro nasce PENDING, e o treinador não muda o próprio estado', async () => {
+//
+// R-03 MUDOU, E ESTE BLOCO MEDE O QUE SOBROU DELA.
+//
+// A aprovação do cadastro NOVO deixou de ser ato da administração central: ele
+// nasce APPROVED. Isso está medido em
+// `tests/aprovacao-automatica-de-treinador.test.mjs`, junto com a fronteira que a
+// mudança não atravessa — aprovar cadastro continua não autorizando atuação em
+// federação nenhuma.
+//
+// O que continua sendo da central, e é o que este bloco trava: rejeitar,
+// suspender, reativar, encerrar, a máquina de estados, e a análise dos cadastros
+// que ficaram PENDING antes da mudança. É por isso que o `beforeEach` abaixo
+// devolve o cadastro a PENDING: a máquina de estados que se quer medir parte de
+// lá, e o produto não produz mais esse estado sozinho.
+describe('R-03 revisada: o que continua sendo decisão da administração central', () => {
+  // O ESTADO LEGADO, escrito de propósito. Um cadastro que ficou em análise antes
+  // da mudança — e que a decisão nova NÃO aprovou retroativamente.
+  beforeEach(() => comoAtor(admin, tx => tx.coach.update({
+    where: { id: coachId },
+    data: { status: 'PENDING', autoApprovedAt: null, reviewedAt: null }
+  })));
+
+  it('o treinador não muda o próprio estado, nem mandando `status` no corpo', async () => {
     const meu = await api().get('/api/v1/coaches/me').set(contaTreinador.auth());
     expect(meu.status).toBe(200);
     expect(meu.body.status).toBe('PENDING');
@@ -147,10 +175,14 @@ describe('R-03: quem aprova treinador é a administração central', () => {
     await api().post(`/api/v1/coaches/${coachId}/approve`).set(admin.auth())
       .send({ reason: 'Documentação conferida.' });
 
-    const trilha = await comoAtor(admin, tx => tx.auditLog.findMany({ where: { action: 'COACH_APPROVE' } }));
-    expect(trilha).toHaveLength(1);
-    expect(trilha[0].metadata.de).toBe('PENDING');
-    expect(trilha[0].metadata.para).toBe('APPROVED');
+    // DUAS linhas de `COACH_APPROVE` existem agora: a do autocadastro, marcada
+    // `automatic: true`, e esta, tomada por pessoa. A que interessa aqui é a
+    // humana — filtrar pela ausência da marca é o que separa as duas.
+    const todas = await comoAtor(admin, tx => tx.auditLog.findMany({ where: { action: 'COACH_APPROVE' } }));
+    const humanas = todas.filter(linha => linha.metadata?.automatic !== true);
+    expect(humanas).toHaveLength(1);
+    expect(humanas[0].metadata.de).toBe('PENDING');
+    expect(humanas[0].metadata.para).toBe('APPROVED');
 
     const avisos = await api().get('/api/v1/notifications').set(contaTreinador.auth());
     expect(avisos.body.items.some(item => item.type === 'COACH_APPROVED')).toBe(true);

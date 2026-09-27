@@ -216,7 +216,9 @@ describe('painel do treinador', () => {
 
     render(<PainelDoTreinador notificar={vi.fn()} />);
     fireEvent.change(await screen.findByLabelText(/^Nome/i), { target: { value: 'Marta Treinadora' } });
-    fireEvent.click(screen.getByRole('button', { name: /Enviar para análise/i }));
+    // "Concluir cadastro", e não "Enviar para análise": não há mais análise a
+    // aguardar — o cadastro nasce aprovado.
+    fireEvent.click(screen.getByRole('button', { name: /Concluir cadastro/i }));
 
     expect(await screen.findByText('Esta conta já possui cadastro de treinador.')).toBeTruthy();
   });
@@ -587,7 +589,11 @@ describe('F-04: atuação na federação', () => {
 
     render(<AdminTreinadores notificar={vi.fn()} />);
 
-    expect(await screen.findByText(/Cadastros/i)).toBeTruthy();
+    // Consulta EXATA: a descrição da tela passou a citar "os cadastros antigos que
+    // ficaram em análise", e `/Cadastros/i` casava com ela e com o título da
+    // seção — dois elementos, e o teste reprovava por ambiguidade em vez de medir
+    // a presença da seção.
+    expect(await screen.findByText('Cadastros')).toBeTruthy();
     expect(screen.getByText(/Atuação na sua federação/i)).toBeTruthy();
     expect(screen.getByText(/Delegação central/i)).toBeTruthy();
   });

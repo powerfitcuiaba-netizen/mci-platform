@@ -22,6 +22,10 @@ const FORM_BASE = {
   birthDate: '1995-03-10',
   email: 'maria@mci.test',
   password: 'senha-forte-2026',
+  // A CONFIRMAÇÃO ENTROU NA ETAPA 2 e é obrigatória: sem ela a etapa nunca fica
+  // limpa. Ela não viaja no corpo — `corpoDoCadastro` não a inclui —, e há teste
+  // em `cadastroWizard.test.jsx` medindo exatamente isso.
+  passwordConfirm: 'senha-forte-2026',
   phone: '(65) 99999-1234',
   whatsapp: '(65) 98888-4321',
   postalCode: '78000-000',
