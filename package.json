@@ -34,6 +34,7 @@
     "qa:mutantes:autorizacao": "node scripts/qa/mutantes-autorizacao.mjs",
     "qa:mutantes:f2": "node scripts/qa/mutantes-f2.mjs",
     "qa:mutantes:treinadores": "node scripts/qa/mutantes-treinadores.mjs",
+    "qa:mutantes:failclosed": "node scripts/qa/mutantes-fail-closed.mjs",
     "qa:mutantes:f1f3": "node scripts/qa/mutantes-f1-f3.mjs",
     "qa:mutantes:categoria": "node scripts/qa/mutantes-categoria.mjs",
     "qa:mutantes:motor": "node scripts/qa/mutantes-motor.mjs",

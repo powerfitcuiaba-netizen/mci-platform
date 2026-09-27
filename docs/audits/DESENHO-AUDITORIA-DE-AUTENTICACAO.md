@@ -156,7 +156,12 @@ viria do cliente, que é precisamente o que `asyncHandler` documenta não fazer.
 
 ### R6 — Recusar o login quando a auditoria falha (fail closed)
 
-**Não implementada, e registrada como decisão da administração.** Tem mérito de
+> **APROVADA E IMPLEMENTADA depois**, numa fase própria. Ver
+> `docs/audits/RELATORIO-AUDITORIA-DE-AUTENTICACAO-FASE-2.md`. O texto abaixo é o
+> da decisão original desta fase, preservado para que a mudança de posição fique
+> visível em vez de reescrita.
+
+**Não implementada nesta fase, e registrada como decisão da administração.** Tem mérito de
 segurança: sem trilha, sem entrada. Mas muda a disponibilidade do sistema — uma
 falha de banco na escrita da trilha passaria a impedir qualquer login — e a tarefa
 pede explicitamente preservar o funcionamento legítimo do login. Com a correção,
@@ -165,7 +170,13 @@ autenticação de todo modo. Fica proposto, não decidido por quem programa.
 
 ### R7 — Auditar tentativa de login FALHADA
 
-**Não implementada, e recomendada como tarefa própria.** Hoje credencial inválida
+> **APROVADA E IMPLEMENTADA depois**, na mesma fase de R6. A dúvida levantada
+> abaixo — gravar o e-mail tentado — foi resolvida **não gravando o e-mail**: a
+> linha carrega a conta alvo por identificador interno e, quando não há conta, não
+> carrega identificação nenhuma. Ver
+> `docs/audits/RELATORIO-AUDITORIA-DE-AUTENTICACAO-FASE-2.md` §1.1.
+
+**Não implementada nesta fase, e recomendada como tarefa própria.** Hoje credencial inválida
 não deixa rastro nenhum, e isso vale registrar. Mas é decisão com dois lados:
 gravar o e-mail tentado significa gravar dado de quem talvez não seja usuário, e o
 volume de um ataque de força bruta iria direto para a trilha. Exige regra de
@@ -189,6 +200,13 @@ Três camadas, nesta correção:
    gate em vez de sumir no log.
 
 ## 6. O QUE ESTA CORREÇÃO NÃO FAZ
+
+> **Nota da fase seguinte:** a lista abaixo continua verdadeira para ESTA
+> correção. A fase 2 (tentativa recusada na trilha + fail closed) também não
+> alterou política, não criou função privilegiada e não criou migration — e
+> tampouco recuperou eventos perdidos. O único item que ela mudou é o último: o
+> contrato de `/auth/login` e `/auth/register` passou a poder responder
+> indisponibilidade quando a trilha não persiste, que é a decisão aprovada.
 
 - não altera política de RLS, nem `FORCE ROW LEVEL SECURITY`;
 - não cria função privilegiada nem `SECURITY DEFINER`;

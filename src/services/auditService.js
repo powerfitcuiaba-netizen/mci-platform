@@ -15,6 +15,23 @@ const ACTIONS = Object.freeze({
   // vai procurar na trilha daqui a um ano, e nome que só existe num literal é
   // nome que a próxima pessoa escreve diferente.
   USER_REGISTER: 'USER_REGISTER',
+  // TENTATIVA DE ENTRADA RECUSADA.
+  //
+  // `LOGIN` diz quem entrou; `LOGIN_FAILED` diz que alguém tentou e não entrou.
+  // São perguntas diferentes e por isso ações diferentes — juntá-las num campo
+  // `sucesso` dentro de `metadata` obrigaria toda consulta de trilha a filtrar
+  // por JSON para responder "houve ataque a esta conta?".
+  //
+  // ADITIVO POR CONSTRUÇÃO: `AuditLog.action` é coluna de TEXTO, não enum do
+  // banco. Nenhuma migration é necessária para um nome novo, e nenhum dado
+  // existente muda de significado.
+  //
+  // O SENTIDO DE `userId` MUDA NESTE EVENTO, e é a única exceção da tabela: em
+  // todos os outros, `userId` é quem FEZ a ação; aqui o autor é desconhecido —
+  // é justamente o que a tentativa recusada significa — e a linha nasce com
+  // `userId` NULO. A conta ALVO vai em `entityId`. Ver
+  // `registrarTentativaRecusada`, em `authService`.
+  LOGIN_FAILED: 'LOGIN_FAILED',
   ATHLETE_CREATE: 'ATHLETE_CREATE',
   ATHLETE_UPDATE: 'ATHLETE_UPDATE',
   ATHLETE_CPF_VIEW: 'ATHLETE_CPF_VIEW',
@@ -237,8 +254,13 @@ async function inserir(dados) {
   return prisma.auditLog.createMany({ data: dados });
 }
 
-async function record({ actor, action, entity, entityId = null, organizationId = null, metadata = null, ip = null }) {
-  const dados = {
+// A LINHA DA TRILHA, montada num lugar só.
+//
+// Extraída de `record` quando `registrarObrigatorio` nasceu: duas montagens
+// paralelas divergiriam no primeiro campo novo, e a divergência apareceria como
+// "a trilha grava diferente dependendo de quem chama".
+function montarEvento({ actor, action, entity, entityId = null, organizationId = null, metadata = null, ip = null }) {
+  return {
     organizationId,
     userId: actor?.id || null,
     userEmail: actor?.email || null,
@@ -248,6 +270,10 @@ async function record({ actor, action, entity, entityId = null, organizationId =
     metadata: metadata ? sanitize(metadata) : undefined,
     ip: ip ? String(ip).slice(0, 60) : null
   };
+}
+
+async function record(evento) {
+  const dados = montarEvento(evento);
 
   const tx = contextoAtual()?.tx;
 
@@ -291,46 +317,86 @@ async function record({ actor, action, entity, entityId = null, organizationId =
 }
 
 // ============================================================================
-// O EVENTO DE AUTENTICAÇÃO — QUANDO O ATOR EXISTE, MAS O CONTEXTO AINDA NÃO.
+// AUDITORIA OBRIGATÓRIA — QUANDO A TRILHA É CONDIÇÃO DA OPERAÇÃO.
 //
-// O PROBLEMA, medido em `scripts/qa/diagnostico-auditoria-autenticacao.mjs`:
-// `/auth/login` e `/auth/register` são as ÚNICAS rotas que gravam trilha sem
-// `req.user` — por construção, porque é dentro delas que a identidade nasce.
-// Sem `req.user`, `asyncHandler` não abre transação; sem transação, não há
-// `SET LOCAL mci.user_id`; e a política `auditoria_escrita`, que exige que o
-// `userId` da linha seja o ator da sessão, recusava o INSERT com 42501. O login
-// funcionava, a trilha se perdia, e só o log sabia. 17 eventos foram medidos
-// perdidos numa única execução de QA.
+// O CONTEXTO QUE FALTAVA. `/auth/login` e `/auth/register` são as únicas rotas
+// que gravam trilha sem `req.user` — por construção, porque é dentro delas que a
+// identidade nasce. Sem `req.user`, `asyncHandler` não abre transação; sem
+// transação não há `SET LOCAL mci.user_id`; e a política `auditoria_escrita`,
+// que exige que o `userId` da linha seja o ator da sessão, recusava o INSERT com
+// 42501. O login respondia 200 e a trilha se perdia em silêncio. A correção é
+// gravar dentro do contexto do ator que a autenticação acabou de estabelecer —
+// sem tocar a política, medido nas sondas P1 e P2 do diagnóstico.
 //
-// A CORREÇÃO NÃO TOCA A POLÍTICA. Depois de conferir a senha — ou de criar o
-// usuário —, o servidor SABE quem é o ator. Basta gravar o evento dentro do
-// contexto desse ator, que é o mesmo mecanismo de toda requisição autenticada.
-// A política então encontra `userId = mci_current_user_id()` e aceita. Medido:
-// o MESMO INSERT recusado sem contexto passa com ele (sondas P1 e P2).
+// `record` É TOLERANTE de propósito: 44 chamadas dependem de que uma falha de
+// trilha não derrube a operação auditada. Esta função é o oposto, e existe para
+// os eventos em que a ausência de trilha torna a operação inaceitável — decisão
+// expressa da administração para a autenticação: sem registro, sem sessão.
 //
-// POR QUE ISTO NÃO É UMA PORTA DOS FUNDOS:
+// AS TRÊS DIFERENÇAS EM RELAÇÃO A `record`:
 //
-//   * o ator vem de `actor.id` — um registro que o servidor leu do banco depois
-//     de conferir a credencial, ou que ele acabou de criar. NUNCA do corpo, da
-//     query ou de cabeçalho. Quem chama não escolhe em nome de quem assina.
-//   * a política continua conferindo tudo o que conferia: assinar no lugar de
-//     outro segue recusado, e escrever na trilha de federação alheia também.
-//     Nada foi afrouxado para isto funcionar.
-//   * sem credencial válida não existe `actor`, e sem `actor` esta função se
-//     recusa a inventar um: cai para `record`, que a política recusa — que é o
-//     comportamento correto para visitante.
+//   1. A FALHA SOBE. Não há `catch` que a engula, nem `return null` que a
+//      disfarce de sucesso. Quem chamou decide o que fazer — e, no caso da
+//      autenticação, o que se faz é recusar.
+//   2. A PERSISTÊNCIA É CONFERIDA, e não presumida. O banco diz quantas linhas
+//      entraram; `count !== 1` é falha, mesmo sem exceção. Chamar o serviço não
+//      é o mesmo que gravar a linha, e é a linha que interessa.
+//   3. A CAUSA REAL FICA NO LOG E NUNCA NA RESPOSTA. O cliente recebe uma
+//      mensagem genérica de indisponibilidade: dizer "violação de política de
+//      linha" a quem tenta entrar entrega o desenho do banco a um anônimo.
 //
-// POR QUE EM TRANSAÇÃO PRÓPRIA: a autenticação já terminou quando este registro
-// acontece. Se a gravação falhar, o login continua válido (é o que a tarefa pede
-// preservar) e a falha entra no contador — não desaparece.
+// POR QUE O ATOR NÃO PODE VIR DO CLIENTE: `actor` é sempre um registro que o
+// servidor leu do banco depois de conferir a credencial, ou a linha que ele
+// acabou de criar. E a política continua conferindo: mesmo que alguém
+// conseguisse passar outro ator aqui, a linha só entra se `userId` e sessão
+// coincidirem.
 //
-// JÁ EM CONTEXTO, NÃO ABRE OUTRO: se um dia um caminho autenticado chamar esta
-// função, ela usa o contexto que existe. Abrir um segundo sobrescreveria o ator
-// corrente e travaria outra conexão do pool sem necessidade.
-async function registrarComContextoDoAtor(evento) {
-  const ator = evento?.actor?.id ?? null;
-  if (!ator || contextoAtual()?.tx) return record(evento);
-  return withUserContext(ator, () => record(evento));
+// SOBRE O COMMIT, que é o ponto delicado. Fora de transação, o INSERT
+// autocommita: retorno com `count = 1` é linha no banco. DENTRO de uma
+// transação — o caso do cadastro —, `count = 1` diz que o statement passou, e o
+// COMMIT vem depois, quando a transação de quem chamou resolve. Se esse commit
+// falhar, a transação inteira volta atrás e quem chamou recebe o erro: nenhuma
+// sessão é emitida nos dois cenários, que é a garantia pedida. O que NÃO existe
+// é o caminho do meio — sessão emitida com trilha ausente.
+const MENSAGEM_DE_INDISPONIBILIDADE = 'Não foi possível concluir a operação agora. Tente novamente em instantes.';
+
+async function registrarObrigatorio(evento) {
+  const dados = montarEvento(evento);
+  const ator = dados.userId;
+
+  const gravar = async () => {
+    const resultado = await inserir(dados);
+    if (!resultado || resultado.count !== 1) {
+      throw new Error(`auditoria não confirmada pelo banco (count=${resultado?.count ?? 'ausente'})`);
+    }
+    return resultado;
+  };
+
+  try {
+    // O ATOR DO EVENTO MANDA NO CONTEXTO — mesmo dentro de outra transação.
+    //
+    // A primeira versão só abria contexto quando não havia nenhum, copiando a
+    // regra de uma função anterior. Medido: o cadastro atômico abre a transação
+    // com ator VAZIO (quem se cadastra ainda não é ninguém), então a auditoria
+    // caía na transação existente sem definir o ator, a política recusava, e
+    // TODO cadastro passou a responder 503. `withUserContext` já sabe fazer a
+    // coisa certa nos dois casos: sem transação abre uma; com transação em curso
+    // reaproveita, define o ator e restaura o anterior ao sair.
+    //
+    // Sem ator — é o caso de `LOGIN_FAILED` — não há contexto a definir: a linha
+    // nasce com `userId` nulo, que a política aceita sem ator nenhum.
+    if (!ator) return await gravar();
+    return await withUserContext(ator, gravar);
+  } catch (error) {
+    contabilizarFalha(dados, error);
+    // `error` e não `warn`: aqui a trilha NÃO foi gravada e a operação foi
+    // recusada. As duas coisas precisam estar no log, com a causa real.
+    logger.error('auditoria OBRIGATÓRIA não persistida — a operação foi recusada', {
+      action: dados.action, entity: dados.entity, entityId: dados.entityId,
+      temAtor: Boolean(dados.userId), codigo: error.code, erro: error.message
+    });
+    throw new AppError(503, 'AUDIT_UNAVAILABLE', MENSAGEM_DE_INDISPONIBILIDADE);
+  }
 }
 
 async function list(filtros, actor) {
@@ -385,6 +451,6 @@ async function integridade(actor) {
 }
 
 module.exports = {
-  record, registrarComContextoDoAtor, list, sanitize, ACTIONS,
+  record, registrarObrigatorio, list, sanitize, ACTIONS,
   integridade, estadoDaTrilha, reiniciarContagemDeFalhas
 };

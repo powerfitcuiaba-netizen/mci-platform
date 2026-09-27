@@ -101,6 +101,20 @@ function inserirAuditoria({ atorDeRls, userId, organizationId = null, action = '
 // "ACEITO" para um INSERT que nunca chegou a ser avaliado — um instrumento que
 // mente na direção mais perigosa, a de tranquilizar. Agora erro inesperado
 // ESTOURA o diagnóstico em vez de virar resultado.
+// SQL DE PREPARAÇÃO NÃO PODE FALHAR EM SILÊNCIO.
+//
+// Medido: a primeira versão criava o gatilho de indisponibilidade com corpo em
+// dólar-quoting (`$fn$ ... $fn$`) e o comando ia para o psql através do shell,
+// que EXPANDIU `$fn` para vazio. A função nunca nasceu, o gatilho nunca existiu,
+// e as três sondas de fail closed reportaram "NÃO" — acusando o produto por um
+// defeito do instrumento. O corpo agora vai entre apóstrofos (sem dólar nenhum
+// para o shell mastigar) e a execução ESTOURA se não der certo.
+function sqlObrigatorio(comando) {
+  const r = sql(comando);
+  if (!r.ok) throw new Error(`SQL de preparação falhou: ${r.erro.slice(0, 300)}\n  comando: ${comando.slice(0, 120)}`);
+  return r;
+}
+
 const recusadoPorRls = r => {
   if (r.ok) return false;
   if (/row-level security|42501/i.test(r.erro)) return true;
@@ -278,6 +292,70 @@ try {
       `adulteradas=${adulteradas} linha original presente=${sobraram === 1}`);
   }
 
+  // ================= 4. A TENTATIVA RECUSADA E O FAIL CLOSED, PELO HTTP
+  //
+  // As duas decisões aprovadas depois da primeira correção. A prova é pela rota,
+  // com o banco de verdade: é o único lugar onde "não emitiu sessão" significa
+  // alguma coisa.
+  console.log('\n4) TENTATIVA RECUSADA E FAIL CLOSED (pelo HTTP)');
+
+  const senhaTentada = 'ProvaDeVazamento#2026';
+  const recusadasAntes = contar("action = 'LOGIN_FAILED'");
+  const senhaErrada = await chamar('/auth/login', { metodo: 'POST', corpo: { email, password: senhaTentada } });
+  const recusadasDepois = contar("action = 'LOGIN_FAILED'");
+  registrar('T1', 'senha errada responde 401 e deixa LOGIN_FAILED na trilha',
+    senhaErrada.status === 401 && recusadasDepois === recusadasAntes + 1 ? 'SIM' : 'NÃO',
+    `HTTP ${senhaErrada.status} — linhas ${recusadasAntes} → ${recusadasDepois}`);
+
+  const semAutor = Number(sql(`BEGIN; SELECT set_config('mci.user_id', '${atorDeLeitura}', true); SELECT count(*) FROM "AuditLog" WHERE action = 'LOGIN_FAILED' AND "userId" IS NOT NULL; ROLLBACK`).saida.split('\n').filter(l => /^\d+$/.test(l.trim())).pop() || -1);
+  registrar('T2', 'nenhuma linha de tentativa recusada é atribuída a um usuário',
+    semAutor === 0 ? 'SIM' : 'NÃO', `linhas com userId=${semAutor}`);
+
+  const fantasma = await chamar('/auth/login', { metodo: 'POST', corpo: { email: `fantasma.${Date.now()}@mci.local`, password: senhaTentada } });
+  registrar('T3', 'conta inexistente responde IGUAL à senha errada (sem enumeração)',
+    fantasma.status === senhaErrada.status && JSON.stringify(fantasma.corpo) === JSON.stringify(senhaErrada.corpo) ? 'SIM' : 'NÃO',
+    `HTTP ${fantasma.status} vs ${senhaErrada.status}`);
+
+  const vazou = sql(`BEGIN; SELECT set_config('mci.user_id', '${atorDeLeitura}', true); SELECT count(*) FROM "AuditLog" WHERE "userEmail" IS NOT NULL AND action = 'LOGIN_FAILED'; ROLLBACK`);
+  registrar('T4', 'a trilha da tentativa não guarda e-mail nem senha',
+    /(^|\n)\s*0\s*(\n|$)/.test(vazou.saida) ? 'SIM' : 'NÃO', 'nenhum e-mail em linha de LOGIN_FAILED');
+
+  // O GATILHO É A INDISPONIBILIDADE SIMULADA. Aditivo, temporário, e removido
+  // logo abaixo: nenhuma política é tocada para produzir a falha.
+  sqlObrigatorio("CREATE OR REPLACE FUNCTION diag_trilha_indisponivel() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''trilha indisponivel (diagnostico)''; END'");
+  sqlObrigatorio('CREATE TRIGGER diag_trilha_indisponivel BEFORE INSERT ON "AuditLog" FOR EACH ROW EXECUTE FUNCTION diag_trilha_indisponivel()');
+  // O gatilho EXISTE? Sem esta conferência, um erro de criação viraria "o produto
+  // não fecha a porta", que é a conclusão oposta da verdadeira.
+  const gatilhoAtivo = sql("SELECT count(*) FROM pg_trigger WHERE tgname = 'diag_trilha_indisponivel'").saida.trim();
+  registrar('T4b', 'a indisponibilidade da trilha foi realmente simulada',
+    gatilhoAtivo === '1' ? 'SIM' : 'NÃO', `gatilhos ativos=${gatilhoAtivo}`);
+
+  const comTrilhaMorta = await chamar('/auth/login', { metodo: 'POST', corpo: { email, password: SENHA } });
+  registrar('T5', 'com a trilha indisponível, o login NÃO emite token',
+    comTrilhaMorta.status >= 500 && !comTrilhaMorta.corpo?.token ? 'SIM' : 'NÃO',
+    `HTTP ${comTrilhaMorta.status} — token=${comTrilhaMorta.corpo?.token ? 'EMITIDO' : 'nenhum'}`);
+
+  const erradaComTrilhaMorta = await chamar('/auth/login', { metodo: 'POST', corpo: { email, password: senhaTentada } });
+  registrar('T6', 'com a trilha indisponível, senha certa e errada respondem IGUAL',
+    comTrilhaMorta.status === erradaComTrilhaMorta.status
+      && JSON.stringify(comTrilhaMorta.corpo) === JSON.stringify(erradaComTrilhaMorta.corpo) ? 'SIM' : 'NÃO',
+    `${comTrilhaMorta.status} vs ${erradaComTrilhaMorta.status} — sem oráculo de senha`);
+
+  const emailRecusado = `diag.semtrilha.${Date.now()}@mci.local`;
+  const cadastroRecusado = await cadastrar('Diagnostico Sem Trilha', emailRecusado);
+  const contas = Number(sql(`SELECT count(*) FROM "User" WHERE email = '${emailRecusado}'`).saida || -1);
+  registrar('T7', 'com a trilha indisponível, o cadastro não cria conta nem sessão',
+    cadastroRecusado.status >= 500 && !cadastroRecusado.corpo?.token && contas === 0 ? 'SIM' : 'NÃO',
+    `HTTP ${cadastroRecusado.status} — contas com esse e-mail=${contas}`);
+
+  sql('DROP TRIGGER IF EXISTS diag_trilha_indisponivel ON "AuditLog"');
+  sql('DROP FUNCTION IF EXISTS diag_trilha_indisponivel()');
+
+  const voltou = await chamar('/auth/login', { metodo: 'POST', corpo: { email, password: SENHA } });
+  registrar('T8', 'com a trilha de volta, o login volta a funcionar',
+    voltou.status === 200 && Boolean(voltou.corpo?.token) ? 'SIM' : 'NÃO',
+    `HTTP ${voltou.status} — o fechamento não é permanente`);
+
   // ============================================ 3. O TEXTO VIVO DA POLÍTICA
   console.log('\n3) O TEXTO DA POLÍTICA NO BANCO');
   const politicas = sql("SELECT policyname || ' [' || cmd || ']' FROM pg_policies WHERE tablename = 'AuditLog' ORDER BY policyname");
@@ -288,6 +366,7 @@ try {
 
   console.log('\n--- CONCLUSÃO MEDIDA ---');
 
+  const decisoesNovas = linhas.filter(l => l.id.startsWith('T') && l.resposta !== 'SIM');
   const trilhaGravada = cadastros > 0 && entradas > 0;
   const perdaConfirmada = cadastros === 0 && entradas === 0;
   const garantiasDePe = recusadoPorRls(semContexto) && comContexto.ok
@@ -299,12 +378,18 @@ try {
       + '  próprio ator (P2), e a auditoria de ação autenticada funciona (H7). Logo o\n'
       + '  defeito é do caminho de autenticação, e não da auditoria nem da política.\n'
       + '  Nenhuma garantia precisa ser afrouxada para corrigi-lo.');
-  } else if (trilhaGravada && garantiasDePe) {
+  } else if (trilhaGravada && garantiasDePe && decisoesNovas.length === 0) {
     console.log('  CORRIGIDO E SEM AFROUXAMENTO. Cadastro e entrada deixam evento na trilha\n'
-      + '  (H2, H4) e nenhuma recusa aparece no log (H5). As garantias da política\n'
-      + '  continuam medidas de pé: sem contexto a escrita é recusada (P1), ninguém\n'
-      + '  assina pelo outro (P3), ninguém escreve na trilha alheia (P5) e a trilha não\n'
-      + '  se adultera nem se apaga (P7, P8).');
+      + '  (H2, H4) e nenhuma recusa aparece no log (H5). A tentativa recusada também\n'
+      + '  entra na trilha, sem autor e sem e-mail (T1, T2, T4), e responde igual para\n'
+      + '  conta existente e inexistente (T3). Com a trilha indisponível, nem login nem\n'
+      + '  cadastro se completam, e as duas respostas ficam indistinguíveis (T5, T6, T7);\n'
+      + '  com a trilha de volta, o login volta (T8). As garantias da política continuam\n'
+      + '  medidas de pé: P1, P3, P5, P7 e P8.');
+  } else if (trilhaGravada && garantiasDePe) {
+    console.log('  TRILHA GRAVADA, MAS UMA DAS DECISÕES NOVAS NÃO SE CONFIRMOU.\n'
+      + `  Conferir: ${decisoesNovas.map(l => l.id).join(', ')}`);
+    process.exitCode = 1;
   } else {
     console.log('  ESTADO INESPERADO — nem a perda nem a correção se confirmam por inteiro.\n'
       + '  Ler as linhas acima uma a uma antes de concluir qualquer coisa.');
