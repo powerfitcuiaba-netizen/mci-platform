@@ -55,8 +55,13 @@ const identificar = req => {
   return req.ip || req.socket?.remoteAddress || 'desconhecido';
 };
 
-// Conta uma batida no balde e diz em quantos segundos ele libera, ou null se
-// ainda está dentro do teto.
+// Conta uma batida no balde. Devolve `null` enquanto está dentro do teto e, ao
+// estourar, `{ segundos, primeira }`.
+//
+// `primeira` é o que sustenta a auditoria do 429 (achado A-10): ela é verdadeira
+// apenas na PRIMEIRA recusa de cada balde em cada janela. Sem essa distinção, a
+// única forma de auditar o bloqueio seria uma linha por requisição barrada — e
+// aí manter a rajada encheria a trilha de propósito.
 function bater(chave, max, windowMs, agora) {
   const registro = baldes.get(chave);
 
@@ -66,7 +71,12 @@ function bater(chave, max, windowMs, agora) {
   }
 
   registro.contagem += 1;
-  if (registro.contagem > max) return Math.ceil((registro.expiraEm - agora) / 1000);
+  if (registro.contagem > max) {
+    return {
+      segundos: Math.ceil((registro.expiraEm - agora) / 1000),
+      primeira: registro.contagem === max + 1
+    };
+  }
   return null;
 }
 
@@ -80,8 +90,57 @@ function bater(chave, max, windowMs, agora) {
  *   origem de propósito: apertar demais aqui transformaria o limitador numa
  *   negação de serviço contra o dono legítimo da conta.
  */
+// AUDITAR O BLOQUEIO — achado A-10.
+//
+// O 429 é decidido aqui, antes de qualquer serviço, então a rajada barrada não
+// deixava rastro: uma varredura de senhas contida pelo teto era invisível para a
+// trilha, e é justamente o evento que quem investiga procura.
+//
+// TRÊS DECISÕES, e cada uma fecha um jeito de a auditoria virar problema:
+//
+//   1. UMA LINHA POR JANELA POR BALDE, na transição para o estado bloqueado.
+//      Uma linha por requisição barrada deixaria a trilha crescer no ritmo do
+//      ataque — a defesa alimentando o ataque.
+//   2. `record` TOLERANTE, e não `registrarObrigatorio`. É a única exceção
+//      deliberada ao fail closed desta base, e a razão é a direção da falha: se
+//      a trilha estiver indisponível, recusar com 503 em vez de 429 não abre
+//      nada (os dois barram), mas trocar o código da recusa por causa de
+//      auditoria confunde cliente legítimo e cria caminho novo de erro na porta
+//      de entrada. A perda de linha é contabilizada por `estadoDaTrilha` e
+//      aparece em `GET /audit/integrity`.
+//   3. NEM ATOR, NEM ALVO NA LINHA. `userId` nulo, porque quem esbarra no teto é
+//      desconhecido — e na rota de login o limitador roda antes de haver sessão.
+//      O valor do alvo (o e-mail tentado) NÃO entra: guardá-lo faria da trilha
+//      uma lista de contas sondadas. Fica só o ESCOPO do balde.
+//
+// O IP vai na coluna própria de `AuditLog`, que é onde ele já mora nos eventos de
+// autenticação — e não no metadado, para não haver dois lugares com a mesma coisa.
+const origemDaRequisicao = req => req.ip || req.headers?.['x-forwarded-for'] || null;
+
+function registrarBloqueio({ nome, escopo, teto, windowMs }, req) {
+  // Carregado aqui, e não no topo: `auditService` importa a configuração do
+  // Prisma, e este middleware é montado na construção do app. Exigi-lo no topo
+  // amarraria a montagem das rotas à conexão de banco.
+  const audit = require('../services/auditService');
+
+  // Sem `await`: a recusa não espera a trilha. `record` é tolerante e não
+  // levanta; o `catch` existe para o caso de a própria importação ou o cliente
+  // falharem, e aí o que não pode acontecer é uma rejeição sem dono derrubar o
+  // processo.
+  Promise.resolve()
+    .then(() => audit.record({
+      actor: null,
+      action: audit.ACTIONS.RATE_LIMIT_BLOCK,
+      entity: 'RateLimit',
+      entityId: null,
+      ip: origemDaRequisicao(req),
+      metadata: { limitador: nome, escopo, teto, janelaMs: windowMs, rota: req.path ?? null }
+    }))
+    .catch(() => {});
+}
+
 function rateLimit({ windowMs = 60_000, max = 60, nome = 'geral', quandoAtivo = config.rateLimitEnabled,
-  alvo = null, maxPorAlvo = null } = {}) {
+  alvo = null, maxPorAlvo = null, auditar = false } = {}) {
   agendarLimpeza();
   const tetoAlvo = maxPorAlvo ?? max * 3;
 
@@ -89,19 +148,20 @@ function rateLimit({ windowMs = 60_000, max = 60, nome = 'geral', quandoAtivo = 
     if (!quandoAtivo) return next();
 
     const agora = Date.now();
-    const recusar = segundos => {
-      res.setHeader('Retry-After', String(segundos));
-      return next(new AppError(429, 'TOO_MANY_REQUESTS', `Muitas tentativas. Tente novamente em ${segundos}s.`));
+    const recusar = (resultado, escopo, teto) => {
+      res.setHeader('Retry-After', String(resultado.segundos));
+      if (auditar && resultado.primeira) registrarBloqueio({ nome, escopo, teto, windowMs }, req);
+      return next(new AppError(429, 'TOO_MANY_REQUESTS', `Muitas tentativas. Tente novamente em ${resultado.segundos}s.`));
     };
 
     const porOrigem = bater(`${nome}:${identificar(req)}`, max, windowMs, agora);
-    if (porOrigem !== null) return recusar(porOrigem);
+    if (porOrigem !== null) return recusar(porOrigem, 'origem', max);
 
     if (alvo) {
       const quem = alvo(req);
       if (quem) {
         const porAlvo = bater(`${nome}:alvo:${quem}`, tetoAlvo, windowMs, agora);
-        if (porAlvo !== null) return recusar(porAlvo);
+        if (porAlvo !== null) return recusar(porAlvo, 'alvo', tetoAlvo);
       }
     }
 
@@ -112,7 +172,7 @@ function rateLimit({ windowMs = 60_000, max = 60, nome = 'geral', quandoAtivo = 
   // conferir QUAIS rotas estão de fato atrás do limitador. O defeito que isso
   // previne não é o limitador errar a conta — é ele nunca ter sido ligado na
   // rota, que é silencioso e não aparece em nenhum teste de comportamento.
-  limitador.limite = { nome, max, windowMs, maxPorAlvo: alvo ? tetoAlvo : null };
+  limitador.limite = { nome, max, windowMs, maxPorAlvo: alvo ? tetoAlvo : null, auditar };
   return limitador;
 }
 

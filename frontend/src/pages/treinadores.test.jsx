@@ -429,3 +429,60 @@ describe('regressão do QA visual', () => {
     expect(api.coaches.projection).not.toHaveBeenCalled();
   });
 });
+
+// ==========================================================================
+// ACHADO A-11 — A TELA DE DECISÃO NÃO PODE DIZER "NADA AQUI" QUANDO FOI RECUSA.
+//
+// As duas listas da mesa central engoliam a falha com `.catch(() => ({ items: []
+// }))`. Numa tela de análise de cadastro, isso é o pior resultado possível: 403,
+// 500 e fila genuinamente vazia produziam a MESMA tela, e quem analisa concluía
+// que não havia pendência quando o que houve foi recusa de permissão.
+//
+// Os testes abaixo medem a distinção, e medem também que ela é EXCLUSIVA: o
+// estado de recusa não vem acompanhado do texto de vazio.
+// ==========================================================================
+describe('A-11: estados da tela administrativa são um por vez', () => {
+  const recusa403 = () => Object.assign(new Error('Você não tem permissão para esta operação'), { status: 403 });
+
+  it('403 na fila de análise mostra RECUSA, e não fila vazia', async () => {
+    api.coaches.review.mockRejectedValue(recusa403());
+
+    render(<AdminTreinadores notificar={vi.fn()} />);
+
+    expect(await screen.findByText(/não tem permissão para analisar cadastros/i)).toBeTruthy();
+    expect(screen.queryByText(/Nenhum cadastro nesta situação|fila está vazia/i),
+      'recusa e vazio não aparecem juntos').toBeNull();
+    // E há caminho de saída: o estado de erro oferece tentar de novo.
+    expect(screen.getAllByRole('button', { name: /tentar de novo/i }).length).toBeGreaterThan(0);
+  });
+
+  it('403 na delegação central mostra RECUSA, e não "nenhuma delegação em vigor"', async () => {
+    api.centralAuthorizations.list.mockRejectedValue(recusa403());
+
+    render(<AdminTreinadores notificar={vi.fn()} />);
+
+    expect(await screen.findByText(/não tem permissão para ver ou conceder delegação/i)).toBeTruthy();
+    expect(screen.queryByText(/Nenhuma delegação em vigor/i)).toBeNull();
+  });
+
+  it('falha que NÃO é recusa mostra a mensagem do servidor, não a de permissão', async () => {
+    api.coaches.review.mockRejectedValue(Object.assign(new Error('A API demorou demais para responder.'), { status: 504 }));
+
+    render(<AdminTreinadores notificar={vi.fn()} />);
+
+    expect(await screen.findByText(/A API demorou demais para responder/i)).toBeTruthy();
+    expect(screen.queryByText(/não tem permissão para analisar/i)).toBeNull();
+  });
+
+  it('fila realmente vazia continua explicando o vazio — uma vez só', async () => {
+    api.coaches.review.mockResolvedValue({ items: [] });
+
+    render(<AdminTreinadores notificar={vi.fn()} />);
+
+    const vazios = await screen.findAllByText(/Nenhum cadastro|Nenhuma delegação/i);
+    // Um texto de vazio por seção: a fila e a delegação. Antes da correção, a
+    // fila trazia DOIS (o genérico do AsyncSection e o próprio).
+    expect(vazios.length).toBe(2);
+    expect(screen.queryByText(/não tem permissão/i)).toBeNull();
+  });
+});

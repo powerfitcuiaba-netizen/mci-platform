@@ -1625,6 +1625,8 @@ export default {
   'delegacao.escopoTodas': 'Todas las federaciones',
   'delegacao.semPrazo': 'Sin plazo',
   'delegacao.escolhaEscopo': 'Elija la federación',
+  'analiseTreinador.semPermissao': 'Esta cuenta no tiene permiso para analizar registros de entrenador. El análisis es de la administración central de Muscle Contest.',
+  'delegacao.semPermissao': 'Esta cuenta no tiene permiso para ver ni conceder delegación central.',
   'delegacao.inerte': 'No concede nada — sin alcance o sin plazo',
   'delegacao.campoPessoa': 'Quién la recibe',
   'delegacao.escolhaPessoa': 'Elija la cuenta',

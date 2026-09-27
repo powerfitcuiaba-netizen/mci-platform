@@ -32,6 +32,43 @@ const ACTIONS = Object.freeze({
   // `userId` NULO. A conta ALVO vai em `entityId`. Ver
   // `registrarTentativaRecusada`, em `authService`.
   LOGIN_FAILED: 'LOGIN_FAILED',
+  // TROCA DE SENHA — achado A-09.
+  //
+  // A rota `POST /profile/password` trocava a senha e não deixava rastro. É um
+  // dos eventos mais importantes de uma trilha de segurança: quem investiga um
+  // acesso indevido precisa saber QUANDO a senha daquela conta mudou, e uma
+  // troca sem registro é indistinguível de nenhuma troca.
+  //
+  // NADA DE SEGREDO NA LINHA: nem a senha, nem a antiga, nem hash, nem prefixo,
+  // nem comprimento. O evento é a troca; o valor não é informação de auditoria.
+  PASSWORD_CHANGE: 'PASSWORD_CHANGE',
+  // TETO DE REQUISIÇÕES ATINGIDO — achado A-10.
+  //
+  // O limitador recusa com 429 ANTES de qualquer serviço rodar, então a rajada
+  // que ele barra não deixava rastro nenhum: exatamente o caso em que a trilha
+  // mais interessa, porque 200 tentativas de login barradas pelo teto são o
+  // sintoma de ataque, e `LOGIN_FAILED` não as vê.
+  //
+  // UMA LINHA POR JANELA, e não por requisição. Registrar cada bloqueio
+  // transformaria a trilha em alvo: bastaria manter a rajada para encher a
+  // tabela. A linha nasce na PRIMEIRA recusa de cada balde em cada janela — é a
+  // transição para o estado bloqueado que informa, não a repetição dela.
+  //
+  // `userId` NULO, sempre: quem esbarra no teto é desconhecido por definição, e
+  // na rota de login o limitador roda antes de existir sessão. Sem valor de
+  // alvo no metadado — na rota de login o alvo é o e-mail tentado, e guardá-lo
+  // transformaria a trilha em lista de contas sondadas.
+  RATE_LIMIT_BLOCK: 'RATE_LIMIT_BLOCK',
+  // RECOMPUTO MUDOU A EQUIPE DE UM LANÇAMENTO — achado A-12.
+  //
+  // Repontuar um resultado resolve outra vez a equipe da DATA OFICIAL (R-01).
+  // Normalmente dá o mesmo valor; quando o histórico de vínculo é corrigido, dá
+  // outro — e aí a atribuição histórica de pontos mudou de equipe. Pela regra, a
+  // equipe da data é a certa; o que não pode é a mudança ser silenciosa.
+  //
+  // Ação PRÓPRIA, para que a reatribuição seja localizável sem filtrar JSON, e
+  // gravada SÓ quando algo mudou.
+  RANKING_TEAM_REATTRIBUTED: 'RANKING_TEAM_REATTRIBUTED',
   ATHLETE_CREATE: 'ATHLETE_CREATE',
   ATHLETE_UPDATE: 'ATHLETE_UPDATE',
   ATHLETE_CPF_VIEW: 'ATHLETE_CPF_VIEW',

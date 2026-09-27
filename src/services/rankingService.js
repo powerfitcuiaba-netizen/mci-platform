@@ -542,6 +542,35 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
     })
   );
 
+  // ==========================================================================
+  // A REATRIBUIÇÃO DE EQUIPE NUM RECOMPUTO NÃO PODE SER SILENCIOSA — achado A-12.
+  //
+  // `recompute: true` APAGA as linhas vivas deste resultado e as recria, e a
+  // equipe da linha nova é resolvida outra vez pela janela temporal de R-01. Na
+  // etapa normal isso dá exatamente o mesmo `teamId`, porque o vínculo não muda
+  // no passado. Mas ele MUDA quando alguém corrige o histórico de vínculo — uma
+  // data de início errada, um desvínculo registrado atrasado — e aí o recomputo
+  // reescreve a QUEM aquele ponto pertenceu, que é atribuição histórica.
+  //
+  // A correção NÃO é impedir a reatribuição: pela regra R-01, a equipe da data
+  // oficial é a certa, e congelar o valor errado seria preservar o erro. A
+  // correção é que ela deixe RASTRO: quem investigar o ranking de uma equipe daqui
+  // a um ano precisa poder ver que um recomputo mudou a atribuição, quando, por
+  // ordem de quem, e de qual equipe para qual.
+  //
+  // A PRÉVIA continua sendo outra função, e é somente leitura:
+  // `GET /coaches/ranking/divergences` (`coachRankingService.divergencias`)
+  // responde, ANTES de qualquer escrita, quais lançamentos têm `teamId`
+  // divergente do vínculo da data. É a simulação que a homologação exige, e ela
+  // não altera nada.
+  // ==========================================================================
+  const atribuicaoAnterior = recompute
+    ? new Map((await prisma.rankingPoint.findMany({
+      where: { seasonId, resultId, voidedAt: null },
+      select: { athleteId: true, teamId: true }
+    })).map(linha => [linha.athleteId, linha.teamId ?? null]))
+    : new Map();
+
   const atribuidos = await prisma.$transaction(async tx => {
     // A REPONTUAÇÃO NÃO REVOGA UMA INVALIDAÇÃO ADMINISTRATIVA.
     //
@@ -688,6 +717,37 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
     actor, action: audit.ACTIONS.RANKING_UPDATE, entity: 'Result', entityId: resultId,
     organizationId: result.event.organizationId, metadata: { seasonId, awarded: atribuidos, recompute }
   });
+
+  // A TRILHA DA REATRIBUIÇÃO — achado A-12. Uma ação própria, e não um campo
+  // dentro de RANKING_UPDATE: quem audita ranking de equipe precisa achar as
+  // reatribuições sem filtrar JSON, pela mesma razão que separou
+  // RANKING_POINT_EDITED de RANKING_POINT_VOIDED.
+  //
+  // A linha só nasce quando ALGO mudou. Recomputo que reproduz a mesma atribuição
+  // — o caso comum — não gera evento, senão a trilha ficaria cheia de "nada
+  // mudou" e a mudança de verdade se perderia no meio.
+  if (recompute && atribuicaoAnterior.size) {
+    const depois = await prisma.rankingPoint.findMany({
+      where: { seasonId, resultId, voidedAt: null },
+      select: { athleteId: true, teamId: true }
+    });
+    const mudancas = depois
+      .filter(linha => atribuicaoAnterior.has(linha.athleteId)
+        && (atribuicaoAnterior.get(linha.athleteId) ?? null) !== (linha.teamId ?? null))
+      .map(linha => ({
+        athleteId: linha.athleteId,
+        de: atribuicaoAnterior.get(linha.athleteId) ?? null,
+        para: linha.teamId ?? null
+      }));
+
+    if (mudancas.length) {
+      await audit.record({
+        actor, action: audit.ACTIONS.RANKING_TEAM_REATTRIBUTED, entity: 'Result', entityId: resultId,
+        organizationId: result.event.organizationId,
+        metadata: { seasonId, eventId: result.eventId, dataOficial, mudancas }
+      });
+    }
+  }
 
   return { awarded: atribuidos, seasonId };
 }

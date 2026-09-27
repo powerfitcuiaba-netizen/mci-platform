@@ -1625,6 +1625,8 @@ export default {
   'delegacao.escopoTodas': 'All federations',
   'delegacao.semPrazo': 'No term',
   'delegacao.escolhaEscopo': 'Choose the federation',
+  'analiseTreinador.semPermissao': 'This account is not allowed to review coach registrations. Review belongs to Muscle Contest central administration.',
+  'delegacao.semPermissao': 'This account is not allowed to view or issue central delegations.',
   'delegacao.inerte': 'Grants nothing — no scope or no term',
   'delegacao.campoPessoa': 'Who receives it',
   'delegacao.escolhaPessoa': 'Choose the account',

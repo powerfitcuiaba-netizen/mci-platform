@@ -58,6 +58,22 @@ const ROTULO_DO_PEDIDO = {
 // justamente a instrução de como resolver.
 const mensagemDaFalha = (erro, padrao) => erro?.message || padrao;
 
+// ACHADO A-11: A TELA ADMINISTRATIVA NÃO PODE TRANSFORMAR RECUSA EM LISTA VAZIA.
+//
+// As duas listas da mesa central abriam com `.catch(() => ({ items: [] }))`. O
+// efeito é o pior possível numa tela de decisão: um 403 (a conta não tem
+// `coaches.approve` ou `central.grant`), um 500 e uma fila genuinamente vazia
+// produziam A MESMA tela — "nada aqui". Quem analisa cadastro conclui que não há
+// pendência quando o que houve foi recusa, e a pendência fica sem resposta.
+//
+// `relancar` preserva o erro para o `AsyncSection`, que já sabe mostrar estado de
+// falha com botão de tentar de novo, e distingue a RECUSA DE PERMISSÃO das demais
+// falhas — são ações diferentes: uma se resolve com quem concede acesso, a outra
+// com tentar de novo.
+const relancar = (erro, { negado, generico }) => {
+  throw new Error(erro?.status === 403 ? negado : mensagemDaFalha(erro, generico));
+};
+
 // --------------------------------------------------------------- AUTOCADASTRO
 function FormularioDeAutocadastro({ notificar, aoConcluir }) {
   const { t } = useIdioma();
@@ -808,7 +824,9 @@ export function AdminTreinadores({ notificar }) {
   const [decisao, setDecisao] = useState(null);
   const [autorizando, setAutorizando] = useState(null);
 
-  const fila = useFetch(() => api.coaches.review({ status }).catch(() => ({ items: [] })), [status]);
+  const fila = useFetch(() => api.coaches.review({ status }).catch(erro => relancar(erro, {
+    negado: t('analiseTreinador.semPermissao'), generico: t('erro.generico')
+  })), [status]);
 
   const acoesDoEstado = coach => {
     if (coach.status === 'PENDING') return ['approve', 'reject'];
@@ -832,7 +850,11 @@ export function AdminTreinadores({ notificar }) {
           </select>
         </div>
 
-        <AsyncSection state={fila} empty={dados => !dados?.items?.length}>
+        {/* Um estado por vez: carregando, recusa/erro, vazio ou a tabela. O texto
+            de vazio é o da fila, entregue ao AsyncSection em `vazio` — antes ele
+            ficava FORA, e aparecia junto do genérico. */}
+        <AsyncSection state={fila} empty={dados => !dados?.items?.length}
+          vazio={<EmptyState title={t('analiseTreinador.filaVazia')} description={t('analiseTreinador.filaVaziaDescricao')} />}>
           {dados => (
           <div className="table-wrap"><table className="table">
             <thead>
@@ -876,9 +898,6 @@ export function AdminTreinadores({ notificar }) {
           </table></div>
           )}
         </AsyncSection>
-        {!fila.loading && !(fila.data?.items?.length) && (
-          <EmptyState title={t('analiseTreinador.filaVazia')} description={t('analiseTreinador.filaVaziaDescricao')} />
-        )}
       </section>
 
       <DelegacaoCentral notificar={notificar} />
@@ -917,7 +936,9 @@ export function AdminTreinadores({ notificar }) {
 function DelegacaoCentral({ notificar }) {
   const { t } = useIdioma();
   const [abrindo, setAbrindo] = useState(false);
-  const concessoes = useFetch(() => api.centralAuthorizations.list().catch(() => ({ items: [] })), []);
+  const concessoes = useFetch(() => api.centralAuthorizations.list().catch(erro => relancar(erro, {
+    negado: t('delegacao.semPermissao'), generico: t('erro.generico')
+  })), []);
 
   const revogar = async id => {
     try {
@@ -938,7 +959,8 @@ function DelegacaoCentral({ notificar }) {
       </div>
       <p className="muted">{t('delegacao.explicacao')}</p>
 
-      <AsyncSection state={concessoes} empty={dados => !dados?.items?.length}>
+      <AsyncSection state={concessoes} empty={dados => !dados?.items?.length}
+        vazio={<EmptyState title={t('delegacao.semConcessao')} description={t('delegacao.semConcessaoDescricao')} />}>
         {dados => (
         <div className="table-wrap"><table className="table">
           <thead>
@@ -970,9 +992,6 @@ function DelegacaoCentral({ notificar }) {
         </table></div>
         )}
       </AsyncSection>
-      {!concessoes.loading && !(concessoes.data?.items?.length) && (
-        <EmptyState title={t('delegacao.semConcessao')} description={t('delegacao.semConcessaoDescricao')} />
-      )}
 
       {abrindo && <DialogoDeConcessao notificar={notificar} onClose={() => setAbrindo(false)} aoPronto={() => concessoes.reload?.()} />}
     </section>

@@ -295,3 +295,90 @@ describe('a pergunta temporal tem UMA resposta, e ela é consultável', () => {
     expect(intacto.teamId).toBe(equipeA.id);
   });
 });
+
+// ============================================================================
+// ACHADO A-12 — O RECOMPUTO QUE MUDA A EQUIPE DO LANÇAMENTO DEIXA RASTRO.
+//
+// `POST /seasons/:id/recompute` refaz a PROJEÇÃO e preserva `teamId` — está
+// medido acima. O caminho que REATRIBUI é outro: `awardForResult` com
+// `recompute: true`, usado quando uma súmula publicada é republicada. Ele apaga
+// as linhas vivas do resultado e resolve a equipe outra vez pela janela temporal
+// de R-01.
+//
+// Na etapa normal isso dá o MESMO `teamId`, porque o passado não muda. Ele muda
+// quando alguém CORRIGE o histórico de vínculo — e aí a atribuição histórica de
+// pontos troca de equipe. Pela regra, a equipe da data é a certa; o que não pode
+// é a troca ser silenciosa, porque quem audita o ranking de uma equipe daqui a um
+// ano precisa poder ver que houve reatribuição, quando e de qual equipe para qual.
+// ============================================================================
+describe('A-12: a reatribuição de equipe num recomputo é registrada', () => {
+  const contar = () => comoAtor(admin, tx => tx.auditLog.count({
+    where: { action: 'RANKING_TEAM_REATTRIBUTED' }
+  }));
+
+  const reprocessar = async resultId => {
+    const ranking = (await import('../src/services/rankingService.js')).default;
+    return comoAtor(admin, () => ranking.awardForResult(resultId, admin, { recompute: true }));
+  };
+
+  const resultadoDo = lancamento => comoAtor(admin, tx => tx.rankingPoint.findUnique({
+    where: { id: lancamento.id }, select: { resultId: true }
+  }));
+
+  async function cenario(nome) {
+    const cpf = cpfSeq();
+    const atleta = await criarAtleta(diretor, orgId, { fullName: nome, cpf });
+    expect((await api().post(`/api/v1/athletes/${atleta.id}/team`).set(diretor.auth())
+      .send({ teamId: equipeA.id })).status).toBe(201);
+    await comoAtor(admin, tx => tx.athleteTeamMembership.updateMany({
+      where: { athleteId: atleta.id }, data: { startedAt: new Date('2026-01-15T00:00:00.000Z') }
+    }));
+
+    const { lancamento } = await competirEPublicar(atleta, cpf);
+    expect(lancamento.teamId).toBe(equipeA.id);
+    return { atleta, lancamento };
+  }
+
+  it('correção do histórico + reprocessamento grava a mudança com DE e PARA', async () => {
+    const { atleta, lancamento } = await cenario('Marina Alves');
+    const { resultId } = await resultadoDo(lancamento);
+
+    // A CORREÇÃO DE HISTÓRICO: o registro dizia equipe A, e alguém corrige para
+    // equipe B a MESMA janela temporal. Pela regra R-01, a equipe da data oficial
+    // passa a ser a B — e o ponto muda de dono.
+    await comoAtor(admin, tx => tx.athleteTeamMembership.updateMany({
+      where: { athleteId: atleta.id }, data: { teamId: equipeB.id }
+    }));
+
+    const antes = await contar();
+    await reprocessar(resultId);
+
+    const linhas = await comoAtor(admin, tx => tx.auditLog.findMany({
+      where: { action: 'RANKING_TEAM_REATTRIBUTED' }, orderBy: { createdAt: 'desc' }, take: 1
+    }));
+    expect(await contar(), 'a reatribuição precisa estar na trilha').toBe(antes + 1);
+
+    const mudancas = linhas[0].metadata.mudancas;
+    expect(mudancas).toHaveLength(1);
+    expect(mudancas[0].athleteId).toBe(atleta.id);
+    expect(mudancas[0].de, 'de qual equipe').toBe(equipeA.id);
+    expect(mudancas[0].para, 'para qual equipe').toBe(equipeB.id);
+
+    // E a linha de ponto realmente mudou de equipe: o evento não é decorativo.
+    const depois = await comoAtor(admin, tx => tx.rankingPoint.findFirst({
+      where: { athleteId: atleta.id, seasonId, voidedAt: null }, select: { teamId: true }
+    }));
+    expect(depois.teamId).toBe(equipeB.id);
+  });
+
+  it('reprocessamento que reproduz a MESMA equipe não gera evento nenhum', async () => {
+    // Sem esta medição, a trilha encheria de "nada mudou" e a mudança de verdade
+    // se perderia no meio delas.
+    const { lancamento } = await cenario('Beatriz Nunes');
+    const { resultId } = await resultadoDo(lancamento);
+
+    const antes = await contar();
+    await reprocessar(resultId);
+    expect(await contar(), 'recomputo sem mudança não vira linha de trilha').toBe(antes);
+  });
+});

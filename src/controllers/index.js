@@ -102,7 +102,8 @@ module.exports = {
     login: async (req, res) => res.json(await auth.login(req.body, { ip: ip(req) })),
     me: async (req, res) => res.json(await auth.me(req.user.id)),
     updateProfile: async (req, res) => res.json(await auth.updateProfile(req.user.id, req.body)),
-    changePassword: async (req, res) => res.json(await auth.changePassword(req.user.id, req.body))
+    // O IP entra na trilha da troca de senha (A-09), como já entrava na do login.
+    changePassword: async (req, res) => res.json(await auth.changePassword(req.user.id, req.body, { ip: ip(req) }))
   },
 
   // Minha Filiação e Meu Histórico. `req.user` e nada mais: nenhum parâmetro

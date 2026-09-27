@@ -24,7 +24,17 @@ const orgDaQuery = req => req.query?.organizationId ?? null;
 const limiteAutenticacao = rateLimit({
   windowMs: 15 * 60_000, max: 10, nome: 'auth',
   alvo: req => String(req.body?.email || '').trim().toLowerCase() || null,
-  maxPorAlvo: 20
+  maxPorAlvo: 20,
+  // O 429 DA PORTA DE ENTRADA VAI PARA A TRILHA — achado A-10.
+  //
+  // Só aqui, e a escolha é sobre sinal e volume. Este é o teto que contém força
+  // bruta, e a rajada que ele barra é o evento que quem investiga procura: 200
+  // tentativas barradas não aparecem em `LOGIN_FAILED`, porque o limitador recusa
+  // antes de o serviço rodar. Ligar a auditoria nos tetos de conteúdo, busca ou
+  // mensagem produziria linha para cada pessoa que clicou rápido — ruído em
+  // volume, sem sinal de segurança. Ver `registrarBloqueio` em
+  // `src/middlewares/rateLimit.js` para o porquê de uma linha por janela.
+  auditar: true
 });
 const limitePublico = rateLimit({ windowMs: 60_000, max: 180, nome: 'public' });
 const limiteUpload = rateLimit({ windowMs: 60_000, max: 30, nome: 'upload' });

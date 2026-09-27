@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
   vincular, criarAtleta, gerarCpf, unico, comoAtor
@@ -422,5 +423,256 @@ describe('A-04: o vínculo por confirmação exige convite pendente daquela equi
       .send({ teamId: equipeOutroTreinador.id });
     expect(vinculo.status, JSON.stringify(vinculo.body)).toBe(201);
     expect(vinculo.body.teamId).toBe(equipeOutroTreinador.id);
+  });
+});
+
+// ---------------------------------------------------------------------- A-03
+//
+// A LEITURA DE ATLETA PELO TREINADOR, MEDIDA NO QUE ELA É E NO QUE NÃO É.
+//
+// A correção estreitou a cláusula: além de cadastro aprovado e autorização viva
+// na federação, o treinador precisa ser RESPONSÁVEL POR ALGUMA EQUIPE dela. Os
+// testes abaixo medem os dois lados — o que passou a ser recusado, e o que
+// continua funcionando — e, além deles, medem o LIMITE REAL da política, que é o
+// que a auditoria pediu para ficar explícito: o conjunto que o treinador lê é
+// subconjunto do que uma requisição SEM SESSÃO já lê, e o que R-05 protege
+// (CPF, documento) está em outra tabela, fora do alcance dele.
+describe('A-03: a leitura de atleta pelo treinador é estreitada e o limite fica medido', () => {
+  /** Ids de `Athlete` visíveis dentro do contexto de RLS de quem se pedir. */
+  const atletasVisiveis = ator => comoAtor(ator, tx =>
+    tx.athlete.findMany({ select: { id: true, organizationId: true } }));
+
+  it('treinador aprovado e autorizado mas SEM EQUIPE na federação não lê atleta nenhum dela', async () => {
+    // Aprovado (R-03) e autorizado na federação A (R-04) — e nada mais. A equipe
+    // NÃO é atribuída de propósito: é o estado do treinador recém-autorizado.
+    expect((await api().post(`/api/v1/coaches/${coachId}/approve`).set(admin.auth())
+      .send({ reason: 'Documentação conferida.' })).status).toBe(200);
+    expect((await api().post(`/api/v1/coaches/${coachId}/organizations`).set(diretorA.auth())
+      .send({ organizationId: orgA, reason: 'Atuação autorizada.' })).status).toBe(200);
+
+    const visiveis = await atletasVisiveis(contaTreinador);
+    expect(visiveis.filter(a => a.organizationId === orgA),
+      'sem equipe na federação não há a quem listar nem para onde convidar').toHaveLength(0);
+
+    // E a busca por matrícula, que é o caminho real, não encontra.
+    const busca = await api().post('/api/v1/athletes/lookup-affiliation').set(contaTreinador.auth())
+      .send({ organizationId: orgA, affiliationNumber: '7001' });
+    expect(busca.status, JSON.stringify(busca.body)).toBe(200);
+    expect(busca.body.found).toBe(false);
+  });
+
+  it('com equipe na federação, a leitura e a busca voltam — a correção não quebrou o convite', async () => {
+    await habilitarTreinador();
+
+    const visiveis = await atletasVisiveis(contaTreinador);
+    expect(visiveis.map(a => a.id)).toContain(atletaComConta.id);
+
+    const busca = await api().post('/api/v1/athletes/lookup-affiliation').set(contaTreinador.auth())
+      .send({ organizationId: orgA, affiliationNumber: '7001' });
+    expect(busca.status, JSON.stringify(busca.body)).toBe(200);
+    expect(busca.body.found, 'sem esta leitura não há como convidar ninguém').toBe(true);
+    expect(busca.body.athlete.id).toBe(atletaComConta.id);
+  });
+
+  it('treinador da federação A não lê atleta da federação B', async () => {
+    await habilitarTreinador();
+    const atletaDeB = await criarAtleta(diretorB, orgB, { fullName: 'Atleta De B', cpf: cpfSeq() });
+
+    const visiveis = await atletasVisiveis(contaTreinador);
+    expect(visiveis.map(a => a.id)).not.toContain(atletaDeB.id);
+    expect(visiveis.filter(a => a.organizationId === orgB)).toHaveLength(0);
+
+    // Nem com o id na mão, e nem pela rota.
+    const direto = await comoAtor(contaTreinador, tx => tx.athlete.findUnique({ where: { id: atletaDeB.id } }));
+    expect(direto, 'o id conhecido não abre a linha de outra federação').toBeNull();
+  });
+
+  it('REVOGAR a autorização da federação apaga a leitura na requisição seguinte', async () => {
+    await habilitarTreinador();
+    expect((await atletasVisiveis(contaTreinador)).map(a => a.id)).toContain(atletaComConta.id);
+
+    const revogacao = await api().post(`/api/v1/coaches/${coachId}/organizations/revoke`).set(diretorA.auth())
+      .send({ organizationId: orgA, reason: 'Atuação encerrada.' });
+    expect(revogacao.status, JSON.stringify(revogacao.body)).toBe(200);
+
+    expect(await atletasVisiveis(contaTreinador),
+      'a revogação vale já, sem job e sem cache').toHaveLength(0);
+  });
+
+  it('SUSPENDER o cadastro apaga a leitura, mesmo com autorização e equipe intactas', async () => {
+    await habilitarTreinador();
+    const suspensao = await api().post(`/api/v1/coaches/${coachId}/suspend`).set(admin.auth())
+      .send({ reason: 'Suspensão cautelar na análise.' });
+    expect(suspensao.status, JSON.stringify(suspensao.body)).toBe(200);
+
+    expect(await atletasVisiveis(contaTreinador)).toHaveLength(0);
+  });
+
+  it('perder a equipe para outro responsável apaga a leitura', async () => {
+    await habilitarTreinador();
+    const outroCadastro = await criarUsuario({ role: 'COACH', name: 'Outro Treinador' });
+    const outro = await api().post('/api/v1/coaches/self-register').set(outroCadastro.auth())
+      .send({ name: 'Outro Treinador', registration: 'CREF-11111' });
+    expect(outro.status).toBe(201);
+    // Responder por equipe exige cadastro aprovado (R-03) — o substituto passa
+    // pela mesa central como qualquer outro.
+    expect((await api().post(`/api/v1/coaches/${outro.body.id}/approve`).set(admin.auth())
+      .send({ reason: 'Documentação conferida.' })).status).toBe(200);
+    expect((await api().post(`/api/v1/coaches/${outro.body.id}/organizations`).set(diretorA.auth())
+      .send({ organizationId: orgA, reason: 'Atuação autorizada.' })).status).toBe(200);
+
+    const troca = await api().post(`/api/v1/teams/${equipeA.id}/coach`).set(diretorA.auth())
+      .send({ coachId: outro.body.id });
+    expect(troca.status, JSON.stringify(troca.body)).toBe(200);
+
+    expect(await atletasVisiveis(contaTreinador),
+      'sem equipe na federação, a leitura larga não sobrevive').toHaveLength(0);
+  });
+
+  it('o que o treinador lê é SUBCONJUNTO do que uma requisição sem sessão já lê', async () => {
+    // Esta é a medição que dimensiona o achado. `atleta_leitura` libera
+    // `mci_current_user_id() IS NULL`, e é disso que vivem a vitrine pública e o
+    // ranking. Se algum dia o treinador passar a ler algo que o anônimo não lê,
+    // este teste reprova — e aí a conversa é outra.
+    await habilitarTreinador();
+    await criarAtleta(diretorB, orgB, { fullName: 'Atleta De B', cpf: cpfSeq() });
+
+    const doTreinador = (await atletasVisiveis(contaTreinador)).map(a => a.id).sort();
+    const doAnonimo = (await atletasVisiveis(null)).map(a => a.id).sort();
+
+    expect(doAnonimo.length, 'o anônimo lê a superfície pública inteira').toBeGreaterThan(0);
+    for (const id of doTreinador) expect(doAnonimo).toContain(id);
+    expect(doTreinador.length).toBeLessThan(doAnonimo.length);
+  });
+
+  it('o que R-05 protege está FORA do alcance do treinador: CPF e documento', async () => {
+    await habilitarTreinador();
+
+    // CPF vive em `AthleteIdentity`, tabela própria com RLS própria.
+    const identidades = await comoAtor(contaTreinador, tx => tx.athleteIdentity.findMany());
+    expect(identidades, 'o CPF não é alcançável pelo treinador').toHaveLength(0);
+
+    // E a projeção do painel não tem por onde vazar: a lista é explícita.
+    const pedido = await api().post('/api/v1/team-membership-requests').set(contaTreinador.auth())
+      .send({ athleteId: atletaComConta.id, teamId: equipeA.id });
+    expect(pedido.status).toBe(201);
+    const confirmacao = await api().post(`/api/v1/team-membership-requests/${pedido.body.id}/confirm`)
+      .set(contaAtleta.auth()).send({});
+    expect(confirmacao.status, JSON.stringify(confirmacao.body)).toBe(200);
+
+    const painel = await api().get('/api/v1/coaches/me/athletes').set(contaTreinador.auth());
+    expect(painel.status, JSON.stringify(painel.body)).toBe(200);
+    expect(painel.body.items).toHaveLength(1);
+
+    const texto = JSON.stringify(painel.body);
+    for (const proibido of ['cpf', 'Cpf', 'CPF', 'documents', 'storageKey', 'birthDate', 'phone', 'email', 'passwordHash']) {
+      expect(texto, `a projeção do painel não carrega ${proibido}`).not.toContain(proibido);
+    }
+  });
+
+  it('o treinador não lê o vínculo de atleta de OUTRA equipe', async () => {
+    // `vinculo_leitura` continua sendo por EQUIPE, e não por federação: o
+    // histórico de vínculo de quem está em outra equipe segue invisível.
+    await habilitarTreinador();
+    const equipeAlheia = (await api().post('/api/v1/teams').set(diretorA.auth())
+      .send({ organizationId: orgA, name: unico('Equipe Alheia') })).body;
+    const atletaAlheio = await criarAtleta(diretorA, orgA, { fullName: 'Atleta Alheio', cpf: cpfSeq() });
+    expect((await api().post(`/api/v1/athletes/${atletaAlheio.id}/team`).set(diretorA.auth())
+      .send({ teamId: equipeAlheia.id })).status).toBe(201);
+
+    const vinculos = await comoAtor(contaTreinador, tx => tx.athleteTeamMembership.findMany({
+      select: { id: true, teamId: true }
+    }));
+    expect(vinculos.filter(v => v.teamId === equipeAlheia.id),
+      'vínculo de equipe alheia não é do treinador').toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------- A-05
+//
+// A MIGRATION 20260926020000 EXECUTA `UPDATE "Coach" SET status='APPROVED'` SEM
+// `WHERE`, e R-03 diz que quem aprova cadastro de treinador é a administração
+// central. A correção (migration 20260927030000) devolve a `PENDING` só as linhas
+// aprovadas SEM revisor e SEM data de revisão.
+//
+// O teste do predicado roda o SQL DO ARQUIVO, e não uma cópia dele: um predicado
+// que divergisse do que vai subir não estaria sendo medido.
+describe('A-05: o cadastro legado de treinador não fica aprovado por migration', () => {
+  const SQL_DA_CORRECAO = readFileSync(
+    new URL('../prisma/migrations/20260927030000_status_legado_de_treinador/migration.sql', import.meta.url),
+    'utf8'
+  );
+
+  it('aprovar pela rota grava REVISOR e DATA — é o que protege o cadastro real', async () => {
+    expect((await api().post(`/api/v1/coaches/${coachId}/approve`).set(admin.auth())
+      .send({ reason: 'Documentação conferida.' })).status).toBe(200);
+
+    const cadastro = await comoAtor(admin, tx => tx.coach.findUnique({
+      where: { id: coachId }, select: { status: true, reviewedById: true, reviewedAt: true }
+    }));
+    expect(cadastro.status).toBe('APPROVED');
+    expect(cadastro.reviewedById, 'sem revisor o predicado da migration não distinguiria nada').toBe(admin.id);
+    expect(cadastro.reviewedAt).toBeTruthy();
+  });
+
+  it('o autocadastro nasce PENDING e sem revisor', async () => {
+    const cadastro = await comoAtor(admin, tx => tx.coach.findUnique({
+      where: { id: coachId }, select: { status: true, reviewedById: true, reviewedAt: true }
+    }));
+    expect(cadastro.status).toBe('PENDING');
+    expect(cadastro.reviewedById).toBeNull();
+    expect(cadastro.reviewedAt).toBeNull();
+  });
+
+  it('o SQL da correção atinge o aprovado SEM revisor e NÃO toca o aprovado por pessoa', async () => {
+    // Um cadastro aprovado por pessoa, pela rota real.
+    expect((await api().post(`/api/v1/coaches/${coachId}/approve`).set(admin.auth())
+      .send({ reason: 'Documentação conferida.' })).status).toBe(200);
+
+    // E um cadastro no estado que a migration anterior produz: aprovado, sem
+    // revisor, sem data — exatamente o `UPDATE` sem `WHERE`.
+    const legado = await comoAtor(admin, tx => tx.coach.create({
+      data: { name: 'Treinador Legado', status: 'APPROVED' },
+      select: { id: true }
+    }));
+
+    await comoAtor(admin, tx => tx.$executeRawUnsafe(SQL_DA_CORRECAO));
+
+    const depois = await comoAtor(admin, tx => tx.coach.findMany({
+      where: { id: { in: [coachId, legado.id] } },
+      select: { id: true, status: true, reviewedById: true }
+    }));
+    const porId = new Map(depois.map(c => [c.id, c]));
+
+    expect(porId.get(legado.id).status, 'o legado volta ao estado que R-03 manda').toBe('PENDING');
+    expect(porId.get(coachId).status, 'o aprovado por pessoa não é tocado').toBe('APPROVED');
+    expect(porId.get(coachId).reviewedById).toBe(admin.id);
+  });
+
+  it('o SQL da correção é idempotente: a segunda execução não muda nada', async () => {
+    await comoAtor(admin, tx => tx.coach.create({
+      data: { name: 'Treinador Legado', status: 'APPROVED' }, select: { id: true }
+    }));
+
+    await comoAtor(admin, tx => tx.$executeRawUnsafe(SQL_DA_CORRECAO));
+    const primeira = await comoAtor(admin, tx => tx.coach.findMany({ select: { id: true, status: true } }));
+
+    await comoAtor(admin, tx => tx.$executeRawUnsafe(SQL_DA_CORRECAO));
+    const segunda = await comoAtor(admin, tx => tx.coach.findMany({ select: { id: true, status: true } }));
+
+    expect(segunda).toEqual(primeira);
+  });
+
+  it('e o efeito é o que importa: cadastro pendente não é ator, nem para a RLS', async () => {
+    // Autorizado na federação e responsável pela equipe, mas com o cadastro
+    // devolvido a PENDING pela correção — não lê atleta nenhum.
+    await habilitarTreinador();
+    await comoAtor(admin, tx => tx.coach.update({
+      where: { id: coachId }, data: { status: 'APPROVED', reviewedById: null, reviewedAt: null }
+    }));
+    await comoAtor(admin, tx => tx.$executeRawUnsafe(SQL_DA_CORRECAO));
+
+    const visiveis = await comoAtor(contaTreinador, tx => tx.athlete.findMany({ select: { id: true } }));
+    expect(visiveis, 'pendente não é ator reconhecido pelo banco').toHaveLength(0);
   });
 });

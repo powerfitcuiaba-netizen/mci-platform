@@ -29,7 +29,7 @@
 
 import { spawn, execSync } from 'node:child_process';
 import { setTimeout as esperar } from 'node:timers/promises';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 
 const { argv, env } = process;
 const arg = (nome, padrao = null) => {
@@ -418,8 +418,21 @@ async function abrir(pagina, rota) {
 // ------------------------------------------------------------------- main
 console.log('\n=== GATE VISUAL — TREINADORES & EQUIPES ===\n');
 
+// ACHADO A-07: A PASTA DE EVIDÊNCIA NÃO É APAGADA.
+//
+// A versão anterior abria com `rmSync(PASTA, { recursive: true, force: true })`,
+// e `PASTA` tem por padrão `docs/audits/qa-visual-treinadores` — evidência
+// COMMITADA, referenciada pelo relatório de QA visual. Uma execução do gate
+// apagava o registro de todas as anteriores, e uma execução que morresse no meio
+// deixava a pasta vazia: o gate destruía a prova que existe para produzir.
+//
+// O que substitui a limpeza é a DENÚNCIA da defasagem. Arquivo que este gate não
+// reescreveu continua no disco, e o resumo o nomeia — quem revisa vê que aquele
+// PNG é de outra rodada em vez de recebê-lo apagado.
+const INICIO_DA_RODADA = Date.now();
+const arquivosAnteriores = existsSync(PASTA) ? readdirSync(PASTA) : [];
+
 try {
-  rmSync(PASTA, { recursive: true, force: true });
   mkdirSync(PASTA, { recursive: true });
 
   console.log('preparando banco de QA…');
@@ -821,6 +834,11 @@ try {
     naoTestado: evidencias.filter(e => e.veredito === 'NOT TESTED').length,
     controle: evidencias.filter(e => e.veredito === 'CONTROLE').length,
     informativas: evidencias.filter(e => e.veredito === 'INFO').length,
+    // Ver A-07: nada é apagado, então a defasagem é declarada. Vazio significa
+    // que a rodada reescreveu tudo o que havia.
+    arquivosDeRodadaAnterior: arquivosAnteriores.filter(nome => {
+      try { return statSync(`${PASTA}/${nome}`).mtimeMs < INICIO_DA_RODADA; } catch { return false; }
+    }),
     itens: evidencias
   };
   writeFileSync(`${PASTA}/evidencias.json`, `${JSON.stringify(resumo, null, 2)}\n`);
@@ -828,6 +846,10 @@ try {
   console.log(`\n${resumo.pass} PASS, ${resumo.fail} FAIL, ${resumo.naoTestado} NOT TESTED`);
   console.log(`${resumo.controle} achados na tela de CONTROLE (dívida anterior ao módulo), ${resumo.informativas} linhas informativas`);
   console.log(`evidências em ${PASTA}/`);
+  if (resumo.arquivosDeRodadaAnterior.length) {
+    console.log(`${resumo.arquivosDeRodadaAnterior.length} arquivo(s) são de rodada ANTERIOR e foram preservados:`);
+    for (const nome of resumo.arquivosDeRodadaAnterior) console.log(`  - ${nome}`);
+  }
   if (problemas.length) {
     console.log('\nPROBLEMAS:');
     for (const p of problemas) console.log(`  - ${p}`);

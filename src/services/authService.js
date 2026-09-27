@@ -60,6 +60,10 @@ async function criarPerfilSocial(user) {
   throw new AppError(409, 'HANDLE_UNAVAILABLE', 'Não foi possível gerar um identificador social');
 }
 
+// Ver o comentário dentro de `register`: prazo explícito para a transação do
+// cadastro atômico, em vez do padrão de 5s do Prisma.
+const PRAZO_DO_CADASTRO = Object.freeze({ maxWait: 5000, timeout: 10000 });
+
 async function register(data, contexto = {}) {
   const role = data.role || 'ATHLETE';
   if (!isSelfServiceRole(role)) {
@@ -107,6 +111,25 @@ async function register(data, contexto = {}) {
   // qualquer outra conexão, e é justamente o sucesso parcial que a decisão
   // proíbe.
   // ============================================================================
+  // O PRAZO DA TRANSAÇÃO É UMA DECISÃO, E NÃO UM PADRÃO HERDADO — achado A-06.
+  //
+  // A transação interativa do Prisma tem prazo PADRÃO de 5 segundos, e o cadastro
+  // atômico passou a caber dentro dele: `User` + `SocialProfile` (até 6
+  // tentativas de handle, cada uma com SAVEPOINT, RELEASE ou ROLLBACK) + a linha
+  // de auditoria + o `set_config` do contexto. São ~10 idas e voltas ao banco no
+  // caso comum e até ~20 no pior caso de colisão de handle. Em PostgreSQL local
+  // isso é dezenas de milissegundos; a 30ms de latência de banco gerenciado, o
+  // pior caso se aproxima do limite — e estourar aqui significa P2028 e cadastro
+  // recusado a quem digitou tudo certo.
+  //
+  // O prazo vai a 10s, e não mais: transação aberta segura uma conexão do pool, e
+  // dilatar o prazo é dilatar quanto tempo uma rajada de cadastros pode prender o
+  // pool. 10s cobre o pior caso medido com folga de uma ordem de grandeza sem
+  // transformar lentidão de banco em indisponibilidade de plataforma.
+  //
+  // `maxWait` é a espera POR uma conexão, que é outra coisa: sob rajada, é
+  // melhor recusar rápido do que enfileirar requisições que o cliente já
+  // abandonou.
   const completo = await withUserContext(null, async () => {
     const criado = await criarUsuarioComPerfil(data, role, passwordHash);
 
@@ -118,7 +141,7 @@ async function register(data, contexto = {}) {
     });
 
     return criado;
-  });
+  }, PRAZO_DO_CADASTRO);
 
   return { token: createToken(completo), user: sanitizeUser(completo) };
 }
@@ -285,7 +308,35 @@ async function updateProfile(id, data) {
   return { user: sanitizeUser(user) };
 }
 
-async function changePassword(id, { currentPassword, newPassword }) {
+// ============================================================================
+// TROCA DE SENHA — COM TRILHA, E FAIL CLOSED (achado A-09).
+//
+// A função trocava a senha e não registrava nada. Numa investigação de acesso
+// indevido, a pergunta "quando a senha desta conta mudou?" não tinha resposta, e
+// troca sem registro é indistinguível de nenhuma troca.
+//
+// FAIL CLOSED, e aqui ele sai de graça: a rota é autenticada, então a requisição
+// inteira já corre dentro da transação aberta por `asyncHandler`/`withUserContext`
+// (ver `src/config/prisma.js`). `registrarObrigatorio` reaproveita essa transação;
+// se a trilha não persistir, ele levanta 503 e a transação volta atrás — a senha
+// NÃO muda. Não há estado intermediário possível: senha nova com trilha, ou nada.
+//
+// A ORDEM É ESCRITA-DEPOIS-TRILHA de propósito. Registrar antes de gravar
+// produziria linha de trilha para troca que talvez não aconteça; gravar antes de
+// registrar, dentro da mesma transação, faz as duas caírem juntas.
+//
+// A LINHA NÃO CARREGA SEGREDO: sem senha, sem senha antiga, sem hash, sem
+// prefixo, sem comprimento. O evento é a troca.
+//
+// O QUE FICA DE FORA, DECLARADO: a TENTATIVA RECUSADA (senha atual errada) NÃO é
+// registrada. Não é esquecimento — é que ela não sobreviveria. A recusa levanta
+// 401, a exceção desfaz a transação da requisição, e a linha de trilha gravada
+// nela iria embora com o resto. Registrá-la exigiria escrever FORA da transação
+// da requisição (conexão própria, ator nulo, alvo em `entityId`, como
+// `LOGIN_FAILED` faz na rota aberta de login). É mudança de mecanismo, está
+// desenhada no relatório de correções e aguarda decisão — não foi inventada aqui.
+// ============================================================================
+async function changePassword(id, { currentPassword, newPassword }, contexto = {}) {
   const user = await userRepository.findById(id);
   if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'Usuário não encontrado');
 
@@ -295,6 +346,10 @@ async function changePassword(id, { currentPassword, newPassword }) {
 
   const passwordHash = await bcrypt.hash(newPassword, config.bcryptRounds);
   await userRepository.update(id, { passwordHash });
+
+  await audit.registrarObrigatorio({
+    actor: user, action: audit.ACTIONS.PASSWORD_CHANGE, entity: 'User', entityId: user.id, ip: contexto.ip
+  });
 
   return { success: true };
 }
