@@ -185,7 +185,7 @@ Resumo; o detalhamento está em **`RELATORIO-REGRESSAO-E-PERFORMANCE-TREINADORES
 | Migrations do zero + `migrate status` | **PASS** |
 | QA visual em Chromium, 8 larguras | **PASS** — 218 PASS, 0 FAIL, 0 NOT TESTED |
 | Desempenho das rotas do módulo | **PASS** — 13/13 no orçamento; p95 máximo 19 ms |
-| Mutantes desta etapa | **PASS** — 11/11 mataram |
+| Mutantes desta etapa | **PASS** — 14/14 mataram |
 | Mutação pré-existente do módulo | **NÃO REEXECUTADA** — razão e recomendação registradas |
 
 ---
@@ -268,7 +268,7 @@ confirmação, o bloqueio de §8.3, as oito larguras e a trilha de auditoria.
 | 5 | QA visual em 8 larguras sem FAIL | **cumprido** — 218/0/0 |
 | 6 | Desempenho medido, sem custo patológico | **cumprido** — 13/13 |
 | 7 | Migrations aplicam do zero e `migrate status` em dia | **cumprido** |
-| 8 | Prova negativa dos caminhos novos | **cumprido** — 11 mutantes |
+| 8 | Prova negativa dos caminhos novos | **cumprido** — 14 mutantes |
 | 9 | Inspeção de segredos sem achado a explicar | **cumprido** — e ligada na CI |
 | 10 | **Homologação manual de Helder Falcão** pelo roteiro do guia | **PENDENTE** |
 | 11 | **Decisões D-1 a D-4** | **PENDENTES** |

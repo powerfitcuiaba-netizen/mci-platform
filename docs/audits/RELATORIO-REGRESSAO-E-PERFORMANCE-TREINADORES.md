@@ -215,12 +215,13 @@ testes de disputa importam como regressão:
 
 ## 9. Prova negativa — os mutantes desta etapa
 
-Um teste que passa com e sem a correção não mede a correção. Onze mutantes aplicados, todos
+Um teste que passa com e sem a correção não mede a correção. Quatorze mutantes aplicados, todos
 revertidos, com o verde reconfirmado depois de cada um:
 
 | Mutante | Testes que reprovaram |
 | --- | --- |
 | A-01 — remover a guarda das duas rotas de ranking | **3** |
+| A-01 — devolver `ranking.manage` à guarda (vazamento cross-tenant) | **1** |
 | A-02 — escopo nulo volta a valer em todas as federações | **2** |
 | A-02 — prazo nulo volta a valer para sempre | **2** |
 | A-03 — devolver `mci_treinador_autorizado_de` em `atleta_leitura` | **2** |
@@ -231,6 +232,7 @@ revertidos, com o verde reconfirmado depois de cada um:
 | A-10 — não auditar bloqueio nenhum | **1** |
 | A-11 — devolver o `.catch` que engolia o 403 | **2** |
 | A-12 — remover o evento de reatribuição | **1** |
+| A-13 — devolver o `include` sem projeção no catálogo de técnicos | **2** |
 
 ### 9.1 O que NÃO foi reexecutado, e por quê
 
@@ -275,5 +277,5 @@ Está listado nos critérios de conclusão do relatório final.
 | Migrations do zero + status | **PASS** |
 | QA visual em 8 larguras | **PASS** — 218/0/0 |
 | Desempenho | **PASS** — 13/13 no orçamento |
-| Mutantes desta etapa | **PASS** — 11/11 mataram |
+| Mutantes desta etapa | **PASS** — 14/14 mataram |
 | Mutação pré-existente do módulo | **NÃO REEXECUTADA** — ver §9.1 |

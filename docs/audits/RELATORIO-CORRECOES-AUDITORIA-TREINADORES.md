@@ -85,7 +85,19 @@ chamada como primeira linha das duas funções. Três atores, e nenhum a mais:
 1. **o dono do cadastro** — conferido pelo `userId` DO BANCO
    (`coach.findFirst({ where: { id, userId: actor.id } })`), nunca por um id vindo da URL;
 2. **a mesa central** (`coaches.approve`), que analisa o cadastro — R-03;
-3. **a homologação** (`ranking.manage`), audiência declarada da conferência de R-01.
+**E só esses dois.** A primeira versão desta guarda admitia também `ranking.manage`, pensando
+na homologação, e estava **larga** — por uma razão que não é óbvia: numa pergunta **sem
+organização**, `effectivePermissions` soma as permissões de **todas** as filiações do ator (é o
+`if (organizationId && ...) continue`, que não corta nada quando o escopo é nulo). Então
+`can(actor, 'ranking.manage')` respondia sim para o gestor de ranking de **qualquer** federação,
+e ele passaria a ler o `status` da análise cadastral de treinador de outra — vazamento
+cross-tenant de dado de R-03, criado pela própria guarda que fecha A-01.
+
+A cláusula saiu, e a homologação não perde nada: quem conduz a análise cadastral tem
+`coaches.approve`, e a conferência de R-01 — que é sobre **ponto** e não sobre cadastro —
+continua em `divergencias`, com `ranking.manage`. Há teste que prova as duas coisas na mesma
+conta: o gestor de ranking da federação B recebe **404** nas duas rotas de cadastro e **200** na
+conferência de divergências.
 
 A recusa é **404, e não 403**, idêntica à de id inexistente. Um 403 responderia
 "este treinador existe, mas não é seu", que é exatamente o oráculo de que a
@@ -102,7 +114,8 @@ recusa não carrega `status`, nome de equipe nem nome do treinador; o dono conti
 lendo; a mesa central lê qualquer um; sem sessão é 401 e não 404; a guarda roda ANTES
 da leitura do cadastro, então nem o `status` de um `PENDING` escapa.
 
-**Mutante:** remover as duas chamadas da guarda → **3 testes reprovam**.
+**Mutantes:** remover as duas chamadas da guarda → **3 testes reprovam**; devolver
+`ranking.manage` à guarda → **1 reprova**.
 
 ### Resultado
 
