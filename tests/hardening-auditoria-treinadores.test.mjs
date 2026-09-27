@@ -316,3 +316,111 @@ describe('A-02: delegação central sem escopo ou sem prazo não concede nada', 
     expect(gravadas).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------- A-04
+//
+// A POLÍTICA TEM DE SER TÃO ESTREITA QUANTO O SERVIÇO, E NÃO MAIS LARGA.
+//
+// `vinculo_criacao` autorizava `mci_atleta_do_usuario("athleteId")` sem dizer
+// nada sobre `teamId`: o atleta gravava vínculo com QUALQUER equipe. Nenhuma
+// rota fazia isso — `confirmar` usa `pedido.teamId` —, e é justamente por isso
+// que o teste da folga não podia passar pela rota: ele grava DIRETO na tabela,
+// no contexto de RLS do atleta, que é o único lugar onde a política é o que
+// decide.
+describe('A-04: o vínculo por confirmação exige convite pendente daquela equipe', () => {
+  let equipeOutroTreinador;
+
+  beforeEach(async () => {
+    await habilitarTreinador();
+    // Uma equipe da MESMA federação, de outro responsável. É o alvo plausível:
+    // mesma organização, então a conferência de federação não salva ninguém.
+    equipeOutroTreinador = (await api().post('/api/v1/teams').set(diretorA.auth())
+      .send({ organizationId: orgA, name: unico('Equipe Alheia') })).body;
+  });
+
+  /** O INSERT cru, no contexto de RLS da conta do atleta. */
+  const gravarVinculoDireto = teamId => comoAtor(contaAtleta, tx =>
+    tx.athleteTeamMembership.create({
+      data: {
+        athleteId: atletaComConta.id, teamId,
+        createdById: contaAtleta.id, activeAthleteId: atletaComConta.id
+      },
+      select: { id: true }
+    }));
+
+  it('a RLS recusa o INSERT do atleta em equipe que NÃO o convidou', async () => {
+    const erro = await gravarVinculoDireto(equipeOutroTreinador.id).catch(e => e);
+    expect(erro, 'o INSERT tinha de falhar').toBeInstanceOf(Error);
+    // 42501 é a recusa de política do PostgreSQL; o Prisma a traz como P2010 ou
+    // como erro de política. O que importa é que NADA foi gravado.
+    expect(String(erro.message)).toMatch(/row-level security|42501/i);
+
+    const vinculos = await comoAtor(admin, tx => tx.athleteTeamMembership.count({
+      where: { athleteId: atletaComConta.id }
+    }));
+    expect(vinculos, 'nenhum vínculo nasceu sem convite').toBe(0);
+  });
+
+  it('a RLS recusa até na equipe do treinador certo, se não houver convite pendente', async () => {
+    // A equipe é a do treinador que existe e está habilitado — só não convidou
+    // ninguém. Sem esta medição, a correção poderia estar só comparando
+    // organizações.
+    const erro = await gravarVinculoDireto(equipeA.id).catch(e => e);
+    expect(erro).toBeInstanceOf(Error);
+
+    const vinculos = await comoAtor(admin, tx => tx.athleteTeamMembership.count({
+      where: { athleteId: atletaComConta.id }
+    }));
+    expect(vinculos).toBe(0);
+  });
+
+  it('COM convite pendente daquela equipe, o INSERT do atleta é aceito', async () => {
+    const pedido = await api().post('/api/v1/team-membership-requests').set(contaTreinador.auth())
+      .send({ athleteId: atletaComConta.id, teamId: equipeA.id });
+    expect(pedido.status, JSON.stringify(pedido.body)).toBe(201);
+
+    // O convite é da equipe A; a gravação na equipe ALHEIA continua recusada.
+    const naAlheia = await gravarVinculoDireto(equipeOutroTreinador.id).catch(e => e);
+    expect(naAlheia, 'convite de uma equipe não abre a porta da outra').toBeInstanceOf(Error);
+
+    const criado = await gravarVinculoDireto(equipeA.id);
+    expect(criado.id).toBeTruthy();
+  });
+
+  it('o SERVIÇO recusa o vínculo sem convite, com motivo — e não depende da RLS', async () => {
+    // Defesa em profundidade, e medida por conta própria: a RLS dá um erro de
+    // banco, que não é mensagem para pessoa. O serviço dá 409 com o motivo.
+    const memberships = (await import('../src/services/membershipService.js')).default;
+
+    const erro = await comoAtor(contaAtleta, () =>
+      memberships.vincularPorConfirmacao(atletaComConta.id, { teamId: equipeA.id }, contaAtleta)
+    ).catch(e => e);
+
+    expect(erro.status).toBe(409);
+    expect(erro.code).toBe('MEMBERSHIP_REQUEST_REQUIRED');
+
+    const vinculos = await comoAtor(admin, tx => tx.athleteTeamMembership.count({
+      where: { athleteId: atletaComConta.id }
+    }));
+    expect(vinculos).toBe(0);
+  });
+
+  it('o caminho legítimo continua inteiro: convite, confirmação, vínculo', async () => {
+    const pedido = await api().post('/api/v1/team-membership-requests').set(contaTreinador.auth())
+      .send({ athleteId: atletaComConta.id, teamId: equipeA.id });
+    expect(pedido.status).toBe(201);
+
+    const confirmacao = await api().post(`/api/v1/team-membership-requests/${pedido.body.id}/confirm`)
+      .set(contaAtleta.auth()).send({});
+    expect(confirmacao.status, JSON.stringify(confirmacao.body)).toBe(200);
+    expect(confirmacao.body.membership.teamId).toBe(equipeA.id);
+    expect(confirmacao.body.request.status).toBe('CONFIRMED');
+  });
+
+  it('o operador da federação continua gravando vínculo sem convite — a cláusula dele não mudou', async () => {
+    const vinculo = await api().post(`/api/v1/athletes/${atletaComConta.id}/team`).set(diretorA.auth())
+      .send({ teamId: equipeOutroTreinador.id });
+    expect(vinculo.status, JSON.stringify(vinculo.body)).toBe(201);
+    expect(vinculo.body.teamId).toBe(equipeOutroTreinador.id);
+  });
+});

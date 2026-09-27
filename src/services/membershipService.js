@@ -224,6 +224,30 @@ async function vincularPorConfirmacao(athleteId, { teamId, reason = null }, acto
     throw new AppError(422, 'TEAM_OTHER_ORGANIZATION', 'Equipe de outra organização');
   }
 
+  // A CONFIRMAÇÃO PRESSUPÕE O CONVITE, E O CONVITE É DAQUELA EQUIPE — achado
+  // A-04 da auditoria independente.
+  //
+  // A conferência de titularidade, acima, responde "este vínculo é seu?". Esta
+  // responde a outra pergunta, que ninguém estava fazendo: "alguém te convidou
+  // para ESTA equipe?". Sem ela, o dono de uma conta de atleta se vincularia
+  // sozinho a qualquer equipe da federação dele — e o vínculo é o que atribui
+  // ponto a equipe (R-01), então o autosserviço aqui seria autosserviço na
+  // pontuação de outro treinador.
+  //
+  // O estado exigido é PENDING porque é o que existe NO INSTANTE da escrita:
+  // `membershipRequestService.confirmar` cria o vínculo ANTES de fechar o
+  // pedido como CONFIRMED. A política `vinculo_criacao` exige a mesma coisa no
+  // banco (migration 20260927010000) — o serviço dá a mensagem, a RLS dá o piso.
+  const convite = await prisma.teamMembershipRequest.findFirst({
+    where: { athleteId: athlete.id, teamId: team.id, status: 'PENDING' },
+    select: { id: true }
+  });
+  if (!convite) {
+    throw new AppError(409, 'MEMBERSHIP_REQUEST_REQUIRED',
+      'Não existe solicitação pendente desta equipe para este atleta. '
+      + 'O vínculo nasce da confirmação de um convite — não há caminho de autovínculo.');
+  }
+
   const atual = await vinculoAtivo(athleteId);
   if (atual) recusaPorVinculoExistente(atual);
 
