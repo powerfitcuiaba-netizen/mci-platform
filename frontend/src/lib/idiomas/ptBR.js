@@ -701,6 +701,12 @@ export default {
   'publico.publicado': 'Publicado',
   'publico.semEquipe': 'Sem equipe',
   'publico.semResultados': 'Resultados ainda não publicados',
+  // Selo do resultado que veio por ARQUIVO, apurado fora do MCI. Não é o
+  // mesmo fato que `publico.publicado`, que é julgamento feito aqui.
+  'publico.resultadoImportado': 'Importado e homologado',
+  'publico.categoriaNaoInformada': 'Categoria não informada',
+  'publico.competidorSemNome': 'Competidor sem nome na origem',
+  'publico.naoCompareceu': 'não compareceu',
   'publico.semResultadosDescricao': 'A classificação aparece aqui quando a organização publicar a apuração.',
   'publico.semClasses': 'Sem classes cadastradas',
   'publico.semDivisoes': 'Divisões ainda não cadastradas.',

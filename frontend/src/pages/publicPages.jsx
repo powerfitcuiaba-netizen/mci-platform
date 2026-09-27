@@ -234,7 +234,14 @@ export function CampeonatoDetalhe({ slug, navegar }) {
 
       <AsyncSection state={estado} linhas={5}>
         {dados => {
-          const { event, categories, schedule, athletes, results, sponsors } = dados;
+          const {
+            event, categories, schedule, athletes, results, sponsors,
+            // `?? []` e `?? null` porque a página tem de continuar montando contra
+            // uma API mais antiga: sem os padrões, um deploy do frontend na frente
+            // do backend quebraria a tela inteira em vez de mostrar menos.
+            importedResults = [], competitorCount = null
+          } = dados;
+          const temAlgumResultado = results.length > 0 || importedResults.length > 0;
           const estadoEvento = seloDoEvento(event);
 
           return (
@@ -247,7 +254,12 @@ export function CampeonatoDetalhe({ slug, navegar }) {
                   <span><CalendarDays size={14} /> {formatarData(event.startDate, event.timezone)}{event.endDate ? ` — ${formatarData(event.endDate, event.timezone)}` : ''}</span>
                   {event.venue && <span><MapPin size={14} /> {event.venue}</span>}
                   {event.city && <span><MapPin size={14} /> {event.city}{event.state ? `/${event.state}` : ''}</span>}
-                  <span><Users size={14} /> {t('publico.atletasContagem', { n: athletes.length })}</span>
+                  {/* COMPETIDORES, e não inscrições confirmadas.
+                      `athletes.length` conta `Registration` com status CONFIRMED —
+                      zero por construção num evento cujos resultados entraram por
+                      importação. Era isso que fazia a tela dizer "0 atletas" ao
+                      lado de uma etapa inteira de resultados. */}
+                  <span><Users size={14} /> {t('publico.atletasContagem', { n: competitorCount ?? athletes.length })}</span>
                 </div>
               </section>
 
@@ -269,8 +281,9 @@ export function CampeonatoDetalhe({ slug, navegar }) {
               </div>
 
               {aba === 'resultados' && (
-                results.length
-                  ? results.map(resultado => (
+                temAlgumResultado
+                  ? <>
+                    {results.map(resultado => (
                     <section className="panel" key={resultado.id} style={{ marginBottom: 14 }}>
                       <div className="panel-head">
                         <h2>
@@ -292,7 +305,40 @@ export function CampeonatoDetalhe({ slug, navegar }) {
                         </div>
                       ))}
                     </section>
-                  ))
+                    ))}
+
+                    {/* RESULTADO HOMOLOGADO QUE VEIO POR IMPORTAÇÃO.
+                        Bloco próprio, e selo próprio: quem lê precisa saber que a
+                        colocação foi apurada FORA do MCI e recebida por arquivo, e
+                        não julgada aqui. Juntar os dois numa lista só economizaria
+                        código e apagaria a diferença que a homologação registra. */}
+                    {importedResults.map(grupo => (
+                      <section className="panel" key={grupo.key} style={{ marginBottom: 14 }}>
+                        <div className="panel-head">
+                          <h2>
+                            {grupo.category?.name ?? t('publico.categoriaNaoInformada')}
+                            {grupo.competitionClass?.name ? ` · ${grupo.competitionClass.name}` : ''}
+                          </h2>
+                          <Badge tom="info">{t('publico.resultadoImportado')}</Badge>
+                        </div>
+                        {grupo.entries.map(entrada => (
+                          <div className="list-row" key={entrada.id}>
+                            <span className={`placing placing-${entrada.placing}`}>{entrada.placing ?? '—'}</span>
+                            <Avatar name={entrada.name || '—'} />
+                            <span className="info">
+                              <strong>{entrada.name || t('publico.competidorSemNome')}</strong>
+                              <small>
+                                {entrada.team?.name || t('publico.semEquipe')}
+                                {entrada.city ? ` · ${entrada.city}` : ''}
+                                {entrada.state ? `/${entrada.state}` : ''}
+                                {entrada.didNotShow ? ` · ${t('publico.naoCompareceu')}` : ''}
+                              </small>
+                            </span>
+                          </div>
+                        ))}
+                      </section>
+                    ))}
+                  </>
                   : <EmptyState title={t('publico.semResultados')} description={t('publico.semResultadosDescricao')} />
               )}
 
