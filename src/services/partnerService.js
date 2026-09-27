@@ -149,10 +149,41 @@ async function createCoach(data, actor) {
   }
 }
 
+// O CATÁLOGO DE TÉCNICOS DEVOLVE UMA LISTA EXPLÍCITA — achado A-13.
+//
+// O QUE ESTAVA ERRADO. A consulta não tinha `select`: devolvia a linha INTEIRA de
+// `Coach` para qualquer conta autenticada, e a rota é só `requireAuth`. Antes do
+// módulo Treinadores isso já era largo demais, e passou a ser grave quando a
+// migration `20260926020000` acrescentou colunas à tabela — porque `findMany` sem
+// projeção carrega TUDO o que a tabela ganhar depois. Passaram a sair na listagem:
+//
+//   `status`           o estado da análise cadastral de cada técnico;
+//   `rejectionReason`  a razão pela qual alguém NÃO foi aprovado;
+//   `suspendedReason`  a razão de uma suspensão;
+//   `reviewedById`     quem julgou, e `reviewedAt`, quando;
+//   `phone`, `email`   contato pessoal;
+//   `userId`           o elo entre o cadastro e uma conta da plataforma.
+//
+// Motivo de recusa é informação sobre uma PESSOA, e a análise cadastral é de R-03 —
+// da administração central, não de quem se cadastrou ontem pelo autocadastro aberto.
+//
+// A CORREÇÃO é a projeção explícita, e é ela que impede a repetição: a próxima
+// coluna que `Coach` ganhar NÃO entra aqui por acidente. O catálogo existe para
+// ESCOLHER um técnico ao cadastrar atleta — nome, cidade, estado e quantos atletas
+// ele já tem é o que essa escolha precisa.
+//
+// `status` FICA FORA de propósito. Quem precisa dele é a mesa central, e ela tem
+// rota própria (`GET /coaches/review`, com `coaches.approve`). Deixá-lo aqui
+// transformaria o catálogo em painel de análise para a plataforma inteira.
+const SELECT_CATALOGO_DE_TECNICOS = Object.freeze({
+  id: true, name: true, city: true, state: true,
+  _count: { select: { athletes: true } }
+});
+
 async function listCoaches(filtros) {
   return prisma.coach.findMany({
     where: filtros.search ? { name: { contains: filtros.search, mode: 'insensitive' } } : {},
-    include: { _count: { select: { athletes: true } } },
+    select: SELECT_CATALOGO_DE_TECNICOS,
     orderBy: { name: 'asc' },
     take: filtros.limit || 50
   });

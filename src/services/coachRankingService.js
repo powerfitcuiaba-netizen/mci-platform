@@ -61,8 +61,19 @@ const AVISO = 'Ranking em homologação. A fórmula de pontuação de treinadore
 //   1. O DONO DO CADASTRO. A conferência é pelo `userId` DO CADASTRO, não por
 //      um id que veio da URL — a URL é do atacante, o `userId` é do banco.
 //   2. A MESA CENTRAL (`coaches.approve`), que analisa o cadastro (R-03).
-//   3. A HOMOLOGAÇÃO (`ranking.manage`), que é a audiência declarada da
-//      conferência de R-01 (ver `divergencias`, nesta mesma superfície).
+//
+// E SÓ. A primeira versão desta guarda admitia também `ranking.manage`, pensando
+// na homologação — e estava larga, por uma razão que não é óbvia: numa pergunta
+// SEM organização, `effectivePermissions` soma as permissões de TODAS as
+// filiações do ator (é o `if (organizationId && ...) continue`, que não corta
+// nada quando o escopo é nulo). Então `can(actor, 'ranking.manage')` respondia sim
+// para o gestor de ranking de QUALQUER federação, e ele passaria a ler o `status`
+// da análise cadastral de treinador de outra federação — vazamento cross-tenant
+// de dado de R-03, criado pela própria guarda que fecha A-01.
+//
+// A homologação não perde nada: quem conduz a análise cadastral tem
+// `coaches.approve`, e a conferência de R-01, que é sobre PONTO e não sobre
+// cadastro, continua em `divergencias`, com `ranking.manage`.
 //
 // A RECUSA É 404, E NÃO 403, e isso é deliberado: um 403 responderia "este
 // treinador existe, mas não é seu" — que é precisamente o oráculo que a
@@ -75,7 +86,7 @@ const AVISO = 'Ranking em homologação. A fórmula de pontuação de treinadore
 // ============================================================================
 async function assertPodeConsultar(coachId, actor) {
   if (!actor) throw new AppError(401, 'UNAUTHORIZED', 'Autenticação obrigatória');
-  if (can(actor, 'coaches.approve') || can(actor, 'ranking.manage')) return;
+  if (can(actor, 'coaches.approve')) return;
 
   const proprio = await prisma.coach.findFirst({
     where: { id: coachId, userId: actor.id },

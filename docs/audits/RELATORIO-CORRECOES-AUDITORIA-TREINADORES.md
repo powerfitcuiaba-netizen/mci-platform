@@ -50,6 +50,7 @@ Vocabulário de resultado, sem meio-termo:
 | A-10 | 429 decidido antes do serviço, sem trilha | **Média** — rajada contida e invisível | **PASS** |
 | A-11 | Tela administrativa transformava 403 em lista vazia | **Média** — pendência sem resposta por recusa silenciosa | **PASS** |
 | A-12 | Recomputo reescrevia atribuição histórica em silêncio | **Média** — R-01 correto, rastro ausente | **PASS** |
+| **A-13** | **`GET /coaches` publicava a linha inteira de `Coach`** — achado NOVO, desta etapa | **Alta** — motivo de recusa, contato e estado da análise para qualquer conta autenticada | **PASS** |
 
 Nenhum achado foi fechado com mecanismo proibido. Não há `USING (true)`, `BYPASSRLS`,
 `SECURITY DEFINER` privilegiado, política global para `anon`, remoção de
@@ -647,6 +648,75 @@ reproduz a mesma equipe **não gera evento nenhum**. O teste já existente que p
 **Mutante:** remover o bloco do evento → **1 reprova**.
 
 **Resultado: PASS.**
+
+---
+
+## 13-bis. A-13 — o catálogo de técnicos publicava a análise cadastral
+
+> **Este achado não estava na auditoria independente.** Foi encontrado durante a revisão da
+> guarda de A-01, ao conferir de onde um atacante tira os ids de treinador. Registrá-lo aqui é
+> o mínimo: um achado encontrado e não relatado é pior que um achado não encontrado.
+
+### O que estava errado
+
+```js
+async function listCoaches(filtros) {
+  return prisma.coach.findMany({
+    where: filtros.search ? { name: { contains: filtros.search, mode: 'insensitive' } } : {},
+    include: { _count: { select: { athletes: true } } },   // ← sem `select`
+    orderBy: { name: 'asc' },
+    take: filtros.limit || 50
+  });
+}
+```
+
+Sem `select`, a consulta devolve a **linha inteira**. A rota é `GET /coaches` com apenas
+`requireAuth` — qualquer conta autenticada, inclusive uma criada pelo autocadastro aberto.
+
+### Por que importa
+
+Antes do módulo, `Coach` tinha `id`, `userId`, `name`, `city`, `state` e datas: largo demais,
+mas de baixa consequência. A migration `20260926020000` acrescentou colunas — e `findMany` sem
+projeção carrega **tudo o que a tabela ganhar depois**. Passaram a sair na listagem:
+
+| Campo | O que ele revela |
+| --- | --- |
+| `status` | o estado da análise cadastral de cada técnico |
+| `rejectionReason` | **o motivo pelo qual alguém NÃO foi aprovado** |
+| `suspendedReason` | o motivo de uma suspensão |
+| `reviewedById`, `reviewedAt` | quem julgou, e quando |
+| `phone`, `email` | contato pessoal |
+| `registration`, `bio` | registro profissional e apresentação |
+| `userId` | o elo entre o cadastro e uma conta da plataforma |
+
+Motivo de recusa é informação **sobre uma pessoa**, e a análise cadastral é matéria de R-03 —
+da administração central, não de quem se cadastrou ontem. É também mais grave que A-01: A-01
+exigia ter o id de um treinador; isto vinha em lista, ordenada por nome, com filtro de busca.
+
+### O que foi feito
+
+Projeção explícita, `SELECT_CATALOGO_DE_TECNICOS`: `id`, `name`, `city`, `state` e a contagem
+de atletas. É o que a escolha de um técnico ao cadastrar atleta precisa, e nada além.
+
+`status` fica **fora de propósito**: quem precisa dele é a mesa central, que tem rota própria
+(`GET /coaches/review`, com `coaches.approve`). Deixá-lo no catálogo transformaria a listagem
+em painel de análise para a plataforma inteira.
+
+A projeção explícita é também o que impede a repetição: a próxima coluna que `Coach` ganhar
+**não** entra na resposta por acidente. É a mesma razão pela qual `SELECT_ATLETA_ESPORTIVO` e
+`SELECT_LOCALIZACAO` são listas, e não `include`.
+
+### Como está medido
+
+Bloco A-13 — 2 casos: com um cadastro **rejeitado com motivo** (o pior caso), uma conta comum
+lista o catálogo e a resposta não contém `status`, `rejectionReason`, `suspendedReason`,
+`reviewedById`, `reviewedAt`, `registration`, `phone`, `email`, `userId`, `bio` nem o texto do
+motivo; e o catálogo continua servindo para escolher um técnico — a projeção é exatamente
+`_count`, `city`, `id`, `name`, `state`, conferida como conjunto.
+
+### Resultado
+
+**PASS.**
 
 ---
 

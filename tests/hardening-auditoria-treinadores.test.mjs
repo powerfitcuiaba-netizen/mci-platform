@@ -151,6 +151,33 @@ describe('A-01: as rotas de ranking do treinador exigem mais que uma sessão', (
     expect(pelaMesa.body.coach.id).toBe(coachId);
   });
 
+  it('o gestor de ranking de OUTRA federação NÃO lê o cadastro — nem com a permissão dele', async () => {
+    // A PRIMEIRA VERSÃO DESTA GUARDA ADMITIA `ranking.manage`, e estava larga por
+    // uma razão que não é óbvia: numa pergunta SEM organização,
+    // `effectivePermissions` soma as permissões de TODAS as filiações do ator.
+    // Então o gestor de ranking de qualquer federação lia o `status` da análise
+    // cadastral de treinador de outra — vazamento cross-tenant de dado de R-03,
+    // criado pela guarda que fecha A-01.
+    await habilitarTreinador();
+    const seasonId = await criarTemporada();
+
+    const gestorDeB = await criarUsuario({ name: 'Gestora de Ranking da B' });
+    await vincular(orgB, gestorDeB, 'RANKING_MANAGER');
+
+    for (const rota of ['eligibility', 'projection']) {
+      const tentativa = await api().get(`/api/v1/coaches/${coachId}/ranking/${rota}`)
+        .set(gestorDeB.auth()).query({ seasonId });
+      expect(tentativa.status, `${rota}: ${JSON.stringify(tentativa.body)}`).toBe(404);
+      expect(JSON.stringify(tentativa.body)).not.toContain('APPROVED');
+    }
+
+    // E a conferência de R-01, que é sobre PONTO e não sobre cadastro, continua
+    // sendo dele: a guarda estreitou o que precisava, não o que funcionava.
+    const divergencias = await api().get('/api/v1/coaches/ranking/divergences')
+      .set(gestorDeB.auth()).query({ seasonId });
+    expect(divergencias.status, JSON.stringify(divergencias.body)).toBe(200);
+  });
+
   it('sem sessão as duas rotas recusam com 401, e não com 404', async () => {
     const seasonId = await criarTemporada();
     for (const rota of ['eligibility', 'projection']) {
@@ -674,5 +701,58 @@ describe('A-05: o cadastro legado de treinador não fica aprovado por migration'
 
     const visiveis = await comoAtor(contaTreinador, tx => tx.athlete.findMany({ select: { id: true } }));
     expect(visiveis, 'pendente não é ator reconhecido pelo banco').toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------- A-13
+//
+// ACHADO NOVO, ENCONTRADO NESTA ETAPA — e a razão de ele existir é instrutiva.
+//
+// `GET /coaches` é o catálogo de técnicos, criado antes deste módulo, e a consulta
+// não tinha `select`: devolvia a linha INTEIRA de `Coach`. Quando a migration do
+// módulo acrescentou colunas à tabela, elas entraram na resposta por acidente —
+// `findMany` sem projeção carrega tudo o que a tabela ganhar depois.
+//
+// O que passou a sair para QUALQUER conta autenticada: o `status` da análise
+// cadastral, o MOTIVO de uma rejeição, o MOTIVO de uma suspensão, quem julgou e
+// quando, telefone, e-mail, e o `userId` que liga o cadastro a uma conta.
+//
+// Motivo de recusa é informação sobre uma pessoa, e a análise cadastral é de R-03.
+// A correção é a projeção explícita — que também impede a repetição: a próxima
+// coluna de `Coach` não entra sozinha.
+describe('A-13: o catálogo de técnicos não publica a análise cadastral', () => {
+  it('a listagem não traz status, motivo de recusa, contato nem o elo com a conta', async () => {
+    // Um cadastro REJEITADO, com motivo — é o pior caso, e é o que a listagem
+    // entregava por extenso.
+    expect((await api().post(`/api/v1/coaches/${coachId}/reject`).set(admin.auth())
+      .send({ reason: 'Documentação profissional não confere com o registro informado.' })).status).toBe(200);
+
+    // A conta mais barata de produzir: autocadastro aberto, papel comum.
+    const intruso = await criarUsuario({ name: 'Conta Qualquer' });
+    const lista = await api().get('/api/v1/coaches').set(intruso.auth());
+    expect(lista.status, JSON.stringify(lista.body)).toBe(200);
+
+    const texto = JSON.stringify(lista.body);
+    for (const proibido of ['status', 'rejectionReason', 'suspendedReason', 'reviewedById',
+      'reviewedAt', 'registration', 'phone', 'email', 'userId', 'bio']) {
+      expect(texto, `o catálogo não publica ${proibido}`).not.toContain(proibido);
+    }
+    // E o motivo, que é o texto sobre a pessoa, não aparece de jeito nenhum.
+    expect(texto).not.toContain('Documentação profissional');
+  });
+
+  it('o catálogo continua servindo para o que existe: escolher um técnico', async () => {
+    const operador = await criarUsuario({ name: 'Operadora' });
+    await vincular(orgA, operador, 'EVENT_DIRECTOR');
+
+    const lista = await api().get('/api/v1/coaches').set(operador.auth());
+    expect(lista.status).toBe(200);
+
+    const linha = lista.body.items.find(item => item.id === coachId);
+    expect(linha, 'o técnico cadastrado aparece no catálogo').toBeTruthy();
+    expect(linha.name).toBe('Marta Treinadora');
+    expect(Object.keys(linha).sort(), 'a projeção é exatamente esta')
+      .toEqual(['_count', 'city', 'id', 'name', 'state']);
+    expect(linha._count.athletes, 'a contagem de atletas é o que a escolha usa').toBe(0);
   });
 });

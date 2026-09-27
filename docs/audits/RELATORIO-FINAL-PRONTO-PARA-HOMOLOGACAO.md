@@ -45,6 +45,10 @@ regressão e desempenho, preparar as migrações e montar o ambiente de homologa
 
 Base: `f626f8b`. Nenhum `force push`, nenhum `squash`, nenhum `rebase` — o histórico está inteiro.
 
+**Um décimo terceiro achado foi encontrado durante o trabalho**, e não estava na auditoria independente:
+`GET /coaches` publicava a linha inteira de `Coach`, incluindo o motivo de uma rejeição. Está
+corrigido e medido — ver **A-13** no relatório de correções.
+
 ---
 
 ## B. Os doze achados, um a um
@@ -63,6 +67,7 @@ Base: `f626f8b`. Nenhum `force push`, nenhum `squash`, nenhum `rebase` — o his
 | A-10 | 429 decidido antes do serviço, sem trilha | **PASS** |
 | A-11 | Tela administrativa transformava 403 em lista vazia | **PASS** |
 | A-12 | Recomputo reescrevia atribuição histórica em silêncio | **PASS** |
+| **A-13** | **`GET /coaches` publicava a linha inteira de `Coach`** — achado NOVO desta etapa, não estava na auditoria independente | **PASS** |
 
 O detalhamento de cada um — o código errado, a consequência no domínio, a correção, o que ela
 deliberadamente não faz, e o mutante que a valida — está em
