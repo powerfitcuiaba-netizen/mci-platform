@@ -366,7 +366,7 @@ igual.
 - HEAD antes desta fase: `59483ca`
 - Commits preservados, sem reescrita: `8906cff`, `8536d29`, `95979aa`, `df66f83`,
   `9256c86`, `59483ca`
-- Commit desta fase: **COMMIT_DESTA_FASE**
+- Commit desta fase: **`e6ee980`**
 
 **Nada foi publicado:** sem `push`, sem PR, sem merge, sem release, sem deploy.
 Nenhuma migration aplicada em produção — não existe migration nesta fase. Nenhum
