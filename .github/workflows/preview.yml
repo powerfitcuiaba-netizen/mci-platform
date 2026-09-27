@@ -271,6 +271,35 @@ jobs:
           echo "EMAIL_OPERADOR=$(grep -oE 'demo\.diretora\.[a-z0-9]+@mci\.local' /tmp/demo.log | head -1)" >> "$GITHUB_ENV"
           echo "EMAIL_ATLETA=$(grep -oE 'demo\.atleta\.[a-z0-9]+@mci\.local' /tmp/demo.log | head -1)" >> "$GITHUB_ENV"
 
+      # ---------------------------------------------- MÓDULO TREINADORES & EQUIPES
+      #
+      # Passo PRÓPRIO, e não uma linha dentro do demo: o cenário do módulo tem
+      # quatro autoridades distintas (central aprova cadastro, federação autoriza
+      # atuação, treinador pede vínculo, atleta confirma) e o demo não conhece
+      # nenhuma delas. Sem isto o preview subia sem uma única conta de treinador,
+      # e o módulo ficava sem como ser testado por uma pessoa.
+      #
+      # Os endereços são FIXOS e legíveis porque alguém vai digitá-los. O banco do
+      # preview nasce vazio a cada execução, então não há colisão a temer.
+      - name: Semear o módulo Treinadores & Equipes
+        env:
+          NODE_ENV: development
+          BCRYPT_ROUNDS: '12'
+          LOG_LEVEL: error
+        run: |
+          set -e
+          node scripts/qa/semear-treinadores.mjs \
+            --api "http://127.0.0.1:${PORTA_API}/api/v1" \
+            --admin-email semeadura.qa@mci.local \
+            --admin-password "$SENHA_ADMIN" \
+            --senha "$DEMO_PASSWORD" | tee /tmp/treinadores.log
+
+          for chave in CENTRAL DIRETOR TREINADOR PENDENTE ATLETA DELEGADO; do
+            linha="$(grep -oE "TREINADORES_EMAIL_${chave}=[^ ]+" /tmp/treinadores.log | head -1)"
+            [ -n "$linha" ] || { echo "a semeadura não devolveu TREINADORES_EMAIL_${chave}" >&2; exit 1; }
+            echo "$linha" >> "$GITHUB_ENV"
+          done
+
       - name: Construir e servir o frontend
         run: |
           set -e
@@ -336,7 +365,20 @@ jobs:
             echo "| VERIFICAÇÃO | ${{ steps.verificacao.outcome }} |"
             echo "| OPERADOR | ${EMAIL_OPERADOR} |"
             echo "| ATLETA | ${EMAIL_ATLETA} |"
-            echo "| SENHA (ambas) | ${DEMO_PASSWORD} |"
+            echo "| SENHA (todas) | ${DEMO_PASSWORD} |"
+            echo
+            echo "### Módulo Treinadores & Equipes"
+            echo
+            echo "| Perfil | Usuário |"
+            echo "|---|---|"
+            echo "| Administração Central | ${TREINADORES_EMAIL_CENTRAL} |"
+            echo "| Diretor de Federação | ${TREINADORES_EMAIL_DIRETOR} |"
+            echo "| Treinador (Equipe) — aprovado | ${TREINADORES_EMAIL_TREINADOR} |"
+            echo "| Treinador em análise | ${TREINADORES_EMAIL_PENDENTE} |"
+            echo "| Atleta com convite pendente | ${TREINADORES_EMAIL_ATLETA} |"
+            echo "| Delegado central | ${TREINADORES_EMAIL_DELEGADO} |"
+            echo
+            echo "Telas: \`/#/treinador\` · \`/#/minha-equipe\` · \`/#/admin/treinadores\` · \`/#/admin/auditoria\`"
             echo
             echo "Ambiente público e efêmero, com dados fictícios. Vive ${MINUTOS_NO_AR} minutos."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -379,6 +421,22 @@ jobs:
           |---|---|---|
           | Operador (direção de evento + gerência de ranking) | ${EMAIL_OPERADOR} | ${DEMO_PASSWORD} |
           | Atleta | ${EMAIL_ATLETA} | ${DEMO_PASSWORD} |
+
+          ### Módulo Treinadores & Equipes
+
+          | Perfil | Usuário | Senha |
+          |---|---|---|
+          | Administração Central | ${TREINADORES_EMAIL_CENTRAL} | ${DEMO_PASSWORD} |
+          | Diretor de Federação | ${TREINADORES_EMAIL_DIRETOR} | ${DEMO_PASSWORD} |
+          | Treinador (Equipe) — cadastro **aprovado**, atuação autorizada | ${TREINADORES_EMAIL_TREINADOR} | ${DEMO_PASSWORD} |
+          | Treinador em análise — cadastro **pendente** | ${TREINADORES_EMAIL_PENDENTE} | ${DEMO_PASSWORD} |
+          | Atleta com **convite pendente** | ${TREINADORES_EMAIL_ATLETA} | ${DEMO_PASSWORD} |
+          | Delegado central (delegação viva, com escopo e prazo) | ${TREINADORES_EMAIL_DELEGADO} | ${DEMO_PASSWORD} |
+
+          Telas do módulo: \`/#/treinador\` · \`/#/minha-equipe\` ·
+          \`/#/admin/treinadores\` · \`/#/admin/auditoria\`
+
+          Federação: **Federação QA Treinadores** · Equipe: **Equipe QA Alfa**
 
           Ambiente **público e efêmero**, com dados **fictícios**. Nenhuma destas
           contas existe em produção, e nenhuma senha de produção foi usada.

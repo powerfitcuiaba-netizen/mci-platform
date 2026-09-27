@@ -271,6 +271,7 @@ async function listarParaAutorizacao(filtros, actor) {
 
   const treinadores = await prisma.coach.findMany({
     where: {
+      status: 'APPROVED',
       ...(filtros.search ? { name: { contains: filtros.search, mode: 'insensitive' } } : {})
     },
     select: SELECT_PARA_AUTORIZACAO,
