@@ -86,6 +86,34 @@ async function habilitarTreinador() {
     .send({ coachId })).status).toBe(200);
 }
 
+// O CADASTRO EM ANÁLISE VIROU ESTADO LEGADO — e escrevê-lo é a única forma honesta.
+//
+// Vários testes deste arquivo medem o que acontece com um cadastro PENDING: a
+// guarda de A-01 que não deixa o `status` escapar, o predicado da correção de
+// A-05, o catálogo de A-13 com um cadastro rejeitado, e a lista da federação de
+// F-04. O produto não produz mais esse estado — o autocadastro nasce APPROVED —
+// e nenhuma rota devolve um cadastro aprovado para análise.
+//
+// Então ele é ESCRITO, dizendo que é isso que se está fazendo. O que se monta é
+// o cadastro feito ANTES da mudança, que ficou em análise e não foi aprovado
+// retroativamente. `autoApprovedAt` e `reviewedAt` voltam a nulo junto com o
+// status: um PENDING com marca de aprovação seria um estado que nunca existiu.
+async function voltarParaAnalise(id = coachId) {
+  await comoAtor(admin, tx => tx.coach.update({
+    where: { id },
+    data: { status: 'PENDING', autoApprovedAt: null, reviewedAt: null, reviewedById: null }
+  }));
+}
+
+// Aprovação POR PESSOA, pela rota real — o caminho que grava revisor e data. Ela
+// só existe para o cadastro legado, e por isso passa pela análise primeiro.
+async function aprovarPorPessoa(id = coachId) {
+  await voltarParaAnalise(id);
+  const r = await api().post(`/api/v1/coaches/${id}/approve`).set(admin.auth())
+    .send({ reason: 'Documentação conferida pela mesa central.' });
+  expect(r.status, JSON.stringify(r.body)).toBe(200);
+}
+
 async function criarTemporada() {
   const temporada = await api().post('/api/v1/seasons').set(admin.auth())
     .send({ organizationId: orgA, name: unico('Temporada'), year: 2032 });
@@ -195,7 +223,9 @@ describe('A-01: as rotas de ranking do treinador exigem mais que uma sessão', (
   });
 
   it('a guarda vem ANTES da leitura do cadastro: nem o `status` de um treinador PENDING escapa', async () => {
-    // O cadastro é PENDING aqui de propósito — `habilitarTreinador` não roda.
+    // O cadastro é devolvido à análise de propósito (ver `voltarParaAnalise`), e
+    // `habilitarTreinador` não roda: é o cadastro legado em análise que se mede.
+    await voltarParaAnalise();
     const seasonId = await criarTemporada();
     const intruso = await criarUsuario({ name: 'Conta Qualquer' });
 
@@ -635,6 +665,9 @@ describe('A-05: o cadastro legado de treinador não fica aprovado por migration'
   );
 
   it('aprovar pela rota grava REVISOR e DATA — é o que protege o cadastro real', async () => {
+    // A rota de aprovação só alcança cadastro em análise, que hoje é estado
+    // legado — daí o cadastro voltar para lá antes.
+    await aprovarPorPessoa();
 
     const cadastro = await comoAtor(admin, tx => tx.coach.findUnique({
       where: { id: coachId }, select: { status: true, reviewedById: true, reviewedAt: true }
@@ -644,17 +677,34 @@ describe('A-05: o cadastro legado de treinador não fica aprovado por migration'
     expect(cadastro.reviewedAt).toBeTruthy();
   });
 
-  it('o autocadastro nasce PENDING e sem revisor', async () => {
+  // ESTE TESTE MUDOU DE LADO quando a aprovação automática entrou, e é o encontro
+  // das duas decisões: o autocadastro nasce APPROVED e SEM revisor — ninguém
+  // julgou —, que é exatamente a forma do cadastro que a correção de A-05
+  // devolve para análise. O que os separa é `reviewedAt`: o predicado exige
+  // `reviewedById IS NULL AND reviewedAt IS NULL`, e a aprovação automática grava
+  // a data. Se um dia ela parar de gravá-la, a correção passa a devolver para
+  // análise todo treinador que se cadastrou depois da mudança — e este teste cai.
+  it('o autocadastro nasce APPROVED sem revisor, e a correção de A-05 não o alcança', async () => {
     const cadastro = await comoAtor(admin, tx => tx.coach.findUnique({
-      where: { id: coachId }, select: { status: true, reviewedById: true, reviewedAt: true }
+      where: { id: coachId },
+      select: { status: true, reviewedById: true, reviewedAt: true, autoApprovedAt: true }
     }));
-    expect(cadastro.status).toBe('PENDING');
-    expect(cadastro.reviewedById).toBeNull();
-    expect(cadastro.reviewedAt).toBeNull();
+    expect(cadastro.status).toBe('APPROVED');
+    expect(cadastro.reviewedById, 'aprovação automática não tem revisor: ninguém julgou').toBeNull();
+    expect(cadastro.autoApprovedAt, 'e ela se identifica como automática').toBeTruthy();
+    expect(cadastro.reviewedAt, 'a data existe, e é ela que o predicado da correção enxerga').toBeTruthy();
+
+    await comoAtor(admin, tx => tx.$executeRawUnsafe(SQL_DA_CORRECAO));
+
+    const depois = await comoAtor(admin, tx => tx.coach.findUnique({
+      where: { id: coachId }, select: { status: true }
+    }));
+    expect(depois.status, 'o cadastro aprovado automaticamente NÃO volta para análise').toBe('APPROVED');
   });
 
   it('o SQL da correção atinge o aprovado SEM revisor e NÃO toca o aprovado por pessoa', async () => {
     // Um cadastro aprovado por pessoa, pela rota real.
+    await aprovarPorPessoa();
 
     // E um cadastro no estado que a migration anterior produz: aprovado, sem
     // revisor, sem data — exatamente o `UPDATE` sem `WHERE`.
@@ -723,7 +773,9 @@ describe('A-05: o cadastro legado de treinador não fica aprovado por migration'
 describe('A-13: o catálogo de técnicos não publica a análise cadastral', () => {
   it('a listagem não traz status, motivo de recusa, contato nem o elo com a conta', async () => {
     // Um cadastro REJEITADO, com motivo — é o pior caso, e é o que a listagem
-    // entregava por extenso.
+    // entregava por extenso. Recusar exige cadastro em análise: APPROVED →
+    // REJECTED não é transição permitida (devolve 422 `COACH_INVALID_TRANSITION`).
+    await voltarParaAnalise();
     expect((await api().post(`/api/v1/coaches/${coachId}/reject`).set(admin.auth())
       .send({ reason: 'Documentação profissional não confere com o registro informado.' })).status).toBe(200);
 
@@ -813,6 +865,7 @@ describe('F-04: a federação lista treinadores aprovados e autoriza a atuação
   });
 
   it('o treinador PENDENTE não aparece na lista nem pode ser autorizado', async () => {
+    await voltarParaAnalise();
     const semAprovacao = await listar(diretorA, orgA);
     expect(semAprovacao.status).toBe(200);
     expect(semAprovacao.body.items.some(item => item.id === coachId),
