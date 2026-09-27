@@ -506,7 +506,20 @@ describe('o calendário não pede migration nenhuma', () => {
       // `reviewedById`/`reviewedAt` só são escritos por `coachService.transicionar`,
       // então o predicado não alcança cadastro aprovado por pessoa. Idempotente.
       // Nenhuma tabela é criada, apagada ou renomeada; nenhuma política é tocada.
-      '20260927030000_status_legado_de_treinador'
+      '20260927030000_status_legado_de_treinador',
+      // APROVAÇÃO AUTOMÁTICA DO CADASTRO DE TREINADOR (EQUIPE).
+      //
+      // ADITIVA: uma coluna ANULÁVEL em "Coach" (`autoApprovedAt`) e um índice
+      // parcial sobre ela. Sem DROP, sem NOT NULL, sem alteração de tipo, sem
+      // política tocada e sem escrita em linha nenhuma — nenhum cadastro antigo
+      // é aprovado retroativamente por ela.
+      //
+      // A coluna existe porque três estados passaram a precisar ser DISTINGUÍVEIS:
+      // aprovado por pessoa (tem revisor), aprovado automaticamente (tem esta
+      // data e não tem revisor) e o legado que a migration 20260926020000 aprovou
+      // sozinha (não tem nem um nem outro). Sem ela, a correção de A-05 não teria
+      // como separar o segundo caso do terceiro.
+      '20260927040000_aprovacao_automatica_de_treinador'
     ]);
   });
 });
