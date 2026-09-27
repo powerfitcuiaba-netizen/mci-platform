@@ -53,7 +53,14 @@ const LARGURAS = [360, 390, 430, 768, 1024, 1280, 1440, 1920];
 // Alvo de toque só é exigência onde o dedo é o ponteiro.
 const LARGURAS_DE_TOQUE = new Set([360, 390, 430]);
 const ALVO_MINIMO = 40;
-const SENHA = 'senha-de-qa-123';
+// A SENHA DAS CONTAS SINTÉTICAS.
+//
+// Literal por padrão porque o gate precisa rodar sem configuração, e a pilha que
+// ele levanta escuta SÓ em 127.0.0.1, com banco descartável e dado sintético.
+// `QA_PASSWORD` existe para o ambiente de homologação (`--manter`), em que uma
+// pessoa vai usar o navegador de verdade e pode preferir uma senha própria.
+// NUNCA use aqui uma senha que exista em produção.
+const SENHA = env.QA_PASSWORD || 'senha-de-qa-123';
 
 const problemas = [];
 const evidencias = [];
