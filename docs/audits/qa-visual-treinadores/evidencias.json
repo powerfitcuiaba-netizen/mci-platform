@@ -1,5 +1,5 @@
 {
-  "quando": "2026-09-26T16:22:29.067Z",
+  "quando": "2026-09-27T02:34:26.871Z",
   "navegador": "Chromium (Playwright)",
   "larguras": [
     360,
@@ -23,6 +23,10 @@
   "naoTestado": 0,
   "controle": 3,
   "informativas": 8,
+  "arquivosDeRodadaAnterior": [
+    "api.log",
+    "evidencias.json"
+  ],
   "itens": [
     {
       "rotulo": "A1 treinador entra e a barra lateral aparece",
@@ -857,7 +861,7 @@
     {
       "rotulo": "C12 a auditoria mostra ações do módulo",
       "veredito": "PASS",
-      "detalhe": "SEGURANÇA Auditoria Trilha das ações críticas: quem fez, o quê, quando e sobre qual registro. Mostrando 20 de 20 registro(s). QUANDO ATOR AÇÃO ENTIDADE DETALHE "
+      "detalhe": "SEGURANÇA Auditoria Trilha das ações críticas: quem fez, o quê, quando e sobre qual registro. Mostrando 36 de 36 registro(s). QUANDO ATOR AÇÃO ENTIDADE DETALHE "
     },
     {
       "rotulo": "C13 auditoria @360 sem rolagem lateral",

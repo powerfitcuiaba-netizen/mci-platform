@@ -170,6 +170,16 @@ jobs:
       - name: ESLint
         run: npx eslint .
 
+      # ACHADO A-08 — o controle de segredo só existe se rodar.
+      #
+      # O script varre TODO arquivo versionado contra as formas conhecidas de
+      # segredo e classifica cada achado contra uma lista de permitidos em que
+      # cada entrada tem a razão escrita. Ele NÃO imprime valor nenhum, nem
+      # parcialmente: sai arquivo, linha e a classe do achado. Segredo novo
+      # commitado por engano reprova aqui, antes de virar histórico.
+      - name: Inspeção de segredos em arquivo versionado
+        run: node scripts/inspecionar-segredos.js
+
       - name: Aplicar migrations
         run: npx prisma migrate deploy
 

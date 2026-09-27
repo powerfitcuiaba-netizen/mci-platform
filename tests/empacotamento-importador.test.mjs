@@ -478,7 +478,35 @@ describe('o calendário não pede migration nenhuma', () => {
       //   encerrar o vínculo sozinho;
       //   `AuditLog` aceita a trilha do treinador na federação em que ele atua
       //   (antes: a busca por matrícula não deixava rastro).
-      '20260926040000_treinador_como_ator_de_rls'
+      '20260926040000_treinador_como_ator_de_rls',
+      // O VÍNCULO POR CONFIRMAÇÃO EXIGE O CONVITE DAQUELA EQUIPE — achado A-04.
+      //
+      // Só política, nenhum schema: `vinculo_criacao` deixava o atleta gravar
+      // vínculo para si em QUALQUER equipe, porque a cláusula dele não dizia nada
+      // sobre `teamId`. Passa a exigir pedido PENDING daquela equipe para aquele
+      // atleta. A cláusula do operador é reproduzida byte a byte, e
+      // `vinculo_alteracao`/`vinculo_remocao` não são tocadas — o atleta continua
+      // sem encerrar o próprio vínculo, que é o poder central de R-02.
+      '20260927010000_vinculo_exige_pedido_pendente',
+      // A LEITURA DE ATLETA PELO TREINADOR FICA MAIS ESTREITA — achado A-03.
+      //
+      // Só política e uma função nova: além de cadastro aprovado (R-03) e
+      // autorização viva na federação (R-04), o treinador passa a precisar ser
+      // RESPONSÁVEL POR ALGUMA EQUIPE daquela federação. Treinador sem equipe não
+      // tem a quem listar nem para onde convidar — lia a federação inteira sem uso
+      // legítimo para a leitura. As três cláusulas anteriores da política são
+      // reproduzidas sem alteração.
+      '20260927020000_leitura_de_atleta_pelo_treinador',
+      // O CADASTRO LEGADO DE TREINADOR NÃO FICA APROVADO POR MIGRATION — A-05.
+      //
+      // ESCREVE DADO, e é a única deste conjunto que escreve. Devolve a `PENDING`
+      // exatamente as linhas de `Coach` aprovadas SEM revisor e SEM data de
+      // revisão — as que a migration 20260926020000 aprovou com um `UPDATE` sem
+      // `WHERE`, contra R-03, que diz que quem aprova é a administração central.
+      // `reviewedById`/`reviewedAt` só são escritos por `coachService.transicionar`,
+      // então o predicado não alcança cadastro aprovado por pessoa. Idempotente.
+      // Nenhuma tabela é criada, apagada ou renomeada; nenhuma política é tocada.
+      '20260927030000_status_legado_de_treinador'
     ]);
   });
 });

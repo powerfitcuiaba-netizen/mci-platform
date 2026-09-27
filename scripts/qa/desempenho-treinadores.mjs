@@ -41,6 +41,21 @@ const BASE_API = arg('api', env.QA_API_BASE || 'http://127.0.0.1:4611/api/v1');
 const REPETICOES = Number(arg('repeticoes', 30));
 const AQUECIMENTO = Number(arg('aquecimento', 5));
 const SENHA = env.QA_PASSWORD || 'senha-de-qa-123';
+// AS CONTAS DO AMBIENTE, POR ARGUMENTO.
+//
+// As rotas do treinador exigem papel `COACH` e cadastro aprovado, e promover
+// papel é escrita direta no banco — que este script não faz, por desenho. Quem já
+// criou essas contas é `visual-treinadores.mjs --manter`, que imprime os
+// endereços. Passá-los aqui é o que permite medir o caminho REAL do treinador em
+// vez de medir a recusa de uma conta comum.
+//
+// Sem os argumentos, as rotas correspondentes saem como NÃO MEDIDAS — nomeadas,
+// nunca preenchidas com um número que mediria outra coisa.
+const EMAIL_TREINADOR = arg('treinador', env.QA_EMAIL_TREINADOR || null);
+const EMAIL_CENTRAL = arg('central', env.QA_EMAIL_CENTRAL || null);
+// `/health` e `/ready` vivem na RAIZ, e não sob `/api/v1`: são sondas de
+// infraestrutura, não recurso da API versionada.
+const ORIGEM = BASE_API.replace(/\/api\/v1\/?$/, '');
 
 const VERDE = s => `\x1b[32m${s}\x1b[0m`;
 const VERMELHO = s => `\x1b[31m${s}\x1b[0m`;
@@ -76,16 +91,24 @@ const conta = sufixo => ({
 
 const percentil = (ordenado, p) => ordenado[Math.min(ordenado.length - 1, Math.ceil((p / 100) * ordenado.length) - 1)];
 
-async function medir(rotulo, orcamentoMs, executar) {
+// O STATUS ESPERADO É DECLARADO, e não inferido de `>= 400`.
+//
+// Metade das rotas deste módulo tem a RECUSA como resposta correta: o bloqueio de
+// §8.3 é 409, a recusa antienumeração de A-01 é 404, a rota de treinador vista por
+// quem não é treinador é 403. Tratar qualquer 4xx como falha mediria o oposto do
+// que interessa — e um gate que reprova no comportamento certo é um gate que
+// alguém desliga.
+async function medir(rotulo, { orcamentoMs, esperado }, executar) {
   for (let i = 0; i < AQUECIMENTO; i += 1) await executar();
 
+  const esperados = Array.isArray(esperado) ? esperado : [esperado];
   const amostras = [];
   let statusRuim = null;
   for (let i = 0; i < REPETICOES; i += 1) {
     const t = process.hrtime.bigint();
     const r = await executar();
     amostras.push(Number(process.hrtime.bigint() - t) / 1e6);
-    if (r && r.status >= 400) statusRuim = r.status;
+    if (r && !esperados.includes(r.status)) statusRuim = r.status;
   }
 
   amostras.sort((a, b) => a - b);
@@ -95,13 +118,14 @@ async function medir(rotulo, orcamentoMs, executar) {
   const passou = statusRuim === null && p95 <= orcamentoMs;
 
   console.log(
-    `  ${(passou ? VERDE('PASS') : VERMELHO('FALHOU'))}  ${rotulo.padEnd(46)}`
+    `  ${(passou ? VERDE('PASS  ') : VERMELHO('FALHOU'))}  ${rotulo.padEnd(52)}`
     + ` p50=${p50.toFixed(0).padStart(5)}ms  p95=${p95.toFixed(0).padStart(5)}ms`
-    + `  max=${max.toFixed(0).padStart(5)}ms  orçamento=${orcamentoMs}ms`
-    + (statusRuim ? `  ${VERMELHO(`status ${statusRuim}`)}` : '')
+    + `  max=${max.toFixed(0).padStart(5)}ms  orçamento=${String(orcamentoMs).padStart(4)}ms`
+    + `  esperado=${esperados.join('/')}`
+    + (statusRuim ? `  ${VERMELHO(`veio ${statusRuim}`)}` : '')
   );
 
-  return { rotulo, p50, p95, max, orcamentoMs, statusRuim, passou };
+  return { rotulo, p50, p95, max, orcamentoMs, esperados, statusRuim, passou };
 }
 
 async function principal() {
@@ -111,8 +135,8 @@ async function principal() {
   console.log(CINZA(`  amostras ... ${REPETICOES} por rota (+${AQUECIMENTO} de aquecimento)`));
   console.log(CINZA('  orçamentos . deste gate; NÃO são SLA homologado\n'));
 
-  const saude = await chamar('/health').catch(() => null);
-  if (!saude || saude.status >= 500) {
+  const saude = await fetch(`${ORIGEM}/health`).then(r => ({ status: r.status })).catch(() => null);
+  if (!saude || saude.status >= 400) {
     console.error(VERMELHO('  A API não respondeu. Suba a pilha primeiro:'));
     console.error('    node scripts/qa/visual-treinadores.mjs --manter\n');
     process.exitCode = 2;
@@ -137,57 +161,109 @@ async function principal() {
   });
 
   const resultados = [];
+  const naoMedidas = [];
+
+  const entrar = async email => {
+    const r = await chamar('/auth/login', { metodo: 'POST', corpo: { email, password: SENHA } });
+    if (r.status !== 200) throw new Error(`login de ${email} → ${r.status}`);
+    return r.corpo.token;
+  };
+
+  const tokenDoTreinador = EMAIL_TREINADOR ? await entrar(EMAIL_TREINADOR) : null;
+  const tokenDaCentral = EMAIL_CENTRAL ? await entrar(EMAIL_CENTRAL) : null;
+  const meuCadastro = tokenDoTreinador
+    ? (await chamar('/coaches/me', { token: tokenDoTreinador })).corpo
+    : null;
 
   // --------------------------------------------------------- as medições
   //
-  // Cada rota mede o caminho que uma pessoa real percorre, com a sessão que ela
-  // teria. Rota que exige estado que este script não pode criar sem tocar o banco
-  // fica de fora, e a ausência é declarada no relatório — não preenchida com um
-  // número que mediria outra coisa.
-  resultados.push(await medir('POST /auth/login', 1500,
+  // Cada linha declara o status ESPERADO. Rota cujo estado este script não pode
+  // montar sem tocar o banco fica NÃO MEDIDA, e a ausência é nomeada.
+
+  resultados.push(await medir('POST /auth/login', { orcamentoMs: 1500, esperado: 200 },
     () => chamar('/auth/login', { metodo: 'POST', corpo: { email: treinador.user.email, password: SENHA } })));
 
-  resultados.push(await medir('GET /coaches (catálogo)', 600,
+  resultados.push(await medir('GET /coaches (catálogo)', { orcamentoMs: 600, esperado: 200 },
     () => chamar('/coaches', { token: tokenTreinador })));
 
-  resultados.push(await medir('GET /coaches/me', 600,
-    () => chamar('/coaches/me', { token: tokenTreinador })));
+  // A conta comum não tem `coaches.read_own`, e por isso a recusa é 403 — ANTES de
+  // qualquer consulta de existência de cadastro. Medir isso aqui é medir a
+  // conferência de permissão, que é o caminho mais batido da rota.
+  resultados.push(await medir('GET /coaches/me (conta comum: recusa por permissão)',
+    { orcamentoMs: 600, esperado: 403 },
+    () => chamar('/coaches/me', { token: tokenComum })));
 
-  resultados.push(await medir('GET /coaches/me/teams', 600,
-    () => chamar('/coaches/me/teams', { token: tokenTreinador })));
-
-  resultados.push(await medir('GET /coaches/me/athletes', 800,
-    () => chamar('/coaches/me/athletes', { token: tokenTreinador })));
-
-  resultados.push(await medir('GET /team-membership-requests/mine', 600,
-    () => chamar('/team-membership-requests/mine', { token: tokenTreinador })));
-
-  // A busca por matrícula é a rota com teto de requisições próprio: medir com
-  // `REPETICOES` alto esbarraria no limitador e mediria o 429, não a busca.
-  resultados.push(await medir('POST /athletes/lookup-affiliation (recusa por estado)', 800,
-    () => chamar('/athletes/lookup-affiliation', {
-      metodo: 'POST', token: tokenTreinador,
-      corpo: { organizationId: 'org-inexistente-perf', affiliationNumber: '5001' }
-    })));
-
-  // A-01: a recusa também tem custo, e é o caminho mais batido por quem varre.
-  resultados.push(await medir('GET /coaches/:id/ranking/eligibility (recusa de terceiro)', 600,
+  // A-01: a recusa antienumeração é 404, e é o caminho mais batido por quem varre.
+  resultados.push(await medir('GET /coaches/:id/ranking/eligibility (recusa de terceiro)',
+    { orcamentoMs: 600, esperado: 404 },
     () => chamar(`/coaches/${cadastro.id}/ranking/eligibility?seasonId=inexistente`, { token: tokenComum })));
 
-  resultados.push(await medir('GET /ranking/coaches (bloqueio de §8.3)', 400,
+  // §8.3: o bloqueio é 409, e ele É a resposta correta.
+  resultados.push(await medir('GET /ranking/coaches (bloqueio de §8.3)', { orcamentoMs: 400, esperado: 409 },
     () => chamar('/ranking/coaches')));
 
-  resultados.push(await medir('GET /health', 300, () => chamar('/health')));
+  resultados.push(await medir('GET /health (raiz)', { orcamentoMs: 300, esperado: 200 },
+    () => fetch(`${ORIGEM}/health`).then(r => ({ status: r.status }))));
+
+  // ------------------------------------- o caminho REAL do treinador aprovado
+  if (tokenDoTreinador) {
+    resultados.push(await medir('GET /coaches/me (dono do cadastro, papel COACH)',
+      { orcamentoMs: 600, esperado: 200 },
+      () => chamar('/coaches/me', { token: tokenDoTreinador })));
+
+    resultados.push(await medir('GET /coaches/me/teams (treinador do ambiente)',
+      { orcamentoMs: 600, esperado: 200 },
+      () => chamar('/coaches/me/teams', { token: tokenDoTreinador })));
+
+    // A rota que passa pelos predicados NOVOS de RLS: a leitura de atleta pelo
+    // treinador atravessa `mci_treinador_com_equipe_em`, que lê três tabelas.
+    resultados.push(await medir('GET /coaches/me/athletes (RLS do treinador)',
+      { orcamentoMs: 800, esperado: 200 },
+      () => chamar('/coaches/me/athletes', { token: tokenDoTreinador })));
+
+    resultados.push(await medir('GET /team-membership-requests/me',
+      { orcamentoMs: 600, esperado: 200 },
+      () => chamar('/team-membership-requests/me', { token: tokenDoTreinador })));
+
+    if (meuCadastro?.id) {
+      resultados.push(await medir('GET /coaches/:id/ranking/projection (dono, sem temporada)',
+        { orcamentoMs: 800, esperado: 422 },
+        () => chamar(`/coaches/${meuCadastro.id}/ranking/projection`, { token: tokenDoTreinador })));
+    } else {
+      naoMedidas.push('GET /coaches/:id/ranking/projection — o cadastro do treinador do ambiente não foi lido');
+    }
+  } else {
+    naoMedidas.push('GET /coaches/me/teams, /coaches/me/athletes, /team-membership-requests/me e '
+      + '/coaches/:id/ranking/projection — exigem o treinador APROVADO do ambiente (passe --treinador <e-mail>)');
+  }
+
+  // ------------------------------------------------ o caminho da mesa central
+  if (tokenDaCentral) {
+    resultados.push(await medir('GET /coaches/review (fila da mesa central)',
+      { orcamentoMs: 800, esperado: 200 },
+      () => chamar('/coaches/review?status=PENDING', { token: tokenDaCentral })));
+
+    resultados.push(await medir('GET /central-authorizations (delegações vivas)',
+      { orcamentoMs: 600, esperado: 200 },
+      () => chamar('/central-authorizations', { token: tokenDaCentral })));
+  } else {
+    naoMedidas.push('GET /coaches/review e /central-authorizations — exigem a conta da mesa '
+      + 'central do ambiente (passe --central <e-mail>)');
+  }
 
   // ------------------------------------------------------------- resumo
   const falharam = resultados.filter(r => !r.passou);
   console.log('');
-  console.log(`  ${resultados.length - falharam.length}/${resultados.length} dentro do orçamento deste gate`);
+  console.log(`  ${resultados.length - falharam.length}/${resultados.length} dentro do orçamento deste gate, com o status esperado`);
+  if (naoMedidas.length) {
+    console.log(CINZA(`\n  NÃO MEDIDAS (${naoMedidas.length}) — nomeadas, não preenchidas:`));
+    for (const n of naoMedidas) console.log(CINZA(`    ${n}`));
+  }
   if (falharam.length) {
     console.log(VERMELHO('\n  FORA DO ORÇAMENTO:'));
     for (const r of falharam) {
       console.log(`    ${r.rotulo} — p95=${r.p95.toFixed(0)}ms (orçamento ${r.orcamentoMs}ms)`
-        + (r.statusRuim ? `, status ${r.statusRuim}` : ''));
+        + (r.statusRuim ? `, esperava ${r.esperados.join('/')} e veio ${r.statusRuim}` : ''));
     }
   }
   console.log('');

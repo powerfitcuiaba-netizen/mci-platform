@@ -10,6 +10,23 @@ const texto = (min, max) => z.string().trim().min(min).max(max);
 const opcional = schema => schema.optional().nullable();
 const dataIso = z.coerce.date();
 
+// DATA OBRIGATÓRIA, COM RECUSA LEGÍVEL.
+//
+// `z.coerce.date()` não serve como campo obrigatório: a coerção roda ANTES da
+// conferência, e `new Date(undefined)` produz uma data inválida. O resultado,
+// medido, é a recusa "Invalid input: expected date, received Date" para um campo
+// que simplesmente não foi enviado — mensagem que não diz a ninguém o que fazer.
+//
+// Aqui o valor CRU é conferido primeiro (texto ou Date), e só então convertido.
+// Campo ausente, nulo, vazio ou malformado recebe a mesma instrução, que é o que
+// quem está preenchendo precisa ler.
+const dataIsoObrigatoria = z
+  .union([z.string().trim(), z.date()], { error: 'Informe a data no formato ISO, por exemplo 2026-12-31' })
+  .transform(valor => (valor instanceof Date ? valor : new Date(valor)))
+  .refine(valor => !Number.isNaN(valor.getTime()), {
+    error: 'Informe a data no formato ISO, por exemplo 2026-12-31'
+  });
+
 // Booleano vindo de formulário ou querystring chega como TEXTO, e `z.coerce
 // .boolean()` aplica `Boolean(...)`: a string 'false' vira `true`, e com ela um
 // documento marcado como privado era gravado como público. Aqui a palavra vale
@@ -768,7 +785,7 @@ const centralGrantCreate = z.object({
   permission: texto(3, 60),
   organizationId: id,
   reason: texto(3, 500),
-  expiresAt: dataIso
+  expiresAt: dataIsoObrigatoria
 });
 const centralGrantRevoke = z.object({ reason: texto(3, 500) });
 const centralGrantQuery = paginacao.extend({

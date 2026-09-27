@@ -229,7 +229,10 @@ async function semear() {
     metodo: 'POST', token: tokenAdmin,
     corpo: {
       userId: delegado.user.id, permission: 'athletes.transfer', organizationId: org.id,
-      reason: 'Delegação formal de QA para correção de vínculo.'
+      reason: 'Delegação formal de QA para correção de vínculo.',
+      // Escopo e prazo são obrigatórios desde o achado A-02: concessão sem
+      // federação valia em todas, e sem prazo valia para sempre.
+      expiresAt: '2099-12-31'
     }
   });
   const tokenDelegado = (await chamar('/auth/login', { metodo: 'POST', corpo: { email: delegado.user.email, password: SENHA } })).token;
@@ -843,7 +846,11 @@ try {
     informativas: evidencias.filter(e => e.veredito === 'INFO').length,
     // Ver A-07: nada é apagado, então a defasagem é declarada. Vazio significa
     // que a rodada reescreveu tudo o que havia.
+    // `evidencias.json` fica FORA da conferência porque é escrito logo abaixo, e
+    // no instante desta comparação ele ainda carrega a data da rodada anterior —
+    // apontá-lo como defasado seria acusar o próprio arquivo que está nascendo.
     arquivosDeRodadaAnterior: arquivosAnteriores.filter(nome => {
+      if (nome === 'evidencias.json') return false;
       try { return statSync(`${PASTA}/${nome}`).mtimeMs < INICIO_DA_RODADA; } catch { return false; }
     }),
     itens: evidencias
