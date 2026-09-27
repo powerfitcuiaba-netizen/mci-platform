@@ -231,14 +231,19 @@ export default {
   'form.erro.matricula': 'Enter the registration number',
   // Perfis abertos no cadastro. O CÓDIGO ('ATHLETE', 'COACH'…) é o que vai para
   // a API e nunca muda; aqui traduz-se só o que a pessoa lê.
+  //
+  // `papel.TEAM` CONTINUA AQUI, e não por descuido: `TEAM` saiu do cadastro
+  // aberto na unificação com `COACH`, mas contas reais ainda têm esse papel e
+  // aparecem nas telas de administração e na auditoria. Chave removida = enum
+  // cru na tela de quem precisa decidir sobre aquela conta.
   'papel.ATHLETE': 'Athlete',
   'papel.ATHLETE.descricao': 'Competes in the Brazilian Championship stages',
-  'papel.COACH': 'Coach',
-  'papel.COACH.descricao': 'Prepares and supports athletes',
+  'papel.COACH': 'Coach (Team)',
+  'papel.COACH.descricao': 'Prepares athletes and runs their own team',
   'papel.GYM': 'Gym',
   'papel.GYM.descricao': 'Training center',
-  'papel.TEAM': 'Team',
-  'papel.TEAM.descricao': 'A team that brings athletes together',
+  'papel.TEAM': 'Team (legacy profile)',
+  'papel.TEAM.descricao': 'Discontinued profile — use Coach (Team) instead',
   'papel.BRAND': 'Brand',
   'papel.BRAND.descricao': 'Brand in the ecosystem',
   'papel.SPONSOR': 'Sponsor',
@@ -1490,8 +1495,8 @@ export default {
   'erro.generico': 'The operation could not be completed.',
 
   'nav.minha-equipe': 'My team',
-  'nav.treinador': 'Coach',
-  'nav.admin/treinadores': 'Coaches',
+  'nav.treinador': 'Coach (Team)',
+  'nav.admin/treinadores': 'Coaches (Teams)',
 
   'treinador.eyebrow': 'Coaches and teams',
   'treinador.tituloSemCadastro': 'Coach registration',

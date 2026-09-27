@@ -37,6 +37,13 @@ export const PERMISSOES_POR_PAPEL = {
   // próprio cadastro e a própria equipe, localiza atleta por matrícula e PEDE
   // vínculo. Não aprova, não transfere, não desvincula.
   COACH: ['registrations.read', 'coaches.read_own', 'teams.read_own', 'athletes.lookup_affiliation', 'teams.request_membership'],
+  // `TEAM` é papel LEGADO e fica vazio como `ATHLETE` e `GYM` ficam: este mapa
+  // só espelha as permissões que a INTERFACE usa para decidir menu e botão, e
+  // nenhum desses papéis tem alguma. No servidor eles têm as leituras comuns de
+  // `BASE_AUTENTICADO` — o que nenhum deles tem é permissão de treinador.
+  //
+  // A linha existe para `permissoesDe` não devolver `undefined` e estourar
+  // qualquer `can()` na tela de quem administra uma conta legada.
   GYM: [], TEAM: [], BRAND: [], SPONSOR: [], MEDIA: [],
 
   // VAZIO, e é o desenho. A conta de serviço da federação não tem permissão

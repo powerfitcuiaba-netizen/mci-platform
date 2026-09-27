@@ -240,9 +240,14 @@ const ROLE_PERMISSIONS = Object.freeze({
   FEDERATION_SERVICE: operacional(),
 
   ATHLETE: operacional(),
-  // O TREINADOR, e só o que é dele.
+  // TREINADOR (EQUIPE), e só o que é dele.
   //
-  // Lê o próprio cadastro e a própria equipe, localiza atleta por matrícula
+  // É o ÚNICO perfil de treinador e de equipe da plataforma: a decisão aprovada
+  // unificou as duas ofertas de cadastro numa só, e é esta linha que a sustenta.
+  // `teams.read_own` é a parte "Equipe" — a área onde ele vê e conduz as equipes
+  // que são dele.
+  //
+  // Lê o próprio cadastro e as próprias equipes, localiza atleta por matrícula
   // (sem CPF, sem documento) e PEDE vínculo. Não aprova, não transfere, não
   // desvincula, não toca em ponto, não lê dado sensível de ninguém.
   COACH: operacional(
@@ -251,6 +256,21 @@ const ROLE_PERMISSIONS = Object.freeze({
     'athletes.lookup_affiliation', 'teams.request_membership'
   ),
   GYM: operacional(),
+  // `TEAM` É PAPEL LEGADO, E O `operacional()` SEM ARGUMENTO É O DESENHO — não
+  // um esquecimento.
+  //
+  // A decisão aprovada unificou a oferta de cadastro em **Treinador (Equipe)**,
+  // que é `COACH`. `TEAM` saiu de `PAPEIS_DE_CADASTRO_ABERTO` e continua aqui
+  // porque contas reais o têm.
+  //
+  // O conjunto dele é `BASE_AUTENTICADO` e nada mais: as mesmas leituras que
+  // `ATHLETE`, `GYM`, `BRAND`, `SPONSOR` e `MEDIA` têm. NENHUMA permissão de
+  // treinador — nem `coaches.read_own`, nem `teams.read_own`. E não pode passar
+  // a ter: acrescentar aqui as cinco de `COACH` concederia área de treinador a
+  // contas que nunca passaram pela aprovação central da MuscleContest (R-03).
+  //
+  // Quem tem uma conta `TEAM` e coordena uma equipe pede o cadastro de treinador
+  // pela rota. A decisão é da administração central, não desta linha.
   TEAM: operacional(),
   BRAND: operacional(),
   SPONSOR: operacional(),

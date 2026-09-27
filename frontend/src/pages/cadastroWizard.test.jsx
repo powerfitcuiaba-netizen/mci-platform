@@ -283,3 +283,60 @@ describe('envio', () => {
     expect(espioes.register).not.toHaveBeenCalled();
   });
 });
+
+// ==========================================================================
+// A UNIFICAÇÃO NA TELA — uma opção de treinador, e não duas.
+//
+// A decisão aprovada tirou "Equipe" do seletor de perfil e deixou **Treinador
+// (Equipe)** como a opção única de quem prepara atletas e conduz uma equipe.
+//
+// A prova é contra o que o <select> OFERECE, e é aqui que ela tem de estar: a
+// recusa de verdade é do servidor (`z.enum(PAPEIS_DE_CADASTRO_ABERTO)`, coberto
+// em `tests/cadastro-publico.test.mjs`), mas oferecer a opção velha faria a
+// pessoa escolher e só descobrir no envio, com 400 e sem explicação.
+// ==========================================================================
+describe('seletor de perfil unificado', () => {
+  const seletor = () => screen.getByLabelText(/^Você é/i);
+  const opcoes = () => [...seletor().querySelectorAll('option')];
+
+  it('oferece Treinador (Equipe) e NÃO oferece Equipe como opção separada', () => {
+    render(<CadastroWizard aoVoltarParaEntrada={() => {}} />);
+
+    const rotulos = opcoes().map(o => o.textContent);
+    expect(rotulos).toContain('Treinador (Equipe)');
+    expect(rotulos, 'a opção antiga não pode reaparecer').not.toContain('Equipe');
+
+    const codigos = opcoes().map(o => o.value);
+    expect(codigos).toContain('COACH');
+    expect(codigos, 'nem pelo código, que é o que vai para a API').not.toContain('TEAM');
+  });
+
+  it('são seis perfis, sem duplicata', () => {
+    render(<CadastroWizard aoVoltarParaEntrada={() => {}} />);
+
+    const codigos = opcoes().map(o => o.value);
+    expect(codigos).toEqual(['ATHLETE', 'COACH', 'GYM', 'BRAND', 'SPONSOR', 'MEDIA']);
+    expect(new Set(codigos).size).toBe(codigos.length);
+  });
+
+  it('a descrição do perfil escolhido fala da equipe — é o que diz à pessoa que é aqui', async () => {
+    const usuario = userEvent.setup();
+    render(<CadastroWizard aoVoltarParaEntrada={() => {}} />);
+
+    await usuario.selectOptions(seletor(), 'COACH');
+    // A frase exata, e não /equipe/i: o rótulo da própria opção também contém
+    // "Equipe", e a busca larga achava dois elementos e reprovava por ambiguidade
+    // em vez de medir a descrição.
+    expect(await screen.findByText('Prepara atletas e conduz a própria equipe')).toBeInTheDocument();
+  });
+
+  it('o cadastro de Treinador (Equipe) chega ao servidor com role=COACH', async () => {
+    const usuario = userEvent.setup();
+    render(<CadastroWizard aoVoltarParaEntrada={() => {}} />);
+    await ate(5, usuario, { papel: 'COACH' });
+
+    await continuar(usuario);
+    await waitFor(() => expect(espioes.register).toHaveBeenCalled());
+    expect(espioes.register.mock.calls[0][0].role).toBe('COACH');
+  });
+});

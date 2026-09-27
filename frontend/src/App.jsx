@@ -60,12 +60,16 @@ const NAVEGACAO_PRINCIPAL = [
   // vínculo. Um convite que espera resposta não pode depender de a pessoa
   // procurar onde ele está.
   { rota: 'minha-equipe', rotulo: 'Minha equipe', icone: Users2 },
-  // O PAINEL DO TREINADOR aparece para quem é treinador. A tela decide sozinha
+  // TREINADOR (EQUIPE) aparece para quem é treinador. A tela decide sozinha
   // o que mostrar — formulário de autocadastro para quem não tem cadastro,
   // painel para quem tem —, então não há permissão a conferir no menu: uma
   // conta que ainda não é treinadora precisa justamente do caminho para se
   // tornar uma.
-  { rota: 'treinador', rotulo: 'Treinador', icone: IdCard }
+  //
+  // O rótulo traz "(Equipe)" porque este é o ÚNICO caminho de treinador e de
+  // equipe desde a unificação: quem antes procuraria um menu "Equipe" precisa
+  // reconhecer que é aqui que ele conduz a dele.
+  { rota: 'treinador', rotulo: 'Treinador (Equipe)', icone: IdCard }
 ];
 
 // Cada item administrativo declara a permissão que o habilita.
@@ -83,7 +87,7 @@ const NAVEGACAO_ADMIN = [
   // autorizar atuação numa federação (a federação, R-04). A permissão declarada
   // é a da federação, que é a que mais gente tem; quem só tem
   // `coaches.approve` chega pela URL e a tela funciona igual.
-  { rota: 'admin/treinadores', rotulo: 'Treinadores', icone: IdCard, permissao: 'coaches.authorize_org' },
+  { rota: 'admin/treinadores', rotulo: 'Treinadores (Equipes)', icone: IdCard, permissao: 'coaches.authorize_org' },
   // A mensagem de abertura da federação aos seus atletas. Item próprio porque
   // é comunicação para TODA a base — não é uma configuração escondida numa
   // aba, e quem precisa publicá-la costuma estar com pressa.

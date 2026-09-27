@@ -99,8 +99,30 @@ async function carregar(id) {
  * próprio autor, sobre a sua própria conta. Não há terceiro a bloquear, e
  * exigir permissão de administrador tornaria o autocadastro impossível.
  */
+/**
+ * O pedido de cadastro de Treinador (Equipe), feito pela própria conta.
+ *
+ * A GUARDA DE `coaches.read_own` NÃO É BUROCRACIA — ELA IMPEDE UM REGISTRO ÓRFÃO.
+ *
+ * Medido antes da correção: a rota exigia apenas sessão. Uma conta ATHLETE (ou
+ * GYM, ou BRAND) criava o próprio `Coach` com 201 e, na releitura,
+ * `GET /coaches/me` respondia 403 — porque `meuCadastro` exige
+ * `coaches.read_own`, que só Treinador (Equipe) tem. O painel trata a falha como
+ * "ainda não há cadastro" e devolve o formulário: a pessoa cadastrava de novo,
+ * recebia 409 COACH_ALREADY_EXISTS, e nunca via o próprio pedido. Ficava no banco
+ * um cadastro que ninguém consegue abrir, esperando análise central de uma conta
+ * que não tem área de treinador.
+ *
+ * A recusa é fail closed e não amplia nada: quem já podia se cadastrar continua
+ * podendo, e quem não tem a área deixa de criar registro que não pode ler. Trocar
+ * de perfil é ato administrativo, e é por ali que a conta passa a ser treinadora.
+ *
+ * A guarda é de PERMISSÃO, e não de `role === 'COACH'`: o papel é um jeito de
+ * ter a permissão, não a permissão. Um SUPER_ADMIN a tem por ter todas.
+ */
 async function autocadastro(data, actor) {
   if (!actor) throw new AppError(401, 'UNAUTHORIZED', 'Autenticação obrigatória');
+  assertPermission(actor, 'coaches.read_own');
 
   const existente = await prisma.coach.findFirst({ where: { userId: actor.id }, select: { id: true, status: true } });
   if (existente) {

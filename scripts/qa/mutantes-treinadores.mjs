@@ -50,6 +50,9 @@ const SUITE_RANKING = 'tests/ranking-oficial.test.mjs';
 const SUITE_HARDENING = 'tests/hardening-auditoria-treinadores.test.mjs';
 const SUITE_DIAGNOSTICO = 'tests/diagnostico-delegacoes-inertes.test.mjs';
 const SUITE_LEGADOS = 'tests/diagnostico-treinadores-legados.test.mjs';
+const SUITE_UNIFICACAO = 'tests/unificacao-treinador-equipe.test.mjs';
+const SUITE_CADASTRO = 'tests/cadastro-publico.test.mjs';
+const SUITE_PAPEL_LEGADO = 'tests/diagnostico-papel-legado-equipe.test.mjs';
 
 const MUTANTES_DE_CODIGO = [
   {
@@ -261,6 +264,59 @@ const MUTANTES_DE_CODIGO = [
     arquivo: 'scripts/diagnostico-treinadores-legados.js',
     de: "      c.status === 'APPROVED' && c.reviewedById === null && c.reviewedAt === null);",
     para: "      c.status === 'APPROVED' && c.reviewedById === null);"
+  },
+  // ======================================================================
+  // UNIFICAÇÃO DE TREINADOR E EQUIPE — as quatro bordas da decisão.
+  //
+  // Cada um destes mutantes desfaz UMA metade da unificação. Se algum
+  // sobreviver, a metade que ele desfez não tem barreira medida — e uma decisão
+  // de papel sem barreira medida é uma decisão que alguém apaga sem ver
+  // vermelho.
+  // ======================================================================
+  {
+    id: 'TE-U1',
+    descricao: 'unificação: "Equipe" volta a ser opção independente no cadastro aberto',
+    suite: SUITE_UNIFICACAO,
+    arquivo: 'src/utils/roles.js',
+    de: "const PAPEIS_DE_CADASTRO_ABERTO = Object.freeze(['ATHLETE', 'COACH', 'GYM', 'BRAND', 'SPONSOR', 'MEDIA']);",
+    para: "const PAPEIS_DE_CADASTRO_ABERTO = Object.freeze(['ATHLETE', 'COACH', 'GYM', 'TEAM', 'BRAND', 'SPONSOR', 'MEDIA']);"
+  },
+  {
+    id: 'TE-U2',
+    descricao: 'unificação: o papel legado ganha as permissões de treinador — privilégio ampliado sem R-03',
+    // O mutante MAIS perigoso desta bateria, porque é o refator "óbvio": "já que
+    // unificamos, `TEAM` devia poder o que `COACH` pode". Concederia área de
+    // treinador a contas que nunca passaram pela aprovação central.
+    suite: SUITE_UNIFICACAO,
+    arquivo: 'src/utils/permissions.js',
+    de: "  TEAM: operacional(),",
+    para: "  TEAM: operacional('registrations.read', 'coaches.read_own', 'teams.read_own', 'athletes.lookup_affiliation', 'teams.request_membership'),"
+  },
+  {
+    id: 'TE-U3',
+    descricao: 'unificação: o autocadastro de treinador volta a aceitar qualquer conta autenticada',
+    suite: SUITE_UNIFICACAO,
+    arquivo: 'src/services/coachService.js',
+    de: "  if (!actor) throw new AppError(401, 'UNAUTHORIZED', 'Autenticação obrigatória');\n  assertPermission(actor, 'coaches.read_own');\n\n  const existente = await prisma.coach.findFirst({ where: { userId: actor.id }, select: { id: true, status: true } });",
+    para: "  if (!actor) throw new AppError(401, 'UNAUTHORIZED', 'Autenticação obrigatória');\n\n  const existente = await prisma.coach.findFirst({ where: { userId: actor.id }, select: { id: true, status: true } });"
+  },
+  {
+    id: 'TE-U4',
+    descricao: 'unificação: o papel legado sai do enum e congela as contas que o têm',
+    // Sem `TEAM` em `USER_ROLES`, `adminUserUpdate` recusa QUALQUER corpo para
+    // essa conta: nem suspender, nem tirá-la do papel legado.
+    suite: SUITE_CADASTRO,
+    arquivo: 'src/utils/roles.js',
+    de: "  'GYM',\n  'TEAM',\n  'BRAND',",
+    para: "  'GYM',\n  'BRAND',"
+  },
+  {
+    id: 'TE-U5',
+    descricao: 'diagnóstico do papel legado: quem já tem cadastro deixa de ser separado de quem não tem',
+    suite: SUITE_PAPEL_LEGADO,
+    arquivo: 'scripts/diagnostico-papel-legado-equipe.js',
+    de: "    const comCadastro = contas.filter(c => c.coach);\n    const semCadastro = contas.filter(c => !c.coach);",
+    para: "    const comCadastro = contas;\n    const semCadastro = [];"
   },
   {
     id: 'TE-M14',
@@ -475,7 +531,10 @@ const SUITES_DE_CONTROLE = [
   ['gate de rota', SUITE_GATE],
   ['endurecimento', SUITE_HARDENING],
   ['diagnóstico de delegações', SUITE_DIAGNOSTICO],
-  ['diagnóstico de legados', SUITE_LEGADOS]
+  ['diagnóstico de legados', SUITE_LEGADOS],
+  ['unificação treinador/equipe', SUITE_UNIFICACAO],
+  ['cadastro público', SUITE_CADASTRO],
+  ['diagnóstico do papel legado', SUITE_PAPEL_LEGADO]
 ];
 
 for (const [rotulo, suite] of SUITES_DE_CONTROLE) {
