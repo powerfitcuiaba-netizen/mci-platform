@@ -31,9 +31,13 @@ const SCRIPT = 'scripts/diagnostico-delegacoes-inertes.js';
 const semCor = texto => texto.replace(/\u001b\[[0-9;]*m/g, '');
 
 function rodar(...argumentos) {
+  const semAmbiente = argumentos[0] === '--sem-ambiente';
+  const lista = semAmbiente ? argumentos.slice(1) : argumentos;
+  const env = { ...process.env };
+  if (semAmbiente) delete env.DATABASE_URL;
   try {
-    const saida = execFileSync('node', [SCRIPT, ...argumentos], {
-      encoding: 'utf8', env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe']
+    const saida = execFileSync('node', [SCRIPT, ...lista], {
+      encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'pipe']
     });
     return { codigo: 0, saida: semCor(saida) };
   } catch (erro) {
@@ -119,6 +123,25 @@ describe('diagnóstico de delegações inertes', () => {
     expect(saida, 'o id da conta central aparece').toContain(admin.id);
     expect(saida, 'e a conta comum NÃO aparece').not.toContain(comum.id);
     expect(saida, 'sem e-mail').not.toMatch(/@/);
+  });
+
+  it('a saída diz de qual banco veio', async () => {
+    await plantar({ organizationId: null, expiresAt: null });
+
+    const { saida } = rodar(admin.id);
+    expect(saida, 'evidência que não identifica a base não é evidência').toMatch(/banco consultado: \w+/);
+  });
+
+  it('sem DATABASE_URL no ambiente ele RECUSA — o .env não pode salvá-lo', async () => {
+    // `require('@prisma/client')` carrega o `.env` para `process.env`. Sem a
+    // captura antes do `require`, este comando leria OUTRO banco e relataria
+    // números plausíveis que não são os da base em questão.
+    await plantar({ organizationId: null, expiresAt: null });
+
+    const { codigo, saida } = rodar('--sem-ambiente', admin.id);
+    expect(codigo).toBe(2);
+    expect(saida).toMatch(/DATABASE_URL ausente no ambiente/);
+    expect(saida).not.toMatch(/NENHUMA concessão viva/);
   });
 
   it('não imprime segredo nem e-mail de ninguém', async () => {

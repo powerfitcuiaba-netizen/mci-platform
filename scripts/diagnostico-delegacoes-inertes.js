@@ -60,6 +60,19 @@
 // é o que identifica a quem falar.
 // ==========================================================================
 
+// A URL É LIDA DO AMBIENTE **ANTES** DO `require`, e isso não é estilo.
+//
+// `require('@prisma/client')` carrega o arquivo `.env` para dentro de
+// `process.env`. Medido: numa máquina com `.env` presente, rodar sem
+// `DATABASE_URL` no ambiente NÃO falhava — o script conectava no banco do
+// `.env` e imprimia números perfeitamente plausíveis DE OUTRO BANCO, sem dizer
+// qual havia lido. Capturar o valor antes do `require` faz a recusa dizer a
+// verdade: "ausente no ambiente" passa a significar ausente no ambiente.
+//
+// Em produção o `.env` não existe na imagem (está no `.dockerignore`), mas o
+// diagnóstico precisa ser confiável também na máquina de quem investiga.
+const URL_DO_AMBIENTE = process.env.DATABASE_URL;
+
 const { PrismaClient } = require('@prisma/client');
 
 const VERDE = s => `\x1b[32m${s}\x1b[0m`;
@@ -67,7 +80,7 @@ const AMARELO = s => `\x1b[33m${s}\x1b[0m`;
 const CINZA = s => `\x1b[90m${s}\x1b[0m`;
 
 async function principal() {
-  if (!process.env.DATABASE_URL) {
+  if (!URL_DO_AMBIENTE) {
     console.error('DATABASE_URL ausente no ambiente. Rode no mesmo ambiente da aplicação.');
     process.exitCode = 2;
     return;
@@ -108,6 +121,12 @@ async function principal() {
       process.exitCode = 2;
       return;
     }
+
+    // O NOME DO BANCO NA SAÍDA. Nome de banco não é segredo — a credencial é —, e
+    // sem ele a evidência guardada não diz de onde veio. Uma saída que não
+    // identifica a base é indistinguível de uma saída da base errada.
+    const [{ banco }] = await prisma.$queryRaw`SELECT current_database() AS banco`;
+    console.log(`banco consultado: ${banco}\n`);
 
     const agora = new Date();
 

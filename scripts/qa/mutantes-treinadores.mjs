@@ -49,6 +49,7 @@ const SUITE_R01 = 'tests/r01-equipe-da-epoca.test.mjs';
 const SUITE_RANKING = 'tests/ranking-oficial.test.mjs';
 const SUITE_HARDENING = 'tests/hardening-auditoria-treinadores.test.mjs';
 const SUITE_DIAGNOSTICO = 'tests/diagnostico-delegacoes-inertes.test.mjs';
+const SUITE_LEGADOS = 'tests/diagnostico-treinadores-legados.test.mjs';
 
 const MUTANTES_DE_CODIGO = [
   {
@@ -229,6 +230,37 @@ const MUTANTES_DE_CODIGO = [
     arquivo: 'scripts/diagnostico-delegacoes-inertes.js',
     de: "      if (contexto?.administrador !== true) {",
     para: "      if (false) {"
+  },
+  // O `.env` QUE SALVAVA O SCRIPT EM SILÊNCIO.
+  //
+  // `require('@prisma/client')` carrega o `.env` para `process.env`. Conferir
+  // `process.env.DATABASE_URL` DEPOIS do require faz a guarda nunca disparar
+  // numa máquina com `.env`: o script conecta em outro banco e imprime números
+  // plausíveis que não são os da base em questão. Os dois mutantes abaixo
+  // restauram exatamente esse comportamento.
+  {
+    id: 'TE-D3',
+    descricao: 'diagnóstico 2: a guarda de ambiente volta a aceitar o que o `.env` injetou',
+    suite: SUITE_DIAGNOSTICO,
+    arquivo: 'scripts/diagnostico-delegacoes-inertes.js',
+    de: "  if (!URL_DO_AMBIENTE) {",
+    para: "  if (!process.env.DATABASE_URL) {"
+  },
+  {
+    id: 'TE-L1',
+    descricao: 'diagnóstico 1: a guarda de ambiente volta a aceitar o que o `.env` injetou',
+    suite: SUITE_LEGADOS,
+    arquivo: 'scripts/diagnostico-treinadores-legados.js',
+    de: "  if (!URL_DO_AMBIENTE) {",
+    para: "  if (!process.env.DATABASE_URL) {"
+  },
+  {
+    id: 'TE-L2',
+    descricao: 'diagnóstico 1: o predicado deixa de exigir AUSÊNCIA de data de revisão',
+    suite: SUITE_LEGADOS,
+    arquivo: 'scripts/diagnostico-treinadores-legados.js',
+    de: "      c.status === 'APPROVED' && c.reviewedById === null && c.reviewedAt === null);",
+    para: "      c.status === 'APPROVED' && c.reviewedById === null);"
   },
   {
     id: 'TE-M14',
@@ -442,7 +474,8 @@ const SUITES_DE_CONTROLE = [
   ['R-01', SUITE_R01],
   ['gate de rota', SUITE_GATE],
   ['endurecimento', SUITE_HARDENING],
-  ['diagnóstico de delegações', SUITE_DIAGNOSTICO]
+  ['diagnóstico de delegações', SUITE_DIAGNOSTICO],
+  ['diagnóstico de legados', SUITE_LEGADOS]
 ];
 
 for (const [rotulo, suite] of SUITES_DE_CONTROLE) {

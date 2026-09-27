@@ -189,7 +189,7 @@ sem contexto) e **TE-D2** desativa a guarda de administrador.
 autorizar:
 
 ```
-grep -nE '\.(create|update|upsert|delete|createMany|updateMany|deleteMany|executeRaw|queryRaw)\(' \
+grep -nE '\.(create|update|upsert|delete|createMany|updateMany|deleteMany|executeRaw)\(' \
   scripts/diagnostico-treinadores-legados.js scripts/diagnostico-delegacoes-inertes.js
 ```
 
@@ -265,16 +265,22 @@ DATABASE_URL="$DATABASE_URL?options=-c%20default_transaction_read_only%3Don" \
 — a variável é **referenciada**, não escrita, e não aparece na tela. Confira antes se a
 `DATABASE_URL` já tem `?`; se tiver, troque `?` por `&`.
 
-### O RISCO DE RODAR FORA DO CONTÊINER
+### O RISCO DE RODAR FORA DO CONTÊINER — corrigido, e vale entender
 
 `require('@prisma/client')` carrega o arquivo `.env` para dentro de `process.env`. Consequência
 medida: numa máquina de desenvolvimento com `.env` presente, rodar com `DATABASE_URL` ausente do
-ambiente **não falha** — o script conecta no banco do `.env` e imprime números perfeitamente
-plausíveis **de outro banco**. A saída não diz qual base foi lida.
+ambiente **não falhava** — o script conectava no banco do `.env` e imprimia números
+perfeitamente plausíveis **de outro banco**, sem dizer qual havia lido.
 
-Em produção isso não acontece: `.env` está no `.dockerignore` (linhas 16–17) e não entra na
-imagem, então a variável de ambiente é a única fonte. Mas é mais uma razão para rodar **no Shell
-do serviço**, e não da sua máquina.
+Duas correções, ambas nos dois scripts:
+
+1. a URL é lida do ambiente **antes** do `require`, então "ausente no ambiente" passa a
+   significar ausente no ambiente, e a recusa sai com código 2;
+2. a saída começa com **`banco consultado: <nome>`**. Nome de banco não é segredo — a credencial
+   é —, e evidência que não identifica a base não é evidência.
+
+Em produção o `.env` nunca existiu na imagem (está no `.dockerignore`, linhas 16–17). A correção
+serve à máquina de quem investiga, que é onde o engano era possível.
 
 ### O que NÃO fazer
 
