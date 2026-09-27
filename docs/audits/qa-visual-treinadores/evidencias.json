@@ -1,5 +1,5 @@
 {
-  "quando": "2026-09-27T02:34:26.871Z",
+  "quando": "2026-09-27T12:23:51.541Z",
   "navegador": "Chromium (Playwright)",
   "larguras": [
     360,
@@ -24,8 +24,7 @@
   "controle": 3,
   "informativas": 8,
   "arquivosDeRodadaAnterior": [
-    "api.log",
-    "evidencias.json"
+    "api.log"
   ],
   "itens": [
     {

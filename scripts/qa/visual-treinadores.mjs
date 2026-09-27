@@ -75,7 +75,29 @@ const registrar = (rotulo, veredito, detalhe = '') => {
 };
 
 const processos = [];
-const encerrar = () => { for (const p of processos) { try { p.kill('SIGKILL'); } catch { /* já morreu */ } } };
+
+// MATAR O GRUPO, E NÃO SÓ O FILHO.
+//
+// `npx vite preview` é três processos: o `npm exec`, um `sh -c` e o node do
+// vite. Matar apenas o primeiro deixava os outros dois vivos, segurando o pipe
+// herdado — e o event loop do Node não fecha com um pipe aberto. Medido: a
+// rodada terminava os 218 checks, imprimia o resumo, escrevia `evidencias.json`
+// e **nunca saía**; ficou 1h30 parada, com 2 s de CPU. Em CI isso é timeout, e
+// os órfãos ainda seguram o banco de QA — foi o que produziu, numa tentativa
+// anterior, o "database is being accessed by other users".
+//
+// `detached: true` põe cada filho em seu próprio grupo, e `kill(-pid)` leva o
+// grupo inteiro. Os pipes são destruídos em seguida porque um descritor aberto
+// basta para segurar o processo, mesmo sem ninguém do outro lado.
+const encerrar = () => {
+  for (const p of processos) {
+    try { process.kill(-p.pid, 'SIGKILL'); } catch { /* grupo já morreu */ }
+    try { p.kill('SIGKILL'); } catch { /* já morreu */ }
+    p.stdout?.destroy();
+    p.stderr?.destroy();
+    p.unref();
+  }
+};
 
 async function esperarPorta(url, segundos = 60) {
   for (let i = 0; i < segundos * 2; i += 1) {
@@ -468,7 +490,8 @@ try {
       STORAGE_DRIVER: 'local', STORAGE_LOCAL_PATH: '/tmp/qa-treinadores-storage',
       CORS_ORIGINS: BASE_WEB
     },
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true
   });
   processos.push(api);
   let saidaApi = '';
@@ -485,7 +508,7 @@ try {
   console.log('construindo e servindo o frontend…');
   execSync('npm run build', { cwd: 'frontend', stdio: 'pipe', env: { ...env, VITE_API_URL: BASE_API } });
   const web = spawn('npx', ['vite', 'preview', '--port', String(PORTA_WEB), '--strictPort', '--host', '127.0.0.1'], {
-    cwd: 'frontend', stdio: ['ignore', 'pipe', 'pipe'], env
+    cwd: 'frontend', stdio: ['ignore', 'pipe', 'pipe'], env, detached: true
   });
   processos.push(web);
   if (!await esperarPorta(BASE_WEB, 60)) throw new Error('preview do frontend não subiu');

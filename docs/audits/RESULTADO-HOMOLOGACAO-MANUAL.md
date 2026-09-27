@@ -152,7 +152,38 @@ porque a distinção é o que separa laudo de opinião:
 
 ---
 
-## 8. O que continua pendente, e não depende de mim
+## 8. O gate visual, e um defeito que ele escondia
+
+Reexecutado depois da correção do F-04, porque a tela de administração mudou:
+**218 PASS, 0 FAIL, 0 NOT TESTED**, nas oito larguras (360, 390, 430, 768, 1024,
+1280, 1440, 1920). Os 3 achados de CONTROLE são dívida anterior ao módulo — um
+`select` de 23 px na tela de atletas em 430 px —, e o gate os separa de propósito.
+
+O caminho até esse número, porém, expôs um defeito no próprio gate:
+
+1. **Ele terminava e não saía.** Os 218 checks corriam, o resumo era impresso, o
+   `evidencias.json` era escrito — e o processo ficava vivo. Medido: 1h30 parado,
+   com 2 segundos de CPU acumulados. Em CI isso é timeout.
+2. **A causa:** `npx vite preview` é três processos (o `npm exec`, um `sh -c` e o
+   node do vite). `encerrar()` matava só o primeiro; os outros dois seguiam vivos
+   segurando o pipe herdado, e o event loop do Node não fecha com pipe aberto.
+3. **O custo real:** os órfãos continuavam segurando o banco de QA e a porta do
+   frontend. Foi isso que produziu, numa tentativa anterior, o
+   `database is being accessed by other users` que abortou uma rodada — e foi
+   isso que fez uma rodada medir contra um servidor de frontend **de outra
+   execução**, ainda vivo na porta 5611.
+4. **A correção:** cada filho nasce em grupo próprio (`detached: true`) e o
+   encerramento mata o **grupo** (`kill(-pid)`), destrói os pipes e faz `unref`.
+5. **A prova:** rodada limpa, um processo só do início ao fim — saiu sozinho com
+   código 0, 218 PASS, e **zero** processos órfãos ao terminar.
+
+O resultado anterior não era falso, mas era mal montado: um gate cujo ambiente foi
+em parte fornecido por um zumbi de outra execução não é um gate limpo. O número
+que vale é o da rodada limpa.
+
+---
+
+## 9. O que continua pendente, e não depende de mim
 
 1. **Decisões D-1 a D-4** — nenhuma foi tocada pela homologação.
 2. **Diagnósticos somente leitura em produção** — `diagnostico-treinadores-legados.js` e
