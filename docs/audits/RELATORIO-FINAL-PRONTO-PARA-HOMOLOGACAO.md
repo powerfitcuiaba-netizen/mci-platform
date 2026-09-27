@@ -178,7 +178,7 @@ Resumo; o detalhamento está em **`RELATORIO-REGRESSAO-E-PERFORMANCE-TREINADORES
 
 | Gate | Resultado |
 | --- | --- |
-| Regressão do backend | ver §1 daquele relatório |
+| Regressão do backend | **PASS** — 2219 testes, 132 arquivos, 0 reprovados |
 | Regressão do frontend | **PASS** — 676 testes, 60 arquivos |
 | Build do frontend | **PASS** |
 | Lint (`eslint .`) | **PASS** |
@@ -262,7 +262,7 @@ confirmação, o bloqueio de §8.3, as oito larguras e a trilha de auditoria.
 | # | Critério | Situação |
 | --- | --- | --- |
 | 1 | Os doze achados corrigidos ou reportados com o resíduo nomeado | **cumprido** |
-| 2 | Regressão do backend verde | ver §1 do relatório de regressão |
+| 2 | Regressão do backend verde | **cumprido** — 2219/2219 |
 | 3 | Regressão do frontend verde | **cumprido** — 676/676 |
 | 4 | Lint e build verdes | **cumprido** |
 | 5 | QA visual em 8 larguras sem FAIL | **cumprido** — 218/0/0 |

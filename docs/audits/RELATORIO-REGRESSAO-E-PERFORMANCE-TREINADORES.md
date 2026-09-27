@@ -10,7 +10,32 @@
 
 ## 1. Regressão do backend
 
-<<REGRESSAO>>
+`npm test` = `prisma migrate deploy` + `node prisma/seed.js` + `vitest run`.
+
+| Métrica | Resultado |
+| --- | --- |
+| Arquivos de teste | **132 passaram**, 1 ignorado (133) |
+| Testes | **2219 passaram**, 0 reprovaram, 15 ignorados (2234) |
+| Duração | 1748,97 s (~29 min) |
+| Migrations aplicadas antes da suíte | 44, incluindo as três desta etapa |
+
+Os 15 testes ignorados e o arquivo ignorado são os mesmos de antes destas correções — são
+condicionados a recursos que este ambiente não tem, e a CI confere explicitamente que os que
+**não podem** ser pulados não foram (backup/restore, BYPASSRLS real, taxonomia e ajuste).
+**Nenhum teste foi desativado ou marcado como pendente por este trabalho.**
+
+### 1.0 Uma execução foi descartada, e a razão é minha
+
+Antes desta, houve uma execução que reprovou **14 testes** em três arquivos sem relação alguma
+com estas correções — regulamento Overall, carga histórica e RLS do ledger. A causa não foi
+defeito: eu rodei uma suíte **em paralelo** com a regressão, no MESMO banco, e o `TRUNCATE` do
+`limparBanco()` entrou em deadlock (PostgreSQL 40P01). O erro foi meu, o resultado era inválido,
+e ele foi **descartado** em vez de interpretado. A execução registrada acima é limpa: nada
+concorrente tocou o banco.
+
+Fica como regra escrita para quem vier depois: **duas suítes deste projeto não podem rodar ao
+mesmo tempo contra o mesmo banco.** A limpeza entre casos é `TRUNCATE` de dezenas de tabelas, e
+duas delas concorrendo é deadlock garantido, não eventual.
 
 ### 1.1 O que a regressão pegou, e por que isso é bom
 
@@ -270,7 +295,7 @@ Está listado nos critérios de conclusão do relatório final.
 
 | Gate | Resultado |
 | --- | --- |
-| Regressão do backend | ver §1 |
+| Regressão do backend | **PASS** — 2219/2219, 132 arquivos |
 | Regressão do frontend | **PASS** — 676/676, 60 arquivos |
 | Build do frontend | **PASS** |
 | Lint | **PASS** |
