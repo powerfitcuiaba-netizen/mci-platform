@@ -214,12 +214,32 @@ jobs:
           echo "DEMO_PASSWORD=preview-mci-$(openssl rand -hex 6)" >> "$GITHUB_ENV"
 
       # ------------------------------------------------------------------ §3
-      - name: Subir a API
+      #
+      # A API SOBE DUAS VEZES, E O MOTIVO É O LIMITADOR DE AUTENTICAÇÃO.
+      #
+      # `limiteAutenticacao` corta em 10 chamadas de `/auth/*` por origem a cada
+      # 15 minutos. Toda a semeadura sai de 127.0.0.1, ou seja de UMA origem: o
+      # conjunto do demo já gasta parte da cota, e o cenário do módulo Treinadores
+      # precisa de seis cadastros e três entradas. A execução 8 morreu exatamente
+      # aí, com 429 no meio da semeadura.
+      #
+      # Baixar o limite não é opção: ele é barreira de verdade, e a execução do
+      # preview é onde ela precisa estar ligada. Semear com o limitador DESLIGADO e
+      # RELIGÁ-LO antes de qualquer coisa pública resolve sem afrouxar nada:
+      #
+      #   * durante a semeadura nada foi anunciado — o limitador não protege
+      #     ninguém ali, e a semeadura é tráfego conhecido e local;
+      #   * o ambiente ENTREGUE roda com o limitador ligado, igual a antes;
+      #   * a verificação pela URL pública faz entradas de verdade DEPOIS do
+      #     religamento, então a barreira continua sendo medida.
+      #
+      # O estado do limitador vive no processo: reiniciar zera a contagem.
+      - name: Subir a API para semear (limitador desligado)
         env:
           NODE_ENV: production
           PORT: '4700'
           BCRYPT_ROUNDS: '12'
-          RATE_LIMIT_ENABLED: 'true'
+          RATE_LIMIT_ENABLED: 'false'
           # A Cloudflare fica na frente: um salto.
           TRUST_PROXY_HOPS: '1'
           LOG_LEVEL: info
@@ -233,6 +253,14 @@ jobs:
         run: |
           set -e
           CORS_ORIGINS="$URL_WEB" nohup node server.js > /tmp/api.log 2>&1 &
+          # O PID VAI PARA ARQUIVO, e o religamento mata por ele.
+          #
+          # `pkill -f 'node server.js'` parece o caminho óbvio e é uma armadilha:
+          # o `-f` casa a linha de comando INTEIRA, e a linha do próprio passo do
+          # workflow contém a string `node server.js` — o `pkill` mata o shell que
+          # o executa. Medido nesta sessão, num comando local: código 144, o passo
+          # morre antes de subir nada.
+          echo $! > /tmp/api.pid
           for _ in $(seq 1 60); do
             if curl -fsS "http://127.0.0.1:${PORTA_API}/health" >/dev/null 2>&1; then
               echo "API no ar."
@@ -299,6 +327,44 @@ jobs:
             [ -n "$linha" ] || { echo "a semeadura não devolveu TREINADORES_EMAIL_${chave}" >&2; exit 1; }
             echo "$linha" >> "$GITHUB_ENV"
           done
+
+      # O RELIGAMENTO. Mata o processo da semeadura e sobe outro com o limitador
+      # ligado — é o processo que vai atender a pessoa que abrir a URL.
+      - name: Religar a API com o limitador ligado
+        env:
+          NODE_ENV: production
+          PORT: '4700'
+          BCRYPT_ROUNDS: '12'
+          RATE_LIMIT_ENABLED: 'true'
+          TRUST_PROXY_HOPS: '1'
+          LOG_LEVEL: info
+          STORAGE_DRIVER: local
+          ALLOW_LOCAL_STORAGE: 'true'
+          STORAGE_DIR: ./uploads-preview
+          DEFAULT_TIMEZONE: America/Sao_Paulo
+        run: |
+          set -e
+          # MATAR PELO PID GRAVADO, e não por padrão de linha de comando: ver o
+          # comentário na primeira subida — `pkill -f 'node server.js'` casaria a
+          # linha DESTE passo e mataria o próprio shell.
+          if [ -f /tmp/api.pid ]; then kill "$(cat /tmp/api.pid)" 2>/dev/null || true; fi
+          for _ in $(seq 1 15); do
+            curl -fsS "http://127.0.0.1:${PORTA_API}/health" >/dev/null 2>&1 || break
+            sleep 1
+          done
+
+          CORS_ORIGINS="$URL_WEB" nohup node server.js > /tmp/api.log 2>&1 &
+          echo $! > /tmp/api.pid
+          for _ in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:${PORTA_API}/health" >/dev/null 2>&1; then
+              echo "API religada, com limitador."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "a API não voltou depois do religamento:" >&2
+          tail -60 /tmp/api.log >&2
+          exit 1
 
       - name: Construir e servir o frontend
         run: |
