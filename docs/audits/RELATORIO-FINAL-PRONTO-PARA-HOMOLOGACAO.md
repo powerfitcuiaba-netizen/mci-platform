@@ -186,7 +186,8 @@ Resumo; o detalhamento está em **`RELATORIO-REGRESSAO-E-PERFORMANCE-TREINADORES
 | QA visual em Chromium, 8 larguras | **PASS** — 218 PASS, 0 FAIL, 0 NOT TESTED |
 | Desempenho das rotas do módulo | **PASS** — 13/13 no orçamento; p95 máximo 19 ms |
 | Mutantes desta etapa | **PASS** — 14/14 mataram |
-| Mutação pré-existente do módulo | **NÃO REEXECUTADA** — razão e recomendação registradas |
+| Mutação pré-existente do módulo | **PASS** — 15 mortos, 1 equivalente, 16/16 conforme |
+| Matriz de LEITURA: 16 rotas × 11 perfis | **PASS** — 180 testes; mata os mutantes de A-01 e A-13 |
 
 ---
 
@@ -274,7 +275,7 @@ confirmação, o bloqueio de §8.3, as oito larguras e a trilha de auditoria.
 | 11 | **Decisões D-1 a D-4** | **PENDENTES** |
 | 12 | **Diagnóstico somente leitura rodado em produção** (A-02 e A-05) | **PENDENTE** — exige acesso autorizado |
 | 13 | **Backup verificado por restore** antes do deploy | **PENDENTE** — exige janela e responsável |
-| 14 | Reexecutar `mutantes-treinadores.mjs` (16 mutantes do módulo) | **RECOMENDADO** antes da publicação |
+| 14 | Reexecutar `mutantes-treinadores.mjs` (16 mutantes do módulo) | **cumprido** — e ela achou dois problemas, corrigidos |
 | 15 | **Autorização expressa para publicar** | **PENDENTE** |
 
 ---

@@ -259,19 +259,73 @@ revertidos, com o verde reconfirmado depois de cada um:
 | A-12 — remover o evento de reatribuição | **1** |
 | A-13 — devolver o `include` sem projeção no catálogo de técnicos | **2** |
 
-### 9.1 O que NÃO foi reexecutado, e por quê
+### 9.1 A mutação pré-existente do módulo — reexecutada, e ela achou dois problemas
 
-`scripts/qa/mutantes-treinadores.mjs` (16 mutantes do módulo, com 6 suítes de controle) e os
-demais scripts de mutação pré-existentes **não** foram reexecutados nesta etapa. A razão é de
-tempo de execução, não de cobertura: cada mutante roda um subconjunto de suítes, e o conjunto
-completo leva mais de uma hora. A cobertura dos mutantes **desta** etapa está acima, medida um
-a um, e a regressão completa cobre os mesmos caminhos que aqueles mutantes protegem.
+`scripts/qa/mutantes-treinadores.mjs`: 16 mutantes de decisão, com 6 suítes de controle antes
+e depois. Resultado final:
 
-**Recomendação registrada:** reexecutar `mutantes-treinadores.mjs` antes da publicação, para
-confirmar que as três migrations novas não afrouxaram nenhum dos 16 mutantes daquele conjunto.
-Está listado nos critérios de conclusão do relatório final.
+| Métrica | Resultado |
+| --- | --- |
+| Mutantes mortos | **15** |
+| Equivalentes declarados | **1** (TE-P2) |
+| Conforme a expectativa | **16/16** |
+| Controle antes | as 6 suítes passam sem mutante |
+| Controle depois | as 6 suítes voltam a passar — restauração íntegra |
 
----
+**A primeira rodada divergiu em dois, e os dois eram defeitos de verdade.**
+
+**TE-M9 saiu como "NÃO APLICADO".** O mutante mirava
+`if (concessao.expiresAt && new Date(...) <= agora) continue;`, linha que a correção de **A-02**
+substituiu por duas. O trecho deixou de existir e o mutante deixou de entrar no código — e
+mutante que não entra é mutante que **parou de proteger, com cara de resultado**. O alvo foi
+atualizado para a linha nova.
+
+**TE-M12 SOBREVIVEU, e a causa foi a própria correção de A-02.** O mutante remove a conferência
+da lista branca na **leitura** da concessão. Ele morria porque o teste "permissão REAL mas FORA
+da lista branca também não vira poder" usava concessões de `results.publish` e `users.manage`
+com `organizationId: null` e `expiresAt: null`. As duas guardas novas de A-02 rodam **antes** da
+lista branca, então passaram a matar aquelas linhas primeiro: o teste continuava verde por outro
+motivo, e a lista branca ficou **sem prova nenhuma**.
+
+Quatro fixtures do arquivo perderam o poder de isolamento pela mesma razão — a da não
+delegabilidade de `central.grant`, a da permissão inexistente na matriz e as duas da lista
+branca. Todas passaram a carregar escopo e prazo válidos, para que a única coisa entre cada
+fixture e o poder seja a barreira que ela diz medir. Na segunda rodada, **TE-M9 e TE-M12
+morreram**.
+
+A lição é geral e ficou escrita no próprio teste: **guarda nova adicionada cedo na cadeia rouba
+o poder de isolamento de todo teste que dependia de guarda posterior.** É a diferença entre um
+teste que passa e um teste que mede.
+
+### 9.2 TE-P2 — o único equivalente, e por que ele não pode morrer
+
+O mutante devolve `vinculo_escrita` a `FOR ALL`, o que deixaria o atleta encerrar o próprio
+vínculo. Nenhuma rota permite isso, então a folga da política **não tem caminho de aplicação por
+onde ser observada**. A separação em INSERT/UPDATE/DELETE é barreira de profundidade, documentada
+na migration `20260926040000`; medi-la exigiria um teste de SQL cru, que mediria a política e não
+o comportamento do produto. Fica declarado em vez de forçado.
+
+### 9.3 A matriz de LEITURA — o gate estrutural que faltava
+
+`tests/matriz-de-autorizacao.mjs` é a lista estrutural do projeto, e tem um limite no próprio
+nome: **rota mutante**. As rotas de leitura ficam fora — e os dois achados de autorização desta
+etapa foram, os dois, em rotas de leitura (**A-01** e **A-13**). Nenhum gate estrutural teria
+pegado nenhum dos dois.
+
+`tests/matriz-de-leitura-treinadores.test.mjs` fecha o buraco: **16 rotas × 11 perfis = 176
+células**, mais 4 invariantes. **180 testes, todos passando.**
+
+Os perfis são **estados do domínio**, não papéis: "treinador" são cinco (pendente, aprovado sem
+federação, aprovado sem equipe, aprovado com equipe, e de outra federação), porque cada estado
+derruba um predicado diferente de R-03, R-04 e da RLS. Cada rota declara quem **deve** conseguir;
+para todos os outros o teste exige recusa — 401 sem sessão, 403 ou 404 com sessão. E **o corpo é
+conferido em toda célula, inclusive nas de sucesso**: campo proibido não vaza nem para quem tem
+direito à rota.
+
+**Prova negativa da própria matriz.** Com os dois defeitos de volta — a guarda de A-01 removida
+e o `include` sem projeção de A-13 —, a matriz reprova **28 células**: 10 do catálogo (todos os
+perfis autenticados), 16 das duas rotas de ranking, e 2 invariantes. Matriz verde que não mata
+mutante não prova nada; esta mata.
 
 ## 10. Inventário de suítes executadas
 
@@ -288,6 +342,7 @@ Está listado nos critérios de conclusão do relatório final.
 | `gate-autorizacao-por-rota` + `matriz-de-autorizacao` | 125 rotas | expectativa declarada por rota mutante |
 | `empacotamento-importador` | 9 | inclui a lista exata de migrations |
 | `treinadores.test.jsx` (frontend) | 25 | telas do módulo, incluindo A-11 |
+| `matriz-de-leitura-treinadores` | 180 | 16 rotas de LEITURA × 11 perfis, mais 4 invariantes |
 
 ---
 
@@ -303,4 +358,4 @@ Está listado nos critérios de conclusão do relatório final.
 | QA visual em 8 larguras | **PASS** — 218/0/0 |
 | Desempenho | **PASS** — 13/13 no orçamento |
 | Mutantes desta etapa | **PASS** — 14/14 mataram |
-| Mutação pré-existente do módulo | **NÃO REEXECUTADA** — ver §9.1 |
+| Mutação pré-existente do módulo | **PASS** — 15 mortos, 1 equivalente, 16/16 conforme |
