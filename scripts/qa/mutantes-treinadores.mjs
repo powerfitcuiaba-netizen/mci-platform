@@ -252,9 +252,18 @@ CREATE POLICY vinculo_alteracao ON "AthleteTeamMembership" FOR UPDATE
   }
 ];
 
-const MIGRACOES = [
-  `${RAIZ}/prisma/migrations/20260926020000_modulo_treinadores_equipes/migration.sql`,
-  `${RAIZ}/prisma/migrations/20260926040000_treinador_como_ator_de_rls/migration.sql`
+// As migrations que CRIAM ou SUBSTITUEM as políticas que os mutantes mexem, na
+// mesma ordem em que o banco as aplica. A ordem importa: 20260927010000 e
+// 20260927020000 substituem `vinculo_criacao` e `atleta_leitura` criadas por
+// 20260926040000, e reaplicar só a primeira devolveria as duas à versão antiga.
+// Todas são idempotentes de ponta a ponta — todo `CREATE POLICY` tem o seu
+// `DROP ... IF EXISTS`, e a função vem com `CREATE OR REPLACE`.
+//
+// 20260926020000 NÃO entra: ela cria TABELA, e reexecutá-la falharia.
+const MIGRACOES_DE_POLITICA = [
+  `${RAIZ}/prisma/migrations/20260926040000_treinador_como_ator_de_rls/migration.sql`,
+  `${RAIZ}/prisma/migrations/20260927010000_vinculo_exige_pedido_pendente/migration.sql`,
+  `${RAIZ}/prisma/migrations/20260927020000_leitura_de_atleta_pelo_treinador/migration.sql`
 ];
 
 function psql(sql) {
@@ -268,10 +277,17 @@ function psql(sql) {
   }
 }
 
-// Só a SEGUNDA migration é reaplicada: ela é idempotente de ponta a ponta (todo
-// `CREATE POLICY` tem o seu `DROP ... IF EXISTS`) e é dela que saem as políticas
-// que os mutantes mexem. A primeira cria TABELA, e reexecutá-la falharia.
-const restaurarPoliticas = () => psql(readFileSync(MIGRACOES[1], 'utf8'));
+// Restaurar é reaplicar a CADEIA inteira, e não a migration que criou a política
+// pela primeira vez. A versão anterior reaplicava apenas 20260926040000: ela
+// devolvia `central_leitura` e `vinculo_alteracao` ao estado certo, mas também
+// devolvia `atleta_leitura` e `vinculo_criacao` à versão ANTIGA, que migrations
+// posteriores já tinham substituído. O banco de teste terminava a rodada
+// divergente do repositório, e as suítes de A-03 e A-04 passavam a falhar sem
+// que uma linha de código tivesse mudado — falha com cara de regressão, causada
+// pelo próprio medidor.
+const restaurarPoliticas = () => {
+  for (const migration of MIGRACOES_DE_POLITICA) psql(readFileSync(migration, 'utf8'));
+};
 
 function suitePassa(suite) {
   try {
@@ -329,10 +345,20 @@ function rodarPolitica(mutante) {
 // a restauração de fato aconteceu — o CONTROLE DEPOIS por suíte só reprova o que
 // algum teste mede, e política sem teste é justamente o caso em que o mutante
 // sobrevive E fica.
+//
+// O trecho esperado tem de sair do REPOSITÓRIO de hoje, e não do estado que o
+// banco tinha quando esta lista foi escrita. `atleta_leitura` esperava
+// `mci_treinador_autorizado_de`, a versão anterior a A-03: com isso o conferidor
+// aprovava exatamente a política que a restauração incompleta devolvia, e a
+// divergência ficava invisível nas duas pontas. Quando uma migration substitui
+// uma política, esta lista muda com ela.
 const POLITICAS_ESPERADAS = [
   ['central_leitura', 'mci_is_platform_admin() OR ("userId" = mci_current_user_id())'],
   ['vinculo_alteracao', 'mci_operator_of'],
-  ['atleta_leitura', 'mci_treinador_autorizado_de'],
+  // A-03 (20260927020000): leitura de atleta exige EQUIPE na federação.
+  ['atleta_leitura', 'mci_treinador_com_equipe_em'],
+  // A-04 (20260927010000): o vínculo do atleta exige convite pendente.
+  ['vinculo_criacao', 'TeamMembershipRequest'],
   ['auditoria_escrita', 'mci_treinador_autorizado_de']
 ];
 

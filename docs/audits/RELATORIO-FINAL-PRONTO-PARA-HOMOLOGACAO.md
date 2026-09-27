@@ -316,3 +316,29 @@ As três ressalvas técnicas que permanecem, sem eufemismo:
 | `GUIA-HOMOLOGACAO-FALCAO.md` | roteiro manual numerado, dez partes, com APROVA / NÃO APROVA |
 | `PLANO-MIGRACAO-RENDER-TREINADORES.md` | inventário, ordem, roteiro de publicação, conferências e rollback |
 | `RELATORIO-FINAL-PRONTO-PARA-HOMOLOGACAO.md` | este documento |
+
+---
+
+## Adendo — 2026-09-27, revisão final de prontidão
+
+A revisão final de prontidão está em `REVISAO-FINAL-PRONTIDAO-HOMOLOGACAO.md`, e ela achou um
+defeito **no medidor**, não no produto:
+
+`scripts/qa/mutantes-treinadores.mjs` restaurava as políticas reaplicando apenas a migration
+`20260926040000`. Essa migration cria `atleta_leitura` e `vinculo_criacao` nas versões anteriores
+a A-03 e A-04, que as migrations `20260927010000` e `20260927020000` substituíram — e o
+conferidor de políticas do mesmo script esperava justamente o trecho antigo. As duas pontas do
+controle aprovavam o estado errado, e o banco de teste terminava a rodada divergente do
+repositório: as suítes de A-03 e A-04 passavam a falhar sem que uma linha de código mudasse.
+
+Corrigido: a restauração reaplica a cadeia das três migrations, e as expectativas de política
+passaram a sair do repositório de hoje. Os vereditos **16/16 seguem válidos** — nenhum mutante
+toca essas duas políticas, e o desvio acontecia *depois* de cada medição. O que estava inválido
+era a garantia de restauração.
+
+Reexecutado depois da correção, com a árvore no estado do repositório:
+`tests/hardening-auditoria-treinadores.test.mjs` + `tests/matriz-de-leitura-treinadores.test.mjs`
+→ **216/216 PASS**.
+
+O critério 14 deste relatório continua cumprido; o que se acrescenta é que a ferramenta que o
+cumpre agora deixa o banco no estado certo, e um novo desvio do mesmo tipo passa a reprovar.
