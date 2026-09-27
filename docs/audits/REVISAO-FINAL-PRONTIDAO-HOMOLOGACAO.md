@@ -98,6 +98,19 @@ Nenhum mutante toca `atleta_leitura` ou `vinculo_criacao` (eles mexem em `centra
 `vinculo_alteracao`), então os **vereditos 16/16 seguem válidos**: o defeito sujava o banco
 *depois* de cada medição, não durante. O que estava inválido era a garantia de restauração.
 
+**A rodada inteira foi reexecutada com o medidor corrigido.** Resultado real:
+
+```
+CONTROLE ANTES: as 6 suítes passam sem mutante.
+15 morreram, 1 equivalente(s) declarado(s), 16/16 conforme a expectativa
+CONTROLE DEPOIS: todas as suítes de controle voltam a passar — restauração íntegra.
+```
+
+E a prova que faltava, que é o estado do banco **depois** da rodada: `atleta_leitura` carrega
+`mci_treinador_com_equipe_em` e `vinculo_criacao` carrega a cláusula de `TeamMembershipRequest`
+— as versões do repositório, não as antigas. Reexecutando as duas suítes imediatamente após a
+rodada: **216/216 PASS**. Antes da correção, era exatamente aí que os 5 testes reprovavam.
+
 ---
 
 ## 4. As quatro decisões — D-1 a D-4
@@ -263,6 +276,26 @@ As seis contas sintéticas e o papel de cada uma na homologação:
 
 `Ctrl+C` encerra tudo. O banco é descartado e recriado do zero na próxima execução.
 
+### O comando foi executado, e ele funciona ponta a ponta
+
+Executado neste ambiente de trabalho, para provar que sobe: banco de QA preparado, API no ar,
+dados sintéticos semeados pelas rotas reais, frontend construído e servido, e o quadro das seis
+contas impresso. Conferido depois de subir:
+
+| Verificação | Resultado |
+| --- | --- |
+| Frontend responde | **200** |
+| `GET /health` da API | **200** |
+| Login com a conta sintética de treinador | **200** |
+
+Os e-mails das contas têm um sufixo aleatório a cada execução, e a senha é a padrão de QA
+(`QA_PASSWORD` troca ela). **O endereço é local de quem roda o comando**: o que subiu aqui está
+dentro do ambiente de trabalho e não é alcançável pela sua máquina. Rode o mesmo comando no seu
+computador e o quadro impresso será o seu — com os seus e-mails sintéticos e a sua senha.
+
+Nenhuma das seis contas corresponde a pessoa real. Nenhum atleta, resultado, vínculo ou ponto
+real aparece neste ambiente: o banco é o descartável `mci_qa_treinadores`, criado do zero.
+
 ---
 
 ## 6. Roteiro manual, separado por perfil
@@ -396,7 +429,7 @@ dados voltam. Isso exige janela, base de destino e um responsável — e não fo
 | 9 | Mutação pré-existente do módulo | **PASS** — 15 mortos, 1 equivalente, 16/16 conforme |
 | 10 | Matriz de leitura por perfil | **PASS** — 180/180, e 28 células reprovam com os defeitos de volta |
 | 11 | Inspeção de segredos | **PASS** — 470 arquivos, 0 a explicar, ligada na CI |
-| 12 | Restauração de políticas do medidor de mutação | corrigida nesta revisão (item 3) |
+| 12 | Restauração de políticas do medidor de mutação | corrigida e **reexecutada** — 16/16 conforme, banco íntegro, suítes 216/216 depois da rodada |
 | 13 | **Sua homologação manual** pelo roteiro do item 6 | **PENDENTE** |
 | 14 | **Decisões D-1 a D-4** | **PENDENTES** |
 | 15 | **Diagnósticos somente leitura em produção** | **PENDENTE** |
