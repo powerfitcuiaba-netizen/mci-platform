@@ -64,17 +64,6 @@ async function exigir(caminho, opcoes) {
   return r.corpo;
 }
 
-// CPF sintético válido, igual ao do gate visual. Dado de QA, e só de QA.
-function cpfDeQa(semente) {
-  const base = String(semente).padStart(9, '0').slice(-9).split('').map(Number);
-  const d1bruto = (base.reduce((t, n, i) => t + n * (10 - i), 0) * 10) % 11;
-  const d1 = d1bruto === 10 ? 0 : d1bruto;
-  const comD1 = base.concat([d1]);
-  const d2bruto = (comD1.reduce((t, n, i) => t + n * (11 - i), 0) * 10) % 11;
-  const d2 = d2bruto === 10 ? 0 : d2bruto;
-  return base.join('') + d1 + d2;
-}
-
 const marca = Date.now().toString(36);
 const conta = sufixo => ({
   name: `PERF ${sufixo}`,
