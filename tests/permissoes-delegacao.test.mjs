@@ -24,17 +24,32 @@ const usuario = (extras = {}) => ({
   id: 'u1', role: 'ATHLETE', memberships: [], centralGrantsReceived: [], ...extras
 });
 
+// Desde o achado A-02, concessão VÁLIDA tem escopo E prazo. As fixtures abaixo
+// carregam os dois, e os casos que omitem um deles passaram a ser os casos
+// NEGATIVOS.
+const PRAZO = '2099-12-31T00:00:00.000Z';
+
 describe('a concessão viva vira permissão; a que não está viva, não', () => {
-  it('concessão sem prazo vale, e vale no escopo declarado', () => {
+  it('concessão com escopo E prazo vale, e vale no escopo declarado', () => {
     const ator = usuario({
-      centralGrantsReceived: [{ permission: 'athletes.transfer', organizationId: 'orgA', expiresAt: null }]
+      centralGrantsReceived: [{ permission: 'athletes.transfer', organizationId: 'orgA', expiresAt: PRAZO }]
     });
     expect(can(ator, 'athletes.transfer', 'orgA')).toBe(true);
   });
 
-  it('concessão de uma federação NÃO vale na outra', () => {
+  it('concessão SEM PRAZO é inerte — achado A-02', () => {
+    // Antes da correção, `expiresAt` nulo valia PARA SEMPRE, e concessão perpétua
+    // é a que ninguém lembra de revogar. R-02 fala de autorização formal com
+    // prazo; a ausência de prazo não é "prazo infinito", é concessão incompleta.
     const ator = usuario({
       centralGrantsReceived: [{ permission: 'athletes.transfer', organizationId: 'orgA', expiresAt: null }]
+    });
+    expect(can(ator, 'athletes.transfer', 'orgA')).toBe(false);
+  });
+
+  it('concessão de uma federação NÃO vale na outra', () => {
+    const ator = usuario({
+      centralGrantsReceived: [{ permission: 'athletes.transfer', organizationId: 'orgA', expiresAt: PRAZO }]
     });
     expect(can(ator, 'athletes.transfer', 'orgB')).toBe(false);
   });
@@ -44,17 +59,22 @@ describe('a concessão viva vira permissão; a que não está viva, não', () =>
     // é isso que uma delegação local concede. Sem esta regra, o mesmo grant
     // responderia sim a uma checagem global e o escopo viraria decoração.
     const ator = usuario({
-      centralGrantsReceived: [{ permission: 'athletes.transfer', organizationId: 'orgA', expiresAt: null }]
+      centralGrantsReceived: [{ permission: 'athletes.transfer', organizationId: 'orgA', expiresAt: PRAZO }]
     });
     expect(can(ator, 'athletes.transfer', null)).toBe(false);
   });
 
-  it('concessão SEM escopo vale em qualquer federação', () => {
+  it('concessão SEM ESCOPO é inerte em TODA federação — achado A-02', () => {
+    // Antes da correção, escopo nulo valia em todas as federações, e era o
+    // estado PADRÃO: bastava omitir o campo para o poder de R-02 valer no país
+    // inteiro. Agora a linha sem escopo não concede nada em lugar nenhum — nem
+    // com escopo na pergunta, nem sem.
     const ator = usuario({
-      centralGrantsReceived: [{ permission: 'athletes.transfer', organizationId: null, expiresAt: null }]
+      centralGrantsReceived: [{ permission: 'athletes.transfer', organizationId: null, expiresAt: PRAZO }]
     });
-    expect(can(ator, 'athletes.transfer', 'orgA')).toBe(true);
-    expect(can(ator, 'athletes.transfer', 'orgB')).toBe(true);
+    expect(can(ator, 'athletes.transfer', 'orgA')).toBe(false);
+    expect(can(ator, 'athletes.transfer', 'orgB')).toBe(false);
+    expect(can(ator, 'athletes.transfer', null)).toBe(false);
   });
 
   it('a EXPIRAÇÃO é conferida na hora da pergunta, sem depender de job', () => {
@@ -105,7 +125,7 @@ describe('a concessão viva vira permissão; a que não está viva, não', () =>
     expect(can(ator, 'users.manage', 'orgA')).toBe(false);
     // E a delegável continua funcionando: a conferência não quebrou o caso bom.
     const comDelegavel = usuario({
-      centralGrantsReceived: [{ permission: 'athletes.transfer', organizationId: 'orgA', expiresAt: null }]
+      centralGrantsReceived: [{ permission: 'athletes.transfer', organizationId: 'orgA', expiresAt: PRAZO }]
     });
     expect(can(comDelegavel, 'athletes.transfer', 'orgA')).toBe(true);
   });
@@ -148,7 +168,8 @@ describe('a rota de concessão recusa o que a decisão proíbe', () => {
 
   it('permissão FORA da lista branca é recusada com o motivo, não com 400 genérico', async () => {
     const tentativa = await api().post('/api/v1/central-authorizations').set(admin.auth()).send({
-      userId: alvo.id, permission: 'results.publish', reason: 'Tentativa de delegar publicação.'
+      userId: alvo.id, permission: 'results.publish', organizationId: orgId,
+      reason: 'Tentativa de delegar publicação.', expiresAt: PRAZO
     });
     expect(tentativa.status, JSON.stringify(tentativa.body)).toBe(422);
     expect(tentativa.body.error.code).toBe('PERMISSION_NOT_DELEGABLE');
@@ -158,7 +179,8 @@ describe('a rota de concessão recusa o que a decisão proíbe', () => {
 
   it('`central.grant` é recusada com a mensagem da cadeia de concessão', async () => {
     const tentativa = await api().post('/api/v1/central-authorizations').set(admin.auth()).send({
-      userId: alvo.id, permission: 'central.grant', reason: 'Tentativa de delegar a própria delegação.'
+      userId: alvo.id, permission: 'central.grant', organizationId: orgId,
+      reason: 'Tentativa de delegar a própria delegação.', expiresAt: PRAZO
     });
     expect(tentativa.status).toBe(422);
     expect(tentativa.body.error.code).toBe('PERMISSION_NOT_DELEGABLE');
@@ -167,15 +189,44 @@ describe('a rota de concessão recusa o que a decisão proíbe', () => {
 
   it('prazo no PASSADO é recusado na entrada, e não gravado para nunca valer', async () => {
     const tentativa = await api().post('/api/v1/central-authorizations').set(admin.auth()).send({
-      userId: alvo.id, permission: 'athletes.transfer',
+      userId: alvo.id, permission: 'athletes.transfer', organizationId: orgId,
       reason: 'Concessão com prazo vencido.', expiresAt: '2020-01-01T00:00:00.000Z'
     });
     expect(tentativa.status).toBe(422);
     expect(tentativa.body.error.code).toBe('EXPIRES_AT_IN_PAST');
   });
 
+  it('concessão SEM escopo é recusada na rota — achado A-02', async () => {
+    const tentativa = await api().post('/api/v1/central-authorizations').set(admin.auth()).send({
+      userId: alvo.id, permission: 'athletes.transfer',
+      reason: 'Concessão sem federação.', expiresAt: PRAZO
+    });
+    // O schema Zod recusa antes do serviço (400); a recusa do serviço existe
+    // para a chamada que não passa pela borda, e está medida em
+    // `hardening-auditoria-treinadores.test.mjs`.
+    expect(tentativa.status, JSON.stringify(tentativa.body)).toBe(400);
+
+    // NADA foi gravado: a recusa é na entrada, não depois do INSERT.
+    const gravadas = await comoAtor(admin, tx => tx.centralAuthorization.findMany({ where: { userId: alvo.id } }));
+    expect(gravadas).toHaveLength(0);
+  });
+
+  it('concessão SEM prazo é recusada na rota — achado A-02', async () => {
+    const tentativa = await api().post('/api/v1/central-authorizations').set(admin.auth()).send({
+      userId: alvo.id, permission: 'athletes.transfer', organizationId: orgId,
+      reason: 'Concessão sem prazo.'
+    });
+    expect(tentativa.status, JSON.stringify(tentativa.body)).toBe(400);
+
+    const gravadas = await comoAtor(admin, tx => tx.centralAuthorization.findMany({ where: { userId: alvo.id } }));
+    expect(gravadas).toHaveLength(0);
+  });
+
   it('a mesma concessão viva não é gravada duas vezes — a trava é do banco', async () => {
-    const corpo = { userId: alvo.id, permission: 'athletes.transfer', organizationId: orgId, reason: 'Primeira concessão formal.' };
+    const corpo = {
+      userId: alvo.id, permission: 'athletes.transfer', organizationId: orgId,
+      reason: 'Primeira concessão formal.', expiresAt: PRAZO
+    };
     const primeira = await api().post('/api/v1/central-authorizations').set(admin.auth()).send(corpo);
     expect(primeira.status).toBe(201);
 
@@ -204,9 +255,10 @@ describe('a rota de concessão recusa o que a decisão proíbe', () => {
     // `CentralAuthorization` É a permissão de alterar atribuição de pontos;
     // quem pode ler o mapa de quem tem esse poder sabe a quem atacar.
     const criada = await api().post('/api/v1/central-authorizations').set(admin.auth()).send({
-      userId: alvo.id, permission: 'athletes.transfer', organizationId: orgId, reason: 'Concessão formal.'
+      userId: alvo.id, permission: 'athletes.transfer', organizationId: orgId,
+      reason: 'Concessão formal.', expiresAt: PRAZO
     });
-    expect(criada.status).toBe(201);
+    expect(criada.status, JSON.stringify(criada.body)).toBe(201);
 
     const terceiro = await criarUsuario({ name: 'Conta Sem Relação' });
     const visiveis = await comoAtor(terceiro, tx => tx.centralAuthorization.findMany());
@@ -221,7 +273,8 @@ describe('a rota de concessão recusa o que a decisão proíbe', () => {
 
   it('a pessoa vê a própria delegação sem precisar poder conceder', async () => {
     await api().post('/api/v1/central-authorizations').set(admin.auth()).send({
-      userId: alvo.id, permission: 'athletes.transfer', organizationId: orgId, reason: 'Concessão formal.'
+      userId: alvo.id, permission: 'athletes.transfer', organizationId: orgId,
+      reason: 'Concessão formal.', expiresAt: PRAZO
     });
 
     const minhas = await api().get('/api/v1/central-authorizations/me').set(alvo.auth());

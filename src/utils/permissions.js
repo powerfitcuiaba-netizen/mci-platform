@@ -282,12 +282,12 @@ function effectivePermissions(user, organizationId = null, agora = new Date()) {
   // Vêm do banco já filtradas por `revokedAt: null` (ver `userRepository`). Aqui
   // se aplicam as três regras que sobram, e cada uma existe por um motivo:
   //
-  //   PRAZO: concessão vencida não vale, e não depende de job para parar de
-  //   valer. Conferir na hora é o que faz a expiração ser real.
+  //   PRAZO: a concessão SEM prazo é inerte, e a vencida não vale. Conferir na
+  //   hora é o que faz a expiração ser real — não há job envolvido.
   //
-  //   ESCOPO: `organizationId` nulo na concessão vale para todas as federações;
-  //   com organização, vale só para ela. Uma concessão da federação A não pode
-  //   autorizar operação na B — é a mesma regra de tenant do resto do sistema.
+  //   ESCOPO: a concessão SEM organização é inerte. Com organização, vale só
+  //   nela: uma concessão da federação A não autoriza operação na B, que é a
+  //   mesma regra de tenant do resto do sistema.
   //
   //   NÃO DELEGÁVEL: `central.grant` é ignorada mesmo se alguém a gravar na
   //   tabela. Sem isso, um delegado delegaria para si mesmo um poder maior, e a
@@ -309,12 +309,34 @@ function effectivePermissions(user, organizationId = null, agora = new Date()) {
     // não pode depender de a escrita ter passado pelo caminho certo. Duas
     // conferências, uma em cada ponta, e a da leitura é a que decide.
     if (!DELEGADAS.has(concessao.permission)) continue;
-    if (concessao.expiresAt && new Date(concessao.expiresAt) <= agora) continue;
-    if (concessao.organizationId && organizationId && concessao.organizationId !== organizationId) continue;
-    // Concessão com escopo de organização NÃO vale para pergunta sem escopo: a
-    // ausência de organização significa "em qualquer lugar", e não é isso que
-    // uma delegação local concede.
-    if (concessao.organizationId && !organizationId) continue;
+
+    // ESCOPO OBRIGATÓRIO — achado A-02 da auditoria independente.
+    //
+    // A leitura anterior tratava `organizationId` nulo como "vale em TODAS as
+    // federações". Era o oposto do que R-02 pede: a decisão fala de "permissão
+    // específica, ESCOPO DEFINIDO e auditoria", e uma concessão sem escopo é
+    // justamente a que não tem escopo definido. Pior: era o estado PADRÃO —
+    // bastava omitir o campo na concessão para o poder valer em todo o país.
+    //
+    // Agora a ausência de escopo torna a linha INERTE. Não é uma recusa só na
+    // escrita: a linha pode ter sido gravada por script, migration ou mão
+    // humana no banco, e a autorização não pode depender de a escrita ter
+    // passado pelo caminho certo. Mesmo raciocínio das duas conferências que
+    // este bloco já fazia para `central.grant`.
+    if (!concessao.organizationId) continue;
+    // Pergunta sem escopo não é respondida por concessão local: "em qualquer
+    // lugar" não é o que uma delegação de uma federação concede.
+    if (!organizationId) continue;
+    if (concessao.organizationId !== organizationId) continue;
+
+    // PRAZO OBRIGATÓRIO — o outro lado de A-02.
+    //
+    // `expiresAt` nulo valia para sempre, e concessão perpétua é a que ninguém
+    // lembra de revogar. Sem prazo, a linha é inerte; com prazo, ele é conferido
+    // NA HORA — a expiração não depende de job para acontecer.
+    if (!concessao.expiresAt) continue;
+    if (new Date(concessao.expiresAt) <= agora) continue;
+
     efetivas.add(concessao.permission);
   }
 

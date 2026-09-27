@@ -258,7 +258,11 @@ beforeAll(async () => {
   // A CONCESSÃO CENTRAL. `atletaA` é o alvo — nunca o próprio autor, porque o
   // serviço recusa autoconcessão, e é essa recusa que impede autoelevação.
   const concessao = await api().post('/api/v1/central-authorizations').set(admin.auth())
-    .send({ userId: atletaA.id, permission: 'athletes.transfer', reason: 'Concessão base de QA para a matriz.' });
+    .send({
+      userId: atletaA.id, permission: 'athletes.transfer', organizationId: orgA,
+      // Escopo e prazo são obrigatórios desde o achado A-02 da auditoria.
+      reason: 'Concessão base de QA para a matriz.', expiresAt: '2099-12-31T00:00:00.000Z'
+    });
   expect(concessao.status, 'positivo: admin concede delegação central').toBeLessThan(300);
   // E ela é REVOGADA em seguida, de propósito: se ficasse viva, `atletaA` — que é
   // o ator "sem permissão" de todo o gate — passaria a TER `athletes.transfer`, e
@@ -268,7 +272,10 @@ beforeAll(async () => {
     .send({ reason: 'Revogada na fixture para não contaminar o ator sem permissão.' });
   expect(revogada.status, 'positivo: admin revoga a delegação central').toBeLessThan(300);
   const concessaoViva = await api().post('/api/v1/central-authorizations').set(admin.auth())
-    .send({ userId: atletaB.id, permission: 'athletes.transfer', reason: 'Concessão de QA com alvo fora da organização A.' });
+    .send({
+      userId: atletaB.id, permission: 'athletes.transfer', organizationId: orgA,
+      reason: 'Concessão de QA com alvo fora da organização A.', expiresAt: '2099-12-31T00:00:00.000Z'
+    });
   expect(concessaoViva.status, 'positivo: admin concede a um alvo que não é o ator do gate').toBeLessThan(300);
 
   // OS DOIS PEDIDOS DE VÍNCULO. Um é do `dono` (a conta vinculada a

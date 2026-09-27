@@ -60,7 +60,7 @@ beforeEach(async () => {
 
   const concessao = await api().post('/api/v1/central-authorizations').set(admin.auth()).send({
     userId: centralAutorizado.id, permission: 'athletes.transfer', organizationId: orgId,
-    reason: 'Delegação formal para montar o cenário de R-01.'
+    reason: 'Delegação formal para montar o cenário de R-01.', expiresAt: '2099-12-31T00:00:00.000Z'
   });
   expect(concessao.status, JSON.stringify(concessao.body)).toBe(201);
 

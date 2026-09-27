@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const { AppError } = require('../utils/errors');
+const { can } = require('../utils/permissions');
 const ranking = require('./rankingService');
 
 // ============================================================================
@@ -44,6 +45,47 @@ const ranking = require('./rankingService');
 const FORMULA_HOMOLOGADA = false;
 const AVISO = 'Ranking em homologação. A fórmula de pontuação de treinadores ainda não foi homologada pela MuscleContest.';
 
+// ============================================================================
+// QUEM PODE CONSULTAR A BASE DE UM TREINADOR.
+//
+// O DEFEITO CORRIGIDO AQUI, medido antes da correção: as duas rotas
+// (`/coaches/:id/ranking/eligibility` e `/.../projection`) exigiam apenas
+// sessão. `elegibilidade` conferia `if (!actor) 401` e `projecao` não conferia
+// nada — então QUALQUER conta autenticada, inclusive um atleta recém-cadastrado,
+// lia o `status` do cadastro de qualquer treinador e a lista nominal das equipes
+// dele. E os ids não são secretos: `GET /coaches` é o catálogo público do
+// módulo, o que torna a varredura trivial.
+//
+// O ALCANCE CORRETO são três atores, e nenhum a mais:
+//
+//   1. O DONO DO CADASTRO. A conferência é pelo `userId` DO CADASTRO, não por
+//      um id que veio da URL — a URL é do atacante, o `userId` é do banco.
+//   2. A MESA CENTRAL (`coaches.approve`), que analisa o cadastro (R-03).
+//   3. A HOMOLOGAÇÃO (`ranking.manage`), que é a audiência declarada da
+//      conferência de R-01 (ver `divergencias`, nesta mesma superfície).
+//
+// A RECUSA É 404, E NÃO 403, e isso é deliberado: um 403 responderia "este
+// treinador existe, mas não é seu" — que é precisamente o oráculo que a
+// enumeração por `GET /coaches` precisa. Treinador inexistente e treinador de
+// outra pessoa produzem a MESMA resposta, byte a byte.
+//
+// Não há cláusula de federação aqui. Seria tentador liberar o operador da
+// federação em que o treinador atua, mas nenhuma tela pede isso, e permissão que
+// nenhuma tela usa é superfície sem dono.
+// ============================================================================
+async function assertPodeConsultar(coachId, actor) {
+  if (!actor) throw new AppError(401, 'UNAUTHORIZED', 'Autenticação obrigatória');
+  if (can(actor, 'coaches.approve') || can(actor, 'ranking.manage')) return;
+
+  const proprio = await prisma.coach.findFirst({
+    where: { id: coachId, userId: actor.id },
+    select: { id: true }
+  });
+  if (proprio) return;
+
+  throw new AppError(404, 'COACH_NOT_FOUND', 'Treinador não encontrado');
+}
+
 /**
  * A base elegível do treinador numa temporada.
  *
@@ -56,7 +98,7 @@ const AVISO = 'Ranking em homologação. A fórmula de pontuação de treinadore
  * função `divergencias` faz.
  */
 async function elegibilidade({ coachId, seasonId }, actor) {
-  if (!actor) throw new AppError(401, 'UNAUTHORIZED', 'Autenticação obrigatória');
+  await assertPodeConsultar(coachId, actor);
   if (!seasonId) throw new AppError(422, 'SEASON_REQUIRED', 'Informe a temporada');
 
   const coach = await prisma.coach.findUnique({
@@ -103,6 +145,8 @@ async function elegibilidade({ coachId, seasonId }, actor) {
  * implementação.
  */
 async function projecao({ coachId, seasonId, categoryId = null, organizationId = null }, actor = null) {
+  await assertPodeConsultar(coachId, actor);
+
   const coach = await prisma.coach.findUnique({
     where: { id: coachId },
     select: { id: true, name: true, status: true, teams: { select: { id: true, name: true } } }
@@ -202,4 +246,7 @@ async function classificacao() {
   throw new AppError(501, 'NOT_IMPLEMENTED', 'Classificação de treinadores não implementada');
 }
 
-module.exports = { FORMULA_HOMOLOGADA, AVISO, elegibilidade, projecao, divergencias, classificacao };
+module.exports = {
+  FORMULA_HOMOLOGADA, AVISO,
+  assertPodeConsultar, elegibilidade, projecao, divergencias, classificacao
+};

@@ -82,6 +82,28 @@ async function conceder(data, actor) {
 
   if (!reason) throw new AppError(422, 'REASON_REQUIRED', 'Informe a justificativa da concessão');
 
+  // RECUSA 4 — ESCOPO OBRIGATÓRIO (achado A-02).
+  //
+  // R-02 pede "permissão específica, escopo definido e auditoria". Antes disto,
+  // omitir `organizationId` produzia uma concessão que valia em TODAS as
+  // federações — e omitir era o caminho mais curto, porque o campo era
+  // opcional. O estado padrão do formulário não pode ser o poder máximo.
+  if (!organizationId) {
+    throw new AppError(422, 'ORGANIZATION_REQUIRED',
+      'A delegação central exige escopo: informe a federação em que a permissão vale. '
+      + 'Não há concessão válida para todas as federações.');
+  }
+
+  // RECUSA 5 — PRAZO OBRIGATÓRIO (o outro lado de A-02).
+  //
+  // Concessão sem prazo é a que ninguém lembra de revogar. Com prazo, ela morre
+  // sozinha, e quem ainda precisar dela concede de novo — com motivo novo e
+  // trilha nova, que é o que a auditoria de R-02 quer poder ler depois.
+  if (!expiresAt) {
+    throw new AppError(422, 'EXPIRES_AT_REQUIRED',
+      'A delegação central exige prazo de validade. Informe até quando a permissão vale.');
+  }
+
   const usuario = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, role: true, status: true } });
   if (!usuario) throw new AppError(404, 'USER_NOT_FOUND', 'Usuário não encontrado');
   if (usuario.status && usuario.status !== 'ACTIVE') {
@@ -127,8 +149,10 @@ async function conceder(data, actor) {
     userIds: [userId], actorId: actor.id,
     type: notifications.TYPES.CENTRAL_AUTHORIZATION,
     title: 'Delegação central concedida',
-    message: `Você recebeu a permissão ${permission}${organizationId ? ' com escopo de uma federação' : ''}.`
-      + `${vencimento ? ` Válida até ${vencimento.toISOString().slice(0, 10)}.` : ''}`,
+    // Escopo e prazo são obrigatórios desde A-02, então a mensagem os afirma
+    // sem condicional — e quem recebe a delegação sabe onde e até quando ela vale.
+    message: `Você recebeu a permissão ${permission} com escopo de uma federação. `
+      + `Válida até ${vencimento.toISOString().slice(0, 10)}.`,
     entityType: 'CentralAuthorization', entityId: concessao.id
   });
 

@@ -758,12 +758,17 @@ const membershipRequestQuery = paginacao.extend({
 // `z.enum` aqui seria uma segunda cópia da lista, e as duas cópias divergiriam
 // na primeira mudança — com a agravante de que o Zod roda ANTES da autorização,
 // então um nome fora da lista viraria 400 no lugar do 422 que explica o motivo.
+// Escopo e prazo são OBRIGATÓRIOS (achado A-02): concessão sem federação valia
+// em todas, e concessão sem prazo valia para sempre. O schema recusa na borda; o
+// serviço recusa de novo, e `effectivePermissions` ignora a linha que tenha
+// entrado por outro caminho. Três conferências, porque delegação de R-02 é o
+// poder de mexer em atribuição de pontos.
 const centralGrantCreate = z.object({
   userId: id,
   permission: texto(3, 60),
-  organizationId: opcional(id),
+  organizationId: id,
   reason: texto(3, 500),
-  expiresAt: opcional(dataIso)
+  expiresAt: dataIso
 });
 const centralGrantRevoke = z.object({ reason: texto(3, 500) });
 const centralGrantQuery = paginacao.extend({

@@ -955,8 +955,12 @@ function DelegacaoCentral({ notificar }) {
               <tr key={linha.id}>
                 <td>{linha.user?.name ?? '—'}<span className="muted"> — {linha.user?.email ?? ''}</span></td>
                 <td><code>{linha.permission}</code></td>
-                <td>{linha.organization?.name ?? t('delegacao.escopoTodas')}</td>
-                <td>{linha.expiresAt ? formatarData(linha.expiresAt) : t('delegacao.semPrazo')}</td>
+                {/* Concessão sem escopo ou sem prazo é INERTE desde a correção
+                    de A-02: `effectivePermissions` a ignora. A linha continua na
+                    tabela porque apagá-la seria mexer em registro real — a tela
+                    apenas diz, em voz alta, que ela não concede nada. */}
+                <td>{linha.organization?.name ?? <span className="muted">{t('delegacao.inerte')}</span>}</td>
+                <td>{linha.expiresAt ? formatarData(linha.expiresAt) : <span className="muted">{t('delegacao.inerte')}</span>}</td>
                 <td>
                   <button type="button" className="button button-secondary" onClick={() => revogar(linha.id)}>{t('delegacao.revogar')}</button>
                 </td>
@@ -994,9 +998,9 @@ function DialogoDeConcessao({ notificar, onClose, aoPronto }) {
       await api.centralAuthorizations.grant({
         userId: dados.userId,
         permission: dados.permission,
-        ...(dados.organizationId ? { organizationId: dados.organizationId } : {}),
+        organizationId: dados.organizationId,
         reason: dados.reason,
-        ...(dados.expiresAt ? { expiresAt: dados.expiresAt } : {})
+        expiresAt: dados.expiresAt
       });
       refreshData();
       notificar?.(t('delegacao.concedida'), 'sucesso');
@@ -1037,22 +1041,27 @@ function DialogoDeConcessao({ notificar, onClose, aoPronto }) {
           </select>
         </Field>
 
-        <Field label={t('delegacao.campoEscopo')} hint={t('delegacao.campoEscopoDica')}>
-          <select value={dados.organizationId} onChange={evento => campo('organizationId', evento.target.value)}>
-            <option value="">{t('delegacao.escopoTodas')}</option>
+        {/* NÃO existe opção "todas as federações": a API recusa com 422
+            ORGANIZATION_REQUIRED, e oferecer o caminho na tela só produziria uma
+            recusa depois do preenchimento. */}
+        <Field label={t('delegacao.campoEscopo')} required hint={t('delegacao.campoEscopoDica')}>
+          <select value={dados.organizationId} onChange={evento => campo('organizationId', evento.target.value)} required>
+            <option value="">{t('delegacao.escolhaEscopo')}</option>
             {(organizacoes.data?.items ?? []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
         </Field>
 
-        <Field label={t('delegacao.campoPrazo')} hint={t('delegacao.campoPrazoDica')}>
-          <input type="date" value={dados.expiresAt} onChange={evento => campo('expiresAt', evento.target.value)} />
+        <Field label={t('delegacao.campoPrazo')} required hint={t('delegacao.campoPrazoDica')}>
+          <input type="date" required value={dados.expiresAt} onChange={evento => campo('expiresAt', evento.target.value)} />
         </Field>
 
         <Field label={t('analiseTreinador.campoMotivo')} required hint={t('delegacao.campoMotivoDica')}>
           <textarea rows={3} value={dados.reason} onChange={evento => campo('reason', evento.target.value)} required minLength={3} maxLength={500} />
         </Field>
 
-        <ModalActions onClose={onClose} saving={enviando} disabled={!dados.userId || !dados.reason.trim()} confirmLabel={t('delegacao.conceder')} />
+        <ModalActions onClose={onClose} saving={enviando}
+          disabled={!dados.userId || !dados.organizationId || !dados.expiresAt || !dados.reason.trim()}
+          confirmLabel={t('delegacao.conceder')} />
       </form>
     </Modal>
   );

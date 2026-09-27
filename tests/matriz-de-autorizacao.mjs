@@ -360,8 +360,9 @@ export function matriz(f) {
 
     // ------------------------------------------------- delegação central (R-02)
     permissao('POST', '/central-authorizations', '/central-authorizations',
-      { userId: f.atletaB.id, permission: 'athletes.transfer', reason: 'Delegação formal de QA.' }, 'central.grant',
-      { escopoDePlataforma: true, porQue: 'A delegação central não é recurso de federação: o escopo de organização é um CAMPO opcional dela, e a permissão de conceder é da administração central. Não há tenant a cruzar.' }),
+      { userId: f.atletaB.id, permission: 'athletes.transfer', organizationId: f.orgA,
+        reason: 'Delegação formal de QA.', expiresAt: '2099-12-31T00:00:00.000Z' }, 'central.grant',
+      { escopoDePlataforma: true, porQue: 'A delegação central não é recurso de federação: o escopo de organização é um CAMPO OBRIGATÓRIO da concessão (achado A-02), mas a permissão de CONCEDER é da administração central, e não do operador da federação apontada. Não há tenant a cruzar na rota.' }),
     permissao('POST', '/central-authorizations/:id/revoke', `/central-authorizations/${f.concessaoCentralA}/revoke`,
       { reason: 'Revogação de QA.' }, 'central.grant',
       { escopoDePlataforma: true, porQue: 'A mesma concessão central da linha acima: revogar é o outro lado do mesmo ato, e o recurso continua não pertencendo a federação nenhuma.' }),

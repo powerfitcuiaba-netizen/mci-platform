@@ -83,7 +83,9 @@ beforeEach(async () => {
 
   const concessao = await api().post('/api/v1/central-authorizations').set(admin.auth()).send({
     userId: centralAutorizado.id, permission: 'athletes.transfer', organizationId: orgId,
-    reason: 'Delegação formal para correção de vínculo de equipe (suíte de vínculo).'
+    reason: 'Delegação formal para correção de vínculo de equipe (suíte de vínculo).',
+    // Escopo e prazo são obrigatórios desde o achado A-02.
+    expiresAt: '2099-12-31T00:00:00.000Z'
   });
   expect(concessao.status, JSON.stringify(concessao.body)).toBe(201);
   concessaoId = concessao.body.id;
@@ -605,7 +607,7 @@ describe('a decisão R-02: transferir deixou de ser poder de papel', () => {
     await vincular(orgId, soConcessao, 'ATHLETE');
     const concedida = await api().post('/api/v1/central-authorizations').set(admin.auth()).send({
       userId: soConcessao.id, permission: 'athletes.transfer', organizationId: orgId,
-      reason: 'Concessão a conta sem papel operacional (QA).'
+      reason: 'Concessão a conta sem papel operacional (QA).', expiresAt: '2099-12-31T00:00:00.000Z'
     });
     expect(concedida.status, JSON.stringify(concedida.body)).toBe(201);
 
@@ -629,7 +631,7 @@ describe('a decisão R-02: transferir deixou de ser poder de papel', () => {
     // recusa tem de alcançar.
     const autoconcessao = await api().post('/api/v1/central-authorizations').set(admin.auth()).send({
       userId: admin.id, permission: 'athletes.transfer', organizationId: orgId,
-      reason: 'Tentativa de autoconcessão (QA).'
+      reason: 'Tentativa de autoconcessão (QA).', expiresAt: '2099-12-31T00:00:00.000Z'
     });
     expect(autoconcessao.status, JSON.stringify(autoconcessao.body)).toBe(403);
     expect(autoconcessao.body.error.code).toBe('SELF_GRANT_FORBIDDEN');
