@@ -342,3 +342,47 @@ Reexecutado depois da correção, com a árvore no estado do repositório:
 
 O critério 14 deste relatório continua cumprido; o que se acrescenta é que a ferramenta que o
 cumpre agora deixa o banco no estado certo, e um novo desvio do mesmo tipo passa a reprovar.
+
+---
+
+## Adendo 2 — 2026-09-27, homologação manual concluída
+
+Os quatro perfis foram percorridos no navegador. **35 passos: 34 APROVA, 1 REPROVA
+corrigida e revalidada.** O resultado completo está em `RESULTADO-HOMOLOGACAO-MANUAL.md`.
+
+A reprovação foi o passo **F4**: o administrador de federação não conseguia autorizar
+treinador nenhum pela interface. O servidor estava certo dos dois lados — `GET /coaches/review`
+recusava com 403 (R-03) e `POST /coaches/:id/organizations` aceitava com 200 (R-04) — mas o
+único botão "Autorizar" da tela vivia dentro da fila de análise central, que o diretor não pode
+carregar. Corrigido com a rota `GET /coaches/authorizable` e a seção *Atuação na sua federação*;
+detalhes em `CORRECAO-F04-ATUACAO-NA-FEDERACAO.md`.
+
+O critério 10 deste relatório — *homologação manual de Helder Falcão* — foi **executada por
+condução automatizada com evidência em captura**, e não substitui a conferência dele: o roteiro
+continua disponível, agora com sete passos corrigidos para o que a homologação mostrou.
+
+### Os números depois da correção
+
+| Gate | Antes | Agora |
+| --- | --- | --- |
+| Regressão do backend | 2219 | **2419 testes, 133 arquivos, 0 falhas** |
+| Regressão do frontend | 676 | **680/680, 60 arquivos** |
+| Matriz de leitura | 16 rotas × 11 perfis | **17 rotas × 11 perfis** |
+| Mutação do módulo | 16 mutantes | **19 mutantes — 18 mortos, 1 equivalente** |
+| QA visual, 8 larguras | 218 PASS | **218 PASS, 0 FAIL, 0 NOT TESTED** |
+| Endurecimento pós-auditoria | 36 | **46/46** |
+
+### Dois defeitos de FERRAMENTA achados e corrigidos neste ciclo
+
+1. **A restauração de políticas da mutação** reaplicava só uma migration e devolvia
+   `atleta_leitura` e `vinculo_criacao` a versões antigas — e o conferidor do próprio script
+   esperava o trecho antigo, aprovando o estado errado nas duas pontas.
+2. **O gate visual não saía** depois de terminar: `npx vite preview` são três processos e só o
+   primeiro era encerrado, deixando órfãos que seguravam o banco de QA e a porta do frontend.
+
+Nenhum dos dois era defeito do produto, e ambos produziam resultado com cara de verdadeiro.
+
+### O que continua pendente
+
+Os critérios 11 a 15 deste relatório seguem inalterados: decisões **D-1 a D-4**, diagnósticos
+somente leitura em produção, backup com restore verificado e autorização para publicar.
