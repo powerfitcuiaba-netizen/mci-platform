@@ -409,6 +409,9 @@ export const api = {
 
     // A mesa de análise central (R-03).
     review: params => get('/coaches/review', params),
+    // A LISTA DA FEDERAÇÃO (R-04). `organizationId` é obrigatório: é o escopo
+    // contra o qual o servidor confere `coaches.authorize_org`.
+    authorizable: params => get('/coaches/authorizable', params),
     loadForReview: id => get(`/coaches/${id}/review`),
     approve: (id, reason) => post(`/coaches/${id}/approve`, reason ? { reason } : {}),
     reject: (id, reason) => post(`/coaches/${id}/reject`, { reason }),

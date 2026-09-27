@@ -397,6 +397,14 @@ router.get('/coaches/me/athletes', requireAuth, validate(s.coachTeamQuery, 'quer
 
 // ------------------------------------------- a mesa de análise central (R-03)
 router.get('/coaches/review', requireAuth, perm('coaches.approve'), validate(s.coachReviewQuery, 'query'), wrap(c.coaches.listarParaAnalise));
+
+// A LISTA DA FEDERAÇÃO (R-04) — a contrapartida de leitura da rota de
+// autorização abaixo. O escopo vem da QUERY e é obrigatório no schema: sem
+// `organizationId`, `perm` avaliaria a permissão sem federação nomeada, e
+// `effectivePermissions` somaria as permissões de todas as federações do ator.
+// A lista devolve só cadastro APROVADO — quem ainda está em análise é assunto
+// da mesa central, e não aparece aqui.
+router.get('/coaches/authorizable', requireAuth, perm('coaches.authorize_org', orgDaQuery), validate(s.coachAuthorizableQuery, 'query'), wrap(c.coaches.listarParaAutorizacao));
 router.get('/coaches/:id/review', requireAuth, perm('coaches.approve'), validate(s.paramsWithId, 'params'), wrap(c.coaches.carregarParaAnalise));
 router.post('/coaches/:id/approve', requireAuth, perm('coaches.approve'), validate(s.paramsWithId, 'params'), validate(s.coachDecision), wrap(c.coaches.aprovar));
 router.post('/coaches/:id/reject', requireAuth, perm('coaches.approve'), validate(s.paramsWithId, 'params'), validate(s.coachDecisionWithReason), wrap(c.coaches.rejeitar));

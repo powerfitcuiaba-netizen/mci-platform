@@ -756,3 +756,171 @@ describe('A-13: o catálogo de técnicos não publica a análise cadastral', () 
     expect(linha._count.athletes, 'a contagem de atletas é o que a escolha usa').toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------- F-04
+//
+// A FEDERAÇÃO PRECISA DE UMA LISTA PARA EXERCER R-04.
+//
+// Achado da homologação manual, passo F4: o servidor já aceitava a autorização
+// do diretor de federação — `POST /coaches/:id/organizations` respondia 200 —
+// mas o único botão de autorizar da interface vivia dentro da fila de análise
+// central, que exige `coaches.approve`. Quem tem `coaches.authorize_org` e não
+// tem `coaches.approve` ficava sem lista, e sem lista não havia como chamar a
+// rota. A correção é `GET /coaches/authorizable`, e este bloco é a prova de que
+// ela abriu exatamente o que faltava, e nada além.
+//
+// O risco de uma lista nova é sempre o mesmo: virar porta larga. Por isso os
+// testes abaixo insistem em três limites — cadastro APROVADO, escopo da PRÓPRIA
+// federação e conjunto EXATO de campos.
+describe('F-04: a federação lista treinadores aprovados e autoriza a atuação', () => {
+  const listar = (ator, organizationId) =>
+    api().get(`/api/v1/coaches/authorizable?organizationId=${organizationId}`).set(ator.auth());
+
+  it('o diretor lista o treinador APROVADO e autoriza a atuação na própria federação', async () => {
+    expect((await api().post(`/api/v1/coaches/${coachId}/approve`).set(admin.auth())
+      .send({ reason: 'Documentação conferida.' })).status).toBe(200);
+
+    const lista = await listar(diretorA, orgA);
+    expect(lista.status, JSON.stringify(lista.body)).toBe(200);
+
+    const linha = lista.body.items.find(item => item.id === coachId);
+    expect(linha, 'o treinador aprovado aparece para a federação').toBeTruthy();
+    expect(linha.authorization, 'ainda não autorizado nesta federação').toBeNull();
+
+    const autorizacao = await api().post(`/api/v1/coaches/${coachId}/organizations`).set(diretorA.auth())
+      .send({ organizationId: orgA, reason: 'Atuação autorizada na homologação.' });
+    expect(autorizacao.status, JSON.stringify(autorizacao.body)).toBe(200);
+
+    const depois = await listar(diretorA, orgA);
+    const atualizada = depois.body.items.find(item => item.id === coachId);
+    expect(atualizada.authorization.status, 'a lista reflete a autorização na requisição seguinte').toBe('APPROVED');
+  });
+
+  it('a projeção é exatamente a necessária para decidir — e nada da análise cadastral', async () => {
+    expect((await api().post(`/api/v1/coaches/${coachId}/approve`).set(admin.auth())
+      .send({ reason: 'Documentação profissional conferida.' })).status).toBe(200);
+
+    const lista = await listar(diretorA, orgA);
+    const linha = lista.body.items.find(item => item.id === coachId);
+
+    expect(Object.keys(linha).sort(), 'o conjunto de campos é este, e mudá-lo é decisão')
+      .toEqual(['authorization', 'city', 'id', 'name', 'registration', 'state']);
+
+    // O motivo escrito pela mesa central é texto SOBRE a pessoa: ele não
+    // atravessa para a federação de jeito nenhum.
+    const texto = JSON.stringify(lista.body);
+    for (const proibido of ['rejectionReason', 'suspendedReason', 'reviewedById', 'reviewedAt',
+      'bio', 'phone', 'email', 'userId', 'passwordHash', 'cpf']) {
+      expect(texto, `a lista da federação não publica ${proibido}`).not.toContain(proibido);
+    }
+    expect(texto).not.toContain('Documentação profissional');
+  });
+
+  it('o treinador PENDENTE não aparece na lista nem pode ser autorizado', async () => {
+    const semAprovacao = await listar(diretorA, orgA);
+    expect(semAprovacao.status).toBe(200);
+    expect(semAprovacao.body.items.some(item => item.id === coachId),
+      'cadastro em análise é assunto da mesa central, não da federação').toBe(false);
+
+    const tentativa = await api().post(`/api/v1/coaches/${coachId}/organizations`).set(diretorA.auth())
+      .send({ organizationId: orgA, reason: 'Tentativa antes da aprovação.' });
+    expect(tentativa.status, JSON.stringify(tentativa.body)).toBe(422);
+    expect(tentativa.body.error.code).toBe('COACH_NOT_APPROVED');
+  });
+
+  it('a lista NÃO dá à federação o poder de aprovar cadastro nacional (R-03)', async () => {
+    expect((await api().get('/api/v1/coaches/review?status=PENDING').set(diretorA.auth())).status).toBe(403);
+    expect((await api().get(`/api/v1/coaches/${coachId}/review`).set(diretorA.auth())).status).toBe(403);
+    expect((await api().post(`/api/v1/coaches/${coachId}/approve`).set(diretorA.auth())
+      .send({ reason: 'Tentando aprovar pela federação.' })).status).toBe(403);
+    expect((await api().post(`/api/v1/coaches/${coachId}/reject`).set(diretorA.auth())
+      .send({ reason: 'Tentando recusar pela federação.' })).status).toBe(403);
+  });
+
+  it('o diretor da federação A não lista nem autoriza na federação B (R-04)', async () => {
+    expect((await api().post(`/api/v1/coaches/${coachId}/approve`).set(admin.auth())
+      .send({ reason: 'Documentação conferida.' })).status).toBe(200);
+
+    expect((await listar(diretorA, orgB)).status, 'a lista de outra federação é recusada').toBe(403);
+
+    const alheia = await api().post(`/api/v1/coaches/${coachId}/organizations`).set(diretorA.auth())
+      .send({ organizationId: orgB, reason: 'Autorizando na federação alheia.' });
+    expect(alheia.status, JSON.stringify(alheia.body)).toBe(403);
+
+    // E o diretor de B continua com o poder dele, intacto — a correção não
+    // trocou uma federação pela outra.
+    expect((await listar(diretorB, orgB)).status).toBe(200);
+  });
+
+  it('sem escopo a rota nem chega ao serviço — o escopo é obrigatório no schema', async () => {
+    const semEscopo = await api().get('/api/v1/coaches/authorizable').set(diretorA.auth());
+    expect([400, 403, 422], JSON.stringify(semEscopo.body)).toContain(semEscopo.status);
+    expect(semEscopo.status, 'e nunca 200: escopo nulo somaria permissões de todas as federações')
+      .not.toBe(200);
+  });
+
+  it('quem não tem a permissão não lê a lista, nem treinador, nem atleta, nem conta comum', async () => {
+    const comum = await criarUsuario({ name: 'Conta Qualquer' });
+    for (const ator of [comum, contaTreinador, contaAtleta]) {
+      const r = await listar(ator, orgA);
+      expect([403, 404], `${JSON.stringify(r.body)}`).toContain(r.status);
+    }
+    expect((await api().get(`/api/v1/coaches/authorizable?organizationId=${orgA}`)).status,
+      'sem sessão é 401, e não 403').toBe(401);
+  });
+
+  it('o SERVIÇO recusa a lista sem a permissão, mesmo chamado por dentro', async () => {
+    // A recusa da ROTA já está medida acima, e foi ela que matou a tentativa por
+    // HTTP. Esta mede a do SERVIÇO — a que resta quando a chamada não vem de uma
+    // requisição. A distinção não é teórica: a mutação apontou que, sem este
+    // teste, apagar `assertCan` de `listarParaAutorizacao` não quebrava nada, e
+    // barreira sem teste é barreira que alguém remove sem ver vermelho.
+    const coaches = await import('../src/services/coachService.js');
+    const semPermissao = { id: contaAtleta.id, role: 'ATHLETE', memberships: [], centralGrantsReceived: [] };
+
+    const recusa = await comoAtor(contaAtleta, () => coaches.default.listarParaAutorizacao(
+      { organizationId: orgA, limit: 50 }, semPermissao
+    )).catch(erro => erro);
+    expect(recusa, 'chamar o serviço direto não é atalho').toBeInstanceOf(Error);
+    expect(recusa.status).toBe(403);
+
+    // E o diretor de OUTRA federação também não passa por dentro.
+    const atorDeB = { id: diretorB.id, role: 'ATHLETE', memberships: [{ organizationId: orgB, role: 'EVENT_DIRECTOR' }], centralGrantsReceived: [] };
+    const alheia = await comoAtor(diretorB, () => coaches.default.listarParaAutorizacao(
+      { organizationId: orgA, limit: 50 }, atorDeB
+    )).catch(erro => erro);
+    expect(alheia, 'o escopo vale também para a chamada interna').toBeInstanceOf(Error);
+    expect(alheia.status).toBe(403);
+  });
+
+  it('a mesa central mantém todos os poderes — a correção não tirou nada dela', async () => {
+    expect((await api().get('/api/v1/coaches/review?status=PENDING').set(admin.auth())).status).toBe(200);
+    expect((await listar(admin, orgA)).status, 'a central também lê a lista da federação').toBe(200);
+    expect((await api().post(`/api/v1/coaches/${coachId}/approve`).set(admin.auth())
+      .send({ reason: 'Documentação conferida.' })).status).toBe(200);
+    expect((await api().post(`/api/v1/coaches/${coachId}/organizations`).set(admin.auth())
+      .send({ organizationId: orgA, reason: 'Autorização pela central.' })).status).toBe(200);
+    expect((await api().get('/api/v1/central-authorizations').set(admin.auth())).status).toBe(200);
+  });
+
+  it('revogar pela federação exige motivo, tem efeito imediato e deixa trilha', async () => {
+    await habilitarTreinador();
+
+    const semMotivo = await api().post(`/api/v1/coaches/${coachId}/organizations/revoke`).set(diretorA.auth())
+      .send({ organizationId: orgA });
+    expect([400, 422], JSON.stringify(semMotivo.body)).toContain(semMotivo.status);
+
+    const revogada = await api().post(`/api/v1/coaches/${coachId}/organizations/revoke`).set(diretorA.auth())
+      .send({ organizationId: orgA, reason: 'Revogação da homologação manual.' });
+    expect(revogada.status, JSON.stringify(revogada.body)).toBe(200);
+
+    const depois = await listar(diretorA, orgA);
+    const linha = depois.body.items.find(item => item.id === coachId);
+    expect(linha.authorization.status, 'a lista mostra a revogação na requisição seguinte').toBe('REVOKED');
+
+    const trilha = await api().get('/api/v1/audit?action=COACH_ORG_REVOKE').set(admin.auth());
+    expect(trilha.status, JSON.stringify(trilha.body)).toBe(200);
+    expect(JSON.stringify(trilha.body), 'a revogação fica na trilha com o motivo')
+      .toContain('Revogação da homologação manual.');
+  });
+});

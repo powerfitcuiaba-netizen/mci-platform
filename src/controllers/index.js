@@ -336,6 +336,7 @@ module.exports = {
 
     // A mesa de análise da administração central (R-03).
     listarParaAnalise: async (req, res) => res.json({ items: await coachesService.listarParaAnalise(req.query, req.user) }),
+    listarParaAutorizacao: async (req, res) => res.json({ items: await coachesService.listarParaAutorizacao(req.query, req.user) }),
     carregarParaAnalise: async (req, res) => res.json(await coachesService.carregarParaAnalise(req.params.id, req.user)),
     aprovar: async (req, res) => res.json(await coachesService.aprovar(req.params.id, req.body, req.user)),
     rejeitar: async (req, res) => res.json(await coachesService.rejeitar(req.params.id, req.body, req.user)),

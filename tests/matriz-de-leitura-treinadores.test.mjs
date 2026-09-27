@@ -5,7 +5,7 @@ import {
 } from './helpers.mjs';
 
 // ============================================================================
-// A MATRIZ DE LEITURA DO MÓDULO — ONZE PERFIS × DEZESSEIS ROTAS.
+// A MATRIZ DE LEITURA DO MÓDULO — ONZE PERFIS × DEZESSETE ROTAS.
 //
 // POR QUE ESTE ARQUIVO EXISTE, E POR QUE ELE NÃO PODIA FALTAR
 //
@@ -51,6 +51,21 @@ const PROIBIDOS_SEMPRE = Object.freeze([
 const PROIBIDOS_DO_CATALOGO = Object.freeze([
   'status', 'rejectionReason', 'suspendedReason', 'reviewedById', 'reviewedAt',
   'registration', 'bio', 'phone', 'email', 'userId'
+]);
+
+// F-04: a lista da federação mostra `registration` — é a credencial profissional
+// que a federação confere antes de autorizar, e o mesmo campo que a mesa central
+// já vê na fila. O resto da análise cadastral continua fora.
+//
+// `status` NÃO entra nesta lista, e o motivo é de instrumento: a conferência
+// abaixo procura o TEXTO do campo no corpo inteiro, e o corpo traz
+// `authorization.status`, que é a situação da autorização NAQUELA federação —
+// não a situação cadastral do treinador. Quem garante o conjunto exato de
+// campos desta rota é o bloco F-04 de `hardening-auditoria-treinadores`, que
+// compara as chaves uma a uma.
+const PROIBIDOS_DA_ATUACAO = Object.freeze([
+  'rejectionReason', 'suspendedReason', 'reviewedById', 'reviewedAt',
+  'bio', 'phone', 'email', 'userId'
 ]);
 
 const RECUSAS_COM_SESSAO = Object.freeze([403, 404]);
@@ -192,6 +207,13 @@ const ROTAS = () => [
     caminho: '/api/v1/coaches/review?status=PENDING',
     permitidos: ['central'],
     porQue: 'analisar cadastro é da administração central (R-03), por `coaches.approve`'
+  },
+  {
+    nome: 'GET /coaches/authorizable (lista da federação)',
+    caminho: c => `/api/v1/coaches/authorizable?organizationId=${c.orgA}`,
+    permitidos: ['diretorA', 'central'],
+    proibidos: PROIBIDOS_DA_ATUACAO,
+    porQue: 'autorizar atuação é da federação (R-04), por `coaches.authorize_org` NAQUELA federação'
   },
   {
     nome: 'GET /coaches/:id/review',

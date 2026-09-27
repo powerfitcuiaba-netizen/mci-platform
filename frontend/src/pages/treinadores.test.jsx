@@ -27,7 +27,8 @@ const api = {
     me: vi.fn(), selfRegister: vi.fn(), updateMe: vi.fn(),
     myTeams: vi.fn(), myAthletes: vi.fn(), projection: vi.fn(),
     review: vi.fn(), approve: vi.fn(), reject: vi.fn(), suspend: vi.fn(),
-    reactivate: vi.fn(), cancel: vi.fn(), authorizeOrganization: vi.fn()
+    reactivate: vi.fn(), cancel: vi.fn(), authorizeOrganization: vi.fn(),
+    revokeOrganization: vi.fn(), authorizable: vi.fn()
   },
   membershipRequests: {
     lookupByAffiliation: vi.fn(), create: vi.fn(), ofTeam: vi.fn(),
@@ -41,6 +42,16 @@ const api = {
   admin: { users: vi.fn() }
 };
 vi.mock('../services/api', () => ({ default: api, api, refreshData: vi.fn(), fetchMediaObjectUrl: vi.fn(), releaseMediaObjectUrl: vi.fn() }));
+
+// QUEM É A CONTA — a tela pergunta antes de decidir o que mostrar.
+//
+// Isto é conveniência, e não barreira: o servidor continua recusando o que a
+// conta não pode. O que a tela evita é oferecer ação que seria recusada — foi
+// exatamente o que a homologação manual encontrou no passo F4, com o diretor de
+// federação recebendo duas caixas de "não foi possível carregar".
+let usuario = { role: 'SUPER_ADMIN', organizations: [] };
+const DIRETOR_DE_FEDERACAO = { role: 'ATHLETE', organizations: [{ organizationId: 'o1', role: 'EVENT_DIRECTOR' }] };
+vi.mock('../AuthContext', () => ({ useAuth: () => ({ user: usuario }) }));
 
 const { PainelDoTreinador, MinhaEquipe, AdminTreinadores } = await import('./treinadores');
 
@@ -58,6 +69,7 @@ const EQUIPES = [{ id: 't1', name: 'Equipe Marta', organizationId: 'o1', organiz
 beforeEach(() => {
   window.matchMedia = consulta => ({ matches: false, media: consulta, onchange: null, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false });
   for (const grupo of Object.values(api)) for (const fn of Object.values(grupo)) fn.mockReset();
+  usuario = { role: 'SUPER_ADMIN', organizations: [] };
 
   api.coaches.myTeams.mockResolvedValue({ items: EQUIPES });
   api.coaches.myAthletes.mockResolvedValue({ items: [] });
@@ -484,5 +496,99 @@ describe('A-11: estados da tela administrativa são um por vez', () => {
     // fila trazia DOIS (o genérico do AsyncSection e o próprio).
     expect(vazios.length).toBe(2);
     expect(screen.queryByText(/não tem permissão/i)).toBeNull();
+  });
+});
+
+// ==========================================================================
+// F-04 — A FEDERAÇÃO PRECISA VER O QUE PODE FAZER.
+//
+// O achado veio da homologação manual: o diretor de federação, que tem
+// `coaches.authorize_org` e não tem `coaches.approve`, abria a tela e via duas
+// caixas de "não foi possível carregar" e um botão de conceder delegação que a
+// API nunca aceitaria. A ação que era dele — autorizar atuação — não existia em
+// lugar nenhum da interface.
+// ==========================================================================
+describe('F-04: atuação na federação', () => {
+  const APROVADO = {
+    id: 'co5', name: 'Marta Treinadora', registration: 'CREF-99999',
+    city: 'Cuiabá', state: 'MT', authorization: null
+  };
+  const FEDERACOES = { items: [{ id: 'o1', name: 'Federação A' }] };
+
+  it('o diretor vê a lista da federação, e NÃO vê a fila central nem a delegação', async () => {
+    usuario = DIRETOR_DE_FEDERACAO;
+    api.organizations.list.mockResolvedValue(FEDERACOES);
+    api.coaches.authorizable.mockResolvedValue({ items: [APROVADO] });
+
+    render(<AdminTreinadores notificar={vi.fn()} />);
+
+    expect(await screen.findByText(/Atuação na sua federação/i)).toBeTruthy();
+    // A lista só é pedida DEPOIS que as federações chegam — o escopo é
+    // obrigatório na rota, e pedir sem ele seria pedir para ser recusado.
+    expect(await screen.findByText('Marta Treinadora')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Autorizar atuação/i })).toBeTruthy();
+
+    // O que não é dele não aparece — e não aparece como recusa, aparece como
+    // ausência. Oferecer ação que a API recusa não é segurança nem cortesia.
+    expect(screen.queryByText(/Delegação central/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Conceder delegação/i })).toBeNull();
+    expect(api.coaches.review, 'a fila da mesa central nem é pedida').not.toHaveBeenCalled();
+  });
+
+  it('autorizar usa a federação já escolhida, sem oferecer outra', async () => {
+    usuario = DIRETOR_DE_FEDERACAO;
+    api.organizations.list.mockResolvedValue(FEDERACOES);
+    api.coaches.authorizable.mockResolvedValue({ items: [APROVADO] });
+    api.coaches.authorizeOrganization.mockResolvedValue({ id: 'cz9', status: 'APPROVED' });
+
+    render(<AdminTreinadores notificar={vi.fn()} />);
+    await screen.findByText('Marta Treinadora');
+    fireEvent.click(screen.getByRole('button', { name: /Autorizar atuação/i }));
+
+    const dialogo = await screen.findByRole('dialog');
+    // Sem seletor de federação: o escopo é o da lista que está sendo olhada.
+    expect(within(dialogo).queryByRole('combobox'), 'não há escolha de outra federação').toBeNull();
+    expect(within(dialogo).getByText('Federação A')).toBeTruthy();
+    expect(within(dialogo).getByRole('button', { name: /Autorizar atuação/i }),
+      'o rótulo do diálogo é o da seção, não o da fila central').toBeTruthy();
+
+    fireEvent.submit(dialogo.querySelector('form'));
+    expect(api.coaches.authorizeOrganization).toHaveBeenCalledWith('co5', { organizationId: 'o1', reason: undefined });
+  });
+
+  it('quem já está autorizado recebe revogar, e a revogação exige motivo', async () => {
+    usuario = DIRETOR_DE_FEDERACAO;
+    api.organizations.list.mockResolvedValue(FEDERACOES);
+    api.coaches.authorizable.mockResolvedValue({
+      items: [{ ...APROVADO, authorization: { id: 'cz1', status: 'APPROVED', grantedAt: '2026-09-01T12:00:00.000Z' } }]
+    });
+    api.coaches.revokeOrganization.mockResolvedValue({ id: 'cz1', status: 'REVOKED' });
+
+    render(<AdminTreinadores notificar={vi.fn()} />);
+    expect(await screen.findByText(/Autorizado/i)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Autorizar atuação/i }), 'já autorizado não reautoriza').toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /Revogar atuação/i }));
+    const dialogo = await screen.findByRole('dialog');
+    const motivo = within(dialogo).getByLabelText(/Motivo/i);
+    expect(motivo.required, 'a revogação exige motivo').toBe(true);
+
+    fireEvent.change(motivo, { target: { value: 'Encerrou a atuação nesta federação.' } });
+    fireEvent.submit(dialogo.querySelector('form'));
+    expect(api.coaches.revokeOrganization)
+      .toHaveBeenCalledWith('co5', { organizationId: 'o1', reason: 'Encerrou a atuação nesta federação.' });
+  });
+
+  it('a mesa central continua vendo as três seções — a correção não tirou nada dela', async () => {
+    api.coaches.review.mockResolvedValue({ items: [] });
+    api.organizations.list.mockResolvedValue(FEDERACOES);
+    api.coaches.authorizable.mockResolvedValue({ items: [] });
+    api.centralAuthorizations.list.mockResolvedValue({ items: [] });
+
+    render(<AdminTreinadores notificar={vi.fn()} />);
+
+    expect(await screen.findByText(/Cadastros/i)).toBeTruthy();
+    expect(screen.getByText(/Atuação na sua federação/i)).toBeTruthy();
+    expect(screen.getByText(/Delegação central/i)).toBeTruthy();
   });
 });

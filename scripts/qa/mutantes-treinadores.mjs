@@ -47,6 +47,7 @@ const SUITE_GATE = 'tests/gate-autorizacao-por-rota.test.mjs';
 const SUITE_DELEGACAO = 'tests/permissoes-delegacao.test.mjs';
 const SUITE_R01 = 'tests/r01-equipe-da-epoca.test.mjs';
 const SUITE_RANKING = 'tests/ranking-oficial.test.mjs';
+const SUITE_HARDENING = 'tests/hardening-auditoria-treinadores.test.mjs';
 
 const MUTANTES_DE_CODIGO = [
   {
@@ -174,6 +175,35 @@ const MUTANTES_DE_CODIGO = [
     arquivo: 'src/services/rankingService.js',
     de: "    if (!linhas.length) return undefined;",
     para: "    if (!linhas.length) return null;"
+  },
+  // --------------------------------------------------- F-04: a lista da federação
+  //
+  // A rota nasceu de um achado da homologação manual, e a regra dela é estreita
+  // por três motivos que podem ser afrouxados por engano. Cada um tem um
+  // mutante: o filtro de cadastro aprovado, a guarda de escopo e a projeção.
+  {
+    id: 'TE-F1',
+    descricao: 'F-04: a lista da federação passa a mostrar cadastro NÃO aprovado (R-03)',
+    suite: SUITE_HARDENING,
+    arquivo: 'src/services/coachService.js',
+    de: "      status: 'APPROVED',\n      ...(filtros.search ? { name: { contains: filtros.search, mode: 'insensitive' } } : {})",
+    para: "      ...(filtros.search ? { name: { contains: filtros.search, mode: 'insensitive' } } : {})"
+  },
+  {
+    id: 'TE-F2',
+    descricao: 'F-04: a lista da federação dispensa a guarda de escopo (R-04)',
+    suite: SUITE_HARDENING,
+    arquivo: 'src/services/coachService.js',
+    de: "  assertCan(actor, 'coaches.authorize_org', filtros.organizationId);\n\n  const treinadores = await prisma.coach.findMany({",
+    para: "  const treinadores = await prisma.coach.findMany({"
+  },
+  {
+    id: 'TE-F3',
+    descricao: 'F-04: a projeção da lista volta a carregar contato e análise cadastral (R-05)',
+    suite: SUITE_HARDENING,
+    arquivo: 'src/services/coachService.js',
+    de: "const SELECT_PARA_AUTORIZACAO = Object.freeze({\n  id: true, name: true, registration: true, city: true, state: true\n});",
+    para: "const SELECT_PARA_AUTORIZACAO = Object.freeze({\n  id: true, name: true, registration: true, city: true, state: true,\n  email: true, phone: true, userId: true, rejectionReason: true\n});"
   },
   {
     id: 'TE-M14',
@@ -385,7 +415,8 @@ const SUITES_DE_CONTROLE = [
   ['vínculo', SUITE_VINCULO],
   ['delegação', SUITE_DELEGACAO],
   ['R-01', SUITE_R01],
-  ['gate de rota', SUITE_GATE]
+  ['gate de rota', SUITE_GATE],
+  ['endurecimento', SUITE_HARDENING]
 ];
 
 for (const [rotulo, suite] of SUITES_DE_CONTROLE) {

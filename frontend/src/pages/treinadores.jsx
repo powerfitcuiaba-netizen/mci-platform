@@ -7,6 +7,8 @@ import {
 } from '../components/ui';
 import { formatarData } from '../lib/format';
 import { useIdioma } from '../lib/idioma';
+import { useAuth } from '../AuthContext';
+import { permissoesDe, podeCom } from '../lib/permissoes';
 
 // ============================================================================
 // TREINADORES & EQUIPES — as telas.
@@ -764,10 +766,17 @@ function DialogoDeDecisao({ coach, acao, notificar, onClose, aoPronto }) {
 // A AUTORIZAÇÃO POR FEDERAÇÃO. A organização vem de uma lista das federações do
 // operador — digitar id à mão seria convite a erro, e a API recusaria de todo
 // modo quem apontasse federação alheia.
-function DialogoDeAutorizacao({ coach, notificar, onClose, aoPronto }) {
+function DialogoDeAutorizacao({ coach, notificar, onClose, aoPronto, federacaoFixa = null }) {
   const { t } = useIdioma();
-  const organizacoes = useFetch(() => api.organizations.list().catch(() => ({ items: [] })), []);
-  const [organizationId, setOrganizationId] = useState('');
+  // Com federação FIXA a lista nem é buscada: o escopo já foi escolhido na tela
+  // de atuação, e reabrir um seletor ali convidaria a autorizar numa federação
+  // diferente da que está sendo olhada. Sem ela, o diálogo segue como era, para
+  // a mesa central.
+  const organizacoes = useFetch(
+    () => (federacaoFixa ? Promise.resolve({ items: [federacaoFixa] }) : api.organizations.list().catch(() => ({ items: [] }))),
+    [federacaoFixa?.id]
+  );
+  const [organizationId, setOrganizationId] = useState(federacaoFixa?.id ?? '');
   const [reason, setReason] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [recusa, setRecusa] = useState(null);
@@ -802,17 +811,182 @@ function DialogoDeAutorizacao({ coach, notificar, onClose, aoPronto }) {
         )}
 
         <Field label={t('analiseTreinador.campoFederacao')} required>
-          <select value={organizationId} onChange={evento => setOrganizationId(evento.target.value)} required>
-            <option value="">{t('analiseTreinador.escolhaFederacao')}</option>
-            {lista.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select>
+          {federacaoFixa
+            ? <p><strong>{federacaoFixa.name}</strong></p>
+            : (
+              <select value={organizationId} onChange={evento => setOrganizationId(evento.target.value)} required>
+                <option value="">{t('analiseTreinador.escolhaFederacao')}</option>
+                {lista.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+            )}
         </Field>
 
         <Field label={t('analiseTreinador.campoMotivo')} hint={t('analiseTreinador.campoMotivoOpcional')}>
           <textarea rows={2} value={reason} onChange={evento => setReason(evento.target.value)} maxLength={300} />
         </Field>
 
-        <ModalActions onClose={onClose} saving={enviando} disabled={!organizationId} confirmLabel={t('analiseTreinador.autorizar')} />
+        {/* Com federação fixa o rótulo é o da seção da federação — "Autorizar em
+            federação" é o texto da fila central, onde a federação ainda precisa
+            ser escolhida. */}
+        <ModalActions onClose={onClose} saving={enviando} disabled={!organizationId}
+          confirmLabel={t(federacaoFixa ? 'atuacaoFederacao.autorizar' : 'analiseTreinador.autorizar')} />
+      </form>
+    </Modal>
+  );
+}
+
+// ==================================== ATUAÇÃO NA FEDERAÇÃO (R-04) — a tela
+//
+// Esta seção existe por causa de um buraco encontrado na homologação manual
+// (passo F4): a federação PODE autorizar — a rota respondia 200 para o diretor
+// — mas o único botão de autorizar da interface morava dentro da fila de
+// análise central, que exige `coaches.approve`. Quem tem `coaches.authorize_org`
+// e não tem `coaches.approve` via duas caixas de recusa e nada mais.
+//
+// A lista vem de `GET /coaches/authorizable`, que devolve só cadastro APROVADO e
+// só os campos de decisão. A situação mostrada é a DESTA federação: o diretor
+// não descobre por aqui onde mais o treinador atua.
+function AtuacaoNaFederacao({ notificar }) {
+  const { t } = useIdioma();
+  const [organizationId, setOrganizationId] = useState('');
+  const [autorizando, setAutorizando] = useState(null);
+  const [revogando, setRevogando] = useState(null);
+
+  const organizacoes = useFetch(() => api.organizations.list().catch(erro => relancar(erro, {
+    negado: t('atuacaoFederacao.semPermissao'), generico: t('erro.generico')
+  })), []);
+  const federacoes = organizacoes.data?.items ?? [];
+  const escolhida = organizationId || federacoes[0]?.id || '';
+  const federacao = federacoes.find(item => item.id === escolhida) ?? null;
+
+  const treinadores = useFetch(
+    () => (escolhida
+      ? api.coaches.authorizable({ organizationId: escolhida, limit: 100 }).catch(erro => relancar(erro, {
+        negado: t('atuacaoFederacao.semPermissao'), generico: t('erro.generico')
+      }))
+      : Promise.resolve({ items: [] })),
+    [escolhida]
+  );
+
+  const situacao = treinador => {
+    if (!treinador.authorization) return { rotulo: t('atuacaoFederacao.naoAutorizado'), tom: 'neutro' };
+    if (treinador.authorization.status === 'APPROVED') return { rotulo: t('treinador.autorizado'), tom: 'sucesso' };
+    return { rotulo: t('treinador.autorizacaoRevogada'), tom: 'atencao' };
+  };
+
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h3>{t('atuacaoFederacao.titulo')}</h3>
+        {federacoes.length > 1 && (
+          <select className="select-control" value={escolhida} aria-label={t('atuacaoFederacao.campoFederacao')}
+            onChange={evento => setOrganizationId(evento.target.value)}>
+            {federacoes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+        )}
+      </div>
+      <p className="muted">{t('atuacaoFederacao.explicacao')}</p>
+
+      <AsyncSection state={treinadores} empty={dados => !dados?.items?.length}
+        vazio={<EmptyState title={t('atuacaoFederacao.vazio')} description={t('atuacaoFederacao.vazioDescricao')} />}>
+        {dados => (
+        <div className="table-wrap"><table className="table">
+          <thead>
+            <tr>
+              <th>{t('treinador.campoNome')}</th>
+              <th>{t('treinador.campoRegistro')}</th>
+              <th>{t('atuacaoFederacao.colunaOrigem')}</th>
+              <th>{t('pedidoEquipe.colunaSituacao')}</th>
+              <th aria-label={t('acao.acoes')} />
+            </tr>
+          </thead>
+          <tbody>
+            {dados.items.map(treinador => {
+              const estado = situacao(treinador);
+              const autorizado = treinador.authorization?.status === 'APPROVED';
+              return (
+                <tr key={treinador.id}>
+                  <td>{treinador.name}</td>
+                  <td>{treinador.registration || '—'}</td>
+                  <td>{[treinador.city, treinador.state].filter(Boolean).join(' — ') || '—'}</td>
+                  <td><Badge tom={estado.tom}>{estado.rotulo}</Badge></td>
+                  <td className="acoes-da-linha">
+                    {autorizado
+                      ? (
+                        <button type="button" className="button button-secondary" onClick={() => setRevogando(treinador)}>
+                          {t('atuacaoFederacao.revogar')}
+                        </button>
+                      )
+                      : (
+                        <button type="button" className="button button-secondary" onClick={() => setAutorizando(treinador)}>
+                          {t('atuacaoFederacao.autorizar')}
+                        </button>
+                      )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table></div>
+        )}
+      </AsyncSection>
+
+      {autorizando && federacao && (
+        <DialogoDeAutorizacao
+          coach={autorizando} federacaoFixa={federacao} notificar={notificar}
+          onClose={() => setAutorizando(null)} aoPronto={() => treinadores.reload?.()}
+        />
+      )}
+      {revogando && federacao && (
+        <DialogoDeRevogacaoDeAtuacao
+          coach={revogando} federacao={federacao} notificar={notificar}
+          onClose={() => setRevogando(null)} aoPronto={() => treinadores.reload?.()}
+        />
+      )}
+    </section>
+  );
+}
+
+// A revogação EXIGE motivo — o servidor recusa sem ele com 422 REASON_REQUIRED,
+// e a tela pede antes de gastar a viagem. O motivo fica na trilha de auditoria.
+function DialogoDeRevogacaoDeAtuacao({ coach, federacao, notificar, onClose, aoPronto }) {
+  const { t } = useIdioma();
+  const [reason, setReason] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const [recusa, setRecusa] = useState(null);
+
+  const enviar = async evento => {
+    evento.preventDefault();
+    setRecusa(null);
+    setEnviando(true);
+    try {
+      await api.coaches.revokeOrganization(coach.id, { organizationId: federacao.id, reason: reason.trim() });
+      refreshData();
+      notificar?.(t('atuacaoFederacao.revogada'), 'sucesso');
+      aoPronto?.();
+      onClose();
+    } catch (erro) {
+      setRecusa(mensagemDaFalha(erro, t('erro.generico')));
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  return (
+    <Modal title={t('atuacaoFederacao.revogar')} description={`${coach.name} — ${federacao.name}`} onClose={onClose}>
+      <form onSubmit={enviar}>
+        {recusa && (
+          <div className="alert alert-erro" role="alert">
+            <ShieldCheck size={16} />
+            <div><p>{recusa}</p></div>
+          </div>
+        )}
+
+        <Field label={t('analiseTreinador.campoMotivo')} required hint={t('atuacaoFederacao.motivoDica')}>
+          <textarea rows={3} value={reason} onChange={evento => setReason(evento.target.value)} required minLength={3} maxLength={300} />
+        </Field>
+
+        <ModalActions onClose={onClose} saving={enviando} disabled={!reason.trim()} confirmLabel={t('atuacaoFederacao.revogar')} />
       </form>
     </Modal>
   );
@@ -820,13 +994,32 @@ function DialogoDeAutorizacao({ coach, notificar, onClose, aoPronto }) {
 
 export function AdminTreinadores({ notificar }) {
   const { t } = useIdioma();
+  const { user } = useAuth();
   const [status, setStatus] = useState('PENDING');
   const [decisao, setDecisao] = useState(null);
   const [autorizando, setAutorizando] = useState(null);
 
-  const fila = useFetch(() => api.coaches.review({ status }).catch(erro => relancar(erro, {
-    negado: t('analiseTreinador.semPermissao'), generico: t('erro.generico')
-  })), [status]);
+  // O QUE CADA AUTORIDADE VÊ NESTA TELA.
+  //
+  // Isto é CONVENIÊNCIA, e não barreira: quem decide continua sendo o servidor,
+  // em `perm(...)` na rota e `assertCan(...)` no serviço. A tela esconder o que
+  // a conta não pode usar evita o que a homologação manual encontrou no passo
+  // F4 — o diretor de federação recebia duas caixas de "não foi possível
+  // carregar" e um botão de conceder delegação que a API nunca aceitaria.
+  // Oferecer ação que vai ser recusada não é segurança nem cortesia.
+  const pode = podeCom(permissoesDe(user));
+  const podeAnalisar = pode('coaches.approve');
+  const podeAutorizarAtuacao = pode('coaches.authorize_org');
+  const podeDelegar = pode('central.grant');
+
+  const fila = useFetch(
+    () => (podeAnalisar
+      ? api.coaches.review({ status }).catch(erro => relancar(erro, {
+        negado: t('analiseTreinador.semPermissao'), generico: t('erro.generico')
+      }))
+      : Promise.resolve({ items: [] })),
+    [status, podeAnalisar]
+  );
 
   const acoesDoEstado = coach => {
     if (coach.status === 'PENDING') return ['approve', 'reject'];
@@ -840,6 +1033,7 @@ export function AdminTreinadores({ notificar }) {
     <>
       <PageHead eyebrow={t('analiseTreinador.eyebrow')} title={t('analiseTreinador.titulo')} description={t('analiseTreinador.descricao')} />
 
+      {podeAnalisar && (
       <section className="card">
         <div className="card-head">
           <h3>{t('analiseTreinador.fila')}</h3>
@@ -899,8 +1093,11 @@ export function AdminTreinadores({ notificar }) {
           )}
         </AsyncSection>
       </section>
+      )}
 
-      <DelegacaoCentral notificar={notificar} />
+      {podeAutorizarAtuacao && <AtuacaoNaFederacao notificar={notificar} />}
+
+      {podeDelegar && <DelegacaoCentral notificar={notificar} />}
 
       {decisao && (
         <DialogoDeDecisao

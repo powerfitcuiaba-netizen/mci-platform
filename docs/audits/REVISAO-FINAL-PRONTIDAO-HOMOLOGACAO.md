@@ -332,7 +332,7 @@ privilégio — quem decide é o servidor. Por isso vários passos abaixo pedem 
 | T3 | Entrar com **Treinador** e abrir **Treinador** | Aparecem: seus dados, a situação **Aprovado**, **Onde você pode atuar** (Federação QA) e **Minhas equipes** (Equipe QA Alfa) | ______ |
 | T4 | Ler o texto de **Onde você pode atuar** | Ele explica que o cadastro é nacional e que atuar numa federação depende da autorização dela. Uma autorização não vale para as outras (R-04) | ______ |
 | T5 | Convidar o **Atleta** pela matrícula | O convite é criado. O atleta **não** aparece vinculado ainda — vínculo só existe depois que ele confirmar | ______ |
-| T6 | Olhar a lista **Atletas vinculados** | Só dados esportivos: atleta, equipe, data do vínculo, pontos da equipe. **Sem CPF, sem documento, sem telefone, sem e-mail** (R-05) | ______ |
+| T6 | Olhar a lista **Atletas vinculados** | Só dado esportivo e de filiação: atleta, matrícula, equipe, data do vínculo. **Sem CPF, sem documento, sem telefone, sem e-mail** (R-05) | ______ |
 | T7 | Abrir **Ranking de treinadores** no painel | Selo **"Ranking em homologação"** e a frase de que a fórmula não foi homologada. **Nenhum total, nenhuma posição oficial** (§8.3) | ______ |
 | T8 | Tentar transferir ou desvincular um atleta | Não existe essa ação para o treinador. Transferir é poder central (R-02) | ______ |
 | T9 | Procurar, em qualquer tela, uma forma de ver o ranking, as equipes ou os atletas de **outro** treinador | Não existe caminho nenhum na interface. A barreira no servidor (que responde 404 igual para "não existe" e "não é seu", para não servir de oráculo) **não é testável pelo navegador**, porque o token vai no cabeçalho e não na URL: ela está provada pelos 7 testes do bloco A-01 | ______ |
@@ -342,12 +342,12 @@ privilégio — quem decide é o servidor. Por isso vários passos abaixo pedem 
 
 | # | O que fazer | O que observar | APROVA / NÃO APROVA |
 | --- | --- | --- | --- |
-| F1 | Entrar e abrir **Treinadores** no menu | A tela abre na parte que é da federação: **autorizar atuação** | ______ |
+| F1 | Entrar e abrir **Treinadores** no menu | A tela abre com a seção **Atuação na sua federação** | ______ |
 | F2 | Procurar como aprovar um cadastro de treinador | Não existe. Aprovar cadastro é da administração central (R-03) | ______ |
-| F3 | Na mesma tela, tentar usar a parte de **análise central** (a fila de cadastros) | A tela mostra a mensagem de **sem permissão**. A recusa vem do servidor: o menu esconder ou mostrar item não muda o que o servidor aceita | ______ |
-| F4 | Autorizar o treinador recém-aprovado a atuar na Federação QA | A autorização aparece registrada, com autor e data | ______ |
+| F3 | Procurar na tela a fila de análise central e a delegação central | **Não aparecem** — nem como lista, nem como caixa de recusa. A tela do diretor mostra só o que é dele; quem recusa de verdade continua sendo o servidor | ______ |
+| F4 | Na seção **Atuação na sua federação**, clicar em **Autorizar atuação** no treinador aprovado | O diálogo já vem com a sua federação, **sem oferecer outra**, e pede o motivo. Confirmado, a situação da linha passa a **AUTORIZADO** | ______ |
 | F5 | Verificar se essa autorização valeu para outra federação | Não valeu. Cada federação autoriza a sua (R-04) | ______ |
-| F6 | Revogar a autorização | Efeito imediato: o treinador deixa de atuar naquela federação | ______ |
+| F6 | Clicar em **Revogar atuação** | O motivo é obrigatório. Confirmado, a situação vira **REVOGADO** na hora, e o treinador deixa de enxergar os atletas daquela federação | ______ |
 | F7 | Tentar conceder delegação de transferência a alguém | Não existe para a federação. Delegação é ato central (R-02) | ______ |
 | F8 | Abrir a lista de atletas da federação | O diretor vê os atletas da **sua** federação, e não os de outra | ______ |
 
@@ -358,9 +358,9 @@ privilégio — quem decide é o servidor. Por isso vários passos abaixo pedem 
 | A1 | Entrar e abrir **Minha equipe** (`/minha-equipe`) | O convite da Equipe QA Alfa aparece, dizendo de quem é o convite | ______ |
 | A2 | Ler o aviso antes de confirmar | Ele diz que confirmar cria vínculo **exclusivo**, que enquanto durar nenhuma outra equipe pode incluir você, e que sair depende de decisão da administração central | ______ |
 | A3 | Confirmar o vínculo | O vínculo passa a existir. Só agora o atleta aparece na lista do treinador | ______ |
-| A4 | *Só se existir uma segunda equipe no ambiente:* pedir que ela convide você e tentar confirmar | Recusado enquanto o vínculo atual existir — o vínculo é único. O ambiente sintético sobe com **uma** equipe (Equipe QA Alfa); se não houver uma segunda, pule este passo: a exclusividade está provada pela suíte de vínculo | ______ |
+| A4 | Peça ao diretor que crie uma segunda equipe e ao treinador que tente convidar você para ela | A busca por matrícula avisa **"já tem equipe"** antes do pedido, e o pedido é recusado com `ATHLETE_ALREADY_LINKED`. O vínculo é único | ______ |
 | A5 | Procurar como sair do vínculo por conta própria | Não existe. Desvincular é ato central (R-02) | ______ |
-| A6 | Sair da conta e procurar o seu nome na **busca pública de atletas**; depois, logado, abrir **Minha conta** | O CPF **não aparece** na busca pública, nem inteiro nem em parte. O documento enviado para análise não é devolvido pela tela nem para quem o enviou | ______ |
+| A6 | Sair da conta e procurar o seu nome na **lupa do topo** — a busca do cabeçalho, que responde sem sessão | A atleta é encontrada e o CPF **não aparece**, nem inteiro nem mascarado. O documento enviado para análise não é devolvido pela tela nem para quem o enviou | ______ |
 | A7 | Recusar um convite (se houver outro pendente) | Ele vai para **Convites anteriores**, com a data da resposta. Recusar não cria vínculo nenhum | ______ |
 
 ### Fechamento do roteiro

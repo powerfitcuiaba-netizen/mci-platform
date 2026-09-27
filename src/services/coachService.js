@@ -213,6 +213,69 @@ async function listarParaAnalise(filtros, actor) {
   });
 }
 
+// ---------------------------------------------- A LISTA DA FEDERAÇÃO (R-04)
+//
+// Quem autoriza a ATUAÇÃO é a federação; quem aprova o CADASTRO é a mesa
+// central. A separação é de R-03 e R-04, e ela deixou um buraco operacional: a
+// única lista de treinadores da tela era a fila de análise, que exige
+// `coaches.approve`. O diretor de federação, que tem `coaches.authorize_org` e
+// NÃO tem `coaches.approve`, ficava sem lista — e, sem lista, sem o botão de
+// autorizar. Medido na homologação manual (passo F4): a rota de autorização
+// respondia 200 para ele, e a tela não tinha por onde chamá-la.
+//
+// Esta é a lista dele, e ela é ESTREITA de propósito:
+//
+//   * só treinador com cadastro APROVADO — quem não passou pela mesa central
+//     não aparece, e por isso a federação não descobre por aqui quem está em
+//     análise, quem foi recusado nem quem está suspenso. R-03 continua inteira;
+//   * só os campos necessários para decidir: nome, registro profissional e
+//     cidade/estado, que o catálogo já publica a qualquer conta autenticada
+//     (ver `partnerService.SELECT_CATALOGO_DE_TECNICOS`, achado A-13). Nada de
+//     e-mail, telefone, documento, motivo de recusa, revisor ou elo com a conta
+//     de usuário — R-05;
+//   * a situação da autorização vem SÓ da federação pedida. O diretor não fica
+//     sabendo onde mais aquele treinador atua, e isso é deliberado: `where`
+//     filtra por `organizationId`, e a RLS de `CoachOrganization` confere de
+//     novo com `mci_operator_of`.
+const SELECT_PARA_AUTORIZACAO = Object.freeze({
+  id: true, name: true, registration: true, city: true, state: true
+});
+
+async function listarParaAutorizacao(filtros, actor) {
+  // O escopo é o da CONSULTA, e obrigatório no schema. `assertCan` com
+  // organização nomeada é o que impede a soma de permissões de federações
+  // alheias que `effectivePermissions` faz quando o escopo vem nulo.
+  assertCan(actor, 'coaches.authorize_org', filtros.organizationId);
+
+  const treinadores = await prisma.coach.findMany({
+    where: {
+      status: 'APPROVED',
+      ...(filtros.search ? { name: { contains: filtros.search, mode: 'insensitive' } } : {})
+    },
+    select: SELECT_PARA_AUTORIZACAO,
+    orderBy: { name: 'asc' },
+    take: Math.min(Number(filtros.limit) || 50, 200)
+  });
+  if (!treinadores.length) return [];
+
+  const autorizacoes = await prisma.coachOrganization.findMany({
+    where: { organizationId: filtros.organizationId, coachId: { in: treinadores.map(item => item.id) } },
+    select: { id: true, coachId: true, status: true, grantedAt: true, revokedAt: true }
+  });
+  const daFederacao = new Map(autorizacoes.map(linha => [linha.coachId, linha]));
+
+  return treinadores.map(treinador => {
+    const autorizacao = daFederacao.get(treinador.id) ?? null;
+    return {
+      ...treinador,
+      authorization: autorizacao && {
+        id: autorizacao.id, status: autorizacao.status,
+        grantedAt: autorizacao.grantedAt, revokedAt: autorizacao.revokedAt
+      }
+    };
+  });
+}
+
 /** O dossiê de análise. Aqui o documento APARECE — é a mesa da análise, não o painel do treinador. */
 async function carregarParaAnalise(id, actor) {
   assertPermission(actor, 'coaches.approve');
@@ -652,7 +715,8 @@ module.exports = {
   TRANSICOES,
   SELECT_ATLETA_ESPORTIVO,
   autocadastro, meuCadastro, atualizarMeuCadastro,
-  listarParaAnalise, carregarParaAnalise,
+  listarParaAnalise,
+  listarParaAutorizacao, carregarParaAnalise,
   aprovar, rejeitar, suspender, reativar, cancelar,
   autorizarOrganizacao, revogarOrganizacao,
   treinadorAtivoDaConta, recusarTreinadorInativo, assertPodeAtuarNaOrganizacao,

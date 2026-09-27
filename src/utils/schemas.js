@@ -749,6 +749,16 @@ const coachDocumentUpload = z.object({
 
 const coachTeamQuery = z.object({ teamId: id.optional() });
 
+// A LISTA DA FEDERAÇÃO (R-04). `organizationId` é OBRIGATÓRIO, e não é detalhe
+// de validação: é o escopo contra o qual a rota e o serviço conferem
+// `coaches.authorize_org`. Sem ele, `effectivePermissions` somaria as
+// permissões de TODAS as federações do ator — o mesmo buraco que A-02 fechou na
+// delegação central. Escopo ausente aqui seria escopo ausente lá.
+const coachAuthorizableQuery = paginacao.extend({
+  organizationId: id,
+  search: z.string().trim().max(120).optional()
+});
+
 // A BUSCA POR MATRÍCULA. Não há busca por nome, nem por prefixo, nem paginação:
 // a matrícula vem COMPLETA e a resposta é um registro ou nenhum. É a primeira
 // das três contenções de enumeração descritas em `membershipRequestService`.
@@ -1047,7 +1057,7 @@ module.exports = {
   rankingPointEdit, rankingPointPreviewQuery, rankingPointReason, rankingPointAdjust,
   teamCreate, teamCoachSet, companyCreate, coachCreate, gymCreate, brandCreate, sponsorCreate, sponsorshipCreate,
   coachSelfRegister, coachSelfUpdate, coachReviewQuery, coachDecision, coachDecisionWithReason,
-  coachOrgAuthorize, coachOrgRevoke, coachDocumentUpload, coachTeamQuery,
+  coachOrgAuthorize, coachOrgRevoke, coachDocumentUpload, coachTeamQuery, coachAuthorizableQuery,
   athleteAffiliationLookup, membershipRequestCreate, membershipRequestReason,
   membershipRequestAdminApprove, membershipRequestQuery,
   centralGrantCreate, centralGrantRevoke, centralGrantQuery,
