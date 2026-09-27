@@ -75,3 +75,13 @@ uploads-homolog/
 uploads-dr*/
 uploads-recuperado/
 uploads-desastre/
+
+# BACKUP DA RODADA DE MUTAÇÃO — nunca versionado.
+#
+# `scripts/qa/mutantes-*.mjs` salva `<arquivo>.mutante-bak` antes de aplicar cada
+# mutante e restaura depois. Um `git add -A` dado com a rodada em curso capturava
+# o backup E o arquivo MUTADO: aconteceu, e o mutante TE-F1 — que apaga
+# `status: 'APPROVED'` da lista de autorização da federação, violando R-03 — foi
+# commitado e empurrado. Esta linha impede a metade do acidente que é versionar o
+# backup; `tests/higiene-repositorio.test.mjs` recusa o resto.
+*.mutante-bak
