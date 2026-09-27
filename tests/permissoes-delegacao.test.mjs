@@ -29,6 +29,25 @@ const usuario = (extras = {}) => ({
 // NEGATIVOS.
 const PRAZO = '2099-12-31T00:00:00.000Z';
 
+// CADA FIXTURE ISOLA A BARREIRA QUE ELA DIZ MEDIR, E ISSO PRECISOU SER
+// CORRIGIDO.
+//
+// Quando escopo e prazo passaram a ser obrigatórios (achado A-02), duas guardas
+// NOVAS entraram ANTES das antigas em `effectivePermissions`. As fixtures que
+// usavam `organizationId: null` e `expiresAt: null` para medir a lista branca, a
+// não delegabilidade e a matriz de permissões deixaram de medir qualquer uma das
+// três: elas passaram a morrer nas guardas novas, e o teste continuava verde por
+// outro motivo.
+//
+// MEDIDO por mutação (TE-M12): remover a conferência da lista branca na LEITURA
+// passou a SOBREVIVER à suíte. O teste dizia proteger a lista branca e não
+// protegia mais nada.
+//
+// A correção é dar a cada fixture escopo e prazo VÁLIDOS, para que a única coisa
+// entre ela e o poder seja a barreira sob prova. É a diferença entre um teste que
+// passa e um teste que mede.
+const CONCESSAO_VALIDA = Object.freeze({ organizationId: 'orgA', expiresAt: PRAZO });
+
 describe('a concessão viva vira permissão; a que não está viva, não', () => {
   it('concessão com escopo E prazo vale, e vale no escopo declarado', () => {
     const ator = usuario({
@@ -93,8 +112,10 @@ describe('a concessão viva vira permissão; a que não está viva, não', () =>
     // Esta é a barreira contra a linha plantada por fora da rota. O serviço já
     // recusa conceder `central.grant`; aqui prova-se que, mesmo que ela exista
     // na tabela, não vira poder — a cadeia termina em SUPER_ADMIN.
+    // Escopo e prazo VÁLIDOS de propósito: sem eles a linha morreria nas guardas
+    // de A-02 e este teste não mediria a não delegabilidade.
     const ator = usuario({
-      centralGrantsReceived: [{ permission: 'central.grant', organizationId: null, expiresAt: null }]
+      centralGrantsReceived: [{ permission: 'central.grant', ...CONCESSAO_VALIDA }]
     });
     expect(can(ator, 'central.grant', 'orgA')).toBe(false);
     expect(can(ator, 'central.grant', null)).toBe(false);
@@ -102,7 +123,7 @@ describe('a concessão viva vira permissão; a que não está viva, não', () =>
 
   it('permissão inexistente na matriz não vira poder, mesmo gravada', () => {
     const ator = usuario({
-      centralGrantsReceived: [{ permission: 'inventada.total', organizationId: null, expiresAt: null }]
+      centralGrantsReceived: [{ permission: 'inventada.total', ...CONCESSAO_VALIDA }]
     });
     expect(effectivePermissions(ator, 'orgA').has('inventada.total')).toBe(false);
   });
@@ -115,10 +136,13 @@ describe('a concessão viva vira permissão; a que não está viva, não', () =>
     // serviço. A conferência da LEITURA é a que decide — sem ela,
     // `CentralAuthorization` seria uma segunda matriz RBAC, invisível para
     // `tests/matriz-de-autorizacao.mjs`.
+    // AS DUAS COM ESCOPO E PRAZO VÁLIDOS. Medido por mutação: com escopo nulo e
+    // prazo nulo, remover a conferência da lista branca SOBREVIVIA — as linhas
+    // morriam nas guardas de A-02, e a lista branca ficava sem prova.
     const ator = usuario({
       centralGrantsReceived: [
-        { permission: 'results.publish', organizationId: null, expiresAt: null },
-        { permission: 'users.manage', organizationId: 'orgA', expiresAt: null }
+        { permission: 'results.publish', ...CONCESSAO_VALIDA },
+        { permission: 'users.manage', ...CONCESSAO_VALIDA }
       ]
     });
     expect(can(ator, 'results.publish', 'orgA')).toBe(false);

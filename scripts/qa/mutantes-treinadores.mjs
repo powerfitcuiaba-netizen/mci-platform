@@ -136,7 +136,15 @@ const MUTANTES_DE_CODIGO = [
     // banco. É o que permite a este mutante morrer de forma determinística.
     suite: SUITE_DELEGACAO,
     arquivo: 'src/utils/permissions.js',
-    de: "    if (concessao.expiresAt && new Date(concessao.expiresAt) <= agora) continue;",
+    // O ALVO MUDOU COM O ACHADO A-02, e o mutante teve de acompanhar.
+    //
+    // A linha antiga era `if (concessao.expiresAt && new Date(...) <= agora)`,
+    // com o prazo OPCIONAL. Agora são duas: a ausência de prazo torna a linha
+    // inerte, e o vencimento é conferido depois. O mutante mira a segunda.
+    //
+    // Medido: sem esta atualização, ele saía como NÃO APLICADO — e mutante que
+    // não entra no código é mutante que parou de proteger, com cara de resultado.
+    de: "    if (new Date(concessao.expiresAt) <= agora) continue;",
     para: "    if (false) continue;"
   },
   {
