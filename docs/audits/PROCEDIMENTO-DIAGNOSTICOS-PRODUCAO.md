@@ -5,10 +5,10 @@
 Este documento descreve como rodar, em produção, os dois diagnósticos que precedem a decisão
 sobre a migration `20260927030000`. Nada aqui foi executado contra produção.
 
-> **Leia a seção 4 antes de autorizar qualquer coisa.** O segundo diagnóstico, do jeito que
-> está hoje, **devolve um "está tudo certo" falso** em qualquer banco com RLS ativa — o que
-> inclui produção. Provado nesta sessão, em banco sintético. Ele precisa ser corrigido antes de
-> valer como porta de deploy.
+> **O segundo diagnóstico foi corrigido.** Na primeira redação deste documento ele devolvia um
+> "está tudo certo" falso em qualquer banco com RLS ativa — o que inclui produção. A seção 4
+> conta o defeito, a correção e as provas. Os dois diagnósticos estão prontos para rodar; nenhum
+> foi executado contra produção.
 
 ---
 
@@ -85,9 +85,30 @@ a organização relacionados. Classifica em quatro grupos: sem escopo, sem prazo
 conformes. Imprime id da concessão, permissão, **nome e id da conta**, papel, escopo, prazo e
 data da concessão. Sem e-mail.
 
+### Como ele roda
+
+```
+node scripts/diagnostico-delegacoes-inertes.js --listar-admins       # descobre o id
+node scripts/diagnostico-delegacoes-inertes.js <id-de-uma-conta-SUPER_ADMIN>
+```
+
+O id é obrigatório porque a leitura exige contexto de RLS (seção 4). `--listar-admins` existe
+para que ninguém precise escrever uma consulta improvisada ao lado da credencial: ele lê `User`,
+que não tem RLS, e imprime id, nome e situação das contas `SUPER_ADMIN`. Sem e-mail.
+
+### Códigos de saída
+
+| Código | Significado |
+| --- | --- |
+| `0` | nenhuma concessão viva perde efeito |
+| `1` | **há concessão que deixa de conceder** — decisão humana antes de publicar |
+| `2` | **não foi possível ler**: falta id, contexto recusado, conta não administradora, ou falha |
+
+O `2` é a correção principal: antes, "não consigo ler" e "não há nada" saíam iguais.
+
 ---
 
-## 4. O defeito que impede o diagnóstico 2 de valer hoje
+## 4. O defeito que o diagnóstico 2 tinha, e como foi corrigido
 
 `CentralAuthorization` tem, desde a migration `20260926020000`:
 
@@ -102,44 +123,63 @@ e a política de leitura é:
 central_leitura :: (mci_is_platform_admin() OR ("userId" = mci_current_user_id()))
 ```
 
-O script abre um `PrismaClient` **cru**, sem passar por `withUserContext` — portanto sem
-`mci.user_id` na sessão. Com isso `mci_current_user_id()` é nulo, `mci_is_platform_admin()` é
-falso, a política não deixa passar linha nenhuma, e **`FORCE` faz a regra valer inclusive para o
-dono da tabela**, que é o próprio usuário da aplicação (`mci`, sem `SUPERUSER` e sem `BYPASSRLS`).
+A versão anterior abria um `PrismaClient` **cru**, sem passar por `withUserContext` — portanto
+sem `mci.user_id` na sessão. Com isso `mci_current_user_id()` era nulo, `mci_is_platform_admin()`
+era falso, a política não deixava passar linha nenhuma, e **`FORCE` faz a regra valer inclusive
+para o dono da tabela**, que é o próprio usuário da aplicação (`mci`, sem `SUPERUSER` e sem
+`BYPASSRLS`).
 
-### Medido, em banco sintético, nesta sessão
+### Medido, em banco sintético
 
 | Consulta | Linhas |
 | --- | --- |
 | `SET mci.user_id = '<id de um SUPER_ADMIN>'` → `SELECT count(*) FROM "CentralAuthorization"` | **1** |
-| sem contexto — exatamente como o script roda hoje | **0** |
+| sem contexto — como o script rodava | **0** |
 
-E a saída do script, no mesmo banco que tem a concessão:
+E a saída do script, no mesmo banco que tinha a concessão:
 
 ```
 total de linhas vivas .................. 0
 NENHUMA concessão viva perde efeito com a correção de A-02.
 ```
 
-**Código de saída 0.** Isto é um falso "pode publicar". Em produção ele diria a mesma coisa,
-independentemente de quantas delegações existam de verdade.
+**Código de saída 0.** Um "pode publicar" falso, na única pergunta que o script existe para
+responder.
 
-### A correção que proponho
+### A correção
 
-Abrir a transação com o contexto de leitura da administração central, do mesmo jeito que a
-aplicação faz — sem mecanismo novo, sem `BYPASSRLS`, sem `SECURITY DEFINER`, sem afrouxar
-política:
+O defeito de fundo não era a RLS: era a saída **não distinguir** "não há delegação" de "não
+consigo ver delegação nenhuma". São opostos, e apareciam iguais.
 
-1. o script recebe, por argumento, o **id da conta `SUPER_ADMIN`** que autoriza a consulta;
-2. abre uma transação e executa `SELECT set_config('mci.user_id', $1, true)` — o mesmo
-   `SET LOCAL` que `withUserContext` usa em toda requisição autenticada;
-3. faz a leitura **dentro** dessa transação;
-4. se a contagem vier zero **e** o contexto não tiver sido aceito, o script **falha com código
-   2** em vez de dizer que está tudo certo. Um diagnóstico que não consegue ler precisa dizer
-   que não conseguiu ler — nunca dizer que não há nada.
+A leitura passou a acontecer dentro de uma transação com contexto declarado:
 
-O ponto 4 é o que importa mais: hoje a diferença entre "não há delegação" e "não consigo ver
-delegação nenhuma" é invisível na saída, e são coisas opostas.
+```js
+await tx.$queryRaw`SELECT set_config('mci.user_id', ${idDoAdministrador}, true)`;
+const [contexto] = await tx.$queryRaw`
+  SELECT mci_current_user_id() AS usuario, mci_is_platform_admin() AS administrador`;
+```
+
+É o **mesmo `SET LOCAL`** que toda requisição autenticada usa. Nenhum mecanismo novo: sem
+`BYPASSRLS`, sem `SECURITY DEFINER`, sem política afrouxada. O script entra pela porta que já
+existe, em vez de contorná-la.
+
+E duas guardas:
+
+* **contexto não aceito** → código 2, com a explicação de que vazio não é ausência;
+* **conta não é administradora de plataforma** → código 2, porque a política devolveria apenas
+  as concessões daquela conta — leitura parcial apresentada como quadro inteiro.
+
+### As provas
+
+`tests/diagnostico-delegacoes-inertes.test.mjs` roda o script **como processo**, contra o banco
+de teste, e mede saída e código de saída — o que quebrou em produção foi a execução, não uma
+função interna. Sete casos: recusa sem id; enxerga a inerte com contexto; não acusa a conforme;
+recusa conta não administradora; `--listar-admins`; não imprime URL nem e-mail; e o contraste que
+dá sentido ao resto — **banco realmente vazio responde "não há" com código 0**, sem se confundir
+com a recusa.
+
+Dois mutantes defendem a correção: **TE-D1** remove o `set_config` (a leitura volta a acontecer
+sem contexto) e **TE-D2** desativa a guarda de administrador.
 
 ---
 
@@ -191,6 +231,20 @@ Só isso. Nada de `echo $DATABASE_URL`, nada de `env`, nada de `printenv`. Se pr
 ```
 DATABASE_URL="$DATABASE_URL?options=-c%20default_transaction_read_only%3Don" \
   node scripts/diagnostico-treinadores-legados.js
+```
+
+Para o diagnóstico 2, dois comandos — o primeiro descobre o id, o segundo consulta:
+
+```
+node scripts/diagnostico-delegacoes-inertes.js --listar-admins
+node scripts/diagnostico-delegacoes-inertes.js <id-que-apareceu-acima>
+```
+
+com a mesma trava de sessão somente leitura, se quiser a camada 2:
+
+```
+DATABASE_URL="$DATABASE_URL?options=-c%20default_transaction_read_only%3Don" \
+  node scripts/diagnostico-delegacoes-inertes.js <id>
 ```
 
 — a variável é **referenciada**, não escrita, e não aparece na tela. Confira antes se a
@@ -254,9 +308,9 @@ Quem for aprovado antes simplesmente deixa de ser alcançado por ela.
 
 ## 9. O que depende da sua autorização
 
-1. **Corrigir o diagnóstico 2** (seção 4) — sem isso ele não serve como porta de deploy.
-2. **Rodar o diagnóstico 1** em produção, pelo Shell do `mci-api`.
-3. **Rodar o diagnóstico 2**, depois de corrigido.
-4. **Push** dos 25 commits locais — ainda não feito.
+1. **Rodar o diagnóstico 1** em produção, pelo Shell do `mci-api`.
+2. **Rodar o diagnóstico 2** em produção, pelos dois comandos da seção 6.
+3. **Push** dos commits locais — ainda não feito.
 
-Nada das quatro foi executado.
+Nada das três foi executado. A correção do diagnóstico 2 (seção 4) está pronta, testada e
+commitada localmente.

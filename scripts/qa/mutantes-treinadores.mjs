@@ -48,6 +48,7 @@ const SUITE_DELEGACAO = 'tests/permissoes-delegacao.test.mjs';
 const SUITE_R01 = 'tests/r01-equipe-da-epoca.test.mjs';
 const SUITE_RANKING = 'tests/ranking-oficial.test.mjs';
 const SUITE_HARDENING = 'tests/hardening-auditoria-treinadores.test.mjs';
+const SUITE_DIAGNOSTICO = 'tests/diagnostico-delegacoes-inertes.test.mjs';
 
 const MUTANTES_DE_CODIGO = [
   {
@@ -204,6 +205,30 @@ const MUTANTES_DE_CODIGO = [
     arquivo: 'src/services/coachService.js',
     de: "const SELECT_PARA_AUTORIZACAO = Object.freeze({\n  id: true, name: true, registration: true, city: true, state: true\n});",
     para: "const SELECT_PARA_AUTORIZACAO = Object.freeze({\n  id: true, name: true, registration: true, city: true, state: true,\n  email: true, phone: true, userId: true, rejectionReason: true\n});"
+  },
+  // ------------------------------- O DIAGNÓSTICO QUE NÃO ENXERGAVA NADA
+  //
+  // A versão anterior lia `CentralAuthorization` sem contexto e, com FORCE RLS,
+  // via zero linhas — relatando "nenhuma concessão perde efeito" com código 0.
+  // As duas guardas abaixo são o que impede aquilo de voltar.
+  {
+    id: 'TE-D1',
+    descricao: 'diagnóstico: a leitura volta a acontecer sem contexto de RLS',
+    suite: SUITE_DIAGNOSTICO,
+    arquivo: 'scripts/diagnostico-delegacoes-inertes.js',
+    // O `${...}` aqui é TEXTO do arquivo alvo, não interpolação deste script —
+    // é o trecho que precisa casar caractere a caractere.
+    // eslint-disable-next-line no-template-curly-in-string
+    de: "      await tx.$queryRaw`SELECT set_config('mci.user_id', ${idDoAdministrador}, true)`;",
+    para: "      await tx.$queryRaw`SELECT 1`;"
+  },
+  {
+    id: 'TE-D2',
+    descricao: 'diagnóstico: conta não administradora passa a valer como leitura completa',
+    suite: SUITE_DIAGNOSTICO,
+    arquivo: 'scripts/diagnostico-delegacoes-inertes.js',
+    de: "      if (contexto?.administrador !== true) {",
+    para: "      if (false) {"
   },
   {
     id: 'TE-M14',
@@ -416,7 +441,8 @@ const SUITES_DE_CONTROLE = [
   ['delegação', SUITE_DELEGACAO],
   ['R-01', SUITE_R01],
   ['gate de rota', SUITE_GATE],
-  ['endurecimento', SUITE_HARDENING]
+  ['endurecimento', SUITE_HARDENING],
+  ['diagnóstico de delegações', SUITE_DIAGNOSTICO]
 ];
 
 for (const [rotulo, suite] of SUITES_DE_CONTROLE) {
