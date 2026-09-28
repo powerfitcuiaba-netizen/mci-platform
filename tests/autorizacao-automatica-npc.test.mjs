@@ -228,12 +228,20 @@ describe('a automática não desfaz decisão da federação', () => {
     const conta = await criarUsuario({ role: 'COACH', name: 'Treinadora Marta' });
     await cadastrar(conta, 'Marta Treinadora');
 
-    const alheia = comoAtor(conta, tx => tx.coachOrganization.create({
-      data: {
-        coachId: vitima.id, organizationId: orgNpc,
-        status: 'APPROVED', autoGrantedAt: new Date()
-      }
-    }));
+    // A ESCRITA É CRUA, E SEM `RETURNING`, DE PROPÓSITO.
+    //
+    // A primeira versão deste teste usava `tx.coachOrganization.create`, e o
+    // mutante SOBREVIVEU de novo: o Prisma escreve `INSERT ... RETURNING`, e o
+    // `RETURNING` passa por `coach_org_leitura`, que só deixa o DONO da linha
+    // (ou admin, ou operador da federação) ler. A recusa vinha da política de
+    // LEITURA, não da condição do dono na política de ESCRITA — e medir a
+    // barreira errada é o mesmo que não medir.
+    const alheia = comoAtor(conta, tx => tx.$executeRawUnsafe(
+      `INSERT INTO "CoachOrganization"
+         ("id", "coachId", "organizationId", "status", "autoGrantedAt", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, 'APPROVED', now(), now(), now())`,
+      `alheia-${unico('cpo')}`, vitima.id, orgNpc
+    ));
     await expect(alheia, 'autorizar treinador alheio é ato de federação').rejects.toThrow();
 
     expect(await comoAtor(central, tx => tx.coachOrganization.count({ where: { coachId: vitima.id } })),
