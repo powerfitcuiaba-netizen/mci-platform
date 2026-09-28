@@ -195,6 +195,6 @@ O que **pode** ser desfeito sem restore, se necessário, e o custo de cada um:
 * Não autoriza deploy. A autorização é de Helder Falcão, e é separada deste documento.
 * Não autoriza rodar migração à mão em produção. Toda alteração estrutural é reproduzível
   por migration, e é assim que ela sobe.
-* Não autoriza editar dado de produção pelo psql. Os dois diagnósticos são **somente
-  leitura**, e a única escrita prevista é a da migration 5, com o predicado escrito no
-  arquivo.
+* Não autoriza editar dado de produção pelo psql. Os três diagnósticos são **somente
+  leitura** — conferido nos três em 2026-09-28 —, e a única escrita prevista é a da
+  migration 5, com o predicado escrito no arquivo.

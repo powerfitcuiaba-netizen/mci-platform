@@ -292,7 +292,8 @@ estão verdes, e cada correção tem um mutante que a defende.
 2. as decisões **D-1** e **D-2** serem tomadas — a primeira porque define o alcance final de
    R-05, a segunda porque a migration que devolve cadastros a `PENDING` tem efeito operacional
    imediato sobre treinadores que podem estar atuando;
-3. os dois diagnósticos somente leitura rodarem **em produção**, com as saídas guardadas;
+3. os **três** diagnósticos somente leitura rodarem **em produção**, com as saídas guardadas
+   (eram dois nesta redação; o de papel legado `TEAM` entrou com a unificação Treinador (Equipe));
 4. o backup ser verificado por restore numa base descartável.
 
 As três ressalvas técnicas que permanecem, sem eufemismo:

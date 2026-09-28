@@ -1,13 +1,21 @@
-# Procedimento — os dois diagnósticos somente leitura em produção
+# Procedimento — os três diagnósticos somente leitura em produção
 
-**Para:** Helder Falcão · **Data:** 2026-09-27 · **Estado:** proposto, **não executado**
+**Para:** Helder Falcão · **Data:** 2026-09-27 · **Revisado:** 2026-09-28 ·
+**Estado:** proposto, **não executado**
 
-Este documento descreve como rodar, em produção, os dois diagnósticos que precedem a decisão
-sobre a migration `20260927030000`. Nada aqui foi executado contra produção.
+Este documento descreve como rodar, em produção, os **três** diagnósticos somente leitura que
+precedem decisões da administração central — entre elas a decisão sobre a migration
+`20260927030000`. Nada aqui foi executado contra produção.
+
+> **ERAM DOIS, E HOJE SÃO TRÊS.** A primeira redação deste documento se chamava "os dois
+> diagnósticos" porque o terceiro não existia: ele nasceu depois, com a decisão que unificou
+> "Coach" e "Equipe" num único cadastro de **Treinador (Equipe)**, e ficou fora daqui. Um
+> procedimento que promete dois quando existem três treina quem o segue a parar no segundo, e
+> essa é a falha que esta revisão corrige. O diagnóstico 3 está na **seção 5**.
 
 > **O segundo diagnóstico foi corrigido.** Na primeira redação deste documento ele devolvia um
 > "está tudo certo" falso em qualquer banco com RLS ativa — o que inclui produção. A seção 4
-> conta o defeito, a correção e as provas. Os dois diagnósticos estão prontos para rodar; nenhum
+> conta o defeito, a correção e as provas. Os três diagnósticos estão prontos para rodar; nenhum
 > foi executado contra produção.
 
 ---
@@ -18,11 +26,14 @@ sobre a migration `20260927030000`. Nada aqui foi executado contra produção.
 | --- | --- | --- | --- |
 | 1 | `scripts/diagnostico-treinadores-legados.js` | quantos cadastros de treinador voltam a `PENDENTE`, e quais estão **em uso** | migration `20260927030000` |
 | 2 | `scripts/diagnostico-delegacoes-inertes.js` | quais delegações centrais vivas **deixam de conceder** | correção A-02, que já está no código |
+| 3 | `scripts/diagnostico-papel-legado-equipe.js` | quantas contas seguem com o papel legado `TEAM`, e quais **já têm cadastro** de treinador | unificação Treinador (Equipe) |
 
 O primeiro vem antes porque é o que decide o **deploy**: a migration roda sozinha no
 `preDeployCommand` do Render (`npx prisma migrate deploy`). O segundo decide o **aviso**: a
 correção A-02 já está no código e passa a valer no mesmo instante, mas ela não apaga nem altera
-linha nenhuma — o efeito é de leitura.
+linha nenhuma — o efeito é de leitura. O terceiro **não bloqueia deploy nenhum** e vem por último
+de propósito: o que ele mede é uma fila de decisões conta por conta, que existe antes e continua
+existindo depois da publicação.
 
 ---
 
@@ -57,7 +68,7 @@ vai acontecer. `reviewedById` e `reviewedAt` são escritos **exclusivamente** po
 Contagens, e depois uma linha por cadastro que volta a pendente, com **id, nome, data de criação
 e o uso registrado**. Sem e-mail, sem telefone, sem CPF, sem documento. O nome está lá porque é o
 que permite saber **a quem falar** — e é dado pessoal, então trate a saída como material
-restrito (seção 7).
+restrito (seção 8).
 
 ### Código de saída
 
@@ -71,7 +82,7 @@ O `1` é proposital: serve como porta de deploy em automação.
 
 ### Confiabilidade em produção — verificada
 
-`Coach` **não tem RLS habilitada** em migration nenhuma (conferido em todas as 44). A consulta
+`Coach` **não tem RLS habilitada** em migration nenhuma (reconferido em 2026-09-28, nas 47). A consulta
 vê todas as linhas mesmo sem contexto de usuário. **Este diagnóstico é confiável como está.**
 
 ---
@@ -183,17 +194,85 @@ sem contexto) e **TE-D2** desativa a guarda de administrador.
 
 ---
 
-## 5. Como garantir que nada é alterado — três camadas
+## 5. Diagnóstico 3 — contas com o papel legado `TEAM`
 
-**Camada 1 — o código.** Os dois scripts usam apenas `findMany`. Confira você mesmo antes de
-autorizar:
+### Por que ele existe
+
+A decisão aprovada unificou as duas ofertas de cadastro numa só — **Treinador (Equipe)**, que é o
+papel `COACH`. `TEAM` saiu do cadastro aberto e ninguém mais nasce com ele. O que a unificação
+**não** faz, de propósito, é converter as contas que já têm `TEAM`: `TEAM` dá as 14 leituras de
+qualquer conta autenticada e **nenhuma** permissão de treinador; `COACH` dá as mesmas 14 **mais
+cinco**. Converter em massa seria ampliar privilégio de contas reais sem a aprovação central que
+R-03 exige, sem motivo registrado e sem trilha de quem decidiu. A plataforma não faz isso por
+migration, e este script não faz por script.
+
+### O que ele consulta
+
+Uma tabela, `User`, só as linhas com `role = 'TEAM'`, trazendo a relação `coach` (um-para-um por
+`Coach.userId`):
+
+```
+prisma.user.findMany({
+  where: { role: 'TEAM' },
+  select: { id, name, status, createdAt, coach: { select: { id, status } } },
+  orderBy: { createdAt: 'asc' }
+})
+```
+
+Classifica em dois grupos, e a diferença entre eles é exatamente a diferença entre dois caminhos
+administrativos: **já tem cadastro de treinador** (a decisão cadastral já existe; falta só o papel
+da conta) e **não tem** (precisa pedir o cadastro pela rota e passar pela análise central).
+
+### O que ele imprime
+
+O nome do banco consultado, as contagens, e uma linha por conta com **id, nome, situação da conta,
+situação do cadastro quando existe e data de criação**. Sem e-mail, sem telefone, sem CPF, sem
+documento. O nome está lá pelo mesmo motivo do diagnóstico 1 — é o que permite saber a quem falar
+—, e por isso a saída é material restrito (seção 8).
+
+### Códigos de saída
+
+| Código | Significado |
+| --- | --- |
+| `0` | nenhuma conta com o papel legado — a unificação não deixou ninguém para trás |
+| `1` | **há decisão humana pendente**, conta por conta |
+| `2` | falha (ex.: `DATABASE_URL` ausente do ambiente) |
+
+O `1` aqui **não** é porta de deploy: ele não impede publicar a unificação. Impede considerar a
+migração dessas contas como "já resolvida".
+
+### Confiabilidade em produção — verificada
+
+`User` **não tem RLS habilitada** (reconferido em 2026-09-28: `relrowsecurity = false`), então
+esta leitura não depende de contexto de sessão — ao contrário de `CentralAuthorization`, que tem
+`FORCE RLS` e exige `mci.user_id` (seção 4). **Por isso aqui não há id de administrador a
+informar:** se houvesse, seria teatro.
+
+### Como decidir com o resultado
+
+| Resultado | Decisão |
+| --- | --- |
+| `total = 0` | nada a fazer |
+| conta **com** cadastro de treinador | a administração central troca o papel da conta para Treinador (Equipe) em `PATCH /admin/users/:id`, **uma a uma** — a trilha registra quem decidiu |
+| conta **sem** cadastro | a pessoa pede o cadastro na própria área e a administração central analisa. É o fluxo normal, sem atalho |
+
+Nenhum dos dois caminhos é automatizável sem violar R-03, e é por isso que o script só informa.
+
+---
+
+## 6. Como garantir que nada é alterado — três camadas
+
+**Camada 1 — o código.** Os três scripts usam apenas `findMany` (e, nos três, um
+`$queryRaw` de `SELECT current_database()`). Confira você mesmo antes de autorizar:
 
 ```
 grep -nE '\.(create|update|upsert|delete|createMany|updateMany|deleteMany|executeRaw)\(' \
-  scripts/diagnostico-treinadores-legados.js scripts/diagnostico-delegacoes-inertes.js
+  scripts/diagnostico-treinadores-legados.js \
+  scripts/diagnostico-delegacoes-inertes.js \
+  scripts/diagnostico-papel-legado-equipe.js
 ```
 
-A saída esperada é **vazia** — e conferida assim nesta sessão. O parêntese no fim do padrão não
+A saída esperada é **vazia** — conferida assim, nos três, em 2026-09-28. O parêntese no fim do padrão não
 é detalhe: sem ele, `c.createdAt` casa com `create` e a conferência acusa uma escrita que não
 existe. Um comando de verificação que dá falso positivo treina quem revisa a ignorá-lo.
 
@@ -213,11 +292,11 @@ qualquer `UPDATE` é recusado pelo PostgreSQL. Não depende de o script se compo
 servidor que recusa.
 
 **Camada 3 — a trilha.** Os scripts não gravam auditoria porque não fazem ato administrativo. O
-registro do que foi consultado é a saída guardada (seção 7), com data, hora e quem rodou.
+registro do que foi consultado é a saída guardada (seção 8), com data, hora e quem rodou.
 
 ---
 
-## 6. Como executar sem expor credenciais
+## 7. Como executar sem expor credenciais
 
 **Regra:** a `DATABASE_URL` **nunca** é digitada, colada, ecoada ou passada por argumento.
 
@@ -262,6 +341,12 @@ DATABASE_URL="$DATABASE_URL?options=-c%20default_transaction_read_only%3Don" \
   node scripts/diagnostico-delegacoes-inertes.js <id>
 ```
 
+Para o diagnóstico 3, um comando só — não há id a informar, porque `User` não tem RLS:
+
+```
+node scripts/diagnostico-papel-legado-equipe.js
+```
+
 — a variável é **referenciada**, não escrita, e não aparece na tela. Confira antes se a
 `DATABASE_URL` já tem `?`; se tiver, troque `?` por `&`.
 
@@ -272,7 +357,7 @@ medida: numa máquina de desenvolvimento com `.env` presente, rodar com `DATABAS
 ambiente **não falhava** — o script conectava no banco do `.env` e imprimia números
 perfeitamente plausíveis **de outro banco**, sem dizer qual havia lido.
 
-Duas correções, ambas nos dois scripts:
+Duas correções, nos três scripts:
 
 1. a URL é lida do ambiente **antes** do `require`, então "ausente no ambiente" passa a
    significar ausente no ambiente, e a recusa sai com código 2;
@@ -296,7 +381,7 @@ Não use uma máquina de fora: o ganho é justamente não fazer a credencial via
 
 ---
 
-## 7. Como guardar o resultado
+## 8. Como guardar o resultado
 
 A saída contém **nomes de pessoas** — dado pessoal, ainda que mínimo. Tratamento:
 
@@ -320,7 +405,7 @@ A saída contém **nomes de pessoas** — dado pessoal, ainda que mínimo. Trata
 
 ---
 
-## 8. Como ler o resultado e decidir sobre a migration
+## 9. Como ler o resultado e decidir sobre a migration
 
 | Resultado | O que significa | Decisão |
 | --- | --- | --- |
@@ -338,11 +423,14 @@ Quem for aprovado antes simplesmente deixa de ser alcançado por ela.
 
 ---
 
-## 9. O que depende da sua autorização
+## 10. O que depende da sua autorização
 
 1. **Rodar o diagnóstico 1** em produção, pelo Shell do `mci-api`.
-2. **Rodar o diagnóstico 2** em produção, pelos dois comandos da seção 6.
-3. **Push** dos commits locais — ainda não feito.
+2. **Rodar o diagnóstico 2** em produção, pelos dois comandos da seção 7.
+3. **Rodar o diagnóstico 3** em produção, pelo comando único da seção 7.
+4. **Deploy e merge** — nenhum dos dois foi feito, e nenhum será sem autorização expressa.
 
-Nada das três foi executado. A correção do diagnóstico 2 (seção 4) está pronta, testada e
-commitada localmente.
+Nada das quatro foi executado contra produção. Os três scripts estão commitados, e cada um tem
+suíte própria rodando em banco isolado — `tests/diagnostico-treinadores-legados.test.mjs`,
+`tests/diagnostico-delegacoes-inertes.test.mjs` e
+`tests/diagnostico-papel-legado-equipe.test.mjs`.

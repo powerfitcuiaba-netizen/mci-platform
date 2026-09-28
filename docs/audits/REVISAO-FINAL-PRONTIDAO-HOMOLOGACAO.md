@@ -409,7 +409,7 @@ dados voltam. Isso exige janela, base de destino e um responsável — e não fo
 | --- | --- | --- |
 | 1 | **Enviar os commits ao repositório remoto** (`git push`) | Nada foi enviado. Os 12 commits desta missão existem só localmente |
 | 2 | **Abrir ou atualizar pull request** | Não foi aberto nenhum |
-| 3 | **Rodar os dois diagnósticos somente leitura em produção** | Item 7.1 |
+| 3 | **Rodar os três diagnósticos somente leitura em produção** | Item 7.1 · eram dois quando este relatório foi escrito; o terceiro (papel legado `TEAM`) nasceu com a unificação Treinador (Equipe) |
 | 4 | **Executar a migração em produção** (ou deployar, que a executa) | As três migrations novas, com atenção à `20260927030000` |
 | 5 | **Deploy / publicação** | Nada foi publicado |
 | 6 | **Decisões D-1 e D-2** | D-1 define o alcance final de R-05; D-2 tem efeito operacional imediato |
