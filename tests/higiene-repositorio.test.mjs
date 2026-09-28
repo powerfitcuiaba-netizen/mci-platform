@@ -103,6 +103,42 @@ describe('higiene do repositório', () => {
       .toEqual([]);
   });
 
+  // ==========================================================================
+  // NENHUM OBJETO DE EXECUÇÃO ENTRA NO REPOSITÓRIO.
+  //
+  // ACONTECEU TAMBÉM, pelo mesmo mecanismo: `STORAGE_DIR=./uploads-preview` é o
+  // armazenamento que o workflow do preview e a réplica local usam, e a decisão
+  // da foto obrigatória passou a gravar ali a foto de cada treinador de QA. Um
+  // `git add -A` capturou quatro `.webp` sintéticos e os empurrou para a branch.
+  //
+  // Nenhum deles tinha dado pessoal — são imagens 8×8 geradas pelo arreio —, e é
+  // justamente por isso que o teste existe: da próxima vez pode não ser. Foto de
+  // atleta ou de treinador REAL num repositório PÚBLICO é irreversível, porque o
+  // histórico do git preserva o arquivo mesmo depois da remoção.
+  //
+  // A lista é dos diretórios que a aplicação escreve em execução, e cresce junto
+  // com `.gitignore`.
+  // ==========================================================================
+  it('nenhum diretório de armazenamento em execução está rastreado', () => {
+    const DE_EXECUCAO = [
+      'uploads/', 'uploads-test/', 'uploads-preview/', 'uploads-gate/',
+      'uploads-homolog/', 'uploads-recuperado/', 'uploads-desastre/'
+    ];
+    const rastreados = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
+      .split('\n').filter(Boolean);
+    const dentro = rastreados.filter(caminho => DE_EXECUCAO.some(dir => caminho.startsWith(dir)));
+
+    expect(dentro, `objeto de execução rastreado: ${dentro.slice(0, 5).join(', ')}. `
+      + 'Remova com `git rm -r --cached <dir>` e confira se algum arquivo tem dado real — '
+      + 'o histórico do git preserva o que foi empurrado.')
+      .toEqual([]);
+  });
+
+  it('o `.gitignore` recusa o armazenamento do preview', () => {
+    const ignorados = readFileSync('.gitignore', 'utf8');
+    expect(ignorados).toContain('uploads-preview/');
+  });
+
   it('o `.gitignore` recusa backup de mutação', () => {
     // Sem a regra, o próximo `git add -A` durante uma rodada repete o acidente.
     const ignorados = readFileSync('.gitignore', 'utf8');
