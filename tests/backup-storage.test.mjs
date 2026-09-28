@@ -178,3 +178,69 @@ describe.skipIf(!URL_BACKUP)('backup e restauração do storage', () => {
     }
   });
 });
+
+// ============================================================================
+// A CLASSIFICAÇÃO DOS CAMPOS `*Key` RODA EM TODO AMBIENTE — inclusive sem papel
+// de backup provisionado.
+//
+// ESTE BLOCO NASCEU DE UMA FALHA QUE SÓ A CI VIA. `scripts/backup-storage.js`
+// tem uma guarda fail closed: todo campo terminado em `Key` precisa estar
+// classificado — ou aponta para o armazenamento, ou está na lista do que não
+// aponta. Campo desconhecido INTERROMPE o backup, de propósito, porque copiar
+// "o que o banco referencia" sem saber o que é referência seria adivinhar.
+//
+// `CentralAuthorization.activeKey` chegou na migration 20260926020000 e não foi
+// classificada. A consequência não foi backup errado: foi backup NENHUM — o
+// script recusava rodar. E as seis conferências acima, que pegariam isso, só
+// rodam com `BACKUP_DATABASE_URL` no ambiente, o que acontece na CI e não na
+// máquina de quem desenvolve. Resultado: seis reprovações na CI, suíte local
+// verde, e a distância entre as duas coisas medida em horas.
+//
+// A guarda fez o que existe para fazer. O que faltou foi um teste que a
+// exercitasse ONDE QUEM DESENVOLVE OLHA. Este bloco não tem `skipIf`, não abre
+// conexão e não depende de papel nenhum: lê o DMMF do Prisma e a lista do
+// script. Se um campo `*Key` novo entrar sem classificação, reprova aqui.
+// ============================================================================
+describe('todo campo `*Key` do schema está classificado', () => {
+  const CAMPOS_DE_ARQUIVO = /^(storageKey|photoKey|avatarKey|coverKey)$/;
+
+  const listaDoScript = () => {
+    const fonte = fs.readFileSync('scripts/backup-storage.js', 'utf8');
+    const bloco = fonte.slice(fonte.indexOf('const NAO_SAO_ARQUIVO'), fonte.indexOf(']);', fonte.indexOf('const NAO_SAO_ARQUIVO')));
+    return new Set([...bloco.matchAll(/'([A-Za-z]+\.[A-Za-z]+)'/g)].map(m => m[1]));
+  };
+
+  const camposKey = () => {
+    const { Prisma } = require('@prisma/client');
+    const todos = [];
+    for (const modelo of Prisma.dmmf.datamodel.models) {
+      for (const campo of modelo.fields) {
+        if (/Key$/.test(campo.name)) todos.push(`${modelo.name}.${campo.name}`);
+      }
+    }
+    return todos;
+  };
+
+  it('nenhum campo `*Key` fica sem classificação — a guarda do backup não adivinha', () => {
+    const naoSaoArquivo = listaDoScript();
+    const semClassificacao = camposKey().filter(nome => {
+      if (naoSaoArquivo.has(nome)) return false;
+      return !CAMPOS_DE_ARQUIVO.test(nome.split('.')[1]);
+    });
+
+    expect(semClassificacao,
+      'campo `*Key` novo no schema: se aponta para o armazenamento, acrescente o nome '
+      + 'ao padrão em mapearCampos(); se não aponta, liste em NAO_SAO_ARQUIVO, com o '
+      + 'motivo escrito. Sem isso o backup do storage RECUSA RODAR — e a recusa só '
+      + 'aparece onde BACKUP_DATABASE_URL existe, que não é aqui.').toEqual([]);
+  });
+
+  it('a foto do treinador ESTÁ entre os campos que o backup copia', () => {
+    // A decisão da foto obrigatória criou `Coach.photoKey`. Foto de treinador
+    // fora do backup seria perda silenciosa: o dump guardaria a referência e o
+    // arquivo não voltaria.
+    const deArquivo = camposKey().filter(nome => CAMPOS_DE_ARQUIVO.test(nome.split('.')[1]));
+    expect(deArquivo).toContain('Coach.photoKey');
+    expect(deArquivo).toContain('Athlete.photoKey');
+  });
+});
