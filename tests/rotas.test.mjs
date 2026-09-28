@@ -154,6 +154,13 @@ describe('auditoria de rotas', () => {
       // que a API que a anuncia daria avatar quebrado em telas públicas que a
       // própria API mandou exibir.
       /^GET \/api\/v1\/media\/profiles\/:id\/avatar$/,
+      // A FOTO DO TREINADOR: aberta pelo mesmo raciocínio, e pela decisão que a
+      // tornou requisito de ranking. O ranking de treinadores é superfície
+      // pública, e a foto é parte do que ele exibe — servi-la com regra mais
+      // apertada do que a tela que a anuncia daria foto quebrada em página
+      // pública. O que a rota recebe é o id; a chave do objeto é resolvida no
+      // servidor, então não há como pedir arquivo alheio por ela.
+      /^GET \/api\/v1\/media\/coaches\/:id\/photo$/,
       /^GET \/api\/v1\/documents\/event\//
     ];
 

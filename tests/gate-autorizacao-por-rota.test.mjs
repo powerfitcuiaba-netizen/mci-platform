@@ -426,8 +426,8 @@ describe('a matriz e a superfície são o MESMO conjunto', () => {
 });
 
 describe('401 — sem sessão, nenhuma rota mutante executa', () => {
-  it('as 138 rotas mutantes autenticadas recusam requisição sem token', async () => {
-    expect(entradas.length, 'a matriz cobre as rotas mutantes autenticadas').toBe(138);
+  it('as 141 rotas mutantes autenticadas recusam requisição sem token', async () => {
+    expect(entradas.length, 'a matriz cobre as rotas mutantes autenticadas').toBe(141);
     const falhas = [];
     for (const entrada of entradas) {
       const r = await disparar(entrada, null);
@@ -471,6 +471,13 @@ describe('autosserviço e social — o limite é o dono, não a permissão', () 
     expect(daPlataforma.map(e => `${e.m} ${e.p}`).sort())
       .toEqual([
         'DELETE /documents/coach/:id',
+        // AS DUAS ROTAS DE EQUIPE DO TREINADOR entraram com a autorização
+        // automática na NPC (a outra é `POST /coaches/me/teams`, mais abaixo — a
+        // lista é ordenada por assinatura, e `PATCH` vem antes de `POST`).
+        // `teams.create_own` é global por desenho: `Coach` não tem
+        // `organizationId` (R-04), e o limite por federação é RELACIONAL,
+        // conferido no serviço contra `CoachOrganization` APPROVED.
+        'PATCH /coaches/me/teams/:id',
         'POST /categories',
         'POST /central-authorizations',
         'POST /central-authorizations/:id/revoke',
@@ -480,7 +487,8 @@ describe('autosserviço e social — o limite é o dono, não a permissão', () 
         'POST /coaches/:id/documents',
         'POST /coaches/:id/reactivate',
         'POST /coaches/:id/reject',
-        'POST /coaches/:id/suspend'
+        'POST /coaches/:id/suspend',
+        'POST /coaches/me/teams'
       ]);
   });
 

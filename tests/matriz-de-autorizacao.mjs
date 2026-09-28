@@ -287,9 +287,26 @@ export function matriz(f) {
     // então não existe tenant a cruzar nessas rotas. A exclusão é declarada
     // linha por linha, com o motivo, e o gate exige o motivo escrito.
 
-    auto('POST', '/coaches/self-register', '/coaches/self-register',
-      { name: 'Treinadora QA Autocadastro', phone: '65999887766' },
-      'Qualquer conta autenticada se cadastra como treinadora, e o cadastro nasce PENDING por R-03: quem aprova é a administração central. O serviço grava `userId = actor.id` e não aceita id de terceiro — `Coach.userId` é UNIQUE, então a vaga ocupada é sempre a da própria conta.'),
+    // `arquivo: 'photo'` porque a rota virou MULTIPART: a foto é obrigatória e vem
+    // na mesma requisição que cria o cadastro. Sem o anexo o gate mediria a recusa
+    // da foto (422) em vez da autorização, que é o que ele existe para medir.
+    auto('POST', '/coaches/self-register', '/coaches/self-register', null,
+      'Qualquer conta autenticada se cadastra como treinadora. O cadastro nasce APPROVED — a decisão que substituiu a análise central —, e nasce autorizado na NPC, a federação oficial única; em qualquer outra federação a autorização continua sendo ato dela (R-04). O serviço grava `userId = actor.id` e não aceita id de terceiro: `Coach.userId` é UNIQUE, então a vaga ocupada é sempre a da própria conta.',
+      { arquivo: 'photo' }),
+    auto('POST', '/coaches/me/photo', '/coaches/me/photo', null,
+      'O treinador troca a PRÓPRIA foto. O serviço resolve o cadastro por `actor.id` e escreve uma coluna só — não há id de terceiro no caminho, e conta sem cadastro de treinador é recusada antes de qualquer escrita.',
+      { arquivo: 'photo' }),
+
+    // AS DUAS ROTAS DE EQUIPE DO TREINADOR entraram com a autorização automática
+    // na NPC. Elas exigem `teams.create_own`, que NÃO é `teams.manage`: alcançam a
+    // equipe que nasce com o cadastro de quem pede como responsável, e o serviço
+    // confere a autorização de atuação naquela federação antes de gravar.
+    permissao('POST', '/coaches/me/teams', '/coaches/me/teams',
+      { organizationId: f.orgA, name: `Equipe QA do Treinador ${f.sufixo}` }, 'teams.create_own',
+      { escopoDePlataforma: true, porQue: 'A permissão é global por desenho: `Coach` não tem `organizationId` (R-04), e o limite por federação é RELACIONAL — `CoachOrganization` APPROVED —, conferido no serviço. Escopá-la por organização na rota pediria o que o papel do treinador não tem: vínculo em `OrganizationMember`.' }),
+    permissao('PATCH', '/coaches/me/teams/:id', `/coaches/me/teams/${f.teamA}`,
+      { name: `Equipe QA Renomeada ${f.sufixo}` }, 'teams.create_own',
+      { escopoDePlataforma: true, porQue: 'Mesma razão da criação. E a consulta filtra por `coachId` do próprio cadastro: equipe alheia responde 404, não 403 — não divulgação, como nas rotas de ranking (achado A-01).' }),
     auto('PATCH', '/coaches/me', '/coaches/me', { bio: 'Apresentação de QA.' },
       'O treinador corrige os próprios dados de contato. O serviço resolve o cadastro por `actor.id`, e `status` não é campo aceito: mudar o estado é decisão central (R-03), não do interessado.'),
 

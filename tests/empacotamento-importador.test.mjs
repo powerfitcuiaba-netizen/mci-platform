@@ -519,7 +519,32 @@ describe('o calendário não pede migration nenhuma', () => {
       // data e não tem revisor) e o legado que a migration 20260926020000 aprovou
       // sozinha (não tem nem um nem outro). Sem ela, a correção de A-05 não teria
       // como separar o segundo caso do terceiro.
-      '20260927040000_aprovacao_automatica_de_treinador'
+      '20260927040000_aprovacao_automatica_de_treinador',
+      // AUTORIZAÇÃO AUTOMÁTICA NA NPC — a federação oficial única.
+      //
+      // Acrescenta `autoGrantedAt` (coluna ANULÁVEL) e um índice parcial em
+      // "CoachOrganization", e cria UMA política de INSERT.
+      //
+      // A POLÍTICA É O PONTO QUE EXIGE REVISÃO, e é por isso que esta linha tem
+      // comentário: ela permite que o próprio treinador insira a autorização
+      // dele, o que seria perigoso se não fosse conjuntiva. As cinco condições,
+      // todas obrigatórias: status APPROVED, `grantedById` nulo, `autoGrantedAt`
+      // preenchido, o treinador é o da conta que insere E está APPROVED, e a
+      // organização é a dona da entidade oficial (Affiliation ativa com código
+      // NPC) e está ativa. É só de INSERT: com `@@unique([coachId,
+      // organizationId])`, autorização revogada não volta sozinha, e alterar a
+      // linha continua exigindo operador. Nenhuma política existente foi tocada.
+      '20260928010000_autorizacao_automatica_na_npc',
+      // FOTO DE PERFIL OBRIGATÓRIA DO TREINADOR.
+      //
+      // ADITIVA: uma coluna ANULÁVEL em "Coach" (`photoKey`) e um índice parcial
+      // de AUSÊNCIA, que serve ao aviso de regularização. Sem DROP, sem NOT NULL,
+      // sem política tocada e sem escrita em linha nenhuma.
+      //
+      // Anulável de propósito: há treinadores cadastrados antes da decisão, e
+      // `NOT NULL` recusaria toda linha deles. A obrigatoriedade vive na rota e no
+      // serviço, que recusam o autocadastro sem arquivo.
+      '20260928020000_foto_obrigatoria_do_treinador'
     ]);
   });
 });
