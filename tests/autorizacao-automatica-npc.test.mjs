@@ -38,9 +38,9 @@ const cadastrar = async (conta, nome) => {
 // exatamente o que a política do banco consulta (`Affiliation` ativa com código
 // NPC) e o que `officialAffiliationService.organizacaoOficial` resolve. Montar o
 // cenário por outro caminho mediria um acoplamento que não existe em produção.
-const criarEntidadeOficial = async (organizationId, { code = 'NPC' } = {}) => {
+const criarEntidadeOficial = async (organizationId, { code = 'NPC', name = 'NPC - National Physique Committe' } = {}) => {
   const r = await api().post('/api/v1/affiliations').set(central.auth())
-    .send({ organizationId, name: 'NPC - National Physique Committe', code, kind: 'ENTITY' });
+    .send({ organizationId, name, code, kind: 'ENTITY' });
   expect(r.status, JSON.stringify(r.body)).toBeLessThan(300);
   return r.body;
 };
@@ -207,6 +207,38 @@ describe('a automática não desfaz decisão da federação', () => {
     }));
     await expect(noBanco).rejects.toThrow();
   });
+
+  // ESTE TESTE NASCEU DE UM MUTANTE QUE SOBREVIVEU (NF-P2).
+  //
+  // A política nova é conjuntiva, e uma das condições é que o treinador da linha
+  // seja o DA CONTA QUE INSERE. Nenhuma rota tenta o contrário — o serviço sempre
+  // usa o cadastro do próprio autor —, então retirar essa condição da política
+  // não reprovava teste nenhum: a barreira existia e não era medida. A vítima
+  // precisa NÃO ter autorização na NPC, senão o índice único recusaria a linha
+  // pelo motivo errado e o teste passaria sem medir a política.
+  it('o treinador NÃO consegue autorizar OUTRO treinador na oficial', async () => {
+    await comoAtor(central, tx => tx.affiliation.updateMany({ data: { active: false } }));
+    const vitimaConta = await criarUsuario({ role: 'COACH', name: 'Treinador Sem Autorização' });
+    const vitima = await cadastrar(vitimaConta, 'Treinador Sem Autorização');
+    await comoAtor(central, tx => tx.affiliation.updateMany({ data: { active: true } }));
+
+    expect(await comoAtor(central, tx => tx.coachOrganization.count({ where: { coachId: vitima.id } })),
+      'a vítima entra no teste sem autorização nenhuma').toBe(0);
+
+    const conta = await criarUsuario({ role: 'COACH', name: 'Treinadora Marta' });
+    await cadastrar(conta, 'Marta Treinadora');
+
+    const alheia = comoAtor(conta, tx => tx.coachOrganization.create({
+      data: {
+        coachId: vitima.id, organizationId: orgNpc,
+        status: 'APPROVED', autoGrantedAt: new Date()
+      }
+    }));
+    await expect(alheia, 'autorizar treinador alheio é ato de federação').rejects.toThrow();
+
+    expect(await comoAtor(central, tx => tx.coachOrganization.count({ where: { coachId: vitima.id } })),
+      'e nada foi gravado no nome dela').toBe(0);
+  });
 });
 
 describe('a equipe do treinador, criada por ele', () => {
@@ -301,6 +333,35 @@ describe('a equipe do treinador, criada por ele', () => {
 
     // E a fila de análise central segue fechada — R-03.
     expect((await api().get('/api/v1/coaches/review?status=PENDING').set(conta.auth())).status).toBe(403);
+  });
+});
+
+// ESTE BLOCO NASCEU DE UM MUTANTE QUE SOBREVIVEU (NF-M8).
+//
+// Trocar o filtro do código NPC por "a primeira filiação ativa" não reprovava
+// teste nenhum, porque no cenário montado a NPC era a ÚNICA filiação. Num
+// ambiente real ela não é: cada federação estadual tem a sua entidade, e várias
+// são anteriores à NPC. O que este bloco mede é que o serviço escolhe pelo
+// MARCADOR — o mesmo que a política do banco consulta — e não pela ordem.
+describe('a federação oficial é a do código NPC, e não a primeira da fila', () => {
+  it('uma entidade estadual ANTERIOR não recebe a autorização automática', async () => {
+    const estadual = await criarEntidadeOficial(orgOutra, {
+      code: 'FEMT', name: 'Federação Estadual de Mato Grosso'
+    });
+    // A data é fixada à mão para que "anterior" não dependa de quantos
+    // milissegundos separaram duas requisições HTTP.
+    await comoAtor(central, tx => tx.affiliation.update({
+      where: { id: estadual.id }, data: { createdAt: new Date('2020-01-01T00:00:00.000Z') }
+    }));
+
+    const conta = await criarUsuario({ role: 'COACH', name: 'Treinadora Marta' });
+    const cadastro = await cadastrar(conta, 'Marta Treinadora');
+
+    const autorizadas = await comoAtor(central, tx => tx.coachOrganization.findMany({
+      where: { coachId: cadastro.id }, select: { organizationId: true }
+    }));
+    expect(autorizadas.map(a => a.organizationId),
+      'a automática só reconhece a entidade oficial').toEqual([orgNpc]);
   });
 });
 
