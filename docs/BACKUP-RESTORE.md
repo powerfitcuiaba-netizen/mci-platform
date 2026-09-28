@@ -375,6 +375,35 @@ contra um PostgreSQL real, a cada rodada de CI. A pipeline reprova se essa
 suíte for **pulada** — uma suíte que pula silenciosamente é uma suíte que não
 existe.
 
+### INCIDENTE REGISTRADO — a guarda disparou e ficou dois dias sem resposta
+
+**2026-09-26 a 2026-09-28.** A migration `20260926020000`, do módulo Treinadores &
+Equipes, criou `CentralAuthorization.activeKey` — chave de unicidade da delegação
+central viva. Ela termina em `Key` e não foi classificada, então a guarda da linha
+acima fez o que existe para fazer: **parou o backup do storage.**
+
+Fail closed recusa **tudo**, não uma parte. Pelas ~50 horas seguintes,
+`scripts/backup-storage.js` não produzia backup nenhum. Num desastre nessa janela,
+o dump do banco teria as referências e **os arquivos não voltariam** — o cenário
+exato que a fase 12.3 mediu e que este procedimento existe para impedir.
+
+**Por que ninguém respondeu à guarda.** As seis conferências do ensaio de storage
+vivem em `describe.skipIf(!URL_BACKUP)`. `BACKUP_DATABASE_URL` existe na CI e não
+existe na máquina de quem desenvolve, então **localmente o arquivo inteiro é
+pulado**: a regressão local fechava verde com "1 arquivo pulado", e a CI ficava
+vermelha com seis reprovações. Duas verdades ao mesmo tempo, e o defeito morando na
+distância entre elas.
+
+**O que mudou.** `tests/backup-storage.test.mjs` ganhou um bloco **sem `skipIf`**,
+que não abre conexão e não depende de papel provisionado: ele lê o DMMF do Prisma e
+a lista do script, e reprova se qualquer campo `*Key` novo ficar sem classificação.
+Outro teste exige que `Coach.photoKey` esteja entre os campos copiados — foto de
+treinador fora do backup seria perda silenciosa.
+
+**A lição, para a próxima coluna `*Key`:** a guarda não falhou. O que faltava era
+exercitá-la **onde quem desenvolve olha**. Guarda que só dispara num ambiente que
+ninguém acompanha de perto é meia guarda.
+
 ---
 
 ## 10. O que este procedimento NÃO faz
