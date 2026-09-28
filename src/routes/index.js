@@ -60,6 +60,19 @@ const uploadMidia = singleFileUpload('file', { maxBytes: storage.MAX_MEDIA_BYTES
 // Um avatar aparece dezenas de vezes por tela; não há motivo para aceitar os
 // mesmos megabytes de um vídeo de publicação.
 const uploadAvatar = singleFileUpload('file', { maxBytes: storage.MAX_AVATAR_BYTES, tipo: 'avatar' });
+// A FOTO DO TREINADOR. Mesmo teto e mesma lista de tipos do avatar — é foto de
+// perfil, com o mesmo uso. O campo do formulário é `photo`, e não `file`, porque
+// o autocadastro manda foto E campos de texto na mesma requisição: um nome que
+// diz o que é evita que a próxima pessoa a mexer confunda com documento.
+// `arquivoObrigatorio: false` não é afrouxamento: a frase da foto obrigatória é
+// decidida pelo produto e vive no serviço, num lugar só. Com a recusa no
+// middleware, o cliente leria "Nenhum arquivo foi enviado" e a frase combinada
+// nunca sairia. Teto de bytes, lista de tipos e conferência da assinatura dos
+// bytes continuam aqui — o que passa adiante é só a AUSÊNCIA, para o serviço
+// recusá-la com a mensagem certa.
+const uploadFotoTreinador = singleFileUpload('photo', {
+  maxBytes: storage.MAX_AVATAR_BYTES, tipo: 'avatar', arquivoObrigatorio: false
+});
 
 // ============================================================ AUTENTICAÇÃO
 router.post('/auth/register', limiteAutenticacao, validate(s.cadastroCompleto), wrap(c.auth.register));
@@ -388,7 +401,18 @@ router.route('/coaches')
 // O autocadastro NÃO tem `perm(...)`: qualquer conta autenticada pode se
 // cadastrar como treinador, e o cadastro nasce PENDING por R-03. O teto de
 // conteúdo segura a criação em massa.
-router.post('/coaches/self-register', requireAuth, limiteConteudo, validate(s.coachSelfRegister), wrap(c.coaches.autocadastro));
+// O AUTOCADASTRO PASSOU A SER MULTIPART, e é por isso que a foto não tem como
+// ser contornada: ela vem na MESMA requisição que cria o cadastro, e o serviço
+// recusa antes de qualquer escrita quando ela falta. Não existe janela entre
+// "cadastro criado" e "foto enviada" — logo não existe cadastro novo sem foto.
+//
+// A ORDEM DOS MIDDLEWARES IMPORTA: o upload vem ANTES do `validate`, porque é o
+// multer que preenche `req.body` a partir do corpo multipart. Invertido, o schema
+// leria um corpo vazio e recusaria todo cadastro por campo obrigatório ausente.
+router.post('/coaches/self-register', requireAuth, limiteConteudo, limiteUpload, uploadFotoTreinador, validate(s.coachSelfRegister), wrap(c.coaches.autocadastro));
+// A TROCA DA FOTO, depois. Existe separada porque atualizar foto não é refazer
+// cadastro: ela escreve UMA coluna e não toca em vínculo, ponto nem histórico.
+router.post('/coaches/me/photo', requireAuth, limiteUpload, uploadFotoTreinador, wrap(c.coaches.trocarMinhaFoto));
 router.route('/coaches/me')
   .get(requireAuth, wrap(c.coaches.meuCadastro))
   .patch(requireAuth, validate(s.coachSelfUpdate), wrap(c.coaches.atualizarMeuCadastro));
@@ -562,6 +586,10 @@ router.get('/media/profiles/:id/avatar', optionalAuth, validate(s.paramsWithId, 
 // descuido.
 router.get('/media/athlete-requests/:id/photo', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.athleteRequestPhoto));
 router.get('/media/athletes/:id/photo', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.athletePhoto));
+// `optionalAuth`: a foto do treinador aparece no ranking de treinadores, que é
+// superfície pública — mesma razão da foto do atleta na vitrine. O id é tudo o
+// que a rota recebe; a chave do objeto é resolvida no servidor.
+router.get('/media/coaches/:id/photo', optionalAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.coachPhoto));
 
 router.post('/social/reports', requireAuth, limiteConteudo, validate(s.reportCreate), wrap(c.social.report));
 router.get('/social/reports', requireAuth, perm('social.moderate'), validate(s.reportQuery, 'query'), wrap(c.social.listReports));

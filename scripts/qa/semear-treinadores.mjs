@@ -60,6 +60,37 @@ if (!EMAIL_SEMEADOR || !SENHA_SEMEADOR) {
 // banco — em preview o banco é novo a cada execução e ele fica vazio.
 const email = papel => `${papel}${SUFIXO ? `.${SUFIXO}` : ''}@mci.local`;
 
+// A FOTO DE QA, obrigatória no autocadastro de treinador desde a decisão da foto.
+// PNG minúsculo e de verdade: o servidor DECODIFICA os bytes, então um buffer
+// inventado seria recusado — e recusado com razão.
+const FOTO_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAA'
+  + 'EUlEQVQImWM4YaOBFTEMLQkAdntLAQXW6sIAAAAASUVORK5CYII=',
+  'base64'
+);
+
+// O AUTOCADASTRO É MULTIPART: a foto vem na mesma requisição que cria o cadastro.
+// `chamar` manda JSON e não serve aqui — e forçá-lo a servir faria um auxiliar
+// com dois modos, que é como um deles acaba errado.
+async function autocadastrarTreinador(token, campos) {
+  const forma = new FormData();
+  for (const [chave, valor] of Object.entries(campos)) {
+    if (valor !== undefined && valor !== null) forma.append(chave, String(valor));
+  }
+  forma.append('photo', new Blob([FOTO_PNG], { type: 'image/png' }), 'foto.png');
+
+  const resposta = await fetch(`${BASE_API}/coaches/self-register`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: forma
+  });
+  const json = await resposta.json().catch(() => ({}));
+  if (resposta.status >= 400) {
+    throw new Error(`POST /coaches/self-register → ${resposta.status} ${JSON.stringify(json).slice(0, 400)}`);
+  }
+  return json;
+}
+
 async function chamar(caminho, { metodo = 'GET', corpo = null, token = null } = {}) {
   const resposta = await fetch(`${BASE_API}${caminho}`, {
     method: metodo,
@@ -130,9 +161,16 @@ async function principal() {
   });
   const tokenDiretor = await entrar(diretor.user.email);
 
+  // A ENTIDADE OFICIAL, com o CÓDIGO OFICIAL — e isto não é detalhe de nome.
+  //
+  // É este marcador (`Affiliation` ativa com código NPC) que `organizacaoOficial`
+  // resolve e que a política `coach_org_autorizacao_automatica` consulta. Sem ele
+  // a federação de QA seria uma federação comum, o treinador nasceria sem
+  // autorização e o preview não teria como exercer a decisão que ele existe para
+  // homologar. O código era `QA-NPC` antes da decisão da autorização automática.
   const filiacao = await chamar('/affiliations', {
     metodo: 'POST', token: tokenDiretor,
-    corpo: { organizationId: org.id, name: 'NPC Mato Grosso (QA)', code: `QA-NPC${SUFIXO ? `-${SUFIXO}` : ''}` }
+    corpo: { organizationId: org.id, name: 'NPC - National Physique Committe', code: 'NPC', kind: 'ENTITY' }
   });
   await chamar('/seasons', {
     metodo: 'POST', token: tokenDiretor,
@@ -143,9 +181,8 @@ async function principal() {
   const treinador = await registrar('treinador', 'Treinadora Marta');
   await definirPapel(treinador.user.id, 'COACH');
   const tokenTreinador = await entrar(treinador.user.email);
-  const cadastro = await chamar('/coaches/self-register', {
-    metodo: 'POST', token: tokenTreinador,
-    corpo: { name: 'QA Treinadora Marta', registration: 'CREF-QA-9999', phone: '65999887766' }
+  const cadastro = await autocadastrarTreinador(tokenTreinador, {
+    name: 'QA Treinadora Marta', registration: 'CREF-QA-9999', phone: '65999887766'
   });
   // O CADASTRO JÁ NASCE APROVADO — a decisão que substituiu a análise central.
   // Não há passo de aprovação a chamar aqui: `POST /coaches/:id/approve` devolveria
@@ -171,9 +208,7 @@ async function principal() {
   const suspenso = await registrar('treinador.suspenso', 'Treinador Suspenso');
   await definirPapel(suspenso.user.id, 'COACH');
   const tokenSuspenso = await entrar(suspenso.user.email);
-  const cadastroSuspenso = await chamar('/coaches/self-register', {
-    metodo: 'POST', token: tokenSuspenso, corpo: { name: 'QA Treinador Suspenso' }
-  });
+  const cadastroSuspenso = await autocadastrarTreinador(tokenSuspenso, { name: 'QA Treinador Suspenso' });
   await chamar(`/coaches/${cadastroSuspenso.id}/suspend`, {
     metodo: 'POST', token: tokenCentral,
     corpo: { reason: 'Suspensão de QA, para a tela da central ter o que reativar.' }

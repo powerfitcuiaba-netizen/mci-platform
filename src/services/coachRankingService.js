@@ -42,6 +42,41 @@ const ranking = require('./rankingService');
 // projeção já estarão prontas e testadas.
 // ============================================================================
 
+// ============================================================================
+// A FOTO É REQUISITO DE ENTRADA NO RANKING OFICIAL — decisão da foto obrigatória.
+//
+// O QUE ISSO PODE SER, DADO O BLOQUEIO DE §8.3: a fórmula do ranking de
+// treinadores NÃO está homologada, então não existe classificação a filtrar. O
+// requisito entra onde ele PODE existir sem inventar nada:
+//
+//   * na ELEGIBILIDADE — `apto` passa a ser falso e `impedimentos` diz por quê. É
+//     a resposta à pergunta "este treinador entra no ranking oficial?", que é
+//     exatamente a pergunta que a decisão responde;
+//   * na PROJEÇÃO — o mesmo impedimento viaja, para a tela não exibir base de
+//     ranking de quem não entra nele;
+//   * e em `classificacao`, quando ela nascer: o filtro já está escrito aqui, num
+//     lugar só, em vez de espalhado por quem for montar a lista.
+//
+// O QUE ISSO NÃO FAZ, e é o limite que a decisão impõe: não apaga ponto, não
+// apaga resultado, não desfaz vínculo e não muda fórmula nenhuma. Os lançamentos
+// das equipes continuam onde estão, contados e somados como sempre — o que falta
+// é a ENTRADA do treinador no ranking dele, e ela volta no instante em que a foto
+// chegar.
+// ============================================================================
+const FOTO_EXIGIDA_NO_RANKING = 'Envie uma foto de perfil para aparecer no ranking oficial de treinadores. '
+  + 'Sua pontuação, seus resultados e seus vínculos continuam preservados.';
+
+const impedimentosDoRanking = coach => {
+  const achados = [];
+  if (coach.status !== 'APPROVED') {
+    achados.push({ codigo: 'COACH_NOT_APPROVED', mensagem: 'Cadastro de treinador não está aprovado.' });
+  }
+  if (!coach.photoKey) {
+    achados.push({ codigo: 'COACH_PHOTO_REQUIRED', mensagem: FOTO_EXIGIDA_NO_RANKING });
+  }
+  return achados;
+};
+
 const FORMULA_HOMOLOGADA = false;
 const AVISO = 'Ranking em homologação. A fórmula de pontuação de treinadores ainda não foi homologada pela MuscleContest.';
 
@@ -114,13 +149,26 @@ async function elegibilidade({ coachId, seasonId }, actor) {
 
   const coach = await prisma.coach.findUnique({
     where: { id: coachId },
-    select: { id: true, name: true, status: true, teams: { select: { id: true, name: true, organizationId: true } } }
+    select: {
+      id: true, name: true, status: true, photoKey: true,
+      teams: { select: { id: true, name: true, organizationId: true } }
+    }
   });
   if (!coach) throw new AppError(404, 'COACH_NOT_FOUND', 'Treinador não encontrado');
 
+  const impedimentos = impedimentosDoRanking(coach);
+  // `hasPhoto`, e não a chave: a tela decide o aviso com o booleano, e caminho de
+  // armazenamento não vai para o navegador.
+  const identidade = { id: coach.id, name: coach.name, status: coach.status, hasPhoto: Boolean(coach.photoKey) };
+
   const idsDasEquipes = coach.teams.map(equipe => equipe.id);
   if (!idsDasEquipes.length) {
-    return { coach: { id: coach.id, name: coach.name, status: coach.status }, seasonId, teams: [], homologado: FORMULA_HOMOLOGADA, aviso: AVISO };
+    return {
+      coach: identidade, seasonId, teams: [],
+      apto: false,
+      impedimentos: [...impedimentos, { codigo: 'COACH_NO_TEAM', mensagem: 'Nenhuma equipe sob sua responsabilidade.' }],
+      homologado: FORMULA_HOMOLOGADA, aviso: AVISO
+    };
   }
 
   // Agrupado pelo banco: a pergunta é de contagem, e trazer lançamento por
@@ -134,13 +182,17 @@ async function elegibilidade({ coachId, seasonId }, actor) {
   const contagem = new Map(porEquipe.map(linha => [linha.teamId, linha._count._all]));
 
   return {
-    coach: { id: coach.id, name: coach.name, status: coach.status },
+    coach: identidade,
     seasonId,
     teams: coach.teams.map(equipe => ({
       ...equipe,
-      // A CONTAGEM de lançamentos elegíveis — um fato, não uma pontuação.
+      // A CONTAGEM de lançamentos elegíveis — um fato, não uma pontuação. Ela
+      // continua sendo devolvida mesmo com impedimento: o ponto existe e não foi
+      // apagado; o que está barrado é a ENTRADA no ranking.
       lancamentosElegiveis: contagem.get(equipe.id) ?? 0
     })),
+    apto: impedimentos.length === 0,
+    impedimentos,
     homologado: FORMULA_HOMOLOGADA,
     aviso: AVISO
   };
@@ -160,7 +212,10 @@ async function projecao({ coachId, seasonId, categoryId = null, organizationId =
 
   const coach = await prisma.coach.findUnique({
     where: { id: coachId },
-    select: { id: true, name: true, status: true, teams: { select: { id: true, name: true } } }
+    select: {
+      id: true, name: true, status: true, photoKey: true,
+      teams: { select: { id: true, name: true } }
+    }
   });
   if (!coach) throw new AppError(404, 'COACH_NOT_FOUND', 'Treinador não encontrado');
   if (!seasonId) throw new AppError(422, 'SEASON_REQUIRED', 'Informe a temporada');
@@ -173,10 +228,15 @@ async function projecao({ coachId, seasonId, categoryId = null, organizationId =
   const meus = new Set(coach.teams.map(equipe => equipe.id));
 
   return {
-    coach: { id: coach.id, name: coach.name, status: coach.status },
+    coach: { id: coach.id, name: coach.name, status: coach.status, hasPhoto: Boolean(coach.photoKey) },
     seasonId,
     // Cada linha é a linha oficial da equipe, copiada. Nenhum número é criado.
     teams: linhas.filter(linha => meus.has(linha.teamId)),
+    // O MESMO IMPEDIMENTO DA ELEGIBILIDADE viaja aqui, para a tela não exibir
+    // base de ranking de quem não entra nele. As linhas das equipes continuam
+    // vindo: o ponto existe, e não é ele que está barrado.
+    apto: impedimentosDoRanking(coach).length === 0,
+    impedimentos: impedimentosDoRanking(coach),
     // As duas ausências, nomeadas — para que a tela não tenha de adivinhar por
     // que não há total nem posição, e para que um cliente futuro que procure
     // esses campos encontre a razão em vez de um `undefined`.
@@ -259,5 +319,6 @@ async function classificacao() {
 
 module.exports = {
   FORMULA_HOMOLOGADA, AVISO,
+  FOTO_EXIGIDA_NO_RANKING, impedimentosDoRanking,
   assertPodeConsultar, elegibilidade, projecao, divergencias, classificacao
 };

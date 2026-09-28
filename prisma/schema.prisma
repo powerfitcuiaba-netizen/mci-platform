@@ -702,6 +702,23 @@ model Coach {
   /// aprovação automática preenche `reviewedAt` junto, justamente para ficar
   /// fora daquele predicado; sem isso o legado derrubaria treinador legítimo.
   autoApprovedAt  DateTime?
+  /// A FOTO DE PERFIL — obrigatória para CONCLUIR o cadastro, e requisito para
+  /// entrar no ranking oficial de treinadores.
+  ///
+  /// É a CHAVE do objeto no armazenamento, nunca uma URL: quem a resolve é o
+  /// servidor, ao servir `GET /media/coaches/:id/photo`. Mesmo desenho de
+  /// `Athlete.photoKey`, e a razão é a mesma — não existe parâmetro por onde o
+  /// cliente passar uma chave, então trocar o id na URL só alcança o que aquele
+  /// id autoriza.
+  ///
+  /// ANULÁVEL porque há treinadores cadastrados ANTES desta decisão. A
+  /// obrigatoriedade vive na rota e no serviço, que recusam o autocadastro sem
+  /// arquivo; o cadastro antigo é avisado no painel e fica fora do ranking até
+  /// regularizar, sem perder vínculo, resultado, ponto nem histórico.
+  ///
+  /// O índice de ausência (`Coach_sem_foto_idx`) é PARCIAL e vive só na
+  /// migration 20260928020000 — mesma convenção de `autoApprovedAt`.
+  photoKey        String?
   rejectionReason String?
   suspendedReason String?
 

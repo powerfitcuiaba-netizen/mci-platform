@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
   api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, criarAtleta, gerarCpf, unico, comoAtor
+  vincular, criarAtleta, gerarCpf, unico, comoAtor, autocadastrarTreinador
 } from './helpers.mjs';
 
 // ============================================================================
@@ -68,8 +68,7 @@ beforeEach(async () => {
     .send({ userId: contaAtleta.id });
 
   // O autocadastro do treinador, pela rota real.
-  const cadastro = await api().post('/api/v1/coaches/self-register').set(contaTreinador.auth())
-    .send({ name: 'Marta Treinadora', registration: 'CREF-99999', phone: '65999887766' });
+  const cadastro = await autocadastrarTreinador(contaTreinador, { name: 'Marta Treinadora', registration: 'CREF-99999', phone: '65999887766' });
   expect(cadastro.status, JSON.stringify(cadastro.body)).toBe(201);
   coachId = cadastro.body.id;
 
@@ -227,8 +226,7 @@ describe('R-04: identidade global, atuação por federação', () => {
   });
 
   it('não existe cadastro duplicado por federação: a mesma conta não se cadastra duas vezes', async () => {
-    const segundo = await api().post('/api/v1/coaches/self-register').set(contaTreinador.auth())
-      .send({ name: 'Marta Treinadora (outra federação)' });
+    const segundo = await autocadastrarTreinador(contaTreinador, { name: 'Marta Treinadora (outra federação)' });
     expect(segundo.status, JSON.stringify(segundo.body)).toBe(409);
     expect(segundo.body.error.code).toBe('COACH_ALREADY_EXISTS');
   });
@@ -293,8 +291,7 @@ describe('R-05: o treinador vê esporte, nunca documento nem CPF', () => {
     await habilitarTreinador();
 
     const outraConta = await criarUsuario({ role: 'COACH', name: 'Outro Treinador' });
-    const outroCadastro = await api().post('/api/v1/coaches/self-register').set(outraConta.auth())
-      .send({ name: 'Outro Treinador' });
+    const outroCadastro = await autocadastrarTreinador(outraConta, { name: 'Outro Treinador' });
     expect(outroCadastro.status).toBe(201);
 
     const minhas = await api().get('/api/v1/coaches/me/teams').set(outraConta.auth());

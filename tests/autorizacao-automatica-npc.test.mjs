@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
   api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, unico, comoAtor
+  vincular, unico, comoAtor, autocadastrarTreinador
 } from './helpers.mjs';
 
 // ============================================================================
@@ -29,8 +29,7 @@ let orgOutra;
 let diretorOutra;
 
 const cadastrar = async (conta, nome) => {
-  const r = await api().post('/api/v1/coaches/self-register').set(conta.auth())
-    .send({ name: nome, registration: `CREF-${unico('x')}`, phone: '65999887766' });
+  const r = await autocadastrarTreinador(conta, { name: nome, registration: `CREF-${unico('x')}`, phone: '65999887766' });
   expect(r.status, JSON.stringify(r.body)).toBe(201);
   return r.body;
 };
@@ -106,8 +105,7 @@ describe('o cadastro nasce autorizado na NPC', () => {
     const conta = await criarUsuario({ role: 'COACH', name: 'Treinadora Marta' });
     await cadastrar(conta, 'Marta Treinadora');
 
-    const repetido = await api().post('/api/v1/coaches/self-register').set(conta.auth())
-      .send({ name: 'Marta Treinadora' });
+    const repetido = await autocadastrarTreinador(conta, { name: 'Marta Treinadora' });
     expect(repetido.status).toBe(409);
 
     const quantas = await comoAtor(central, tx => tx.coachOrganization.count());

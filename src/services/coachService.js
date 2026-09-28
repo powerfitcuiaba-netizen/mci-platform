@@ -5,6 +5,7 @@ const storage = require('./storageService');
 const audit = require('./auditService');
 const notifications = require('./notificationService');
 const filiacaoOficial = require('./officialAffiliationService');
+const imagem = require('./imagemService');
 
 // ============================================================================
 // MÓDULO TREINADORES & EQUIPES — cadastro, análise central e autorização por
@@ -49,6 +50,11 @@ const SELECT_MEU_CADASTRO = Object.freeze({
   id: true, name: true, status: true, registration: true, bio: true,
   phone: true, email: true, userId: true,
   reviewedAt: true, autoApprovedAt: true, rejectionReason: true, suspendedReason: true,
+  // A CHAVE NÃO SAI, o BOOLEANO sai. A tela precisa saber se há foto (para o
+  // aviso de regularização e para o gate do ranking); conhecer a chave não dá
+  // acesso, mas também não há razão para entregá-la ao navegador — a foto é
+  // servida por `GET /media/coaches/:id/photo`.
+  photoKey: true,
   createdAt: true, updatedAt: true,
   organizations: {
     select: {
@@ -59,6 +65,19 @@ const SELECT_MEU_CADASTRO = Object.freeze({
   },
   teams: { select: { id: true, name: true, organizationId: true, city: true, state: true } }
 });
+
+// A CHAVE DO OBJETO NUNCA VAI PARA O NAVEGADOR — sai um booleano no lugar.
+//
+// A tela precisa saber SE existe foto: é isso que decide o aviso de
+// regularização e o que o gate do ranking explica. Não precisa saber ONDE o
+// objeto está. Conhecer a chave não dá acesso (a entrega é por
+// `GET /media/coaches/:id/photo`, que resolve a chave no servidor), mas entregar
+// caminho de armazenamento a um cliente é vazar topologia de graça.
+const semChave = coach => {
+  if (!coach) return coach;
+  const { photoKey, ...resto } = coach;
+  return { ...resto, hasPhoto: Boolean(photoKey) };
+};
 
 // O que qualquer um pode ver do atleta pela mão do treinador: identidade
 // esportiva e filiação. Sem CPF, sem documento, sem telefone, sem nascimento.
@@ -84,7 +103,7 @@ function assertTransicao(atual, destino) {
 async function carregar(id) {
   const coach = await prisma.coach.findUnique({ where: { id } });
   if (!coach) throw new AppError(404, 'COACH_NOT_FOUND', 'Treinador não encontrado');
-  return coach;
+  return semChave(coach);
 }
 
 /**
@@ -122,6 +141,103 @@ async function carregar(id) {
  * A guarda é de PERMISSÃO, e não de `role === 'COACH'`: o papel é um jeito de
  * ter a permissão, não a permissão. Um SUPER_ADMIN a tem por ter todas.
  */
+// ============================================================================
+// A FOTO DE PERFIL DO TREINADOR — obrigatória para CONCLUIR o cadastro.
+//
+// A MENSAGEM É UMA CONSTANTE, e num lugar só: ela é decidida pelo produto, sai
+// no autocadastro sem arquivo e sai também na troca sem arquivo. Duas cópias
+// divergem na primeira correção que só uma delas receber.
+//
+// A VALIDAÇÃO NÃO É DE TELA. `isAllowedAvatarMime` compara o tipo, e
+// `imagem.normalizar` RECODIFICA os bytes: o que vai para o armazenamento é um
+// WebP produzido aqui, não o arquivo que chegou. Isso é o que faz um .php ou um
+// .svg com script renomeado para .jpg não sobreviver — não há como "passar" um
+// arquivo que não seja imagem de verdade, porque o decodificador falha antes.
+// O teto de bytes é do middleware da rota (`MAX_AVATAR_BYTES`), que recusa antes
+// de o corpo inteiro chegar à memória.
+//
+// NÃO DÁ PARA CONTORNAR PELA API: a obrigatoriedade está no serviço, que é o
+// mesmo caminho da rota. Chamar `POST /coaches/self-register` sem o arquivo
+// devolve 422 com esta frase, e nenhum `Coach` nasce.
+// ============================================================================
+const FOTO_OBRIGATORIA = 'O envio de uma foto de perfil é obrigatório para concluir '
+  + 'seu cadastro e aparecer no ranking oficial de treinadores.';
+
+async function normalizarFoto(arquivo) {
+  if (!arquivo) throw new AppError(422, 'COACH_PHOTO_REQUIRED', FOTO_OBRIGATORIA);
+
+  if (!storage.isAllowedAvatarMime(arquivo.mimeType)) {
+    throw new AppError(415, 'UNSUPPORTED_MEDIA_TYPE',
+      `Foto de perfil aceita apenas ${Object.keys(storage.ALLOWED_AVATAR).join(', ')}`);
+  }
+
+  // Recorte quadrado em WebP, igual ao avatar social: a foto do treinador aparece
+  // em lista e em ranking, e guardar o original de 8 MP para exibir em 40px é
+  // desperdício em toda leitura.
+  return imagem.normalizar(arquivo, 'avatar');
+}
+
+// A CHAVE É DERIVADA DA CONTA, e não do cadastro. No autocadastro o `Coach`
+// ainda não existe quando o arquivo é gravado, e `userId` é único por cadastro
+// de treinador (`@unique`), então serve aos dois momentos — nascimento e troca.
+const chaveDaFoto = (userId, mimeType) => storage.buildKey(`coach-photos/${userId}`, mimeType);
+
+/**
+ * A TROCA DA FOTO, depois do cadastro.
+ *
+ * Não mexe em vínculo, ponto, resultado nem histórico: escreve UMA coluna. O
+ * arquivo antigo só é descartado DEPOIS de o banco apontar para o novo — se a
+ * ordem fosse inversa e a gravação falhasse, o cadastro ficaria apontando para
+ * um arquivo que não existe mais. Órfão é muito melhor que foto quebrada.
+ */
+async function trocarMinhaFoto(arquivo, actor) {
+  assertPermission(actor, 'coaches.read_own');
+
+  const coach = await prisma.coach.findFirst({
+    where: { userId: actor.id },
+    select: { id: true, status: true, photoKey: true }
+  });
+  if (!coach) throw new AppError(404, 'COACH_NOT_FOUND', 'Esta conta não possui cadastro de treinador');
+  if (coach.status === 'CANCELLED') {
+    throw new AppError(422, 'COACH_CANCELLED', 'Cadastro encerrado. Procure a administração da Muscle Contest.');
+  }
+
+  const normalizada = await normalizarFoto(arquivo);
+  const key = chaveDaFoto(actor.id, normalizada.mimeType);
+  await storage.saveBuffer(key, normalizada.buffer);
+
+  const anterior = coach.photoKey;
+  const atualizado = await prisma.coach.update({
+    where: { id: coach.id },
+    data: { photoKey: key },
+    select: SELECT_MEU_CADASTRO
+  });
+
+  if (anterior && anterior !== key) {
+    await storage.descartar(anterior, { motivo: 'foto de treinador substituida', coachId: coach.id });
+  }
+
+  await audit.record({
+    actor, action: audit.ACTIONS.COACH_PHOTO_SET, entity: 'Coach', entityId: coach.id,
+    metadata: { substituiu: Boolean(anterior) }
+  });
+
+  return semChave(atualizado);
+}
+
+/**
+ * A chave para entrega, resolvida PELO SERVIDOR.
+ *
+ * A rota recebe o id do treinador e nada mais — não há parâmetro por onde passar
+ * uma chave, que é o que impede trocar o id na URL de alcançar arquivo alheio.
+ * Mesmo desenho de `Athlete.photoKey`.
+ */
+async function fotoParaEntrega(coachId) {
+  const coach = await prisma.coach.findUnique({ where: { id: coachId }, select: { photoKey: true } });
+  if (!coach || !coach.photoKey) throw new AppError(404, 'PHOTO_NOT_FOUND', 'Treinador sem foto');
+  return coach.photoKey;
+}
+
 // ============================================================================
 // A AUTORIZAÇÃO AUTOMÁTICA NA NPC.
 //
@@ -198,9 +314,14 @@ async function autorizarNaFederacaoOficial(coach, actor) {
   return autorizacao;
 }
 
-async function autocadastro(data, actor) {
+async function autocadastro(data, actor, arquivo = null) {
   if (!actor) throw new AppError(401, 'UNAUTHORIZED', 'Autenticação obrigatória');
   assertPermission(actor, 'coaches.read_own');
+
+  // A FOTO É CONFERIDA ANTES DE QUALQUER ESCRITA, e antes até da consulta de
+  // duplicidade: recusar cedo é o que garante que nenhum `Coach` nasça sem foto
+  // nem por engano nem por chamada direta à API.
+  const foto = await normalizarFoto(arquivo);
 
   const existente = await prisma.coach.findFirst({ where: { userId: actor.id }, select: { id: true, status: true } });
   if (existente) {
@@ -235,6 +356,13 @@ async function autocadastro(data, actor) {
   // ========================================================================
   const agora = new Date();
 
+  // O ARQUIVO VAI ANTES DA LINHA. Se a gravação do objeto falhar, nenhum
+  // cadastro nasce; se a linha falhar depois, sobra um objeto órfão — que é o
+  // lado certo de errar, porque cadastro apontando para arquivo inexistente
+  // apareceria como foto quebrada em ranking e em lista.
+  const chave = chaveDaFoto(actor.id, foto.mimeType);
+  await storage.saveBuffer(chave, foto.buffer);
+
   let coach;
   try {
     coach = await prisma.coach.create({
@@ -247,7 +375,8 @@ async function autocadastro(data, actor) {
         email: data.email ?? null,
         status: 'APPROVED',
         reviewedAt: agora,
-        autoApprovedAt: agora
+        autoApprovedAt: agora,
+        photoKey: chave
       },
       select: SELECT_MEU_CADASTRO
     });
@@ -293,7 +422,7 @@ async function autocadastro(data, actor) {
   // Relido para que a resposta traga a autorização recém-criada: o `coach` do
   // INSERT foi projetado antes de ela existir, e devolver a versão antiga faria
   // a tela mostrar "sem autorização" logo depois de autorizar.
-  return prisma.coach.findUnique({ where: { id: coach.id }, select: SELECT_MEU_CADASTRO });
+  return semChave(await prisma.coach.findUnique({ where: { id: coach.id }, select: SELECT_MEU_CADASTRO }));
 }
 
 /** O treinador lendo o próprio cadastro. Sem documento — R-05. */
@@ -302,7 +431,7 @@ async function meuCadastro(actor) {
 
   const coach = await prisma.coach.findFirst({ where: { userId: actor.id }, select: SELECT_MEU_CADASTRO });
   if (!coach) throw new AppError(404, 'COACH_NOT_FOUND', 'Esta conta não possui cadastro de treinador');
-  return coach;
+  return semChave(coach);
 }
 
 /**
@@ -338,7 +467,7 @@ async function atualizarMeuCadastro(data, actor) {
     metadata: { campos: Object.keys(data) }
   });
 
-  return atualizado;
+  return semChave(atualizado);
 }
 
 // ------------------------------------------------------- ANÁLISE CENTRAL (R-03)
@@ -486,7 +615,7 @@ async function transicionar(id, destino, { reason = null, acao, notificacao }, a
     });
   }
 
-  return atualizado;
+  return semChave(atualizado);
 }
 
 const aprovar = (id, data, actor) => transicionar(id, 'APPROVED', {
@@ -999,5 +1128,6 @@ module.exports = {
   autorizarOrganizacao, revogarOrganizacao,
   treinadorAtivoDaConta, recusarTreinadorInativo, assertPodeAtuarNaOrganizacao,
   minhasEquipes, criarMinhaEquipe, atualizarMinhaEquipe, meusAtletas,
+  FOTO_OBRIGATORIA, trocarMinhaFoto, fotoParaEntrega,
   anexarDocumento, listarDocumentos, baixarDocumento, removerDocumento
 };

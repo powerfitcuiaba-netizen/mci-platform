@@ -13,7 +13,21 @@ const storage = require('../services/storageService');
 // `tipo` decide a lista de tipos aceitos: documento não abre caminho para
 // vídeo, e mídia social não abre caminho para PDF. As duas listas são
 // separadas de propósito.
-function singleFileUpload(fieldName = 'file', { maxBytes = storage.MAX_BYTES, tipo = 'documento' } = {}) {
+// `arquivoObrigatorio: false` NÃO afrouxa nada — muda QUEM diz a frase.
+//
+// A ausência de arquivo tem mensagem de PRODUTO em algumas rotas ("O envio de uma
+// foto de perfil é obrigatório para concluir seu cadastro e aparecer no ranking
+// oficial de treinadores."), decidida pelo negócio e escrita num lugar só, no
+// serviço. Com a recusa aqui, o cliente receberia "Nenhum arquivo foi enviado" e
+// a frase combinada nunca sairia.
+//
+// Então, com a opção desligada, este middleware deixa passar DOIS casos e só
+// eles: corpo sem arquivo e corpo que não é multipart (JSON, tipicamente uma
+// chamada direta à API). Nos dois, `req.file` fica nulo e o serviço recusa — que
+// é o mesmo caminho para qualquer chamador, e por isso não há como contornar.
+// Tudo o mais continua igual: teto de bytes, lista de tipos e a conferência da
+// ASSINATURA dos bytes seguem aqui e seguem recusando.
+function singleFileUpload(fieldName = 'file', { maxBytes = storage.MAX_BYTES, tipo = 'documento', arquivoObrigatorio = true } = {}) {
   const LISTAS = {
     midia: [storage.isAllowedMediaMime, storage.ALLOWED_MEDIA],
     avatar: [storage.isAllowedAvatarMime, storage.ALLOWED_AVATAR],
@@ -25,6 +39,14 @@ function singleFileUpload(fieldName = 'file', { maxBytes = storage.MAX_BYTES, ti
   return (req, res, next) => {
     const tipo = String(req.headers['content-type'] || '');
     if (!tipo.toLowerCase().startsWith('multipart/form-data')) {
+      // Sem arquivo e sem obrigatoriedade aqui: segue com `req.file` nulo, e quem
+      // recusa é o serviço, com a mensagem do produto. `req.body` continua o que
+      // o parser de JSON já montou.
+      if (!arquivoObrigatorio) {
+        req.file = null;
+        req.uploadedFile = null;
+        return next();
+      }
       return next(new AppError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Envie o arquivo como multipart/form-data'));
     }
 
@@ -79,6 +101,13 @@ function singleFileUpload(fieldName = 'file', { maxBytes = storage.MAX_BYTES, ti
         return encerrar(new AppError(413, 'FILE_TOO_LARGE', `Arquivo excede o limite de ${limiteMb} MB`));
       }
       if (!arquivo || !arquivo.buffer.length) {
+        if (!arquivoObrigatorio) {
+          req.body = { ...campos };
+          req.file = null;
+          req.uploadedFile = null;
+          finalizado = true;
+          return next();
+        }
         return encerrar(new AppError(422, 'FILE_REQUIRED', 'Nenhum arquivo foi enviado'));
       }
       if (!aceita(arquivo.mimeType)) {

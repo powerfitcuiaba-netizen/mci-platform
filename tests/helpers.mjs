@@ -153,6 +153,43 @@ export async function vincular(organizationId, usuario, role) {
   return prisma.organizationMember.create({ data: { organizationId, userId: usuario.id, role } });
 }
 
+// ============================================================================
+// A FOTO DE PERFIL DO TREINADOR, obrigatória no autocadastro desde a decisão da
+// foto — e por isso presente em toda fixture que cria treinador.
+//
+// É um PNG DE VERDADE, minúsculo: `imagemService.normalizar` DECODIFICA os bytes
+// com sharp e regrava em WebP, então bytes falsos com nome de imagem falham ali —
+// que é exatamente a barreira que se quer. Um buffer inventado faria a suíte
+// medir o erro em vez do caminho.
+const PNG_8X8 = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAA'
+  + 'EUlEQVQImWM4YaOBFTEMLQkAdntLAQXW6sIAAAAASUVORK5CYII=',
+  'base64'
+);
+
+export const fotoDeTreinador = () => PNG_8X8;
+
+/**
+ * O AUTOCADASTRO DE TREINADOR, pela rota real e com a foto anexada.
+ *
+ * A rota passou a ser `multipart/form-data`: a foto vem na MESMA requisição que
+ * cria o cadastro, e o serviço recusa antes de escrever quando ela falta. Este
+ * auxiliar existe para que a mudança de contrato tenha UM lugar — e para que
+ * nenhuma fixture volte a mandar JSON por engano e reprove por 422.
+ *
+ * Devolve a RESPOSTA, e não o corpo: metade das chamadas quer conferir o status.
+ */
+export function autocadastrarTreinador(conta, dados = {}) {
+  const requisicao = api().post('/api/v1/coaches/self-register').set(conta.auth());
+
+  for (const [campo, valor] of Object.entries(dados)) {
+    if (valor === undefined || valor === null) continue;
+    requisicao.field(campo, String(valor));
+  }
+
+  return requisicao.attach('photo', fotoDeTreinador(), { filename: 'foto.png', contentType: 'image/png' });
+}
+
 // CPFs válidos gerados sob demanda: a validação de dígito é real, então a
 // suíte não pode usar número inventado. A base é embaralhada para nunca cair
 // numa sequência de dígitos repetidos, que a validação recusa de propósito.

@@ -121,9 +121,11 @@ const remove = (path, data) => apiRequest(path, {
 
 // O navegador monta o boundary do multipart sozinho: fixar Content-Type aqui
 // quebraria o envio.
-const upload = (path, arquivo, campos = {}) => {
+// `campo` existe porque nem todo envio usa o nome `file`: a foto do treinador
+// chega em `photo`, e o nome no formulário é parte do contrato da rota.
+const upload = (path, arquivo, campos = {}, campo = 'file') => {
   const form = new FormData();
-  form.append('file', arquivo);
+  form.append(campo, arquivo);
   for (const [chave, valor] of Object.entries(campos)) {
     if (valor !== undefined && valor !== null && valor !== '') form.append(chave, String(valor));
   }
@@ -400,7 +402,11 @@ export const api = {
   // é o que confunde quem lê depois.
   coaches: {
     // O treinador e o que é dele.
-    selfRegister: dados => post('/coaches/self-register', dados),
+    // MULTIPART, e não JSON: a foto vem na MESMA requisição que cria o cadastro,
+    // porque é o que garante que nenhum cadastro nasça sem ela. O servidor recusa
+    // com a frase combinada quando o arquivo falta.
+    selfRegister: (dados, foto) => upload('/coaches/self-register', foto, dados, 'photo'),
+    setMyPhoto: foto => upload('/coaches/me/photo', foto, {}, 'photo'),
     me: () => get('/coaches/me'),
     updateMe: dados => patch('/coaches/me', dados),
     myTeams: () => get('/coaches/me/teams'),

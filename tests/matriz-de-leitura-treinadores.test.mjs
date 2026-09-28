@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import {
   api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, criarAtleta, gerarCpf, unico, comoAtor
+  vincular, criarAtleta, gerarCpf, unico, comoAtor, autocadastrarTreinador
 } from './helpers.mjs';
 
 // ============================================================================
@@ -111,8 +111,7 @@ beforeAll(async () => {
   // Cada um derruba um predicado diferente. É por isso que são cinco perfis e
   // não um: "treinador" sozinho esconderia exatamente o que importa medir.
   const cadastrar = async (conta, nome) => {
-    const r = await api().post('/api/v1/coaches/self-register').set(conta.auth())
-      .send({ name: nome, registration: unico('CREF') });
+    const r = await autocadastrarTreinador(conta, { name: nome, registration: unico('CREF') });
     expect(r.status, JSON.stringify(r.body)).toBe(201);
     return r.body.id;
   };

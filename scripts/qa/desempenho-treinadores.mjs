@@ -61,6 +61,36 @@ const VERDE = s => `\x1b[32m${s}\x1b[0m`;
 const VERMELHO = s => `\x1b[31m${s}\x1b[0m`;
 const CINZA = s => `\x1b[90m${s}\x1b[0m`;
 
+// A FOTO DE QA, obrigatória no autocadastro de treinador desde a decisão da foto.
+// PNG minúsculo e de VERDADE: o servidor decodifica os bytes, então buffer
+// inventado é recusado — e recusado com razão.
+const FOTO_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAA'
+  + 'EUlEQVQImWM4YaOBFTEMLQkAdntLAQXW6sIAAAAASUVORK5CYII=',
+  'base64'
+);
+
+// O autocadastro é MULTIPART: a foto vem na mesma requisição que cria o cadastro.
+async function autocadastrarTreinador(token, campos) {
+  const forma = new FormData();
+  for (const [chave, valor] of Object.entries(campos)) {
+    if (valor !== undefined && valor !== null) forma.append(chave, String(valor));
+  }
+  forma.append('photo', new Blob([FOTO_PNG], { type: 'image/png' }), 'foto.png');
+
+  const resposta = await fetch(`${BASE_API}/coaches/self-register`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: forma
+  });
+  const json = await resposta.json().catch(() => ({}));
+  if (resposta.status >= 400) {
+    throw new Error(`POST /coaches/self-register → ${resposta.status} ${JSON.stringify(json).slice(0, 300)}`);
+  }
+  return json;
+}
+
+
 async function chamar(caminho, { metodo = 'GET', corpo = null, token = null } = {}) {
   const r = await fetch(`${BASE_API}${caminho}`, {
     method: metodo,
@@ -155,9 +185,8 @@ async function principal() {
 
   const treinador = await exigir('/auth/register', { metodo: 'POST', corpo: conta('treinador') });
   const tokenTreinador = (await exigir('/auth/login', { metodo: 'POST', corpo: { email: treinador.user.email, password: SENHA } })).token;
-  const cadastro = await exigir('/coaches/self-register', {
-    metodo: 'POST', token: tokenTreinador,
-    corpo: { name: 'PERF Treinadora', registration: `CREF-PERF-${marca}` }
+  const cadastro = await autocadastrarTreinador(tokenTreinador, {
+    name: 'PERF Treinadora', registration: `CREF-PERF-${marca}`
   });
 
   const resultados = [];

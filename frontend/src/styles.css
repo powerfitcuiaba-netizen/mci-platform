@@ -2602,3 +2602,30 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
   align-items: center;
   justify-content: center;
 }
+
+/* A FOTO DO TREINADOR — no formulário (prévia) e no painel (atual).
+   Quadrada e recortada por `object-fit`: a foto é normalizada em quadrado no
+   servidor, e deixar o navegador esticar uma imagem fora de proporção seria
+   desfazer isso na última etapa. */
+.foto-escolhida {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.foto-escolhida img,
+.foto-do-treinador {
+  width: 96px;
+  height: 96px;
+  border-radius: 12px;
+  object-fit: cover;
+  border: 1px solid var(--borda, rgba(0, 0, 0, .12));
+  background: var(--superficie-2, rgba(0, 0, 0, .04));
+}
+
+.foto-do-treinador {
+  width: 120px;
+  height: 120px;
+  margin-bottom: 12px;
+}

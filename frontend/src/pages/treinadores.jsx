@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ClipboardCheck, IdCard, Search, ShieldCheck, UserPlus, Users2 } from 'lucide-react';
-import { api, refreshData } from '../services/api';
+import { api, fetchMediaObjectUrl, refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
 import {
   AsyncSection, Badge, EmptyState, Field, Modal, ModalActions, PageHead, Skeleton
@@ -82,12 +82,38 @@ function FormularioDeAutocadastro({ notificar, aoConcluir }) {
   const [dados, setDados] = useState({ name: '', registration: '', phone: '', email: '', bio: '' });
   const [enviando, setEnviando] = useState(false);
   const [recusa, setRecusa] = useState(null);
+  // A FOTO E A SUA PRÉVIA. `previa` é um object URL, criado a cada escolha e
+  // revogado junto com a anterior: sem revogar, cada troca deixa um blob preso
+  // na memória do navegador até a aba fechar.
+  const [foto, setFoto] = useState(null);
+  const [previa, setPrevia] = useState(null);
 
   const campo = (chave, valor) => setDados(atual => ({ ...atual, [chave]: valor }));
+
+  const escolherFoto = arquivo => {
+    setPrevia(anterior => {
+      if (anterior) URL.revokeObjectURL(anterior);
+      return arquivo ? URL.createObjectURL(arquivo) : null;
+    });
+    setFoto(arquivo ?? null);
+    setRecusa(null);
+  };
+
+  useEffect(() => () => { if (previa) URL.revokeObjectURL(previa); }, [previa]);
 
   const enviar = async evento => {
     evento.preventDefault();
     setRecusa(null);
+
+    // O BLOQUEIO É AQUI E TAMBÉM NO SERVIDOR, e as duas frases são a MESMA.
+    // A daqui poupa uma ida à rede; a de lá é a que vale, e é ela que impede
+    // cadastro sem foto por chamada direta à API. Se as duas divergirem, quem
+    // manda é o servidor — por isso a mensagem dele não é reescrita na tela.
+    if (!foto) {
+      setRecusa(t('treinador.fotoObrigatoria'));
+      return;
+    }
+
     setEnviando(true);
     try {
       // Só o que tem conteúdo viaja: campo opcional em branco enviado como
@@ -95,7 +121,7 @@ function FormularioDeAutocadastro({ notificar, aoConcluir }) {
       const corpo = Object.fromEntries(
         Object.entries(dados).filter(([, valor]) => String(valor).trim() !== '')
       );
-      await api.coaches.selfRegister(corpo);
+      await api.coaches.selfRegister(corpo, foto);
       refreshData();
       notificar?.(t('treinador.cadastroEnviado'), 'sucesso');
       aoConcluir?.();
@@ -137,8 +163,28 @@ function FormularioDeAutocadastro({ notificar, aoConcluir }) {
         <textarea rows={4} value={dados.bio} onChange={evento => campo('bio', evento.target.value)} maxLength={1000} />
       </Field>
 
+      {/* A FOTO, com prévia e troca ANTES de concluir. O `accept` limita o
+          seletor do sistema; ele não é barreira — quem valida tipo, tamanho e
+          os BYTES é o servidor. */}
+      <Field label={t('treinador.campoFoto')} required hint={t('treinador.campoFotoDica')}>
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          onChange={evento => escolherFoto(evento.target.files?.[0] ?? null)}
+        />
+      </Field>
+
+      {previa && (
+        <div className="foto-escolhida">
+          <img src={previa} alt={t('treinador.fotoPreviaAlt')} width={96} height={96} />
+          <button type="button" className="button button-ghost button-sm" onClick={() => escolherFoto(null)}>
+            {t('treinador.removerEscolha')}
+          </button>
+        </div>
+      )}
+
       <div className="acoes-do-cartao">
-        <button type="submit" className="button button-primary" disabled={enviando}>
+        <button type="submit" className="button button-primary" disabled={enviando || !foto}>
           {t('treinador.enviarCadastro')}
         </button>
       </div>
@@ -364,6 +410,90 @@ function CartaoDeRanking({ coachId }) {
   );
 }
 
+// ====================================================== FOTO NO PAINEL
+//
+// A FOTO ATUAL, o aviso de quem não tem, e a troca — tudo no mesmo cartão, porque
+// é uma coisa só do ponto de vista de quem usa: "minha foto está aí? como troco?".
+//
+// A IMAGEM É BUSCADA COM TOKEN e exposta como object URL (`fetchMediaObjectUrl`),
+// pelo mesmo motivo do avatar social: `<img src>` não manda cabeçalho, e token em
+// query string acabaria em log de servidor, histórico e Referer.
+function FotoDoTreinador({ coachId, temFoto, notificar, aoTrocar }) {
+  const { t } = useIdioma();
+  const [url, setUrl] = useState(null);
+  const [enviando, setEnviando] = useState(false);
+  const [recusa, setRecusa] = useState(null);
+
+  useEffect(() => {
+    if (!temFoto || !coachId) { setUrl(null); return undefined; }
+    let vivo = true;
+    let endereco = null;
+    fetchMediaObjectUrl(`/media/coaches/${coachId}/photo`)
+      .then(criado => {
+        endereco = criado;
+        if (vivo) setUrl(criado); else URL.revokeObjectURL(criado);
+      })
+      .catch(() => { if (vivo) setUrl(null); });
+    return () => {
+      vivo = false;
+      if (endereco) URL.revokeObjectURL(endereco);
+    };
+  }, [coachId, temFoto]);
+
+  const enviar = async arquivo => {
+    if (!arquivo) return;
+    setRecusa(null);
+    setEnviando(true);
+    try {
+      await api.coaches.setMyPhoto(arquivo);
+      refreshData();
+      notificar?.(t('treinador.fotoAtualizada'), 'sucesso');
+      aoTrocar?.();
+    } catch (problema) {
+      setRecusa(mensagemDaFalha(problema, t('erro.generico')));
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h3>{t('treinador.campoFoto')}</h3>
+        <Badge tom={temFoto ? 'sucesso' : 'atencao'}>
+          {t(temFoto ? 'treinador.noRanking' : 'treinador.foraDoRanking')}
+        </Badge>
+      </div>
+
+      {recusa && (
+        <div className="alert alert-erro" role="alert">
+          <ShieldCheck size={16} />
+          <div><p>{recusa}</p></div>
+        </div>
+      )}
+
+      {/* O AVISO DE REGULARIZAÇÃO, para o cadastro anterior à decisão. Ele diz o
+          que fazer E diz o que NÃO se perdeu — que é a parte que tira o susto. */}
+      {!temFoto && (
+        <EmptyState title={t('treinador.semFotoTitulo')} description={t('treinador.semFotoComoResolver')} />
+      )}
+
+      {temFoto && url && (
+        <img className="foto-do-treinador" src={url} alt={t('treinador.fotoAtualAlt')} width={120} height={120} />
+      )}
+
+      <Field label={t(temFoto ? 'treinador.trocarFoto' : 'treinador.enviarFoto')} hint={t('treinador.campoFotoDica')}>
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          disabled={enviando}
+          onChange={evento => enviar(evento.target.files?.[0] ?? null)}
+        />
+      </Field>
+    </section>
+  );
+}
+
 // ============================================================ CRIAR EQUIPE
 //
 // O treinador criando a equipe DELE, na federação em que está autorizado a atuar.
@@ -539,6 +669,13 @@ export function PainelDoTreinador({ notificar }) {
           <div><dt>{t('treinador.desde')}</dt><dd>{formatarData(meu.createdAt)}</dd></div>
         </dl>
       </section>
+
+      <FotoDoTreinador
+        coachId={meu.id}
+        temFoto={Boolean(meu.hasPhoto)}
+        notificar={notificar}
+        aoTrocar={() => cadastro.reload?.()}
+      />
 
       <section className="card">
         <h3>{t('treinador.federacoes')}</h3>

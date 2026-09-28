@@ -328,10 +328,14 @@ module.exports = {
   // ================================================ MÓDULO TREINADORES & EQUIPES
   coaches: {
     // O treinador e o seu próprio cadastro.
-    autocadastro: async (req, res) => res.status(201).json(await coachesService.autocadastro(req.body, req.user)),
+    autocadastro: async (req, res) => res.status(201).json(await coachesService.autocadastro(req.body, req.user, req.file)),
     meuCadastro: async (req, res) => res.json(await coachesService.meuCadastro(req.user)),
     atualizarMeuCadastro: async (req, res) => res.json(await coachesService.atualizarMeuCadastro(req.body, req.user)),
     minhasEquipes: async (req, res) => res.json({ items: await coachesService.minhasEquipes(req.user) }),
+    // `req.file` é o arquivo que o middleware de upload já leu e validou por
+    // tamanho. A obrigatoriedade e a validação de conteúdo são do serviço, que é
+    // o mesmo caminho para qualquer chamador.
+    trocarMinhaFoto: async (req, res) => res.json(await coachesService.trocarMinhaFoto(req.file, req.user)),
     criarMinhaEquipe: async (req, res) => res.status(201).json(await coachesService.criarMinhaEquipe(req.body, req.user)),
     atualizarMinhaEquipe: async (req, res) => res.json(await coachesService.atualizarMinhaEquipe(req.params.id, req.body, req.user)),
     meusAtletas: async (req, res) => res.json({ items: await coachesService.meusAtletas(req.query, req.user) }),
@@ -524,6 +528,15 @@ module.exports = {
     },
     storyMedia: async (req, res) => {
       const { stream, mimeType } = await documents.downloadStoryMedia(req.params.id, req.user);
+      enviarArquivo(res, stream, { mimeType, fileName: req.params.id, inline: true });
+    },
+    // A FOTO DO TREINADOR. `optionalAuth` e não `requireAuth`: ela aparece no
+    // ranking de treinadores, que é superfície pública — a mesma razão pela qual
+    // a foto do atleta aparece na vitrine. O que a rota recebe é o id do
+    // treinador e nada mais: a chave é resolvida no servidor.
+    coachPhoto: async (req, res) => {
+      const chave = await coachesService.fotoParaEntrega(req.params.id);
+      const { stream, mimeType } = await documents.entregarPorChave(chave);
       enviarArquivo(res, stream, { mimeType, fileName: req.params.id, inline: true });
     },
     profileAvatar: async (req, res) => {

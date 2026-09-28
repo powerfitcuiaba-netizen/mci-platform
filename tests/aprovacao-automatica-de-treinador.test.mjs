@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
-  api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao, unico, comoAtor
+  api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao, unico, comoAtor, autocadastrarTreinador
 } from './helpers.mjs';
 
 // ============================================================================
@@ -41,8 +41,7 @@ beforeEach(async () => {
 
 const novoTreinador = async (nome = 'Treinadora Marta') => {
   const conta = await criarUsuario({ role: 'COACH', name: nome });
-  const pedido = await api().post('/api/v1/coaches/self-register').set(conta.auth())
-    .send({ name: `QA ${nome}`, registration: unico('REG').slice(0, 24) });
+  const pedido = await autocadastrarTreinador(conta, { name: `QA ${nome}`, registration: unico('REG').slice(0, 24) });
   return { conta, resposta: pedido };
 };
 

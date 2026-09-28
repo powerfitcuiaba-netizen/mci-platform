@@ -121,6 +121,36 @@ async function chamar(caminho, { metodo = 'GET', corpo = null, token = null } = 
   return json;
 }
 
+// A FOTO DE QA, obrigatória no autocadastro de treinador desde a decisão da foto.
+// PNG minúsculo e de VERDADE: o servidor decodifica os bytes, então buffer
+// inventado é recusado — e recusado com razão.
+const FOTO_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAA'
+  + 'EUlEQVQImWM4YaOBFTEMLQkAdntLAQXW6sIAAAAASUVORK5CYII=',
+  'base64'
+);
+
+// O autocadastro é MULTIPART: a foto vem na mesma requisição que cria o cadastro.
+async function autocadastrarTreinador(token, campos) {
+  const forma = new FormData();
+  for (const [chave, valor] of Object.entries(campos)) {
+    if (valor !== undefined && valor !== null) forma.append(chave, String(valor));
+  }
+  forma.append('photo', new Blob([FOTO_PNG], { type: 'image/png' }), 'foto.png');
+
+  const resposta = await fetch(`${BASE_API}/coaches/self-register`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: forma
+  });
+  const json = await resposta.json().catch(() => ({}));
+  if (resposta.status >= 400) {
+    throw new Error(`POST /coaches/self-register → ${resposta.status} ${JSON.stringify(json).slice(0, 300)}`);
+  }
+  return json;
+}
+
+
 // CPF sintético válido. Dado de QA, e só de QA.
 function cpfDeQa(semente) {
   const base = String(semente).padStart(9, '0').slice(-9).split('').map(Number);
@@ -175,10 +205,7 @@ async function semear() {
   const treinador = await chamar('/auth/register', { metodo: 'POST', corpo: conta('treinador') });
   promover(treinador.user.id, 'COACH');
   const tokenTreinador = (await chamar('/auth/login', { metodo: 'POST', corpo: { email: treinador.user.email, password: SENHA } })).token;
-  const cadastro = await chamar('/coaches/self-register', {
-    metodo: 'POST', token: tokenTreinador,
-    corpo: { name: 'QA Treinadora Marta', registration: 'CREF-QA-9999', phone: '65999887766' }
-  });
+  const cadastro = await autocadastrarTreinador(tokenTreinador, { name: 'QA Treinadora Marta', registration: 'CREF-QA-9999', phone: '65999887766' });
   // O cadastro já nasce APROVADO desde a decisão que substituiu a análise
   // central: chamar `approve` aqui devolveria 422 `COACH_STATUS_UNCHANGED`.
   await chamar(`/coaches/${cadastro.id}/organizations`, {
@@ -189,9 +216,7 @@ async function semear() {
   const pendente = await chamar('/auth/register', { metodo: 'POST', corpo: conta('pendente') });
   promover(pendente.user.id, 'COACH');
   const tokenPendente = (await chamar('/auth/login', { metodo: 'POST', corpo: { email: pendente.user.email, password: SENHA } })).token;
-  const cadastroPendente = await chamar('/coaches/self-register', {
-    metodo: 'POST', token: tokenPendente, corpo: { name: 'QA Treinador Em Analise' }
-  });
+  const cadastroPendente = await autocadastrarTreinador(tokenPendente, { name: 'QA Treinador Em Analise' });
 
   // --------------------------------------------------------------- A EQUIPE
   const equipe = await chamar('/teams', {

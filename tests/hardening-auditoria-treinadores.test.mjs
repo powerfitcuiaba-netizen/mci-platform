@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, criarAtleta, gerarCpf, unico, comoAtor
+  vincular, criarAtleta, gerarCpf, unico, comoAtor, autocadastrarTreinador
 } from './helpers.mjs';
 
 // ============================================================================
@@ -60,8 +60,7 @@ beforeEach(async () => {
   await api().patch(`/api/v1/athletes/${atletaComConta.id}`).set(diretorA.auth())
     .send({ userId: contaAtleta.id });
 
-  const cadastro = await api().post('/api/v1/coaches/self-register').set(contaTreinador.auth())
-    .send({ name: 'Marta Treinadora', registration: 'CREF-77777', phone: '65999887766' });
+  const cadastro = await autocadastrarTreinador(contaTreinador, { name: 'Marta Treinadora', registration: 'CREF-77777', phone: '65999887766' });
   expect(cadastro.status, JSON.stringify(cadastro.body)).toBe(201);
   coachId = cadastro.body.id;
 
@@ -574,8 +573,7 @@ describe('A-03: a leitura de atleta pelo treinador é estreitada e o limite fica
   it('perder a equipe para outro responsável apaga a leitura', async () => {
     await habilitarTreinador();
     const outroCadastro = await criarUsuario({ role: 'COACH', name: 'Outro Treinador' });
-    const outro = await api().post('/api/v1/coaches/self-register').set(outroCadastro.auth())
-      .send({ name: 'Outro Treinador', registration: 'CREF-11111' });
+    const outro = await autocadastrarTreinador(outroCadastro, { name: 'Outro Treinador', registration: 'CREF-11111' });
     expect(outro.status).toBe(201);
     // Responder por equipe exige cadastro aprovado (R-03) — o substituto passa
     // pela mesa central como qualquer outro.

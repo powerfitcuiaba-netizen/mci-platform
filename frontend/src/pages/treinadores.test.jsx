@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
-import { cleanup, render, screen, fireEvent, within } from '@testing-library/react';
+import { describe, it, expect, afterEach, beforeAll, beforeEach, vi } from 'vitest';
+import { cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // ==========================================================================
 // AS TELAS DO MÓDULO TREINADORES & EQUIPES — o que elas NÃO podem fazer.
@@ -83,6 +83,24 @@ beforeEach(() => {
   api.ranking.seasons.mockResolvedValue([{ id: 's2026', name: 'Temporada 2026', year: 2026 }]);
 });
 afterEach(cleanup);
+
+// O ARQUIVO DE VERDADE, num `File` do jsdom: o campo é `<input type="file">`, e
+// `fireEvent.change` com `files` é como o navegador o preenche. O conteúdo não
+// importa aqui — quem valida bytes é o servidor, e isso está medido em
+// tests/foto-obrigatoria-do-treinador.
+const escolherFoto = () => {
+  const campo = document.querySelector('input[type="file"]');
+  const arquivo = new File(['imagem-de-teste'], 'foto.png', { type: 'image/png' });
+  Object.defineProperty(campo, 'files', { value: [arquivo], configurable: true });
+  fireEvent.change(campo);
+  return arquivo;
+};
+
+// `createObjectURL` não existe no jsdom, e a prévia depende dele.
+beforeAll(() => {
+  URL.createObjectURL = URL.createObjectURL || (() => 'blob:previa');
+  URL.revokeObjectURL = URL.revokeObjectURL || (() => {});
+});
 
 describe('painel do treinador', () => {
   it('conta sem cadastro recebe o FORMULÁRIO, e o formulário não tem campo de situação (R-03)', async () => {
@@ -245,11 +263,59 @@ describe('painel do treinador', () => {
 
     render(<PainelDoTreinador notificar={vi.fn()} />);
     fireEvent.change(await screen.findByLabelText(/^Nome/i), { target: { value: 'Marta Treinadora' } });
+    // A FOTO É OBRIGATÓRIA desde a decisão da foto: sem ela o botão fica
+    // desabilitado e o clique não chega ao servidor — então este teste, que mede
+    // a RECUSA DO SERVIDOR, precisa passar da barreira de tela primeiro.
+    escolherFoto();
     // "Concluir cadastro", e não "Enviar para análise": não há mais análise a
     // aguardar — o cadastro nasce aprovado.
     fireEvent.click(screen.getByRole('button', { name: /Concluir cadastro/i }));
 
     expect(await screen.findByText('Esta conta já possui cadastro de treinador.')).toBeTruthy();
+  });
+
+  it('sem foto o envio é bloqueado com A FRASE, e a API não é chamada', async () => {
+    api.coaches.me.mockRejectedValue(Object.assign(new Error('404'), { status: 404 }));
+
+    render(<PainelDoTreinador notificar={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText(/^Nome/i), { target: { value: 'Marta Treinadora' } });
+
+    // O botão nasce desabilitado sem foto: é a barreira mais barata, antes de
+    // qualquer ida à rede.
+    const botao = screen.getByRole('button', { name: /Concluir cadastro/i });
+    expect(botao.disabled).toBe(true);
+    fireEvent.click(botao);
+    expect(api.coaches.selfRegister).not.toHaveBeenCalled();
+  });
+
+  it('a foto escolhida mostra prévia, e a prévia pode ser removida antes de concluir', async () => {
+    api.coaches.me.mockRejectedValue(Object.assign(new Error('404'), { status: 404 }));
+
+    render(<PainelDoTreinador notificar={vi.fn()} />);
+    await screen.findByLabelText(/^Nome/i);
+
+    escolherFoto();
+    expect(await screen.findByAltText(/Prévia da foto/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Concluir cadastro/i }).disabled).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: /^Remover$/i }));
+    expect(screen.queryByAltText(/Prévia da foto/i)).toBeNull();
+    expect(screen.getByRole('button', { name: /Concluir cadastro/i }).disabled).toBe(true);
+  });
+
+  it('a foto viaja junto com o cadastro, na mesma chamada', async () => {
+    api.coaches.me.mockRejectedValue(Object.assign(new Error('404'), { status: 404 }));
+    api.coaches.selfRegister.mockResolvedValue({ id: 'c1', status: 'APPROVED', hasPhoto: true });
+
+    render(<PainelDoTreinador notificar={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText(/^Nome/i), { target: { value: 'Marta Treinadora' } });
+    escolherFoto();
+    fireEvent.click(screen.getByRole('button', { name: /Concluir cadastro/i }));
+
+    await waitFor(() => expect(api.coaches.selfRegister).toHaveBeenCalled());
+    const [corpo, arquivo] = api.coaches.selfRegister.mock.calls[0];
+    expect(corpo.name).toBe('Marta Treinadora');
+    expect(arquivo, 'o arquivo é o segundo argumento, e não um passo separado').toBeInstanceOf(File);
   });
 });
 

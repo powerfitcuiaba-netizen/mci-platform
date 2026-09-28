@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { api, prisma, limparBanco, garantirCatalogo, criarUsuario, unico } from './helpers.mjs';
+import { api, prisma, limparBanco, garantirCatalogo, criarUsuario, unico, autocadastrarTreinador
+} from './helpers.mjs';
 import {
   USER_ROLES, PAPEIS_DE_CADASTRO_ABERTO, PAPEIS_LEGADOS,
   isSelfServiceRole, isLegacyRole
@@ -34,10 +35,20 @@ const SENHA_DO_CONSTRUTOR = 'senha-de-teste-123';
 // As cinco permissões homologadas de Treinador (Equipe). A lista é ESCRITA, e
 // não derivada de `ROLE_PERMISSIONS`: derivá-la faria o teste concordar com
 // qualquer alteração, inclusive com a que ampliasse o conjunto.
+// ERAM CINCO, SÃO SEIS. A sexta é `teams.create_own`, e ela entrou com a decisão
+// da autorização automática na NPC: sem ela o treinador entraria autorizado a
+// atuar e continuaria esperando a federação criar a equipe, que é a espera que a
+// decisão manda tirar do caminho.
+//
+// É a única do conjunto que ESCREVE, e não é `teams.manage` disfarçada: alcança
+// a equipe que nasce com o próprio cadastro como responsável, na federação em que
+// ele está autorizado. `POST /teams`, a rota do operador, continua recusando o
+// treinador com 403 — medido em tests/autorizacao-automatica-npc.
 const PERMISSOES_DE_TREINADOR = [
   'registrations.read',
   'coaches.read_own',
   'teams.read_own',
+  'teams.create_own',
   'athletes.lookup_affiliation',
   'teams.request_membership'
 ];
@@ -81,19 +92,19 @@ describe('a oferta de cadastro tem UMA opção de treinador e equipe', () => {
 });
 
 describe('a unificação não amplia privilégio de ninguém', () => {
-  it('Treinador (Equipe) tem a base de conta comum MAIS as cinco homologadas, e nada além', () => {
+  it('Treinador (Equipe) tem a base de conta comum MAIS as seis homologadas, e nada além', () => {
     const esperado = [...new Set([...BASE_DE_CONTA_COMUM(), ...PERMISSOES_DE_TREINADOR])].sort();
     expect(permissoesDe('COACH')).toEqual(esperado);
   });
 
   it('`TEAM` continua igual a uma conta comum — a unificação é de oferta, não de poder', () => {
     // Medido: `TEAM: operacional()` é `BASE_AUTENTICADO` e nada mais. Copiar as
-    // cinco permissões de `COACH` para cá daria área de treinador a quem nunca
-    // foi aprovado pela administração central (R-03).
+    // seis permissões de `COACH` para cá daria área de treinador a quem nunca
+    // fez o cadastro — e, com `teams.create_own`, poder de criar equipe.
     expect(permissoesDe('TEAM')).toEqual(BASE_DE_CONTA_COMUM());
   });
 
-  it('a diferença entre Treinador (Equipe) e conta comum são exatamente as cinco', () => {
+  it('a diferença entre Treinador (Equipe) e conta comum são exatamente as seis', () => {
     const base = new Set(BASE_DE_CONTA_COMUM());
     const aMais = permissoesDe('COACH').filter(p => !base.has(p));
     expect(aMais).toEqual([...PERMISSOES_DE_TREINADOR].sort());
@@ -111,8 +122,7 @@ describe('o cadastro de Treinador (Equipe) exige a área de treinador', () => {
   beforeAll(() => garantirCatalogo());
   beforeEach(() => limparBanco());
 
-  const pedirCadastro = (conta, nome) => api().post('/api/v1/coaches/self-register').set(conta.auth())
-    .send({ name: nome, registration: unico('REG').slice(0, 24) });
+  const pedirCadastro = (conta, nome) => autocadastrarTreinador(conta, { name: nome, registration: unico('REG').slice(0, 24) });
 
   it('Treinador (Equipe) pede o próprio cadastro e consegue LER o que pediu', async () => {
     const treinador = await criarUsuario({ role: 'COACH', name: 'Treinador Novo' });

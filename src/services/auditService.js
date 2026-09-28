@@ -126,6 +126,10 @@ const ACTIONS = Object.freeze({
   // aprovação cadastral de propósito: são decisões de autoridades diferentes.
   // A equipe passou a ter responsável, e trocar responsável muda quem vê os
   // atletas dela. É decisão, não metadado de atualização de cadastro.
+  // A FOTO DE PERFIL do treinador — gravada no cadastro e trocada depois. Entra
+  // na trilha porque é requisito de ranking: quem conferir por que um treinador
+  // passou a aparecer (ou parou) precisa achar o momento aqui.
+  COACH_PHOTO_SET: 'COACH_PHOTO_SET',
   TEAM_COACH_SET: 'TEAM_COACH_SET',
   // A equipe criada e renomeada PELO PRÓPRIO TREINADOR, na federação em que ele
   // está autorizado a atuar. Ações próprias porque o ator é outro: quando o

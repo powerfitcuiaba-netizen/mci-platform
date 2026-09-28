@@ -44,6 +44,12 @@ if (!WEB || !API || !SENHA_QA) {
   process.exit(1);
 }
 
+const FOTO_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAA'
+  + 'EUlEQVQImWM4YaOBFTEMLQkAdntLAQXW6sIAAAAASUVORK5CYII=',
+  'base64'
+);
+
 const problemas = [];
 const conferir = (rotulo, passou, detalhe = '') => {
   console.log(`  ${passou ? 'PASS  ' : 'FALHOU'}  ${rotulo}${detalhe ? `  ${detalhe}` : ''}`);
@@ -276,14 +282,45 @@ try {
 
   // --------------------------------------------- O CADASTRO DE TREINADOR
   console.log('\n--- o cadastro de treinador nasce aprovado ---');
-  const autocadastro = await chamar('/coaches/self-register', {
-    metodo: 'POST', token,
-    corpo: { name: 'QA Treinador Navegador', registration: `CREF-${marca}`, phone: '65999880001' }
+  // MULTIPART, porque a foto é obrigatória e vem na mesma requisição. O PNG é
+  // minúsculo e de verdade: o servidor decodifica os bytes.
+  const forma = new FormData();
+  forma.append('name', 'QA Treinador Navegador');
+  forma.append('registration', `CREF-${marca}`);
+  forma.append('phone', '65999880001');
+  forma.append('photo', new Blob([FOTO_PNG], { type: 'image/png' }), 'foto.png');
+
+  const respostaDoCadastro = await fetch(`${API}/api/v1/coaches/self-register`, {
+    method: 'POST',
+    headers: { Origin: WEB, Authorization: `Bearer ${token}` },
+    body: forma
   });
+  const autocadastro = {
+    status: respostaDoCadastro.status,
+    corpo: await respostaDoCadastro.json().catch(() => null)
+  };
   conferir('o autocadastro de treinador é aceito', autocadastro.status === 201,
     `status ${autocadastro.status} ${JSON.stringify(autocadastro.corpo).slice(0, 160)}`);
   conferir('e nasce APPROVED, sem fila de análise', autocadastro.corpo?.status === 'APPROVED',
     `status do cadastro: ${autocadastro.corpo?.status}`);
+  conferir('e nasce COM FOTO — ela é obrigatória para concluir', autocadastro.corpo?.hasPhoto === true,
+    `hasPhoto: ${autocadastro.corpo?.hasPhoto}`);
+  conferir('a chave do objeto NÃO vai para o cliente',
+    !JSON.stringify(autocadastro.corpo ?? {}).includes('coach-photos/'));
+
+  // O MESMO CADASTRO SEM FOTO, para provar que a barreira não é de tela.
+  const semFoto = await chamar('/coaches/self-register', {
+    metodo: 'POST', token, corpo: { name: 'QA Sem Foto' }
+  });
+  conferir('autocadastro SEM foto é recusado pela API', semFoto.status === 422,
+    `status ${semFoto.status}`);
+  conferir('e a recusa traz a frase combinada',
+    String(semFoto.corpo?.error?.message || '').includes('foto de perfil é obrigatório'),
+    String(semFoto.corpo?.error?.message || '').slice(0, 90));
+
+  const fotoServida = await fetch(`${API}/api/v1/media/coaches/${autocadastro.corpo?.id}/photo`);
+  conferir('a foto do treinador é servida pela rota de mídia', fotoServida.status === 200,
+    `status ${fotoServida.status}`);
 
   const meu = await chamar('/coaches/me', { token });
   conferir('a área do treinador abre imediatamente', meu.status === 200, `status ${meu.status}`);
