@@ -393,6 +393,67 @@ jobs:
             echo "público OK: $alvo"
           done
 
+      # O CADASTRO É VERIFICADO PRIMEIRO, E É O PASSO QUE FALTAVA.
+      #
+      # O responsável abriu o preview, preencheu o cadastro de Treinador
+      # (Equipe), clicou em "Criar conta" e leu "Não foi possível conectar à
+      # API." — com a verificação abaixo tendo passado. As duas coisas eram
+      # verdadeiras: `preview-verificacao.mjs` mede saúde, CORS, ranking
+      # público, segurança e o fluxo do operador, e nunca tocou
+      # `POST /auth/register`. O caminho que a pessoa usou não estava medido, e
+      # por isso um preview podia ser anunciado com ele quebrado.
+      - name: Verificar o cadastro de treinador no navegador
+        id: verificacao_cadastro
+        continue-on-error: true
+        run: |
+          set -e
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+          node scripts/qa/cadastro-treinador-navegador.mjs \
+            --web "$URL_WEB" \
+            --api "$URL_API" \
+            --senha "$DEMO_PASSWORD" \
+            --diretor "$TREINADORES_EMAIL_DIRETOR" \
+            --central "$TREINADORES_EMAIL_CENTRAL"
+
+      # REINÍCIO SÓ PARA ZERAR A CONTAGEM DO LIMITADOR, entre as duas
+      # verificações. Cada uma faz entradas de verdade, e `limiteAutenticacao`
+      # corta em 10 chamadas de `/auth/*` por origem a cada 15 minutos: somadas,
+      # as duas passam perto do teto, e a segunda levaria 429 por causa da
+      # primeira — medindo o limitador em vez do ambiente.
+      #
+      # Nada foi anunciado ainda neste ponto (a URL só é publicada depois), o
+      # limitador continua LIGADO no processo que sobe aqui, e o estado dele vive
+      # no processo: reiniciar zera a contagem sem afrouxar nada.
+      - name: Zerar a contagem do limitador entre as verificações
+        env:
+          NODE_ENV: production
+          PORT: '4700'
+          BCRYPT_ROUNDS: '12'
+          RATE_LIMIT_ENABLED: 'true'
+          TRUST_PROXY_HOPS: '1'
+          LOG_LEVEL: info
+          STORAGE_DRIVER: local
+          ALLOW_LOCAL_STORAGE: 'true'
+          STORAGE_DIR: ./uploads-preview
+          DEFAULT_TIMEZONE: America/Sao_Paulo
+        run: |
+          set -e
+          if [ -f /tmp/api.pid ]; then kill "$(cat /tmp/api.pid)" 2>/dev/null || true; fi
+          sleep 2
+          CORS_ORIGINS="$URL_WEB" nohup node server.js > /tmp/api.log 2>&1 &
+          echo $! > /tmp/api.pid
+          for _ in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:${PORTA_API}/health" >/dev/null 2>&1; then
+              echo "API reiniciada; contagem do limitador zerada."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "a API não voltou:" >&2
+          tail -60 /tmp/api.log >&2
+          exit 1
+
       # ------------------------------------------------------- §5 §6 §10–§14
       - name: Verificar o preview pela URL pública
         id: verificacao
@@ -429,6 +490,8 @@ jobs:
             echo "| SHA | ${SHA_PUBLICADO} |"
             echo "| AMBIENTE | QA/PREVIEW |"
             echo "| VERIFICAÇÃO | ${{ steps.verificacao.outcome }} |"
+            echo "| VERIFICAÇÃO DO CADASTRO | ${{ steps.verificacao_cadastro.outcome }} |"
+            echo "| EXPIRA EM | $(date -u -d "+${MINUTOS_NO_AR} minutes" '+%Y-%m-%d %H:%M UTC') · $(TZ=America/Sao_Paulo date -d "+${MINUTOS_NO_AR} minutes" '+%d/%m %H:%M') (Brasília) |"
             echo "| OPERADOR | ${EMAIL_OPERADOR} |"
             echo "| ATLETA | ${EMAIL_ATLETA} |"
             echo "| SENHA (todas) | ${DEMO_PASSWORD} |"
@@ -466,6 +529,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
+          # O PRAZO ABSOLUTO, e não só a duração.
+          #
+          # O arquivo dizia "vive por 330 minutos" e nada mais. Quem lê depois
+          # não sabe quando ele subiu, então não sabe se a URL ainda vale — e o
+          # primeiro sinal de que a janela fechou é a tela dizendo "Não foi
+          # possível conectar à API." no meio de um cadastro, que é o que
+          # aconteceu. A hora de expirar sai aqui, nos dois fusos.
+          EXPIRA_UTC="$(date -u -d "+${MINUTOS_NO_AR} minutes" '+%Y-%m-%d %H:%M UTC')"
+          EXPIRA_BR="$(TZ=America/Sao_Paulo date -d "+${MINUTOS_NO_AR} minutes" '+%d/%m %H:%M')"
           cat > /tmp/PREVIEW-ATUAL.md <<FIM
           # PREVIEW ONLINE — MCI Platform
 
@@ -479,6 +551,8 @@ jobs:
           | **VERIFICAÇÃO** | ${{ steps.verificacao.outcome }} |
           | **Subiu em** | $(date -u '+%Y-%m-%d %H:%M UTC') |
           | **Vive por** | ${MINUTOS_NO_AR} minutos |
+          | **Expira em** | ${EXPIRA_UTC} · ${EXPIRA_BR} (Brasília) |
+          | **Verificação do cadastro** | ${{ steps.verificacao_cadastro.outcome }} |
           | **Execução** | ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} |
 
           ## Credenciais de QA
@@ -507,6 +581,10 @@ jobs:
           Ambiente **público e efêmero**, com dados **fictícios**. Nenhuma destas
           contas existe em produção, e nenhuma senha de produção foi usada.
           Não insira dado real aqui.
+
+          **Quando expirar**, o túnel morre junto com a execução e a tela passa a
+          dizer "Não foi possível conectar à API." — não é defeito do sistema, é a
+          janela fechada. Para levantar outro: Actions › Preview QA › Run workflow.
           FIM
 
           # Um clone à parte, e não a árvore de trabalho: a API e o servidor
@@ -535,18 +613,54 @@ jobs:
 
           echo "estado publicado em preview-estado/PREVIEW-ATUAL.md"
 
+      # O QUE SE VIGIA É O TÚNEL, e não só a API local.
+      #
+      # Este laço conferia `http://127.0.0.1/health` a cada cinco minutos. A API
+      # local pode estar perfeita enquanto o túnel da Cloudflare — que é por onde
+      # a pessoa entra — está morto: nesse estado o job imprimia "no ar" por
+      # horas e quem tentava usar recebia falha de rede. Túnel rápido cai sozinho,
+      # e o laço não tinha como saber.
+      #
+      # Agora as duas URLs PÚBLICAS são conferidas a cada minuto. Três falhas
+      # seguidas encerram a execução com diagnóstico, em vez de anunciar um
+      # ambiente que não responde: uma piscada de rede não derruba um preview
+      # bom, e um túnel morto para de ser silencioso.
       - name: Manter o ambiente no ar
         run: |
           fim=$(( $(date +%s) + MINUTOS_NO_AR * 60 ))
+          seguidas=0
+          minuto=0
           while [ "$(date +%s)" -lt "$fim" ]; do
             if ! curl -fsS --max-time 10 "http://127.0.0.1:${PORTA_API}/health" >/dev/null 2>&1; then
-              echo "a API caiu; últimas linhas do log:"
+              echo "a API local caiu; últimas linhas do log:"
               tail -40 /tmp/api.log
               exit 1
             fi
-            restam=$(( (fim - $(date +%s)) / 60 ))
-            echo "no ar — ${URL_WEB} — restam ${restam} min"
-            sleep 300
+
+            ruim=""
+            for alvo in "${URL_API}/health" "${URL_WEB}/"; do
+              curl -fsS --max-time 15 "$alvo" >/dev/null 2>&1 || ruim="${ruim} ${alvo}"
+            done
+
+            if [ -n "$ruim" ]; then
+              seguidas=$(( seguidas + 1 ))
+              echo "sem resposta pública (${seguidas}/3):${ruim}"
+              if [ "$seguidas" -ge 3 ]; then
+                echo "o túnel parou de responder três vezes seguidas — encerrando para não anunciar ambiente morto."
+                echo '--- tunel api ---'; tail -40 /tmp/tunel-api.log 2>/dev/null || true
+                echo '--- tunel web ---'; tail -40 /tmp/tunel-web.log 2>/dev/null || true
+                exit 1
+              fi
+            else
+              seguidas=0
+              if [ $(( minuto % 5 )) -eq 0 ]; then
+                restam=$(( (fim - $(date +%s)) / 60 ))
+                echo "no ar — ${URL_WEB} — restam ${restam} min"
+              fi
+            fi
+
+            minuto=$(( minuto + 1 ))
+            sleep 60
           done
           echo "janela encerrada."
 
