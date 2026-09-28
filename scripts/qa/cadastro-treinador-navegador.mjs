@@ -325,46 +325,59 @@ try {
   const meu = await chamar('/coaches/me', { token });
   conferir('a área do treinador abre imediatamente', meu.status === 200, `status ${meu.status}`);
 
-  // -------------------------------------- A FRONTEIRA QUE NÃO SE ATRAVESSA
-  console.log('\n--- aprovação automática NÃO é autorização em federação (R-04) ---');
-  const coachId = autocadastro.corpo?.id;
-  const tokenDiretor = await entrarPelaApi(DIRETOR);
-
-  // A FEDERAÇÃO É ESCOLHIDA PELO NOME, e não pela primeira da lista.
+  // ------------------------------- A AUTORIZAÇÃO AUTOMÁTICA, E O QUE ELA NÃO É
   //
-  // O preview semeia dois conjuntos: o do demo e o do módulo. A conta
-  // `diretor@mci.local` dirige só a Federação QA Treinadores — pegar a primeira
-  // organização que a lista devolver dá 403 em vez de 422 quando a ordem vier
-  // diferente, e o arreio acusaria "a federação não recusou" por motivo errado.
-  const orgs = await chamar('/organizations', { token: tokenDiretor });
-  const lista = orgs.corpo?.items ?? orgs.corpo ?? [];
-  const daQa = lista.find(o => /Federação QA Treinadores/i.test(o.name || ''));
-  conferir('a federação de QA do módulo está no ambiente', !!daQa,
-    lista.map(o => o.name).join(', ').slice(0, 160));
-  const orgId = (daQa ?? lista[0])?.id;
+  // ESTA SEÇÃO MUDOU COM A DECISÃO DA NPC. Antes, o treinador nascia sem
+  // autorização e a federação precisava concedê-la; o arreio media essa recusa.
+  // Agora ele nasce autorizado NA FEDERAÇÃO OFICIAL — e a separação R-04 passou a
+  // ser medida onde ela continua valendo: em QUALQUER OUTRA federação.
+  console.log('\n--- autorização automática na NPC, e o limite dela (R-04) ---');
+  const coachId = autocadastro.corpo?.id;
 
-  const equipeAntes = await chamar('/teams', {
-    metodo: 'POST', token: tokenDiretor,
-    corpo: { organizationId: orgId, name: `QA Equipe Antes ${marca}`, coachId }
-  });
-  conferir('a federação RECUSA equipe para treinador que ela não autorizou',
-    equipeAntes.status === 422, `status ${equipeAntes.status}`);
+  // A CENTRAL, e não o diretor, para LISTAR as federações. `GET /organizations`
+  // é escopado por vínculo: o diretor da federação oficial vê só a dele, então a
+  // segunda federação — a que serve para medir o limite de R-04 — não aparecia
+  // para ele. Medido: a conferência reprovava por "só uma organização no
+  // ambiente" enquanto havia duas.
+  const tokenCentral = await entrarPelaApi(CENTRAL);
+  const meuCadastro = await chamar('/coaches/me', { token });
+  const autorizacoes = meuCadastro.corpo?.organizations ?? [];
+  const naOficial = autorizacoes.find(item => item.status === 'APPROVED');
 
-  const autorizacao = await chamar(`/coaches/${coachId}/organizations`, {
-    metodo: 'POST', token: tokenDiretor,
-    corpo: { organizationId: orgId, reason: 'Atuação autorizada pela federação (QA).' }
-  });
-  conferir('a federação autoriza pelo fluxo que já existia', autorizacao.status === 200,
-    `status ${autorizacao.status}`);
+  conferir('o cadastro nasce autorizado na federação oficial', !!naOficial,
+    `autorizações: ${autorizacoes.length}`);
+  conferir('e a autorização se declara automática, sem concedente humano',
+    Boolean(naOficial?.autoGrantedAt), `autoGrantedAt: ${naOficial?.autoGrantedAt ?? '—'}`);
 
-  const equipeDepois = await chamar('/teams', {
-    metodo: 'POST', token: tokenDiretor,
-    corpo: { organizationId: orgId, name: `QA Equipe Depois ${marca}`, coachId }
+  // ELE CRIA A EQUIPE DELE, na hora — é a metade da decisão que tira a espera.
+  const equipe = await chamar('/coaches/me/teams', {
+    metodo: 'POST', token,
+    corpo: { organizationId: naOficial?.organizationId, name: `QA Equipe Navegador ${marca}` }
   });
-  conferir('e só ENTÃO a equipe passa', equipeDepois.status === 201, `status ${equipeDepois.status}`);
+  conferir('o treinador cria a própria equipe imediatamente', equipe.status === 201,
+    `status ${equipe.status} ${JSON.stringify(equipe.corpo).slice(0, 140)}`);
+  conferir('e ela nasce com ele como responsável', equipe.corpo?.coachId === coachId);
+
+  // FORA DA OFICIAL, R-04 CONTINUA INTACTA. A federação do conjunto do demo não
+  // autorizou ninguém, e criar equipe nela é recusado.
+  const todas = await chamar('/organizations', { token: tokenCentral });
+  const listaDeOrgs = todas.corpo?.items ?? todas.corpo ?? [];
+  const outra = listaDeOrgs.find(o => o.id !== naOficial?.organizationId);
+
+  if (outra) {
+    const foraDaOficial = await chamar('/coaches/me/teams', {
+      metodo: 'POST', token,
+      corpo: { organizationId: outra.id, name: `QA Equipe Intrusa ${marca}` }
+    });
+    conferir('em federação que NÃO autorizou, criar equipe é recusado',
+      foraDaOficial.status === 403, `status ${foraDaOficial.status}`);
+  } else {
+    conferir('havia uma segunda federação para medir o limite de R-04', false,
+      'só uma organização no ambiente');
+  }
 
   const fila = await chamar('/coaches/review?status=PENDING', { token });
-  conferir('o treinador continua SEM a fila de análise central (R-03)', fila.status === 403,
+  conferir('a fila de análise central continua fechada ao treinador (R-03)', fila.status === 403,
     `status ${fila.status}`);
 
   // ---------------------------------------------------- A SENHA DIGITADA É A GRAVADA
@@ -379,7 +392,9 @@ try {
   });
   conferirComLimitador('e NÃO entra com senha errada', comASenhaErrada.status, 401);
 
-  void CENTRAL;
+  // `--diretor` continua aceito para compatibilidade com o workflow, e deixou de
+  // ser usado quando a listagem passou para a central.
+  void DIRETOR;
 } catch (problema) {
   problemas.push(`exceção: ${problema.message}`);
   console.error(`\n  EXCEÇÃO  ${problema.stack}`);
