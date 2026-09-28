@@ -756,6 +756,20 @@ model CoachOrganization {
   status         CoachOrganizationStatus @default(PENDING)
   grantedById    String?
   grantedAt      DateTime?
+  /// CONCEDIDA PELA REGRA, e não por pessoa — a autorização automática na NPC.
+  ///
+  /// Preenchida, diz que a linha nasceu do cadastro do próprio treinador na
+  /// federação oficial única, sem concedente humano (`grantedById` nulo). Nula
+  /// numa linha APPROVED diz que houve concessão por pessoa, e `grantedById`
+  /// aponta quem. É o mesmo desenho de `Coach.autoApprovedAt`.
+  ///
+  /// A política `coach_org_autorizacao_automatica` (migration 20260928010000)
+  /// EXIGE esta coluna preenchida para aceitar a linha do próprio treinador: é
+  /// ela que separa a autorização automática de uma tentativa de autoconcessão.
+  ///
+  /// O índice é PARCIAL e vive só na migration — o Prisma não expressa `WHERE`
+  /// em `@@index`. Mesma convenção de `Coach.autoApprovedAt`.
+  autoGrantedAt  DateTime?
   revokedById    String?
   revokedAt      DateTime?
   reason         String?

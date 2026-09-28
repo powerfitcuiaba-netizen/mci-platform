@@ -404,6 +404,10 @@ export const api = {
     me: () => get('/coaches/me'),
     updateMe: dados => patch('/coaches/me', dados),
     myTeams: () => get('/coaches/me/teams'),
+    // A EQUIPE DELE, criada e corrigida por ele. Não é `partners.createTeam`:
+    // aquela é a rota do operador da federação e exige `teams.manage`.
+    createMyTeam: dados => post('/coaches/me/teams', dados),
+    updateMyTeam: (id, dados) => patch(`/coaches/me/teams/${id}`, dados),
     myAthletes: params => get('/coaches/me/athletes', params),
     uploadDocument: (id, arquivo, campos) => upload(`/coaches/${id}/documents`, arquivo, campos),
 

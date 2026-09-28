@@ -46,6 +46,15 @@ const PERMISSIONS = Object.freeze([
   'coaches.authorize_org',
   // O treinador lendo o que é dele: o próprio cadastro e a própria equipe.
   'coaches.read_own', 'teams.read_own',
+  // O treinador CRIANDO e renomeando a equipe DELE, na federação em que está
+  // autorizado a atuar. Existe separada de `teams.manage` porque não é a mesma
+  // coisa: `teams.manage` é cadastro de equipe da federação — qualquer equipe,
+  // qualquer treinador responsável, e vem com o resto do poder de operador.
+  // Esta alcança UMA equipe, a que nasce com ele como responsável, e o serviço
+  // confere a autorização de atuação antes de gravar. Sem ela, a decisão da
+  // autorização automática na NPC ficaria pela metade: o treinador entraria
+  // autorizado a atuar e continuaria dependendo da federação para ter onde.
+  'teams.create_own',
   // Localizar atleta por matrícula + entidade de filiação, sem CPF e sem
   // documento. Existe separada de `athletes.read_sensitive` justamente para que
   // o treinador possa identificar sem alcançar dado pessoal.
@@ -253,6 +262,13 @@ const ROLE_PERMISSIONS = Object.freeze({
   COACH: operacional(
     'registrations.read',
     'coaches.read_own', 'teams.read_own',
+    // A sexta, e a única que ESCREVE: criar e renomear a equipe dele mesmo. Ela
+    // entrou com a autorização automática na NPC — sem ela o treinador entraria
+    // autorizado a atuar e ainda esperaria a federação criar a equipe, que é a
+    // espera que a decisão manda tirar do caminho. Não alcança equipe alheia:
+    // `coachService.criarMinhaEquipe` grava `coachId` do cadastro DELE e exige
+    // autorização viva na federação; renomear exige ser o responsável da equipe.
+    'teams.create_own',
     'athletes.lookup_affiliation', 'teams.request_membership'
   ),
   GYM: operacional(),

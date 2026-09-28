@@ -728,6 +728,28 @@ const coachSelfRegister = z.object({
 // reenviar os outros. `name` continua com o mesmo mínimo quando vem.
 const coachSelfUpdate = coachSelfRegister.partial();
 
+// A EQUIPE CRIADA PELO PRÓPRIO TREINADOR.
+//
+// Compare com `teamCreate`, que é a do operador: ali `coachId` e `companyId` são
+// aceitos; aqui NÃO existem. `coachId` sai porque o responsável é quem está
+// pedindo — o serviço grava o cadastro DELE, e aceitar o campo abriria criar
+// equipe no nome de outro treinador. `companyId` sai porque empresa acima da
+// equipe é decisão de federação, e ela pontua.
+const coachTeamCreate = z.object({
+  organizationId: id,
+  name: texto(2, 120),
+  city: opcional(texto(2, 90)),
+  state: opcional(texto(2, 2))
+});
+
+// Renomear e corrigir localidade. `organizationId` também sai: mover a equipe de
+// federação não é correção de cadastro, é transferência — e é ato de federação.
+const coachTeamUpdate = z.object({
+  name: opcional(texto(2, 120)),
+  city: opcional(texto(2, 90)),
+  state: opcional(texto(2, 2))
+}).refine(corpo => Object.keys(corpo).length > 0, { message: 'Informe ao menos um campo' });
+
 const coachReviewQuery = paginacao.extend({
   status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED', 'CANCELLED']).optional(),
   search: z.string().trim().max(120).optional()
@@ -1056,7 +1078,7 @@ module.exports = {
   muscleWarImportCreate, muscleWarLink, muscleWarPreviewQuery,
   rankingPointEdit, rankingPointPreviewQuery, rankingPointReason, rankingPointAdjust,
   teamCreate, teamCoachSet, companyCreate, coachCreate, gymCreate, brandCreate, sponsorCreate, sponsorshipCreate,
-  coachSelfRegister, coachSelfUpdate, coachReviewQuery, coachDecision, coachDecisionWithReason,
+  coachSelfRegister, coachSelfUpdate, coachTeamCreate, coachTeamUpdate, coachReviewQuery, coachDecision, coachDecisionWithReason,
   coachOrgAuthorize, coachOrgRevoke, coachDocumentUpload, coachTeamQuery, coachAuthorizableQuery,
   athleteAffiliationLookup, membershipRequestCreate, membershipRequestReason,
   membershipRequestAdminApprove, membershipRequestQuery,

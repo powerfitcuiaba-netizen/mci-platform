@@ -127,6 +127,12 @@ const ACTIONS = Object.freeze({
   // A equipe passou a ter responsável, e trocar responsável muda quem vê os
   // atletas dela. É decisão, não metadado de atualização de cadastro.
   TEAM_COACH_SET: 'TEAM_COACH_SET',
+  // A equipe criada e renomeada PELO PRÓPRIO TREINADOR, na federação em que ele
+  // está autorizado a atuar. Ações próprias porque o ator é outro: quando o
+  // operador da federação cadastra equipe, quem responde é a federação; aqui
+  // quem responde é o treinador, e o metadado `byCoach` diz isso na trilha.
+  TEAM_CREATE: 'TEAM_CREATE',
+  TEAM_UPDATE: 'TEAM_UPDATE',
   COACH_ORG_AUTHORIZE: 'COACH_ORG_AUTHORIZE',
   COACH_ORG_REVOKE: 'COACH_ORG_REVOKE',
   COACH_DOCUMENT_UPLOAD: 'COACH_DOCUMENT_UPLOAD',

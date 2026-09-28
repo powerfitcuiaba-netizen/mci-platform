@@ -332,6 +332,8 @@ module.exports = {
     meuCadastro: async (req, res) => res.json(await coachesService.meuCadastro(req.user)),
     atualizarMeuCadastro: async (req, res) => res.json(await coachesService.atualizarMeuCadastro(req.body, req.user)),
     minhasEquipes: async (req, res) => res.json({ items: await coachesService.minhasEquipes(req.user) }),
+    criarMinhaEquipe: async (req, res) => res.status(201).json(await coachesService.criarMinhaEquipe(req.body, req.user)),
+    atualizarMinhaEquipe: async (req, res) => res.json(await coachesService.atualizarMinhaEquipe(req.params.id, req.body, req.user)),
     meusAtletas: async (req, res) => res.json({ items: await coachesService.meusAtletas(req.query, req.user) }),
 
     // A mesa de análise da administração central (R-03).

@@ -4,6 +4,7 @@ const { assertCan, assertPermission } = require('../utils/tenant');
 const storage = require('./storageService');
 const audit = require('./auditService');
 const notifications = require('./notificationService');
+const filiacaoOficial = require('./officialAffiliationService');
 
 // ============================================================================
 // MÓDULO TREINADORES & EQUIPES — cadastro, análise central e autorização por
@@ -51,7 +52,8 @@ const SELECT_MEU_CADASTRO = Object.freeze({
   createdAt: true, updatedAt: true,
   organizations: {
     select: {
-      id: true, organizationId: true, status: true, grantedAt: true, revokedAt: true, reason: true,
+      id: true, organizationId: true, status: true, grantedAt: true, autoGrantedAt: true,
+      revokedAt: true, reason: true,
       organization: { select: { id: true, name: true, slug: true } }
     }
   },
@@ -120,6 +122,82 @@ async function carregar(id) {
  * A guarda é de PERMISSÃO, e não de `role === 'COACH'`: o papel é um jeito de
  * ter a permissão, não a permissão. Um SUPER_ADMIN a tem por ter todas.
  */
+// ============================================================================
+// A AUTORIZAÇÃO AUTOMÁTICA NA NPC.
+//
+// A NPC é a federação oficial ÚNICA da plataforma, e a decisão aprovada diz que
+// quem conclui o cadastro de treinador já pode atuar nela — sem pedido, sem fila,
+// sem espera. Fora da NPC nada mudou: autorização em outra federação continua
+// sendo ato dela (R-04).
+//
+// TRÊS COISAS QUE ESTA FUNÇÃO NÃO FAZ, e cada ausência é deliberada:
+//
+//   * NÃO usa `upsert`. Se a linha já existe, o INSERT falha no índice único e a
+//     função devolve o que existe SEM tocar nele. É isso que impede a
+//     autorização automática de desfazer uma revogação da federação: revogada,
+//     a linha existe — e alterá-la continua exigindo operador, pela política
+//     `coach_org_alteracao`, que não foi mexida.
+//   * NÃO inventa concedente. `grantedById` fica nulo e `autoGrantedAt` diz por
+//     quê: a decisão foi da regra. A política do banco EXIGE essa combinação.
+//   * NÃO derruba o cadastro quando a NPC não está provisionada. Numa instalação
+//     nova a federação oficial pode não existir ainda, e recusar o cadastro por
+//     causa disso puniria a pessoa errada. A ausência vai para a trilha.
+// ============================================================================
+async function autorizarNaFederacaoOficial(coach, actor) {
+  const oficial = await filiacaoOficial.organizacaoOficial();
+
+  if (!oficial) {
+    await audit.record({
+      actor, action: audit.ACTIONS.COACH_REGISTER, entity: 'Coach', entityId: coach.id,
+      metadata: {
+        automatic: true,
+        federacaoOficial: null,
+        reason: 'Federação oficial (NPC) não provisionada nesta instalação: o cadastro concluiu sem autorização automática.'
+      }
+    });
+    return null;
+  }
+
+  const agora = new Date();
+  let autorizacao;
+
+  try {
+    autorizacao = await prisma.coachOrganization.create({
+      data: {
+        coachId: coach.id,
+        organizationId: oficial.id,
+        status: 'APPROVED',
+        grantedById: null,
+        grantedAt: agora,
+        autoGrantedAt: agora,
+        reason: 'Autorização automática na federação oficial única (NPC).'
+      },
+      select: {
+        id: true, coachId: true, organizationId: true, status: true,
+        grantedAt: true, autoGrantedAt: true, reason: true,
+        organization: { select: { id: true, name: true, slug: true } }
+      }
+    });
+  } catch (error) {
+    // Já havia linha para este par. Pode ser autorização viva ou REVOGADA, e nos
+    // dois casos o certo é não mexer: a existente é a que vale.
+    if (error.code === 'P2002') return null;
+    throw error;
+  }
+
+  await audit.record({
+    actor, action: audit.ACTIONS.COACH_ORG_AUTHORIZE, entity: 'CoachOrganization',
+    entityId: autorizacao.id, organizationId: oficial.id,
+    metadata: {
+      automatic: true,
+      coachId: coach.id,
+      reason: 'Autorização automática na federação oficial única (NPC), concedida pela regra no autocadastro.'
+    }
+  });
+
+  return autorizacao;
+}
+
 async function autocadastro(data, actor) {
   if (!actor) throw new AppError(401, 'UNAUTHORIZED', 'Autenticação obrigatória');
   assertPermission(actor, 'coaches.read_own');
@@ -206,7 +284,16 @@ async function autocadastro(data, actor) {
     }
   });
 
-  return coach;
+  // A AUTORIZAÇÃO NA NPC VEM DEPOIS DA APROVAÇÃO, e não junto: a política do
+  // banco exige o cadastro já APPROVED para aceitar a linha, e é o mesmo
+  // encadeamento que a decisão descreve — primeiro o cadastro conclui, então ele
+  // já pode atuar na federação oficial.
+  await autorizarNaFederacaoOficial(coach, actor);
+
+  // Relido para que a resposta traga a autorização recém-criada: o `coach` do
+  // INSERT foi projetado antes de ela existir, e devolver a versão antiga faria
+  // a tela mostrar "sem autorização" logo depois de autorizar.
+  return prisma.coach.findUnique({ where: { id: coach.id }, select: SELECT_MEU_CADASTRO });
 }
 
 /** O treinador lendo o próprio cadastro. Sem documento — R-05. */
@@ -641,6 +728,129 @@ async function minhasEquipes(actor) {
   });
 }
 
+// ============================================================================
+// O TREINADOR CRIANDO A EQUIPE DELE.
+//
+// Entrou com a autorização automática na NPC, e sem isto a decisão ficaria pela
+// metade: o treinador passaria a estar autorizado a atuar e continuaria
+// esperando a federação criar a equipe — a mesma espera que a decisão manda
+// tirar do caminho.
+//
+// O QUE ISTO **NÃO** É: não é `teams.manage`. O operador da federação cadastra
+// qualquer equipe, com qualquer responsável, e vem com o resto do poder de
+// operador. Aqui são três amarras, todas conferidas antes de gravar:
+//
+//   1. a equipe nasce com `coachId` do cadastro DESTA conta — o corpo não escolhe
+//      responsável, então não há como criar equipe no nome de outro treinador;
+//   2. a federação tem de ser uma em que ele está AUTORIZADO A ATUAR
+//      (`CoachOrganization` APPROVED). Autorização automática na NPC serve; em
+//      qualquer outra federação continua sendo ato dela — R-04 intacta;
+//   3. `companyId` não é aceito. Empresa acima da equipe é decisão de federação,
+//      e deixar o interessado apontá-la aqui abriria pontuação de empresa a quem
+//      não responde por ela.
+// ============================================================================
+async function criarMinhaEquipe(data, actor) {
+  assertPermission(actor, 'teams.create_own');
+
+  const estado = await treinadorAtivoDaConta(actor, data.organizationId);
+  if (!estado) throw new AppError(404, 'COACH_NOT_FOUND', 'Esta conta não possui cadastro de treinador');
+  if (!estado.autorizado) recusarTreinadorInativo(estado);
+
+  const organizacao = await prisma.organization.findUnique({
+    where: { id: data.organizationId },
+    select: { id: true, name: true, active: true }
+  });
+  if (!organizacao) throw new AppError(404, 'ORGANIZATION_NOT_FOUND', 'Organização não encontrada');
+  if (!organizacao.active) throw new AppError(422, 'ORGANIZATION_INACTIVE', 'Federação inativa');
+
+  let equipe;
+  try {
+    equipe = await prisma.team.create({
+      data: {
+        organizationId: organizacao.id,
+        coachId: estado.id,
+        name: data.name,
+        city: data.city ?? null,
+        state: data.state ?? null
+      },
+      select: {
+        id: true, name: true, city: true, state: true, organizationId: true, coachId: true,
+        organization: { select: { id: true, name: true, slug: true } }
+      }
+    });
+  } catch (error) {
+    // `@@unique([organizationId, name])`: duas equipes de mesmo nome na mesma
+    // federação seriam indistinguíveis no ranking de equipes.
+    if (error.code === 'P2002') {
+      throw new AppError(409, 'TEAM_NAME_TAKEN',
+        'Já existe uma equipe com este nome nesta federação. Escolha outro nome.');
+    }
+    throw error;
+  }
+
+  await audit.record({
+    actor, action: audit.ACTIONS.TEAM_CREATE, entity: 'Team', entityId: equipe.id,
+    organizationId: organizacao.id,
+    metadata: { coachId: estado.id, byCoach: true, name: equipe.name }
+  });
+
+  return equipe;
+}
+
+/**
+ * O treinador corrigindo a própria equipe: nome, cidade, UF.
+ *
+ * `organizationId`, `coachId` e `companyId` NÃO entram. Mover a equipe de
+ * federação, trocar o responsável ou apontar empresa são atos de federação, e
+ * aceitar o campo aqui devolveria ao interessado a caneta que a decisão não lhe
+ * deu. Só a equipe DELE é alcançável — a consulta filtra por `coachId`.
+ */
+async function atualizarMinhaEquipe(teamId, data, actor) {
+  assertPermission(actor, 'teams.create_own');
+
+  const estado = await treinadorAtivoDaConta(actor);
+  if (!estado) throw new AppError(404, 'COACH_NOT_FOUND', 'Esta conta não possui cadastro de treinador');
+  if (!estado.autorizado) recusarTreinadorInativo(estado);
+
+  const atual = await prisma.team.findFirst({
+    where: { id: teamId, coachId: estado.id },
+    select: { id: true, name: true, organizationId: true }
+  });
+  // 404, e não 403: um treinador perguntando por equipe alheia não deve
+  // descobrir que ela existe. Mesma escolha das rotas de ranking (achado A-01).
+  if (!atual) throw new AppError(404, 'TEAM_NOT_FOUND', 'Equipe não encontrada');
+
+  let equipe;
+  try {
+    equipe = await prisma.team.update({
+      where: { id: atual.id },
+      data: {
+        ...(data.name === undefined ? {} : { name: data.name }),
+        ...(data.city === undefined ? {} : { city: data.city }),
+        ...(data.state === undefined ? {} : { state: data.state })
+      },
+      select: {
+        id: true, name: true, city: true, state: true, organizationId: true, coachId: true,
+        organization: { select: { id: true, name: true, slug: true } }
+      }
+    });
+  } catch (error) {
+    if (error.code === 'P2002') {
+      throw new AppError(409, 'TEAM_NAME_TAKEN',
+        'Já existe uma equipe com este nome nesta federação. Escolha outro nome.');
+    }
+    throw error;
+  }
+
+  await audit.record({
+    actor, action: audit.ACTIONS.TEAM_UPDATE, entity: 'Team', entityId: equipe.id,
+    organizationId: equipe.organizationId,
+    metadata: { coachId: estado.id, byCoach: true, de: atual.name, para: equipe.name }
+  });
+
+  return equipe;
+}
+
 /**
  * Os atletas vinculados às equipes do treinador — SOMENTE dado esportivo e de
  * filiação (R-05).
@@ -788,6 +998,6 @@ module.exports = {
   aprovar, rejeitar, suspender, reativar, cancelar,
   autorizarOrganizacao, revogarOrganizacao,
   treinadorAtivoDaConta, recusarTreinadorInativo, assertPodeAtuarNaOrganizacao,
-  minhasEquipes, meusAtletas,
+  minhasEquipes, criarMinhaEquipe, atualizarMinhaEquipe, meusAtletas,
   anexarDocumento, listarDocumentos, baixarDocumento, removerDocumento
 };

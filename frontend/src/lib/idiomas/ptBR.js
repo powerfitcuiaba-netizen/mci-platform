@@ -1547,11 +1547,25 @@ export default {
   'treinador.federacoesExplicacao': 'O cadastro é nacional; atuar em uma federação depende da autorização dela. Uma autorização não vale para as outras.',
   'treinador.autorizado': 'Autorizado',
   'treinador.autorizacaoRevogada': 'Revogado',
-  'treinador.semAutorizacao': 'Nenhuma federação autorizou a sua atuação',
-  'treinador.semAutorizacaoComoResolver': 'Procure a federação em que pretende atuar. O seu cadastro já está aprovado; a autorização para atuar é decisão dela.',
+  // A ESPERA SAIU DO CAMINHO DO TREINADOR. A NPC é a federação oficial única e a
+  // autorização nela é automática no cadastro, então "nenhuma federação
+  // autorizou" deixou de ser um estado que o produto produz. O texto que sobra
+  // serve ao caso que ainda existe: cadastro antigo, ou autorização revogada.
+  'treinador.semAutorizacao': 'Sua atuação não está autorizada em nenhuma federação',
+  'treinador.semAutorizacaoComoResolver': 'Procure a administração da Muscle Contest: a autorização na NPC é automática no cadastro, e a ausência dela aqui indica cadastro anterior a essa regra ou autorização revogada.',
+  'treinador.autorizacaoAutomatica': 'Autorização automática',
+  'treinador.federacaoOficial': 'Federação oficial',
   'treinador.minhasEquipes': 'Minhas equipes',
   'treinador.semEquipe': 'Você ainda não responde por nenhuma equipe',
-  'treinador.semEquipeComoResolver': 'Quem indica o treinador responsável por uma equipe é a federação dela.',
+  'treinador.semEquipeComoResolver': 'Crie a sua equipe na federação em que você está autorizado a atuar — o botão está no topo desta tela.',
+  'treinador.criarEquipe': 'Criar equipe',
+  'treinador.criarEquipeTitulo': 'Criar equipe',
+  'treinador.criarEquipeDescricao': 'A equipe nasce com você como treinador responsável, na federação em que você está autorizado a atuar.',
+  'treinador.campoEquipeNome': 'Nome da equipe',
+  'treinador.campoEquipeFederacao': 'Federação',
+  'treinador.campoEquipeCidade': 'Cidade',
+  'treinador.campoEquipeUf': 'UF',
+  'treinador.equipeCriada': 'Equipe criada.',
   'treinador.meusAtletas': 'Atletas vinculados',
   'treinador.semAtleta': 'Nenhum atleta vinculado às suas equipes',
   'treinador.semAtletaComoResolver': 'Convide um atleta pela matrícula. O vínculo só existe depois que ele confirmar.',

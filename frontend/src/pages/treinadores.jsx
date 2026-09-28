@@ -364,10 +364,96 @@ function CartaoDeRanking({ coachId }) {
   );
 }
 
+// ============================================================ CRIAR EQUIPE
+//
+// O treinador criando a equipe DELE, na federação em que está autorizado a atuar.
+// Entrou com a autorização automática na NPC: antes dela, a equipe vinha da
+// federação, e o treinador esperava.
+//
+// A FEDERAÇÃO NÃO É DIGITADA. O `select` é montado das autorizações APROVADAS que
+// a própria API devolveu — não há campo livre, então não há como pedir equipe numa
+// federação que não autorizou. O servidor reconfere de todo jeito; esconder a
+// opção é cortesia com quem usa, não barreira.
+function DialogoDeCriarEquipe({ autorizacoes, notificar, onClose, aoCriar }) {
+  const { t } = useIdioma();
+  const [organizationId, setOrganizationId] = useState(autorizacoes[0]?.organizationId ?? '');
+  const [nome, setNome] = useState('');
+  const [cidade, setCidade] = useState('');
+  const [uf, setUf] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const [recusa, setRecusa] = useState(null);
+
+  const enviar = async evento => {
+    evento.preventDefault();
+    if (enviando) return;
+    setEnviando(true);
+    setRecusa(null);
+    try {
+      await api.coaches.createMyTeam({
+        organizationId,
+        name: nome.trim(),
+        ...(cidade.trim() ? { city: cidade.trim() } : {}),
+        ...(uf.trim() ? { state: uf.trim().toUpperCase() } : {})
+      });
+      refreshData();
+      notificar?.(t('treinador.equipeCriada'), 'sucesso');
+      aoCriar?.();
+      onClose();
+    } catch (problema) {
+      setRecusa(problema.message);
+      setEnviando(false);
+    }
+  };
+
+  return (
+    <Modal title={t('treinador.criarEquipeTitulo')} description={t('treinador.criarEquipeDescricao')} onClose={onClose}>
+      <form onSubmit={enviar}>
+        {recusa && (
+          <div className="alert alert-erro" role="alert">
+            <ShieldCheck size={16} />
+            <div><p>{recusa}</p></div>
+          </div>
+        )}
+
+        <Field label={t('treinador.campoEquipeFederacao')} required>
+          <select value={organizationId} onChange={evento => setOrganizationId(evento.target.value)}>
+            {autorizacoes.map(item => (
+              <option key={item.organizationId} value={item.organizationId}>
+                {item.organization?.name ?? item.organizationId}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label={t('treinador.campoEquipeNome')} required>
+          <input value={nome} onChange={evento => setNome(evento.target.value)} required minLength={2} maxLength={120} />
+        </Field>
+
+        <div className="grade-dupla">
+          <Field label={t('treinador.campoEquipeCidade')}>
+            <input value={cidade} onChange={evento => setCidade(evento.target.value)} maxLength={90} />
+          </Field>
+          <Field label={t('treinador.campoEquipeUf')}>
+            <input value={uf} onChange={evento => setUf(evento.target.value)} maxLength={2} />
+          </Field>
+        </div>
+
+        <ModalActions>
+          <button type="button" className="button button-secondary" onClick={onClose}>{t('acao.cancelar')}</button>
+          <button type="submit" className="button button-primary" disabled={enviando || nome.trim().length < 2 || !organizationId}>
+            <Users2 size={14} /> {t('treinador.criarEquipe')}
+          </button>
+        </ModalActions>
+      </form>
+    </Modal>
+  );
+}
+
 // ==================================================== PAINEL DO TREINADOR
 export function PainelDoTreinador({ notificar }) {
   const { t } = useIdioma();
   const [convidando, setConvidando] = useState(false);
+  const [criandoEquipe, setCriandoEquipe] = useState(false);
 
   // `catch(() => null)` porque 404 aqui NÃO é erro: é a conta que ainda não tem
   // cadastro de treinador, e o que ela precisa ver é o formulário.
@@ -398,10 +484,25 @@ export function PainelDoTreinador({ notificar }) {
         eyebrow={t('treinador.eyebrow')}
         title={meu.name}
         description={t('treinador.descricaoPainel')}
-        actions={aprovado && listaDeEquipes.length > 0 && (
-          <button type="button" className="button button-primary" onClick={() => setConvidando(true)}>
-            <UserPlus size={14} /> {t('pedidoEquipe.convidar')}
-          </button>
+        // DUAS AÇÕES, E A ORDEM É A DO CAMINHO: primeiro criar a equipe, depois
+        // convidar atleta para ela. Criar aparece para quem está autorizado a
+        // atuar em alguma federação — que, desde a autorização automática, é todo
+        // treinador com cadastro aprovado. Convidar continua exigindo equipe: sem
+        // ela não há a que vincular ninguém, e o botão escondido é melhor que o
+        // botão que dá erro.
+        actions={aprovado && (
+          <>
+            {autorizadoEmAlguma && (
+              <button type="button" className="button button-secondary" onClick={() => setCriandoEquipe(true)}>
+                <Users2 size={14} /> {t('treinador.criarEquipe')}
+              </button>
+            )}
+            {listaDeEquipes.length > 0 && (
+              <button type="button" className="button button-primary" onClick={() => setConvidando(true)}>
+                <UserPlus size={14} /> {t('pedidoEquipe.convidar')}
+              </button>
+            )}
+          </>
         )}
       />
 
@@ -448,6 +549,12 @@ export function PainelDoTreinador({ notificar }) {
             {autorizacoes.map(item => (
               <li key={item.id}>
                 <span>{item.organization?.name ?? '—'}</span>
+                {/* `autoGrantedAt` vem da API e diz que a linha nasceu da REGRA,
+                    sem concedente humano. Mostrar isso não é enfeite: quem lê a
+                    tela precisa saber que não houve análise de ninguém. */}
+                {item.autoGrantedAt && item.status === 'APPROVED' && (
+                  <Badge tom="info">{t('treinador.autorizacaoAutomatica')}</Badge>
+                )}
                 <Badge tom={item.status === 'APPROVED' ? 'sucesso' : 'neutro'}>
                   {t(item.status === 'APPROVED' ? 'treinador.autorizado' : 'treinador.autorizacaoRevogada')}
                 </Badge>
@@ -516,6 +623,14 @@ export function PainelDoTreinador({ notificar }) {
 
       <CartaoDeRanking coachId={meu.id} />
 
+      {criandoEquipe && (
+        <DialogoDeCriarEquipe
+          autorizacoes={autorizacoes.filter(item => item.status === 'APPROVED')}
+          notificar={notificar}
+          onClose={() => setCriandoEquipe(false)}
+          aoCriar={() => { equipes.reload?.(); cadastro.reload?.(); }}
+        />
+      )}
       {convidando && <DialogoDeConvite equipes={listaDeEquipes} notificar={notificar} onClose={() => setConvidando(false)} />}
     </>
   );

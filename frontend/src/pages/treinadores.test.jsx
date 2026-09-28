@@ -111,7 +111,36 @@ describe('painel do treinador', () => {
 
     render(<PainelDoTreinador notificar={vi.fn()} />);
 
-    expect(await screen.findByText(/Nenhuma federação autorizou a sua atuação/i)).toBeTruthy();
+    // O TEXTO MUDOU COM A AUTORIZAÇÃO AUTOMÁTICA NA NPC. "Nenhuma federação
+    // autorizou" descrevia uma espera que o produto não produz mais: hoje a
+    // autorização na federação oficial nasce com o cadastro. O estado continua
+    // existindo — cadastro anterior à regra, ou autorização revogada —, e é para
+    // ele que a frase e o caminho de regularização passaram a servir.
+    expect(await screen.findByText(/não está autorizada em nenhuma federação/i)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Convidar atleta/i })).toBeNull();
+    // E sem autorização não há o que criar: o botão de criar equipe também não
+    // aparece, em vez de aparecer para dar erro.
+    expect(screen.queryByRole('button', { name: /Criar equipe/i })).toBeNull();
+  });
+
+  it('autorizado na NPC: o botão de criar equipe aparece e a autorização se diz automática', async () => {
+    api.coaches.me.mockResolvedValue(CADASTRO({
+      organizations: [{
+        id: 'co1', organizationId: 'org-npc', status: 'APPROVED',
+        grantedAt: '2026-09-28T04:00:00.000Z',
+        autoGrantedAt: '2026-09-28T04:00:00.000Z',
+        organization: { id: 'org-npc', name: 'NPC - National Physique Committe' }
+      }]
+    }));
+    api.coaches.myTeams.mockResolvedValue({ items: [] });
+
+    render(<PainelDoTreinador notificar={vi.fn()} />);
+
+    expect(await screen.findByRole('button', { name: /Criar equipe/i })).toBeTruthy();
+    // `autoGrantedAt` é o que separa a linha da regra da concedida por pessoa —
+    // quem lê a tela precisa saber que não houve análise de ninguém.
+    expect(screen.getByText(/Autorização automática/i)).toBeTruthy();
+    // Sem equipe ainda não há a que convidar ninguém.
     expect(screen.queryByRole('button', { name: /Convidar atleta/i })).toBeNull();
   });
 

@@ -392,7 +392,17 @@ router.post('/coaches/self-register', requireAuth, limiteConteudo, validate(s.co
 router.route('/coaches/me')
   .get(requireAuth, wrap(c.coaches.meuCadastro))
   .patch(requireAuth, validate(s.coachSelfUpdate), wrap(c.coaches.atualizarMeuCadastro));
+// AS EQUIPES DO TREINADOR — ler, criar e corrigir as DELE.
+//
+// `POST` e `PATCH` entraram com a autorização automática na NPC. Eles NÃO são
+// `POST /teams`: aquele é o cadastro de equipe da federação, exige
+// `teams.manage` na organização e aceita escolher o treinador responsável. Estes
+// exigem `teams.create_own`, gravam o cadastro de treinador de QUEM PEDE e
+// alcançam só a equipe dele — a conferência de que ele pode atuar naquela
+// federação é do serviço, que precisa ler `Coach` e `CoachOrganization`.
 router.get('/coaches/me/teams', requireAuth, wrap(c.coaches.minhasEquipes));
+router.post('/coaches/me/teams', requireAuth, perm('teams.create_own'), validate(s.coachTeamCreate), wrap(c.coaches.criarMinhaEquipe));
+router.patch('/coaches/me/teams/:id', requireAuth, perm('teams.create_own'), validate(s.paramsWithId, 'params'), validate(s.coachTeamUpdate), wrap(c.coaches.atualizarMinhaEquipe));
 router.get('/coaches/me/athletes', requireAuth, validate(s.coachTeamQuery, 'query'), wrap(c.coaches.meusAtletas));
 
 // ------------------------------------------- a mesa de análise central (R-03)
