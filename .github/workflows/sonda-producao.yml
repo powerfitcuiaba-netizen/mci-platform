@@ -589,9 +589,19 @@ jobs:
           U=https://mci-platform-web.onrender.com
           TETO=798720   # 780 kB
 
-          ENTRADA="$(grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' /tmp/w.html | head -1)"
+          # BUSCA O HTML DE NOVO, de propósito, em vez de reusar /tmp/w.html.
+          #
+          # O passo anterior percorre DOIS hosts candidatos e grava os dois no
+          # mesmo arquivo. O segundo não resolve para esta aplicação e devolve
+          # 404, então quem lê /tmp/w.html depois do laço lê o corpo do 404 —
+          # foi assim que a primeira versão deste passo falhou, avisando que
+          # não achava o bloco de entrada. O arquivo estava certo; era o outro
+          # arquivo.
+          curl -sS -m 120 -o /tmp/entrada.html "$U"
+
+          ENTRADA="$(grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' /tmp/entrada.html | head -1)"
           if [ -z "$ENTRADA" ]; then
-            echo "::warning::não achei o bloco de entrada no HTML — o padrão do nome mudou?"
+            echo "::warning::não achei o bloco de entrada no HTML de $U — o padrão do nome mudou?"
             exit 0
           fi
 
