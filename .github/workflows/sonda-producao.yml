@@ -224,6 +224,67 @@ jobs:
             echo "FALHAS=$((FALHAS+1))" >> "$GITHUB_ENV"
           fi
 
+      # ------------------------------------------------ Treinadores & Equipes
+      # ESTE BLOCO ENTROU COM A PUBLICAÇÃO DO MÓDULO, e ele existe porque a sonda
+      # não cobria justamente o que estava sendo publicado: nenhuma rota de
+      # treinador era sondada.
+      #
+      # §8.3 NO AR. A fórmula do ranking de treinadores NÃO está homologada pela
+      # MuscleContest, e a plataforma recusa a classificação com 409. Isso não é
+      # defeito: é a decisão. O que esta conferência impede é o pior caso
+      # silencioso — alguém ligar a classificação sem homologação e ninguém
+      # perceber, porque 200 numa rota pública não chama atenção de ninguém.
+      - name: O ranking de treinadores continua recusando classificação (§8.3)
+        run: |
+          C="$(curl -sS -m 120 -o /tmp/rc.json -w '%{http_code}' "$API/api/v1/ranking/coaches")"
+          CODIGO="$(jq -r '.error.code // ""' /tmp/rc.json 2>/dev/null)"
+          echo "HTTP $C · código: $CODIGO"
+          if [ "$C" = "409" ] && [ "$CODIGO" = "COACH_RANKING_NOT_HOMOLOGATED" ]; then
+            echo '| `GET /ranking/coaches` | 409 COACH_RANKING_NOT_HOMOLOGATED | igual | PASS |' >> /tmp/placar.md
+          else
+            echo "| \`GET /ranking/coaches\` | 409 COACH_RANKING_NOT_HOMOLOGATED | **HTTP $C · $CODIGO** | **FAIL** |" >> /tmp/placar.md
+            echo "FALHAS=$((FALHAS+1))" >> "$GITHUB_ENV"
+          fi
+
+      # A FOTO É SERVIDA POR ID, e a chave do objeto no armazenamento NUNCA vai
+      # para o cliente. Com um id que não é de ninguém, a resposta é 404 — e o
+      # corpo não pode conter `coach-photos/`, que é o prefixo da chave.
+      - name: A rota da foto do treinador não vaza a chave do objeto
+        run: |
+          C="$(curl -sS -m 120 -o /tmp/foto.txt -w '%{http_code}' "$API/api/v1/media/coaches/00000000-0000-4000-8000-000000000000/photo")"
+          VAZOU="$(grep -c 'coach-photos/' /tmp/foto.txt || true)"
+          echo "HTTP $C · ocorrências de \`coach-photos/\` no corpo: $VAZOU"
+          if { [ "$C" = "404" ] || [ "$C" = "401" ]; } && [ "$VAZOU" = "0" ]; then
+            echo '| `GET /media/coaches/:id/photo` com id inexistente | 404 e zero chave | igual | PASS |' >> /tmp/placar.md
+          else
+            echo "| \`GET /media/coaches/:id/photo\` com id inexistente | 404 e zero chave | **HTTP $C · chave $VAZOU** | **FAIL** |" >> /tmp/placar.md
+            echo "FALHAS=$((FALHAS+1))" >> "$GITHUB_ENV"
+          fi
+
+      # R-03 e R-04 NO AR. Nenhuma destas rotas atende visitante: a análise
+      # central, a área do treinador, a criação da equipe própria, o autocadastro
+      # e o diagnóstico de divergências. Sem sessão, 401 — e não 403, 404 ou 422,
+      # porque a autenticação vem ANTES de qualquer outra barreira.
+      - name: Sem token, todo o módulo de treinadores recusa com 401
+        run: |
+          FALHOU=0
+          for R in 'coaches/me' 'coaches/me/teams' 'coaches/me/athletes' 'coaches/review?status=PENDING' 'coaches/authorizable' 'coaches/ranking/divergences'; do
+            C="$(curl -sS -m 60 -o /dev/null -w '%{http_code}' "$API/api/v1/$R")"
+            echo "GET $R → HTTP $C"
+            [ "$C" = "401" ] || FALHOU=1
+          done
+          for R in 'coaches/self-register' 'coaches/me/teams' 'coaches/me/photo' 'athletes/lookup-affiliation' 'team-membership-requests'; do
+            C="$(curl -sS -m 60 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' "$API/api/v1/$R")"
+            echo "POST $R → HTTP $C"
+            [ "$C" = "401" ] || FALHOU=1
+          done
+          if [ "$FALHOU" = "0" ]; then
+            echo '| 11 rotas de treinador sem token | 401 em todas | 401 em todas | PASS |' >> /tmp/placar.md
+          else
+            echo '| 11 rotas de treinador sem token | 401 em todas | **ver log** | **FAIL** |' >> /tmp/placar.md
+            echo "FALHAS=$((FALHAS+1))" >> "$GITHUB_ENV"
+          fi
+
       # -------------------------------------------------------- não-financeiro
       # "Este aplicativo NÃO é um sistema financeiro." A higiene do repositório
       # já recusa o módulo no código; isto confere a mesma coisa no ar.
