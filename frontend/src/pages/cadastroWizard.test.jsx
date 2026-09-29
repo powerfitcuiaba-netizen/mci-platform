@@ -60,6 +60,10 @@ async function ate(etapa, usuario, { papel = 'MEDIA' } = {}) {
   if (etapa > 2) {
     await digitar(usuario, 'E-mail', 'maria@mci.test');
     await digitar(usuario, 'Senha', 'senha-forte-2026');
+    // A CONFIRMAÇÃO É OBRIGATÓRIA desde a decisão de aprovação automática: sem
+    // ela a etapa 2 não avança, e todos os casos que passam por aqui travavam
+    // num erro de senha que não era o que eles queriam medir.
+    await digitar(usuario, 'Confirmar senha', 'senha-forte-2026');
     await digitar(usuario, 'Telefone', '65999991234');
     await digitar(usuario, 'WhatsApp', '65988884321');
     await continuar(usuario);
@@ -281,5 +285,187 @@ describe('envio', () => {
     expect(await screen.findByText('Informe seu nome completo')).toBeInTheDocument();
 
     expect(espioes.register).not.toHaveBeenCalled();
+  });
+});
+
+// ==========================================================================
+// A UNIFICAÇÃO NA TELA — uma opção de treinador, e não duas.
+//
+// A decisão aprovada tirou "Equipe" do seletor de perfil e deixou **Treinador
+// (Equipe)** como a opção única de quem prepara atletas e conduz uma equipe.
+//
+// A prova é contra o que o <select> OFERECE, e é aqui que ela tem de estar: a
+// recusa de verdade é do servidor (`z.enum(PAPEIS_DE_CADASTRO_ABERTO)`, coberto
+// em `tests/cadastro-publico.test.mjs`), mas oferecer a opção velha faria a
+// pessoa escolher e só descobrir no envio, com 400 e sem explicação.
+// ==========================================================================
+describe('seletor de perfil unificado', () => {
+  const seletor = () => screen.getByLabelText(/^Você é/i);
+  const opcoes = () => [...seletor().querySelectorAll('option')];
+
+  it('oferece Treinador (Equipe) e NÃO oferece Equipe como opção separada', () => {
+    render(<CadastroWizard aoVoltarParaEntrada={() => {}} />);
+
+    const rotulos = opcoes().map(o => o.textContent);
+    expect(rotulos).toContain('Treinador (Equipe)');
+    expect(rotulos, 'a opção antiga não pode reaparecer').not.toContain('Equipe');
+
+    const codigos = opcoes().map(o => o.value);
+    expect(codigos).toContain('COACH');
+    expect(codigos, 'nem pelo código, que é o que vai para a API').not.toContain('TEAM');
+  });
+
+  it('são seis perfis, sem duplicata', () => {
+    render(<CadastroWizard aoVoltarParaEntrada={() => {}} />);
+
+    const codigos = opcoes().map(o => o.value);
+    expect(codigos).toEqual(['ATHLETE', 'COACH', 'GYM', 'BRAND', 'SPONSOR', 'MEDIA']);
+    expect(new Set(codigos).size).toBe(codigos.length);
+  });
+
+  it('a descrição do perfil escolhido fala da equipe — é o que diz à pessoa que é aqui', async () => {
+    const usuario = userEvent.setup();
+    render(<CadastroWizard aoVoltarParaEntrada={() => {}} />);
+
+    await usuario.selectOptions(seletor(), 'COACH');
+    // A frase exata, e não /equipe/i: o rótulo da própria opção também contém
+    // "Equipe", e a busca larga achava dois elementos e reprovava por ambiguidade
+    // em vez de medir a descrição.
+    expect(await screen.findByText('Prepara atletas e conduz a própria equipe')).toBeInTheDocument();
+  });
+
+  it('o cadastro de Treinador (Equipe) chega ao servidor com role=COACH', async () => {
+    const usuario = userEvent.setup();
+    render(<CadastroWizard aoVoltarParaEntrada={() => {}} />);
+    await ate(5, usuario, { papel: 'COACH' });
+
+    await continuar(usuario);
+    await waitFor(() => expect(espioes.register).toHaveBeenCalled());
+    expect(espioes.register.mock.calls[0][0].role).toBe('COACH');
+  });
+});
+
+// ==========================================================================
+// SENHA E CONFIRMAÇÃO.
+//
+// O que se prova aqui não é que os dois campos existem — é o que eles IMPEDEM:
+//
+//   * enviar com senhas diferentes;
+//   * enviar com a confirmação vazia;
+//   * a confirmação VIAJAR no corpo do cadastro. Ela existe para a pessoa não
+//     errar a digitação, não para o servidor conferir; mandá-la seria transportar
+//     a mesma senha duas vezes e gravá-la duas vezes em qualquer log de
+//     requisição, sem ganhar segurança nenhuma.
+//
+// E uma regra de ordem que parece detalhe e não é: quando a senha é curta, o erro
+// que a pessoa precisa ler é o da política. Acusar "as senhas não coincidem" ali
+// manda ela consertar a confirmação de uma senha que vai trocar de todo jeito.
+// ==========================================================================
+describe('senha e confirmação', () => {
+  const campoSenha = () => screen.getByLabelText(/^Senha/i);
+  const campoConfirmacao = () => screen.getByLabelText(/^Confirmar senha/i);
+
+  // Até a etapa 2, preenchendo identidade com o que ela exige.
+  async function ateASenha(usuario) {
+    render(<CadastroWizard aoVoltarParaEntrada={() => {}} />);
+    await digitar(usuario, 'Nome completo', 'Maria Silva');
+    await digitar(usuario, 'Data de nascimento', '1995-03-10');
+    await usuario.selectOptions(screen.getByLabelText(/^Você é/i), 'COACH');
+    await continuar(usuario);
+    await digitar(usuario, 'E-mail', 'maria@mci.test');
+  }
+
+  it('senhas diferentes bloqueiam o avanço e dizem por quê', async () => {
+    const usuario = userEvent.setup();
+    await ateASenha(usuario);
+
+    await digitar(usuario, 'Senha', 'senha-forte-2026');
+    await digitar(usuario, 'Confirmar senha', 'senha-forte-2027');
+    await continuar(usuario);
+
+    expect(await screen.findByText('As senhas não coincidem')).toBeInTheDocument();
+    // Continua na etapa 2: o campo de senha ainda está na tela.
+    expect(campoSenha()).toBeInTheDocument();
+    expect(espioes.register).not.toHaveBeenCalled();
+  });
+
+  it('confirmação vazia bloqueia o avanço', async () => {
+    const usuario = userEvent.setup();
+    await ateASenha(usuario);
+
+    await digitar(usuario, 'Senha', 'senha-forte-2026');
+    await continuar(usuario);
+
+    expect(await screen.findByText('As senhas não coincidem')).toBeInTheDocument();
+    expect(espioes.register).not.toHaveBeenCalled();
+  });
+
+  it('senha curta acusa a POLÍTICA, e não a divergência', async () => {
+    const usuario = userEvent.setup();
+    await ateASenha(usuario);
+
+    await digitar(usuario, 'Senha', 'curta');
+    await continuar(usuario);
+
+    expect(await screen.findByText('A senha precisa de pelo menos 8 caracteres')).toBeInTheDocument();
+    expect(screen.queryByText('As senhas não coincidem'),
+      'ela ainda vai trocar a senha: cobrar a confirmação agora é ruído').not.toBeInTheDocument();
+  });
+
+  it('senha vazia também é recusada pela política', async () => {
+    const usuario = userEvent.setup();
+    await ateASenha(usuario);
+
+    await continuar(usuario);
+
+    expect(await screen.findByText('A senha precisa de pelo menos 8 caracteres')).toBeInTheDocument();
+    expect(espioes.register).not.toHaveBeenCalled();
+  });
+
+  it('mostrar/ocultar alterna cada campo de forma INDEPENDENTE', async () => {
+    // Um estado só para os dois faria o olho de um revelar o outro — e quem quer
+    // conferir se digitou igual precisa olhar um campo por vez.
+    const usuario = userEvent.setup();
+    await ateASenha(usuario);
+
+    expect(campoSenha()).toHaveAttribute('type', 'password');
+    expect(campoConfirmacao()).toHaveAttribute('type', 'password');
+
+    const olhos = screen.getAllByRole('button', { name: /Mostrar senha/i });
+    expect(olhos).toHaveLength(2);
+
+    await usuario.click(olhos[0]);
+    expect(campoSenha()).toHaveAttribute('type', 'text');
+    expect(campoConfirmacao(), 'o segundo campo não pode ter sido revelado junto')
+      .toHaveAttribute('type', 'password');
+
+    await usuario.click(screen.getByRole('button', { name: /Ocultar senha/i }));
+    expect(campoSenha()).toHaveAttribute('type', 'password');
+  });
+
+  it('o botão do olho NÃO envia o formulário', async () => {
+    // `<button>` sem `type` dentro de um <form> é submit por padrão: sem
+    // `type="button"` o clique no olho enviaria o cadastro pela metade.
+    const usuario = userEvent.setup();
+    await ateASenha(usuario);
+    await digitar(usuario, 'Senha', 'senha-forte-2026');
+
+    await usuario.click(screen.getAllByRole('button', { name: /Mostrar senha/i })[0]);
+
+    expect(espioes.register).not.toHaveBeenCalled();
+    expect(campoSenha()).toBeInTheDocument();
+  });
+
+  it('a confirmação NÃO viaja no corpo do cadastro', async () => {
+    const usuario = userEvent.setup();
+    render(<CadastroWizard aoVoltarParaEntrada={() => {}} />);
+    await ate(5, usuario, { papel: 'COACH' });
+
+    await continuar(usuario);
+    await waitFor(() => expect(espioes.register).toHaveBeenCalled());
+
+    const corpo = espioes.register.mock.calls[0][0];
+    expect(corpo.password, 'a senha vai, porque é ela que cria a conta').toBe('senha-forte-2026');
+    expect(corpo, 'a confirmação fica no navegador').not.toHaveProperty('passwordConfirm');
   });
 });

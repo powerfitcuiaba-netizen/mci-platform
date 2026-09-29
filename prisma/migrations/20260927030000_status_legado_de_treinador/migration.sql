@@ -1,0 +1,69 @@
+-- ===========================================================================
+-- O CADASTRO LEGADO DE TREINADOR NÃO NASCE APROVADO — ACHADO A-05.
+--
+-- O QUE A MIGRATION 20260926020000 FAZ, E POR QUE ISSO É UM PROBLEMA
+--
+--     ALTER TABLE "Coach" ADD COLUMN "status" "CoachStatus" NOT NULL DEFAULT 'PENDING';
+--     UPDATE "Coach" SET "status" = 'APPROVED';
+--
+-- O `UPDATE` não tem `WHERE`. Ele aprova TODA linha de `Coach` existente, e o
+-- comentário da época declara a intenção: "é a escolha conservadora: um cadastro
+-- criado por operador antes deste módulo já passou pelo controle de acesso da
+-- época". A intenção é compreensível e a consequência é outra: R-03 diz que quem
+-- aprova ou rejeita cadastro de treinador é a ADMINISTRAÇÃO CENTRAL da
+-- MuscleContest, e aqui quem aprovou foi uma migration. Ninguém decidiu, ninguém
+-- assinou, nada foi para a trilha.
+--
+-- E o efeito é grande: `status = 'APPROVED'` é o primeiro dos predicados que
+-- dão ao treinador leitura de atleta (`mci_treinador_com_equipe_em`), autorização
+-- por federação e poder de pedir vínculo. Aprovar em massa é conceder em massa.
+--
+-- POR QUE A CORREÇÃO É UMA MIGRATION NOVA, E NÃO UMA EDIÇÃO DAQUELA
+--
+-- Editar `20260926020000` seria o caminho curto e está descartado por duas razões
+-- independentes. Primeira: o histórico do projeto é preservado por regra, e uma
+-- migration já aplicada é registro do que aconteceu, não rascunho. Segunda, e
+-- técnica: o Prisma guarda o checksum de cada migration aplicada — mudar o
+-- arquivo faz `prisma migrate deploy` PARAR em todo banco que já a aplicou,
+-- inclusive o de desenvolvimento de quem já rodou a suíte.
+--
+-- A correção é ADITIVA e funciona nos dois estados possíveis do banco de destino:
+--
+--   * a migration anterior AINDA NÃO rodou lá — as duas rodam em sequência no
+--     mesmo deploy: a primeira aprova em massa, esta devolve ao estado correto,
+--     e o resultado final é o certo;
+--   * a migration anterior JÁ rodou lá — esta corrige o estado existente.
+--
+-- O PREDICADO, E POR QUE ELE NÃO PODE ERRAR
+--
+-- `reviewedById` e `reviewedAt` são escritos EXCLUSIVAMENTE por
+-- `coachService.transicionar`, que é o único caminho de aprovação, rejeição,
+-- suspensão, reativação e cancelamento, exige `coaches.approve` e grava a trilha
+-- na mesma operação. O `UPDATE` sem `WHERE` da migration anterior não os toca.
+--
+-- Logo: `status = 'APPROVED' AND "reviewedById" IS NULL AND "reviewedAt" IS NULL`
+-- identifica EXATAMENTE a aprovação que nenhuma pessoa deu. Um cadastro aprovado
+-- de verdade tem revisor e data, e esta migration não o alcança — nem hoje, nem
+-- se for reexecutada.
+--
+-- IDEMPOTENTE: rodar de novo não muda nada, porque na segunda vez não há mais
+-- linha aprovada sem revisor.
+--
+-- O QUE ESTA MIGRATION NÃO FAZ. Não apaga cadastro, não desfaz vínculo de atleta,
+-- não mexe em `Athlete`, `Team`, `AthleteTeamMembership`, pontuação ou ranking.
+-- `Coach.status` volta a `PENDING`, que é o DEFAULT da coluna — o estado que
+-- R-03 manda o cadastro ter até alguém decidir.
+--
+-- CONSEQUÊNCIA OPERACIONAL, DECLARADA: cadastro legado volta a pendente, e
+-- enquanto estiver pendente o treinador não é reconhecido como ator nem pela
+-- aplicação nem pela RLS. Se algum desses cadastros já estiver em uso, a mesa
+-- central precisa APROVÁ-LO pela rota — com motivo e trilha, como manda R-03.
+-- `scripts/diagnostico-treinadores-legados.js` (somente leitura) lista quem são,
+-- ANTES do deploy, para que a decisão seja humana e informada.
+-- ===========================================================================
+
+UPDATE "Coach"
+   SET "status" = 'PENDING'
+ WHERE "status" = 'APPROVED'
+   AND "reviewedById" IS NULL
+   AND "reviewedAt" IS NULL;

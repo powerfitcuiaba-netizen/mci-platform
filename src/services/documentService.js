@@ -224,7 +224,16 @@ async function downloadStoryMedia(storyId, actor) {
   return { stream: await storage.createReadStream(story.storageKey), mimeType: story.mimeType };
 }
 
+// A ENTREGA POR CHAVE, para quem já decidiu quem pode ver.
+//
+// `entregarImagem` é interna de propósito: exportá-la crua convidaria um chamador
+// a receber a chave do cliente. Este nome diz o contrato — a chave veio de um
+// serviço que já resolveu a autorização, como `coachService.fotoParaEntrega`, que
+// a lê da linha depois de receber apenas o id.
+const entregarPorChave = chave => entregarImagem(chave);
+
 module.exports = {
+  entregarPorChave,
   uploadAthleteDocument, listAthleteDocuments, downloadAthleteDocument, deleteAthleteDocument,
   uploadEventDocument, listEventDocuments, downloadEventDocument,
   downloadPostMedia, downloadStoryMedia, downloadProfileAvatar,

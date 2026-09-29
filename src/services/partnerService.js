@@ -1,6 +1,7 @@
 const prisma = require('../config/prisma');
 const { AppError } = require('../utils/errors');
 const { assertCan, organizationFilter } = require('../utils/tenant');
+const { can } = require('../utils/permissions');
 const audit = require('./auditService');
 
 // Equipes, coaches, academias, marcas, patrocinadores e parcerias.
@@ -32,7 +33,74 @@ const listarComEscopo = modelo => async (filtros, actor) => {
   });
 };
 
-const createTeam = criarComEscopo({ model: 'team', permission: 'teams.manage', conflictCode: 'TEAM_EXISTS', conflictMessage: 'Já existe equipe com este nome' });
+// ============================================================================
+// A EQUIPE E O SEU TREINADOR — módulo Treinadores & Equipes.
+//
+// A equipe não deixou de ser o que era: `organizationId` continua sendo o dono,
+// e a criação continua exigindo `teams.manage`. O que entrou é o responsável, e
+// com ele uma conferência que não pode ser só de forma.
+//
+// UM TREINADOR SÓ RESPONDE POR EQUIPE DE FEDERAÇÃO EM QUE ESTÁ AUTORIZADO. Sem
+// isso, a identidade global de `Coach` (decisão R-04) viraria acesso irrestrito
+// pela porta da equipe: bastaria uma federação qualquer apontar o treinador de
+// outra como responsável, e ele passaria a ver atletas de onde nunca foi
+// autorizado a atuar. A decisão R-04 diz exatamente o contrário — cadastro
+// global não concede atuação.
+// ============================================================================
+async function assertTreinadorPodeResponder(coachId, organizationId) {
+  const coach = await prisma.coach.findUnique({
+    where: { id: coachId },
+    select: { id: true, status: true, organizations: { select: { organizationId: true, status: true } } }
+  });
+  if (!coach) throw new AppError(404, 'COACH_NOT_FOUND', 'Treinador não encontrado');
+
+  if (coach.status !== 'APPROVED') {
+    throw new AppError(422, 'COACH_NOT_APPROVED',
+      'Somente treinador com cadastro aprovado pela administração da Muscle Contest pode responder por uma equipe.',
+      { status: coach.status });
+  }
+
+  const autorizacao = coach.organizations.find(item => item.organizationId === organizationId);
+  if (!autorizacao || autorizacao.status !== 'APPROVED') {
+    throw new AppError(422, 'COACH_ORG_NOT_AUTHORIZED',
+      'Este treinador não está autorizado a atuar nesta federação. Autorize-o antes de vinculá-lo a uma equipe.');
+  }
+}
+
+async function createTeam(data, actor) {
+  assertCan(actor, 'teams.manage', data.organizationId);
+  if (data.coachId) await assertTreinadorPodeResponder(data.coachId, data.organizationId);
+
+  try {
+    return await prisma.team.create({ data });
+  } catch (error) {
+    if (error.code === 'P2002') throw new AppError(409, 'TEAM_EXISTS', 'Já existe equipe com este nome');
+    throw error;
+  }
+}
+
+/** Define ou remove o treinador responsável pela equipe. */
+async function setTeamCoach(teamId, { coachId = null }, actor) {
+  const team = await prisma.team.findUnique({ where: { id: teamId }, select: { id: true, organizationId: true, coachId: true } });
+  if (!team) throw new AppError(404, 'TEAM_NOT_FOUND', 'Equipe não encontrada');
+
+  assertCan(actor, 'teams.manage', team.organizationId);
+  if (coachId) await assertTreinadorPodeResponder(coachId, team.organizationId);
+
+  const atualizada = await prisma.team.update({
+    where: { id: teamId },
+    data: { coachId },
+    select: { id: true, name: true, organizationId: true, coachId: true, coach: { select: { id: true, name: true, status: true } } }
+  });
+
+  await audit.record({
+    actor, action: 'TEAM_COACH_SET', entity: 'Team', entityId: teamId,
+    organizationId: team.organizationId, metadata: { de: team.coachId, para: coachId }
+  });
+
+  return atualizada;
+}
+
 const listTeams = listarComEscopo({ model: 'team', count: { athletes: true } });
 
 // A empresa entra com suas equipes: ela fica acima delas, e os pontos sobem por
@@ -44,11 +112,31 @@ const createGym = criarComEscopo({ model: 'gym', permission: 'gyms.manage', conf
 const listGyms = listarComEscopo({ model: 'gym', count: { athletes: true } });
 
 // Coach não pertence a uma organização: um técnico atende atletas de várias.
+//
+// Essa globalidade é o desenho, e a fase F2 a manteve — o que ela separou foi
+// AMARRAR o cadastro a uma conta da plataforma. `Coach.userId` é UNIQUE, então
+// o vínculo é um recurso de uma só vaga por conta: quem o ocupa impede todos os
+// outros, inclusive a federação do próprio técnico. Num cadastro global, isso
+// atravessa federações — e é a única parte do técnico que fazia isso.
+//
+// Nenhuma política e nenhum serviço deriva autorização de `Coach` (medido:
+// zero helper `mci_` e zero policy citam coach), então o vínculo não dá poder
+// a ninguém. O que ele faz é bloquear, e é disso que a permissão trata.
 async function createCoach(data, actor) {
   const { assertPermission } = require('../utils/tenant');
   assertPermission(actor, 'coaches.manage');
 
   if (data.userId) {
+    // A conferência vem ANTES de olhar a conta, de propósito: consultar
+    // primeiro e recusar depois transformaria a rota em oráculo de existência
+    // de usuário — 404 para o id que NÃO existe, 403 para o que existe. Quem
+    // não pode vincular enumeraria contas da plataforma pela diferença.
+    if (!can(actor, 'coaches.link_account')) {
+      throw new AppError(403, 'FORBIDDEN',
+        'Vincular o cadastro de técnico a uma conta da plataforma é operação de administrador. '
+        + 'Cadastre o técnico sem o vínculo e solicite o vínculo da conta.');
+    }
+
     const user = await prisma.user.findUnique({ where: { id: data.userId } });
     if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'Usuário não encontrado');
   }
@@ -61,10 +149,41 @@ async function createCoach(data, actor) {
   }
 }
 
+// O CATÁLOGO DE TÉCNICOS DEVOLVE UMA LISTA EXPLÍCITA — achado A-13.
+//
+// O QUE ESTAVA ERRADO. A consulta não tinha `select`: devolvia a linha INTEIRA de
+// `Coach` para qualquer conta autenticada, e a rota é só `requireAuth`. Antes do
+// módulo Treinadores isso já era largo demais, e passou a ser grave quando a
+// migration `20260926020000` acrescentou colunas à tabela — porque `findMany` sem
+// projeção carrega TUDO o que a tabela ganhar depois. Passaram a sair na listagem:
+//
+//   `status`           o estado da análise cadastral de cada técnico;
+//   `rejectionReason`  a razão pela qual alguém NÃO foi aprovado;
+//   `suspendedReason`  a razão de uma suspensão;
+//   `reviewedById`     quem julgou, e `reviewedAt`, quando;
+//   `phone`, `email`   contato pessoal;
+//   `userId`           o elo entre o cadastro e uma conta da plataforma.
+//
+// Motivo de recusa é informação sobre uma PESSOA, e a análise cadastral é de R-03 —
+// da administração central, não de quem se cadastrou ontem pelo autocadastro aberto.
+//
+// A CORREÇÃO é a projeção explícita, e é ela que impede a repetição: a próxima
+// coluna que `Coach` ganhar NÃO entra aqui por acidente. O catálogo existe para
+// ESCOLHER um técnico ao cadastrar atleta — nome, cidade, estado e quantos atletas
+// ele já tem é o que essa escolha precisa.
+//
+// `status` FICA FORA de propósito. Quem precisa dele é a mesa central, e ela tem
+// rota própria (`GET /coaches/review`, com `coaches.approve`). Deixá-lo aqui
+// transformaria o catálogo em painel de análise para a plataforma inteira.
+const SELECT_CATALOGO_DE_TECNICOS = Object.freeze({
+  id: true, name: true, city: true, state: true,
+  _count: { select: { athletes: true } }
+});
+
 async function listCoaches(filtros) {
   return prisma.coach.findMany({
     where: filtros.search ? { name: { contains: filtros.search, mode: 'insensitive' } } : {},
-    include: { _count: { select: { athletes: true } } },
+    select: SELECT_CATALOGO_DE_TECNICOS,
     orderBy: { name: 'asc' },
     take: filtros.limit || 50
   });
@@ -232,7 +351,7 @@ async function listPartnerships(filtros) {
 }
 
 module.exports = {
-  createTeam, listTeams, createCompany, listCompanies, createGym, listGyms, createCoach, listCoaches,
+  createTeam, setTeamCoach, listTeams, createCompany, listCompanies, createGym, listGyms, createCoach, listCoaches,
   createBrand, listBrands, createSponsor, listSponsors,
   createSponsorship, listSponsorships,
   createPartnership, setPartnershipStatus, listPartnerships

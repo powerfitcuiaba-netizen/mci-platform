@@ -221,12 +221,22 @@ export const EmptyState = ({ title, description, action }) => (
 // morre no primeiro `dados.items`. Foi assim que a tela de credenciamento
 // quebrava ao escolher um evento. Nulo é ausência de dado, não erro: mostra o
 // esqueleto, que é o que estava acontecendo de fato.
-export function AsyncSection({ state, empty, children, linhas = 4 }) {
+// OS QUATRO ESTADOS SÃO MUTUAMENTE EXCLUSIVOS, e é isso que esta função entrega:
+// falha, carregando, vazio, conteúdo — um por vez.
+//
+// `vazio` existe por causa do achado A-11. Telas com texto de vazio PRÓPRIO (a
+// fila de análise de treinador, a lista de delegação) mostravam o genérico daqui
+// E o próprio, um debaixo do outro; quem tirava o `empty` para resolver passava a
+// renderizar a tabela vazia junto do texto. Com `vazio`, a tela entrega a própria
+// mensagem para o MESMO ponto de decisão, e continua havendo um estado só.
+export function AsyncSection({ state, empty, vazio = null, children, linhas = 4 }) {
   const { t } = useIdioma();
 
   if (state.error) return <ErrorState message={state.error} onRetry={state.reload} />;
   if (state.data === null || state.data === undefined) return <Skeleton linhas={linhas} />;
-  if (empty && empty(state.data)) return <EmptyState title={t('estado.vazio')} description={t('ui.vazioDescricao')} />;
+  if (empty && empty(state.data)) {
+    return vazio ?? <EmptyState title={t('estado.vazio')} description={t('ui.vazioDescricao')} />;
+  }
   return children(state.data);
 }
 

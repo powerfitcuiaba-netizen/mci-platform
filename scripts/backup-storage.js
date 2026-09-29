@@ -60,7 +60,23 @@ const NAO_SAO_ARQUIVO = new Set([
   'ExternalAthlete.identityKey',
   'Ranking.competitorKey',
   'PublicRankingEntry.competitorKey',
-  'PublicRankingEntry.sourceKey'
+  'PublicRankingEntry.sourceKey',
+
+  // `CentralAuthorization.activeKey` — a chave de UNICIDADE da delegação central
+  // viva: uma concessão por usuário, permissão e escopo. Ela carrega a chave
+  // enquanto a autorização vale e vira NULL quando revogada, de modo que a
+  // unicidade seja do banco e não de um SELECT anterior — mesmo padrão de
+  // `AthleteTeamMembership.activeAthleteId`. Não é caminho de objeto.
+  //
+  // ELA CHEGOU EM 20260926020000 E NÃO FOI CLASSIFICADA, e a consequência não foi
+  // um backup errado: foi backup NENHUM. A guarda abaixo é fail closed de
+  // propósito — campo `*Key` desconhecido interrompe a execução —, então desde
+  // aquela migration `scripts/backup-storage.js` RECUSAVA RODAR, e as seis
+  // conferências do ensaio de storage reprovavam na CI, que é o único ambiente
+  // onde elas rodam (local, sem `BACKUP_DATABASE_URL`, a suíte inteira é pulada).
+  // A guarda fez exatamente o que existe para fazer; o que faltou foi responder a
+  // ela.
+  'CentralAuthorization.activeKey'
 ]);
 
 function mapearCampos() {

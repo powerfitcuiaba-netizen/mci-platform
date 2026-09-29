@@ -74,6 +74,77 @@ describe('higiene do repositório', () => {
     expect(financeiros).toEqual([]);
   });
 
+  // ==========================================================================
+  // NENHUM RESÍDUO DE RODADA DE MUTAÇÃO ENTRA NO REPOSITÓRIO.
+  //
+  // ACONTECEU, E O CUSTO FOI ALTO. `scripts/qa/mutantes-*.mjs` grava
+  // `<arquivo>.mutante-bak`, aplica o mutante, roda a suíte e restaura. Um
+  // `git add -A` dado com a rodada EM CURSO capturou as duas coisas: o backup e
+  // o arquivo MUTADO. O mutante TE-F1 — que apaga `status: 'APPROVED'` da lista
+  // de autorização da federação, fazendo cadastro NÃO aprovado aparecer para
+  // autorização e violando R-03 — foi commitado e empurrado para a branch.
+  //
+  // O `.gitignore` impede versionar o BACKUP. Este teste é a outra metade: ele
+  // acusa o resíduo rastreado, e a ausência dele é o que diz que nenhuma rodada
+  // ficou pela metade dentro do repositório.
+  //
+  // Repare no que ele NÃO consegue provar: que o arquivo de origem não está
+  // mutado. Isso não é verificável por padrão de texto — as suítes do módulo são
+  // que provam, e é por isso que commit com rodada em curso é proibido por
+  // procedimento, não só por teste.
+  // ==========================================================================
+  it('nenhum backup de mutação está rastreado pelo git', () => {
+    const rastreados = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
+      .split('\n').filter(Boolean);
+    const residuos = rastreados.filter(caminho => caminho.endsWith('.mutante-bak'));
+
+    expect(residuos, `resíduo de mutação rastreado: ${residuos.join(', ')}. `
+      + 'O arquivo de origem correspondente pode estar MUTADO — confira antes de qualquer coisa.')
+      .toEqual([]);
+  });
+
+  // ==========================================================================
+  // NENHUM OBJETO DE EXECUÇÃO ENTRA NO REPOSITÓRIO.
+  //
+  // ACONTECEU TAMBÉM, pelo mesmo mecanismo: `STORAGE_DIR=./uploads-preview` é o
+  // armazenamento que o workflow do preview e a réplica local usam, e a decisão
+  // da foto obrigatória passou a gravar ali a foto de cada treinador de QA. Um
+  // `git add -A` capturou quatro `.webp` sintéticos e os empurrou para a branch.
+  //
+  // Nenhum deles tinha dado pessoal — são imagens 8×8 geradas pelo arreio —, e é
+  // justamente por isso que o teste existe: da próxima vez pode não ser. Foto de
+  // atleta ou de treinador REAL num repositório PÚBLICO é irreversível, porque o
+  // histórico do git preserva o arquivo mesmo depois da remoção.
+  //
+  // A lista é dos diretórios que a aplicação escreve em execução, e cresce junto
+  // com `.gitignore`.
+  // ==========================================================================
+  it('nenhum diretório de armazenamento em execução está rastreado', () => {
+    const DE_EXECUCAO = [
+      'uploads/', 'uploads-test/', 'uploads-preview/', 'uploads-gate/',
+      'uploads-homolog/', 'uploads-recuperado/', 'uploads-desastre/'
+    ];
+    const rastreados = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
+      .split('\n').filter(Boolean);
+    const dentro = rastreados.filter(caminho => DE_EXECUCAO.some(dir => caminho.startsWith(dir)));
+
+    expect(dentro, `objeto de execução rastreado: ${dentro.slice(0, 5).join(', ')}. `
+      + 'Remova com `git rm -r --cached <dir>` e confira se algum arquivo tem dado real — '
+      + 'o histórico do git preserva o que foi empurrado.')
+      .toEqual([]);
+  });
+
+  it('o `.gitignore` recusa o armazenamento do preview', () => {
+    const ignorados = readFileSync('.gitignore', 'utf8');
+    expect(ignorados).toContain('uploads-preview/');
+  });
+
+  it('o `.gitignore` recusa backup de mutação', () => {
+    // Sem a regra, o próximo `git add -A` durante uma rodada repete o acidente.
+    const ignorados = readFileSync('.gitignore', 'utf8');
+    expect(ignorados).toContain('*.mutante-bak');
+  });
+
   it('o padrão daqui e o da CI continuam sendo o mesmo', () => {
     // Se alguém afrouxar um dos dois, o outro precisa acusar. Sem esta
     // conferência, a suíte local passaria a mentir sobre o que a CI exige.

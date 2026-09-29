@@ -1,4 +1,14 @@
 const prisma = require('../config/prisma');
+// O LEITOR DA SUPERFÍCIE PÚBLICA — ver `src/config/prismaPublico.js`.
+//
+// `resultadosImportadosDoEvento` é projeção pública pelos mesmos motivos que o
+// ranking e o Super Overall: os bytes que saem dela são os que o visitante
+// anônimo já recebe hoje por `GET /ranking/by?eventId=...`. Sem este leitor, a
+// função entregaria MENOS a quem se identificou — `atleta_leitura` libera a
+// linha do atleta para `mci_current_user_id() IS NULL`, e um atleta logado de
+// OUTRA federação não é anônimo: o nome viria em branco para ele e apareceria
+// para o visitante deslogado. É exatamente o defeito que fez este leitor nascer.
+const publico = require('../config/prismaPublico');
 const { AppError } = require('../utils/errors');
 const { athletePublic } = require('../utils/visibility');
 const publishedResults = require('./publishedResultsService');
@@ -67,6 +77,165 @@ async function listEvents(filtros) {
 
 // Página pública do campeonato: agenda, categorias, atletas, resultados
 // publicados, patrocinadores e conteúdo social do evento.
+// Competidores distintos do evento, somando os dois caminhos sem contar ninguém
+// duas vezes. O atleta com cadastro é identificado pelo id; o competidor sem
+// cadastro, pelo nome da fonte — que é o único identificador que ele tem na
+// projeção pública.
+function contarCompetidores(inscricoes, gruposImportados) {
+  const vistos = new Set();
+
+  for (const item of inscricoes) {
+    if (item.athlete?.id) vistos.add(`atleta:${item.athlete.id}`);
+  }
+  for (const grupo of gruposImportados) {
+    for (const entrada of grupo.entries) {
+      if (entrada.athleteId) vistos.add(`atleta:${entrada.athleteId}`);
+      else if (entrada.name) vistos.add(`fonte:${entrada.name}`);
+    }
+  }
+
+  return vistos.size;
+}
+
+// ============================================================================
+// OS RESULTADOS DO EVENTO QUE ENTRARAM POR IMPORTAÇÃO.
+//
+// A PLATAFORMA TEM DOIS CAMINHOS DE RESULTADO, E ELES NÃO SE CRUZAM:
+//
+//   CAMINHO INTERNO     julgamento no MCI  -> `Result` + `ResultEntry`
+//                       inscrição no MCI   -> `Registration`
+//
+//   CAMINHO IMPORTADO   arquivo da origem  -> `MuscleWarImportItem`
+//                                          -> `ExternalResult` + `RankingPoint`
+//                                          -> `PublicRankingEntry`
+//
+// Até aqui `eventPage` lia SÓ o primeiro. Medido: um evento cujos resultados
+// entraram por importação não tem uma única linha em `Result` nem em
+// `Registration`, então as duas consultas voltavam vazias e a página dizia
+// "0 atletas" e "Resultados ainda não publicados" — duas frases verdadeiras
+// sobre as tabelas consultadas, e falsas sobre o evento, cujos resultados
+// estavam homologados nas outras três. A etapa do Ipiranga é esse caso.
+//
+// POR QUE `PublicRankingEntry` E NÃO `RankingPoint`
+//
+// `RankingPoint` tem política de leitura de OPERADOR: numa rota pública ela
+// devolve zero linha, e zero linha aqui seria indistinguível de "não há
+// resultado" — o mesmo defeito que já custou um diagnóstico falso nesta base.
+// `PublicRankingEntry` é a projeção pública da mesma verdade, com política
+// `mci_operator_of(...) OR mci_ranking_publicado("seasonId")`, e é a tabela que
+// `GET /ranking/by?eventId=...` já serve ao anônimo. Ler dela não abre nada novo:
+// muda o LUGAR de onde a página do evento lê, não quem pode ler.
+//
+// O QUE NÃO ACONTECE AQUI
+//
+// Nada é publicado, homologado, recalculado ou criado. A função é uma leitura.
+// `voided: false` exclui o lançamento invalidado — que continua no ledger,
+// valendo zero, e não volta a aparecer como resultado por causa desta tela.
+// A pontuação exibida é a que o motor oficial já gravou; nenhuma conta é feita
+// aqui, e por isso nenhuma regra esportiva é tocada.
+// ============================================================================
+const TETO_DE_RESULTADOS_IMPORTADOS = 2000;
+
+async function resultadosImportadosDoEvento(event) {
+  const entradas = await publico.publicRankingEntry.findMany({
+    // `organizationId` entra junto com `eventId` por duas razões: é o filtro de
+    // tenancy explícito (o mesmo que a política confere) e é coluna indexada.
+    where: { eventId: event.id, organizationId: event.organizationId, voided: false },
+    select: {
+      id: true, athleteId: true, displayName: true,
+      categoryId: true, catalogClassId: true,
+      placing: true, points: true, isOverallChampion: true, didNotShow: true
+    },
+    orderBy: [{ placing: 'asc' }],
+    take: TETO_DE_RESULTADOS_IMPORTADOS
+  });
+
+  if (!entradas.length) return [];
+
+  // O NOME DO COMPETIDOR VEM DE DOIS LUGARES, E ISSO NÃO É REDUNDÂNCIA.
+  //
+  // `republicarProjecao` grava `displayName` APENAS quando não há cadastro
+  // (`ponto.athleteId ? null : externalAthlete.displayName`). Quem tem cadastro
+  // precisa do nome buscado em `Athlete` — e é por isso que esta leitura usa o
+  // leitor público: a política do atleta libera o anônimo, e o autenticado de
+  // outra federação ficaria sem o nome.
+  const idsDeAtleta = [...new Set(entradas.map(linha => linha.athleteId).filter(Boolean))];
+  const atletas = new Map(
+    (idsDeAtleta.length
+      ? await publico.athlete.findMany({
+        where: { id: { in: idsDeAtleta } },
+        select: {
+          id: true, fullName: true, stageName: true, city: true, state: true,
+          team: { select: { id: true, name: true } }
+        }
+      })
+      : []).map(atleta => [atleta.id, atleta])
+  );
+
+  const idsDeCategoria = [...new Set(entradas.map(linha => linha.categoryId).filter(Boolean))];
+  const categorias = new Map(
+    (idsDeCategoria.length
+      ? await publico.category.findMany({
+        where: { id: { in: idsDeCategoria } }, select: { id: true, name: true, code: true }
+      })
+      : []).map(categoria => [categoria.id, categoria])
+  );
+
+  const idsDeClasse = [...new Set(entradas.map(linha => linha.catalogClassId).filter(Boolean))];
+  const classes = new Map(
+    (idsDeClasse.length
+      ? await publico.classCatalog.findMany({
+        where: { id: { in: idsDeClasse } }, select: { id: true, name: true, code: true }
+      })
+      : []).map(classe => [classe.id, classe])
+  );
+
+  // A CLASSE OFICIAL ENTRA NO AGRUPAMENTO, E A CATEGORIA SOZINHA NÃO SERVE.
+  //
+  // Cada participação é uma disputa independente: o mesmo atleta pontua em
+  // quantas classes disputar, e "1º lugar" só quer dizer alguma coisa dentro de
+  // uma classe. Agrupar só por categoria juntaria seis primeiros lugares
+  // diferentes na mesma lista, e a página mostraria um pódio que não existiu.
+  const grupos = new Map();
+  for (const linha of entradas) {
+    const chave = `${linha.categoryId ?? 'sem-categoria'}::${linha.catalogClassId ?? 'sem-classe'}`;
+    if (!grupos.has(chave)) {
+      grupos.set(chave, {
+        key: chave,
+        category: linha.categoryId ? categorias.get(linha.categoryId) ?? null : null,
+        competitionClass: linha.catalogClassId ? classes.get(linha.catalogClassId) ?? null : null,
+        entries: []
+      });
+    }
+
+    const atleta = linha.athleteId ? atletas.get(linha.athleteId) ?? null : null;
+    grupos.get(chave).entries.push({
+      id: linha.id,
+      placing: linha.placing,
+      points: linha.points,
+      isOverallChampion: linha.isOverallChampion,
+      didNotShow: linha.didNotShow,
+      // `athleteId` sai para a página poder linkar o perfil de quem tem
+      // cadastro; quem não tem aparece pelo nome da fonte e sem link.
+      athleteId: linha.athleteId ?? null,
+      // Nome da fonte para o competidor sem cadastro; nome do cadastro para
+      // quem tem. Nunca os dois, nunca nenhum quando existe um dos dois.
+      name: atleta ? (atleta.stageName || atleta.fullName) : (linha.displayName ?? null),
+      team: atleta?.team ?? null,
+      city: atleta?.city ?? null,
+      state: atleta?.state ?? null
+    });
+  }
+
+  for (const grupo of grupos.values()) {
+    // `placing` nulo (não comparecimento sem colocação) vai para o fim: ele é
+    // participação, e participação sem colocação não disputa posição com o pódio.
+    grupo.entries.sort((a, b) => (a.placing ?? Number.MAX_SAFE_INTEGER) - (b.placing ?? Number.MAX_SAFE_INTEGER));
+  }
+
+  return [...grupos.values()];
+}
+
 async function eventPage(slug) {
   const event = await prisma.event.findUnique({
     where: { slug },
@@ -108,6 +277,10 @@ async function eventPage(slug) {
     take: 500
   });
 
+  // A LEITURA QUE FALTAVA. Não substitui a de cima: um evento pode ter as duas
+  // coisas, e nesse caso as duas aparecem, cada uma com o seu selo de origem.
+  const importados = await resultadosImportadosDoEvento(event);
+
   const posts = await prisma.post.findMany({
     where: { eventId: event.id, visibility: 'PUBLIC', deletedAt: null },
     include: { author: true, media: { orderBy: { position: 'asc' } } },
@@ -126,6 +299,22 @@ async function eventPage(slug) {
     schedule: event.batches,
     athletes: atletas.map(item => item.athlete),
     results: resultados,
+    // Resultados homologados que entraram por importação, agrupados por
+    // categoria e classe oficial. Lista vazia quando o evento não tem nenhum.
+    importedResults: importados,
+    // QUANTOS COMPETIDORES O EVENTO TEVE, DE VERDADE.
+    //
+    // A página mostrava `athletes.length` — inscrições CONFIRMADAS no MCI —, e
+    // num evento importado esse número é zero por construção. Zero atletas ao
+    // lado de uma lista de resultados é a contradição que motivou este achado.
+    //
+    // O número aqui é a UNIÃO dos dois caminhos, sem dupla contagem: cada
+    // inscrição confirmada conta uma vez, cada competidor com resultado
+    // importado conta uma vez, e quem aparece nos dois conta uma vez só — a
+    // chave da projeção (`id` do lançamento) não serve para isso, então a
+    // deduplicação é por atleta quando há cadastro e por nome da fonte quando
+    // não há, que é o mesmo par que distingue competidor na projeção.
+    competitorCount: contarCompetidores(atletas, importados),
     sponsors: event.sponsorships.map(item => item.sponsor),
     posts: posts.map(post => ({
       id: post.id,

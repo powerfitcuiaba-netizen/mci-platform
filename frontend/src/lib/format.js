@@ -254,9 +254,18 @@ export const PAPEL = {
   SOCIAL_ADMIN: { rotulo: 'Administrador do social', tom: 'info' },
   MODERATOR: { rotulo: 'Moderador', tom: 'info' },
   ATHLETE: { rotulo: 'Atleta', tom: 'neutro' },
-  COACH: { rotulo: 'Coach', tom: 'neutro' },
+  // TREINADOR (EQUIPE) — um perfil só, e o rótulo diz isso.
+  //
+  // A decisão aprovada unificou "Coach" e "Equipe" numa oferta única. O parêntese
+  // não é enfeite: é o que faz quem coordena uma equipe reconhecer o próprio
+  // perfil na lista, em vez de procurar uma opção "Equipe" que não existe mais.
+  COACH: { rotulo: 'Treinador (Equipe)', tom: 'neutro' },
   GYM: { rotulo: 'Academia', tom: 'neutro' },
-  TEAM: { rotulo: 'Equipe', tom: 'neutro' },
+  // PAPEL LEGADO. Ele não é oferecido em cadastro nem em concessão nova, mas
+  // contas reais o têm — e uma tela que mostrasse o enum cru, ou nada, faria
+  // quem administra achar que a conta está sem papel. O rótulo diz que o perfil
+  // é antigo, que é a informação que muda a decisão de quem está olhando.
+  TEAM: { rotulo: 'Equipe (perfil antigo)', tom: 'alerta' },
   BRAND: { rotulo: 'Marca', tom: 'neutro' },
   SPONSOR: { rotulo: 'Patrocinador', tom: 'neutro' },
   MEDIA: { rotulo: 'Imprensa', tom: 'neutro' },

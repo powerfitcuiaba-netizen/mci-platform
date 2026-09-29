@@ -596,6 +596,20 @@ h1, h2, h3 { margin: 0; }
   margin: var(--e5) calc(var(--e6) * -1) calc(var(--e6) * -1);
   padding: var(--e4) var(--e6) var(--e6); flex-wrap: wrap;
 }
+/* AÇÕES NO PÉ DE UM CARTÃO — E NÃO DE UM DIÁLOGO.
+   ---------------------------------------------------------------------------
+   `.modal-actions` acima existe para grudar nas bordas do diálogo: as margens
+   negativas cancelam o padding do `.modal-body`. Fora de um diálogo essa mesma
+   regra vaza para fora do `.card` — medido no gate visual em Chromium, a faixa
+   de botões do painel do treinador ultrapassava o cartão nas oito larguras da
+   matriz (360 a 1920). Esta classe é a mesma faixa de botões SEM o
+   deslocamento negativo e SEM o `sticky`, que só faz sentido em conteúdo que
+   rola dentro de um diálogo. */
+.acoes-do-cartao {
+  display: flex; justify-content: flex-end; gap: var(--e2);
+  margin-top: var(--e4); flex-wrap: wrap;
+}
+
 /* VARIANTE DO FORMULÁRIO DE IMPORTAÇÃO.
    Sete campos numa coluna de 560px viravam uma tira alta e estreita: o diálogo
    batia no teto da viewport e o operador rolava para achar o botão. Em tela
@@ -1272,6 +1286,10 @@ h1, h2, h3 { margin: 0; }
     padding: var(--e3) var(--e4) var(--e4);
   }
   .modal-actions .button { flex: 1; }
+  /* Mesma decisão do diálogo: com 360px de largura dois botões lado a lado
+     ficam estreitos demais para o dedo, então cada um ocupa a linha. */
+  .acoes-do-cartao { justify-content: stretch; }
+  .acoes-do-cartao .button { flex: 1; }
   .modal-layer { padding: var(--e3); }
   /* Em tela baixa o recorte da tabela encolhe junto: o rodapé tem prioridade. */
   /* Sete métricas em quatro linhas de duas: o resto custa o dobro. */
@@ -2540,4 +2558,74 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
   .panel-head { flex-wrap: wrap; }
   .panel-head > div { min-width: 0; }
   .panel-head h2 { overflow-wrap: anywhere; }
+}
+
+/* ==========================================================================
+   CAMPO COM AÇÃO AO LADO — usado pelo mostrar/ocultar senha.
+   
+   `align-items: stretch` e não `center`: o botão precisa ter a MESMA altura do
+   input, senão o alvo de toque fica menor que o campo e, nas larguras de
+   telefone, cai abaixo dos 40px que o gate visual exige.
+   
+   O input leva `min-width: 0` porque item de flex não encolhe abaixo do
+   conteúdo por padrão: sem isso, em 360px o botão é empurrado para fora do
+   campo e o documento passa a rolar lateralmente.
+   ========================================================================== */
+.campo-com-acao {
+  display: flex;
+  /* `flex-end` e não `stretch`: o botão é irmão do CAMPO INTEIRO, que inclui o
+     texto do rótulo acima e a dica abaixo. Esticado, ele ficaria da altura dos
+     três e o olho cairia longe do input. Alinhado ao fim, ele encosta na base —
+     e como a dica fica DEPOIS do input dentro do label, o ajuste fino vem do
+     `margin-bottom` calculado abaixo. */
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.campo-com-acao > .field {
+  flex: 1 1 auto;
+  /* Item de flex não encolhe abaixo do conteúdo por padrão: sem isto, em 360px o
+     botão é empurrado para fora e o documento passa a rolar lateralmente. */
+  min-width: 0;
+}
+
+.campo-com-acao > .field > input {
+  width: 100%;
+}
+
+.campo-com-acao > .button {
+  flex: 0 0 auto;
+  /* Quadrado e com alvo confortável: o ícone sozinho não sustenta a área de
+     toque que um dedo precisa. */
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* A FOTO DO TREINADOR — no formulário (prévia) e no painel (atual).
+   Quadrada e recortada por `object-fit`: a foto é normalizada em quadrado no
+   servidor, e deixar o navegador esticar uma imagem fora de proporção seria
+   desfazer isso na última etapa. */
+.foto-escolhida {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.foto-escolhida img,
+.foto-do-treinador {
+  width: 96px;
+  height: 96px;
+  border-radius: 12px;
+  object-fit: cover;
+  border: 1px solid var(--borda, rgba(0, 0, 0, .12));
+  background: var(--superficie-2, rgba(0, 0, 0, .04));
+}
+
+.foto-do-treinador {
+  width: 120px;
+  height: 120px;
+  margin-bottom: 12px;
 }

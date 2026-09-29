@@ -81,16 +81,24 @@ export const UFS = Object.freeze([
   'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'
 ]);
 
-// Os sete perfis que o cadastro aberto cria. A lista reflete o que o SERVIDOR
+// Os SEIS perfis que o cadastro aberto cria. A lista reflete o que o SERVIDOR
 // aceita (`PAPEIS_DE_CADASTRO_ABERTO`); esconder uma opção aqui não protegeria
 // nada, a proteção é de lá.
+//
+// ERAM SETE. `TEAM` saiu: a decisão aprovada unificou "Coach" e "Equipe" numa
+// oferta só — **Treinador (Equipe)**, que é `COACH`. Duas opções para a mesma
+// pessoa faziam metade escolher o perfil errado: medido, `TEAM` não tinha
+// NENHUMA permissão de treinador (só as leituras comuns a qualquer conta
+// autenticada), então quem se cadastrava como Equipe ficava sem área e sem
+// caminho.
+// O rótulo desta opção única vive no dicionário, em `papel.COACH`.
 // SÓ O CÓDIGO. O rótulo e a descrição de cada perfil vivem no dicionário, sob
 // as chaves `papel.<CÓDIGO>` e `papel.<CÓDIGO>.descricao`. Manter a frase aqui
 // significaria formulário em português dentro de uma tela em espanhol — e o
 // código é justamente a parte que não pode mudar de idioma, porque é ele que
 // vai para a API.
 export const PAPEIS_ABERTOS = Object.freeze([
-  'ATHLETE', 'COACH', 'GYM', 'TEAM', 'BRAND', 'SPONSOR', 'MEDIA'
+  'ATHLETE', 'COACH', 'GYM', 'BRAND', 'SPONSOR', 'MEDIA'
 ]);
 
 // Campos exigidos por etapa. A validação por etapa existe para NÃO bloquear o
@@ -112,6 +120,20 @@ export function errosDaEtapa(etapa, form) {
   if (etapa === 2) {
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email || '')) erros.email = 'form.erro.email';
     if ((form.password || '').length < 8) erros.password = 'form.erro.senha';
+    // A CONFIRMAÇÃO DE SENHA É VALIDADA AQUI, e só aqui — ela NUNCA viaja.
+    //
+    // `corpoDoCadastro` monta o corpo campo por campo e não inclui
+    // `passwordConfirm`: a confirmação existe para a pessoa não errar a digitação,
+    // não para o servidor conferir. Mandá-la seria transportar a mesma senha duas
+    // vezes pela rede e gravá-la duas vezes no log de requisição de quem tiver
+    // um, sem ganhar segurança nenhuma.
+    //
+    // A ordem importa: quando a senha é curta, o erro que a pessoa precisa ler é
+    // o da política, e não "as senhas não coincidem" — ela ainda vai trocar as
+    // duas. Por isso a divergência só acusa depois que a senha é válida.
+    if ((form.password || '').length >= 8 && form.password !== (form.passwordConfirm ?? '')) {
+      erros.passwordConfirm = 'form.erro.senhaConfirmacao';
+    }
     if (!telefoneValido(form.phone)) erros.phone = 'form.erro.telefone';
     if (!telefoneValido(form.whatsapp)) erros.whatsapp = 'form.erro.whatsapp';
   }

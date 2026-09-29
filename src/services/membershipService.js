@@ -178,6 +178,151 @@ async function criarVinculo(athlete, team, { reason, actor, anterior = null, aca
   return vinculo;
 }
 
+// ============================================================================
+// VÍNCULO NASCIDO DA CONFIRMAÇÃO DO ATLETA — módulo Treinadores & Equipes.
+//
+// Enviar solicitação não vincula ninguém: quem autoriza o vínculo é o ATLETA.
+// Este é o caminho da confirmação, e ele existe porque nenhum dos dois que já
+// existiam serve:
+//
+//   `link` exige `athletes.update`, que é permissão de operador — o atleta não
+//   tem, e dar a ele seria dar poder de vincular terceiros.
+//
+//   `transfer` exige `athletes.transfer`, que é o poder central de R-02.
+//
+// A autorização aqui é de OUTRA natureza: não é permissão nomeada, é
+// titularidade. Só o dono da conta do atleta confirma o próprio vínculo, e a
+// conferência está AQUI, junto da escrita — não no serviço que chama. Um
+// parâmetro "já autorizei" seria a forma clássica de perder essa barreira na
+// próxima chamada que alguém escrever.
+//
+// Não há caminho de transferência por esta porta: se o atleta já tem vínculo
+// ativo, a trava do banco recusa, e a recusa é 409 com o nome da equipe atual.
+// Trocar de equipe continua exigindo decisão central.
+// ============================================================================
+async function vincularPorConfirmacao(athleteId, { teamId, reason = null }, actor) {
+  if (!actor) throw new AppError(401, 'UNAUTHORIZED', 'Autenticação obrigatória');
+
+  const athlete = await prisma.athlete.findUnique({
+    where: { id: athleteId },
+    select: { id: true, organizationId: true, userId: true }
+  });
+  if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
+
+  // Titularidade, e nada além dela. Sem conta vinculada não há como confirmar:
+  // a confirmação é um ato da pessoa, e sem conta não existe a pessoa aqui.
+  if (!athlete.userId || athlete.userId !== actor.id) {
+    throw new AppError(403, 'FORBIDDEN', 'Somente o próprio atleta confirma o seu vínculo com a equipe');
+  }
+
+  const team = await prisma.team.findUnique({
+    where: { id: teamId },
+    select: { id: true, name: true, organizationId: true, companyId: true }
+  });
+  if (!team) throw new AppError(404, 'TEAM_NOT_FOUND', 'Equipe não encontrada');
+  if (team.organizationId !== athlete.organizationId) {
+    throw new AppError(422, 'TEAM_OTHER_ORGANIZATION', 'Equipe de outra organização');
+  }
+
+  // A CONFIRMAÇÃO PRESSUPÕE O CONVITE, E O CONVITE É DAQUELA EQUIPE — achado
+  // A-04 da auditoria independente.
+  //
+  // A conferência de titularidade, acima, responde "este vínculo é seu?". Esta
+  // responde a outra pergunta, que ninguém estava fazendo: "alguém te convidou
+  // para ESTA equipe?". Sem ela, o dono de uma conta de atleta se vincularia
+  // sozinho a qualquer equipe da federação dele — e o vínculo é o que atribui
+  // ponto a equipe (R-01), então o autosserviço aqui seria autosserviço na
+  // pontuação de outro treinador.
+  //
+  // O estado exigido é PENDING porque é o que existe NO INSTANTE da escrita:
+  // `membershipRequestService.confirmar` cria o vínculo ANTES de fechar o
+  // pedido como CONFIRMED. A política `vinculo_criacao` exige a mesma coisa no
+  // banco (migration 20260927010000) — o serviço dá a mensagem, a RLS dá o piso.
+  const convite = await prisma.teamMembershipRequest.findFirst({
+    where: { athleteId: athlete.id, teamId: team.id, status: 'PENDING' },
+    select: { id: true }
+  });
+  if (!convite) {
+    throw new AppError(409, 'MEMBERSHIP_REQUEST_REQUIRED',
+      'Não existe solicitação pendente desta equipe para este atleta. '
+      + 'O vínculo nasce da confirmação de um convite — não há caminho de autovínculo.');
+  }
+
+  const atual = await vinculoAtivo(athleteId);
+  if (atual) recusaPorVinculoExistente(atual);
+
+  return criarVinculo(athlete, team, { reason, actor, acao: 'ATHLETE_TEAM_LINK' });
+}
+
+// ============================================================================
+// VÍNCULO POR DECISÃO ADMINISTRATIVA — o caso excepcional de R-01 e R-02.
+//
+// Existe para a correção formal: o atleta não tem conta, ou a federação
+// precisa registrar um vínculo que já era verdade em campo. Não é atalho — é o
+// mesmo poder central que transfere, com motivo obrigatório e trilha própria.
+// ============================================================================
+async function vincularPorDecisaoAdministrativa(athleteId, { teamId, reason }, actor) {
+  const athlete = await prisma.athlete.findUnique({
+    where: { id: athleteId },
+    select: { id: true, organizationId: true }
+  });
+  if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
+
+  const team = await prisma.team.findUnique({
+    where: { id: teamId },
+    select: { id: true, name: true, organizationId: true, companyId: true }
+  });
+  if (!team) throw new AppError(404, 'TEAM_NOT_FOUND', 'Equipe não encontrada');
+
+  assertCan(actor, 'athletes.transfer', team.organizationId);
+  if (team.organizationId !== athlete.organizationId) {
+    throw new AppError(422, 'TEAM_OTHER_ORGANIZATION', 'Equipe de outra organização');
+  }
+  if (!reason) throw new AppError(422, 'REASON_REQUIRED', 'Informe a justificativa da decisão administrativa');
+
+  const atual = await vinculoAtivo(athleteId);
+  if (atual) recusaPorVinculoExistente(atual);
+
+  return criarVinculo(athlete, team, { reason, actor, acao: 'ATHLETE_TEAM_LINK' });
+}
+
+// ============================================================================
+// ELEGIBILIDADE TEMPORAL — DECISÃO R-01, e SÓ a infraestrutura dela.
+//
+// R-01: o ponto pertence ao vínculo que EXISTIA NA DATA OFICIAL do evento. Não
+// há retroatividade automática — entrar numa equipe hoje não traz para ela o
+// que o atleta pontuou antes.
+//
+// Esta função responde exatamente uma pergunta: qual era o vínculo do atleta
+// naquela data. Nada aqui soma, pondera ou classifica — a fórmula do ranking de
+// treinadores NÃO está homologada e é proibido inventá-la (§8.3 do escopo). O
+// que existe é a pergunta temporal, que é regra aprovada.
+//
+// A JANELA É INCLUSIVA NAS DUAS PONTAS — [startedAt, endedAt] —, e isso é uma
+// escolha, não um descuido: é exatamente a janela que `vinculoDoResultado`, no
+// importador, já usava antes deste módulo. Duas semânticas para "vínculo da
+// época" produziriam duas respostas para a mesma pergunta dependendo de por qual
+// porta o resultado entrou, e essa divergência é pior do que qualquer das duas
+// convenções. Se um dia a MCI homologar a janela exclusiva, os dois lugares
+// mudam juntos.
+// ============================================================================
+async function vinculoNaData(athleteId, data) {
+  const quando = data instanceof Date ? data : new Date(data);
+  if (Number.isNaN(quando.getTime())) {
+    throw new AppError(422, 'INVALID_DATE', 'Data inválida para apuração de elegibilidade');
+  }
+
+  return prisma.athleteTeamMembership.findFirst({
+    where: {
+      athleteId,
+      startedAt: { lte: quando },
+      OR: [{ endedAt: null }, { endedAt: { gte: quando } }]
+    },
+    include: INCLUIR_EQUIPE,
+    orderBy: { startedAt: 'desc' }
+  });
+}
+
 /** Encerra o vínculo sem abrir outro. Também é ato de operador. */
 async function unlink(athleteId, { reason }, actor) {
   const atual = await vinculoAtivo(athleteId);
@@ -217,4 +362,7 @@ async function history(athleteId, actor) {
   });
 }
 
-module.exports = { link, transfer, unlink, history, vinculoAtivo };
+module.exports = {
+  link, transfer, unlink, history, vinculoAtivo,
+  vincularPorConfirmacao, vincularPorDecisaoAdministrativa, vinculoNaData
+};

@@ -1,8 +1,32 @@
+// ============================================================================
+// O ERRO DE APLICAÇÃO — e o quarto argumento que ele passou a guardar.
+//
+// `details` existia nas DUAS pontas e não existia no meio. `errorHandler.js:104`
+// já o copiava para o corpo da resposta (`if (err.details) ...`), e dezesseis
+// chamadas em nove serviços já o passavam como quarto argumento — a recusa de
+// vínculo manda `currentTeamId` e o nome da equipe atual, a de estado de
+// treinador manda o `status` que bloqueou a transição, a de delegação manda a
+// lista do que É delegável.
+//
+// O construtor recebia três parâmetros e descartava o quarto em silêncio. Então
+// nada disso chegava ao cliente: a tela recebia a frase e nenhum dado
+// estruturado, e o operador ficava com "não foi possível" sem o id que resolve.
+//
+// MEDIDO: `POST /central-authorizations` com permissão fora da lista branca
+// respondia 422 com `error.details` UNDEFINED, enquanto o serviço passava
+// `{ delegaveis: ['athletes.transfer'] }`.
+//
+// O QUE ISSO NÃO É: um canal novo de vazamento. `details` é escrito à mão em
+// cada chamada, nunca vem de payload do cliente e nunca carrega objeto do banco
+// inteiro — e continua opcional, então toda recusa que não o passa responde
+// exatamente como antes.
+// ============================================================================
 class AppError extends Error {
-  constructor(status, code, message) {
+  constructor(status, code, message, details = undefined) {
     super(message);
     this.status = status;
     this.code = code;
+    if (details !== undefined) this.details = details;
   }
 }
 

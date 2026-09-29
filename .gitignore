@@ -70,8 +70,24 @@ skills-lock.json
 
 # Dumps do banco: dados reais, nunca versionados.
 backups/
+# O DIRETÓRIO DE ARMAZENAMENTO DO PREVIEW. `STORAGE_DIR=./uploads-preview` é o
+# que o workflow e a réplica local usam, e é ali que a foto do treinador é
+# gravada quando o ambiente roda. Quatro `.webp` sintéticos chegaram a ser
+# rastreados por um `git add -A` meu: objeto de execução não pertence ao git, e
+# num repositório público ainda menos.
+uploads-preview/
 uploads-gate/
 uploads-homolog/
 uploads-dr*/
 uploads-recuperado/
 uploads-desastre/
+
+# BACKUP DA RODADA DE MUTAÇÃO — nunca versionado.
+#
+# `scripts/qa/mutantes-*.mjs` salva `<arquivo>.mutante-bak` antes de aplicar cada
+# mutante e restaura depois. Um `git add -A` dado com a rodada em curso capturava
+# o backup E o arquivo MUTADO: aconteceu, e o mutante TE-F1 — que apaga
+# `status: 'APPROVED'` da lista de autorização da federação, violando R-03 — foi
+# commitado e empurrado. Esta linha impede a metade do acidente que é versionar o
+# backup; `tests/higiene-repositorio.test.mjs` recusa o resto.
+*.mutante-bak

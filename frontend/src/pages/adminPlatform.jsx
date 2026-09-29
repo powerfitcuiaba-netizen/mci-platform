@@ -1548,11 +1548,35 @@ function NovaOrganizacao({ notificar, onClose, onSalvo }) {
   );
 }
 
+// Papéis que uma tela de administração OFERECE hoje.
+//
+// `TEAM` saiu: a decisão aprovada unificou "Coach" e "Equipe" em **Treinador
+// (Equipe)**, que é `COACH`. Oferecer `TEAM` numa concessão nova recriaria a
+// duplicação — e recriaria pior, porque `TEAM` não tem NENHUMA permissão de
+// treinador: seria conceder um papel que, na prática, não concede nada além do
+// que qualquer conta autenticada já tem.
+//
+// A LISTA É DE OFERTA, NÃO DE VERDADE. Contas reais têm `TEAM`, e é
+// `papeisParaConta` abaixo que garante que elas não desapareçam do select.
 const PAPEIS = [
   'ADMIN', 'EVENT_DIRECTOR', 'EVENT_COORDINATOR', 'JUDGE_COORDINATOR', 'JUDGE', 'STAFF',
   'REGISTRATION_OPERATOR', 'CHECKIN_OPERATOR', 'WEIGHIN_OPERATOR', 'RESULTS_OPERATOR',
-  'RANKING_MANAGER', 'SOCIAL_ADMIN', 'MODERATOR', 'ATHLETE', 'COACH', 'GYM', 'TEAM', 'BRAND', 'SPONSOR', 'MEDIA'
+  'RANKING_MANAGER', 'SOCIAL_ADMIN', 'MODERATOR', 'ATHLETE', 'COACH', 'GYM', 'BRAND', 'SPONSOR', 'MEDIA'
 ];
+
+// O PAPEL ATUAL DA CONTA ENTRA NA LISTA MESMO QUE NÃO SEJA MAIS OFERECIDO.
+//
+// Sem isto, abrir a conta de alguém com papel legado mostrava um `select` cujo
+// `value` não casa com nenhuma `option`: o campo aparece vazio, e quem
+// administra lê "esta conta está sem papel" — que é falso. Pior, o primeiro
+// clique em qualquer outra coisa do formulário deixaria a pessoa convencida de
+// que precisava escolher um papel, e ela escolheria qualquer um.
+//
+// Com a linha presente, a verdade aparece, a troca DE papel legado PARA papel
+// atual fica a um clique, e o caminho de volta não existe — que é exatamente o
+// que a unificação quer.
+const papeisParaConta = papelAtual =>
+  (papelAtual && !PAPEIS.includes(papelAtual) ? [papelAtual, ...PAPEIS] : PAPEIS);
 
 function MembrosDaOrganizacao({ organizacao, notificar, onClose }) {
   const { t } = useIdioma();
@@ -1723,11 +1747,21 @@ function Categorias({ notificar }) {
   const estado = useFetch(() => api.categories.list(), []);
   const [criando, setCriando] = useState(false);
 
+  // O catálogo é OFICIAL e da plataforma (fase F2): gerenciá-lo não é
+  // permissão de federação. O menu "Configurações" é liberado por
+  // `users.read`, que o diretor do evento TEM — então ele chega a esta tela
+  // para LER o catálogo, e sem esta conferência veria um botão que só
+  // responderia 403. Quem autoriza continua sendo a API.
+  const { user } = useAuth();
+  const podeGerenciar = podeCom(permissoesDe(user))('categories.manage');
+
   return (
     <>
-      <div className="toolbar">
-        <button type="button" className="button button-primary" onClick={() => setCriando(true)}><Plus size={14} />{t('plataforma.novaCategoria')}</button>
-      </div>
+      {podeGerenciar && (
+        <div className="toolbar">
+          <button type="button" className="button button-primary" onClick={() => setCriando(true)}><Plus size={14} />{t('plataforma.novaCategoria')}</button>
+        </div>
+      )}
 
       <section className="panel">
         <div className="panel-head"><h2>{t('plataforma.catalogoOficial')}</h2></div>
@@ -2163,7 +2197,7 @@ function EditarUsuario({ usuario, notificar, onClose, onSalvo }) {
           <select value={form.role} onChange={evt => setForm({ ...form, role: evt.target.value })}>
             {/* `codigo` e não `papel`: o parâmetro sombrearia a função de rótulo
                 importada e o select voltaria a mostrar o enum cru. */}
-            {PAPEIS.map(codigo => <option key={codigo} value={codigo}>{papel(codigo).rotulo}</option>)}
+            {papeisParaConta(usuario.role).map(codigo => <option key={codigo} value={codigo}>{papel(codigo).rotulo}</option>)}
           </select>
         </Field>
         <Field label={t('evento.situacao')}>

@@ -30,9 +30,16 @@ const { PrismaClient } = require('@prisma/client');
 // ONDE PODE SER USADO
 //
 // Só na projeção pública: ranking do campeonato, Super Overall, recortes de
-// ranking, títulos Overall e resultado PUBLICADO de classe. Repare que essas
-// funções em `rankingService` já não recebem ator nenhum — são projeções
-// públicas por construção; o que faltava era lerem pelo cliente público.
+// ranking, títulos Overall, resultado PUBLICADO de classe e os RESULTADOS
+// IMPORTADOS de um evento (`publicService.resultadosImportadosDoEvento`).
+// Repare que essas funções já não recebem ator nenhum — são projeções públicas
+// por construção; o que faltava era lerem pelo cliente público.
+//
+// O último caso entrou pelo mesmo motivo dos outros: a página pública do evento
+// lia só `Result`/`Registration` e mostrava "0 atletas" e "Resultados ainda não
+// publicados" num evento cujos resultados tinham entrado por importação. Os
+// bytes que ela devolve são os que `GET /ranking/by?eventId=...` já entrega ao
+// anônimo — muda o LUGAR de onde a página lê, não quem pode ler.
 //
 // ONDE NÃO PODE
 //

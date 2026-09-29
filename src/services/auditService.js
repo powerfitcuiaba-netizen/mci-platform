@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const { contextoAtual } = require('../config/rlsContext');
+const { withUserContext } = require('../config/rlsSession');
 const logger = require('../utils/logger');
 const { AppError } = require('../utils/errors');
 const { can } = require('../utils/permissions');
@@ -9,6 +10,65 @@ const { can } = require('../utils/permissions');
 // string, mas o domínio usa estas.
 const ACTIONS = Object.freeze({
   LOGIN: 'LOGIN',
+  // Estava como literal solto no serviço de autenticação. Entrou no catálogo
+  // junto da correção da trilha de autenticação: o nome da ação é o que alguém
+  // vai procurar na trilha daqui a um ano, e nome que só existe num literal é
+  // nome que a próxima pessoa escreve diferente.
+  USER_REGISTER: 'USER_REGISTER',
+  // TENTATIVA DE ENTRADA RECUSADA.
+  //
+  // `LOGIN` diz quem entrou; `LOGIN_FAILED` diz que alguém tentou e não entrou.
+  // São perguntas diferentes e por isso ações diferentes — juntá-las num campo
+  // `sucesso` dentro de `metadata` obrigaria toda consulta de trilha a filtrar
+  // por JSON para responder "houve ataque a esta conta?".
+  //
+  // ADITIVO POR CONSTRUÇÃO: `AuditLog.action` é coluna de TEXTO, não enum do
+  // banco. Nenhuma migration é necessária para um nome novo, e nenhum dado
+  // existente muda de significado.
+  //
+  // O SENTIDO DE `userId` MUDA NESTE EVENTO, e é a única exceção da tabela: em
+  // todos os outros, `userId` é quem FEZ a ação; aqui o autor é desconhecido —
+  // é justamente o que a tentativa recusada significa — e a linha nasce com
+  // `userId` NULO. A conta ALVO vai em `entityId`. Ver
+  // `registrarTentativaRecusada`, em `authService`.
+  LOGIN_FAILED: 'LOGIN_FAILED',
+  // TROCA DE SENHA — achado A-09.
+  //
+  // A rota `POST /profile/password` trocava a senha e não deixava rastro. É um
+  // dos eventos mais importantes de uma trilha de segurança: quem investiga um
+  // acesso indevido precisa saber QUANDO a senha daquela conta mudou, e uma
+  // troca sem registro é indistinguível de nenhuma troca.
+  //
+  // NADA DE SEGREDO NA LINHA: nem a senha, nem a antiga, nem hash, nem prefixo,
+  // nem comprimento. O evento é a troca; o valor não é informação de auditoria.
+  PASSWORD_CHANGE: 'PASSWORD_CHANGE',
+  // TETO DE REQUISIÇÕES ATINGIDO — achado A-10.
+  //
+  // O limitador recusa com 429 ANTES de qualquer serviço rodar, então a rajada
+  // que ele barra não deixava rastro nenhum: exatamente o caso em que a trilha
+  // mais interessa, porque 200 tentativas de login barradas pelo teto são o
+  // sintoma de ataque, e `LOGIN_FAILED` não as vê.
+  //
+  // UMA LINHA POR JANELA, e não por requisição. Registrar cada bloqueio
+  // transformaria a trilha em alvo: bastaria manter a rajada para encher a
+  // tabela. A linha nasce na PRIMEIRA recusa de cada balde em cada janela — é a
+  // transição para o estado bloqueado que informa, não a repetição dela.
+  //
+  // `userId` NULO, sempre: quem esbarra no teto é desconhecido por definição, e
+  // na rota de login o limitador roda antes de existir sessão. Sem valor de
+  // alvo no metadado — na rota de login o alvo é o e-mail tentado, e guardá-lo
+  // transformaria a trilha em lista de contas sondadas.
+  RATE_LIMIT_BLOCK: 'RATE_LIMIT_BLOCK',
+  // RECOMPUTO MUDOU A EQUIPE DE UM LANÇAMENTO — achado A-12.
+  //
+  // Repontuar um resultado resolve outra vez a equipe da DATA OFICIAL (R-01).
+  // Normalmente dá o mesmo valor; quando o histórico de vínculo é corrigido, dá
+  // outro — e aí a atribuição histórica de pontos mudou de equipe. Pela regra, a
+  // equipe da data é a certa; o que não pode é a mudança ser silenciosa.
+  //
+  // Ação PRÓPRIA, para que a reatribuição seja localizável sem filtrar JSON, e
+  // gravada SÓ quando algo mudou.
+  RANKING_TEAM_REATTRIBUTED: 'RANKING_TEAM_REATTRIBUTED',
   ATHLETE_CREATE: 'ATHLETE_CREATE',
   ATHLETE_UPDATE: 'ATHLETE_UPDATE',
   ATHLETE_CPF_VIEW: 'ATHLETE_CPF_VIEW',
@@ -49,6 +109,55 @@ const ACTIONS = Object.freeze({
   // quem audita precisa distinguir os dois na trilha sem interpretar metadado.
   OVERALL_REVOKE: 'OVERALL_REVOKE',
   CLASS_CATALOG_SET: 'CLASS_CATALOG_SET',
+  // -------------------------------------------- módulo Treinadores & Equipes
+  //
+  // Uma ação por DECISÃO, e não uma ação genérica com o estado no metadata.
+  // Quem audita precisa distinguir 'a administração central aprovou' de 'a
+  // administração central suspendeu' sem abrir o payload — é a mesma razão que
+  // separou RANKING_POINT_EDITED de RANKING_POINT_VOIDED.
+  COACH_REGISTER: 'COACH_REGISTER',
+  COACH_UPDATE: 'COACH_UPDATE',
+  COACH_APPROVE: 'COACH_APPROVE',
+  COACH_REJECT: 'COACH_REJECT',
+  COACH_SUSPEND: 'COACH_SUSPEND',
+  COACH_REACTIVATE: 'COACH_REACTIVATE',
+  COACH_CANCEL: 'COACH_CANCEL',
+  // Autorizar o treinador global a atuar numa federação (R-04). Separado da
+  // aprovação cadastral de propósito: são decisões de autoridades diferentes.
+  // A equipe passou a ter responsável, e trocar responsável muda quem vê os
+  // atletas dela. É decisão, não metadado de atualização de cadastro.
+  // A FOTO DE PERFIL do treinador — gravada no cadastro e trocada depois. Entra
+  // na trilha porque é requisito de ranking: quem conferir por que um treinador
+  // passou a aparecer (ou parou) precisa achar o momento aqui.
+  COACH_PHOTO_SET: 'COACH_PHOTO_SET',
+  TEAM_COACH_SET: 'TEAM_COACH_SET',
+  // A equipe criada e renomeada PELO PRÓPRIO TREINADOR, na federação em que ele
+  // está autorizado a atuar. Ações próprias porque o ator é outro: quando o
+  // operador da federação cadastra equipe, quem responde é a federação; aqui
+  // quem responde é o treinador, e o metadado `byCoach` diz isso na trilha.
+  TEAM_CREATE: 'TEAM_CREATE',
+  TEAM_UPDATE: 'TEAM_UPDATE',
+  COACH_ORG_AUTHORIZE: 'COACH_ORG_AUTHORIZE',
+  COACH_ORG_REVOKE: 'COACH_ORG_REVOKE',
+  COACH_DOCUMENT_UPLOAD: 'COACH_DOCUMENT_UPLOAD',
+  COACH_DOCUMENT_DOWNLOAD: 'COACH_DOCUMENT_DOWNLOAD',
+  COACH_DOCUMENT_DELETE: 'COACH_DOCUMENT_DELETE',
+  // Localizar atleta por matrícula é acesso a dado de pessoa, mesmo sem CPF.
+  // Fica registrado quem procurou e se achou — é o que permite detectar
+  // varredura de matrículas depois do fato.
+  ATHLETE_LOOKUP_AFFILIATION: 'ATHLETE_LOOKUP_AFFILIATION',
+  MEMBERSHIP_REQUEST_CREATE: 'MEMBERSHIP_REQUEST_CREATE',
+  MEMBERSHIP_REQUEST_CONFIRM: 'MEMBERSHIP_REQUEST_CONFIRM',
+  MEMBERSHIP_REQUEST_REJECT: 'MEMBERSHIP_REQUEST_REJECT',
+  MEMBERSHIP_REQUEST_CANCEL: 'MEMBERSHIP_REQUEST_CANCEL',
+  // A confirmação feita POR DECISÃO ADMINISTRATIVA, substituindo a vontade do
+  // atleta. É o caso excepcional de R-01/R-02 e não pode ter o mesmo nome da
+  // confirmação comum na trilha.
+  MEMBERSHIP_REQUEST_ADMIN_APPROVE: 'MEMBERSHIP_REQUEST_ADMIN_APPROVE',
+  // Delegação central (R-02): conceder e revogar poder que altera atribuição
+  // de pontos.
+  CENTRAL_GRANT: 'CENTRAL_GRANT',
+  CENTRAL_REVOKE: 'CENTRAL_REVOKE',
   ATHLETE_TEAM_LINK: 'ATHLETE_TEAM_LINK',
   ATHLETE_TEAM_TRANSFER: 'ATHLETE_TEAM_TRANSFER',
   ATHLETE_TEAM_UNLINK: 'ATHLETE_TEAM_UNLINK',
@@ -131,6 +240,59 @@ function sanitize(valor, profundidade = 0) {
 // política de INSERT, que é a que de fato governa quem pode auditar.
 // ============================================================================
 
+// ============================================================================
+// FALHA DE AUDITORIA PRECISA SER CONTÁVEL, E NÃO APENAS REGISTRÁVEL.
+//
+// A perda da trilha de LOGIN e de USER_REGISTER passou meses sem ser notada por
+// um motivo simples: só o log sabia dela, e log só é lido por quem já
+// desconfia. Foi um gate de QA visual olhando o log do servidor por outro
+// motivo que a encontrou — ou seja, por acaso.
+//
+// O contador conserta isso: o processo passa a saber quantas vezes a trilha
+// falhou e qual foi a última falha, e `GET /audit/integrity` entrega isso a quem
+// tem permissão de ler a trilha. O teste afirma zero no caminho feliz, então um
+// retrocesso reprova o gate em vez de sumir.
+//
+// O QUE O RESUMO NÃO GUARDA: `metadata`, e-mail, IP, nada que possa ser segredo
+// ou dado pessoal. Ação, entidade, código do erro e instante bastam para saber
+// que a trilha falhou e onde olhar — e a rota que os expõe, ainda que
+// autenticada e permissionada, não é lugar de dado sensível.
+// ============================================================================
+let falhas = 0;
+let ultimaFalha = null;
+
+function contabilizarFalha(dados, error) {
+  falhas += 1;
+  ultimaFalha = {
+    action: dados.action,
+    entity: dados.entity,
+    codigo: error?.code ?? null,
+    quando: new Date().toISOString()
+  };
+}
+
+/**
+ * Saúde da trilha desde a partida do processo.
+ *
+ * Contagem de processo, e não de banco: é exatamente o que se quer saber — esta
+ * instância está conseguindo gravar auditoria? Uma contagem persistida não
+ * responderia isso sem confundir falha de agora com falha de ontem.
+ */
+function estadoDaTrilha() {
+  return {
+    falhas,
+    ultimaFalha,
+    desdeSegundos: Math.round(process.uptime())
+  };
+}
+
+// Apenas para a suíte: zera a contagem entre casos, para que um teste não leia a
+// falha provocada por outro. Não há rota que chame isto.
+function reiniciarContagemDeFalhas() {
+  falhas = 0;
+  ultimaFalha = null;
+}
+
 // Nome único por chamada: auditorias aninhadas na mesma transação não podem
 // disputar o mesmo ponto de retorno.
 let sequencia = 0;
@@ -139,8 +301,13 @@ async function inserir(dados) {
   return prisma.auditLog.createMany({ data: dados });
 }
 
-async function record({ actor, action, entity, entityId = null, organizationId = null, metadata = null, ip = null }) {
-  const dados = {
+// A LINHA DA TRILHA, montada num lugar só.
+//
+// Extraída de `record` quando `registrarObrigatorio` nasceu: duas montagens
+// paralelas divergiriam no primeiro campo novo, e a divergência apareceria como
+// "a trilha grava diferente dependendo de quem chama".
+function montarEvento({ actor, action, entity, entityId = null, organizationId = null, metadata = null, ip = null }) {
+  return {
     organizationId,
     userId: actor?.id || null,
     userEmail: actor?.email || null,
@@ -150,6 +317,10 @@ async function record({ actor, action, entity, entityId = null, organizationId =
     metadata: metadata ? sanitize(metadata) : undefined,
     ip: ip ? String(ip).slice(0, 60) : null
   };
+}
+
+async function record(evento) {
+  const dados = montarEvento(evento);
 
   const tx = contextoAtual()?.tx;
 
@@ -157,6 +328,7 @@ async function record({ actor, action, entity, entityId = null, organizationId =
     try {
       return await inserir(dados);
     } catch (error) {
+      contabilizarFalha(dados, error);
       logger.error('falha ao registrar auditoria', {
         action: dados.action, entity: dados.entity, erro: error.message
       });
@@ -181,12 +353,96 @@ async function record({ actor, action, entity, entityId = null, organizationId =
     // `error` E NÃO `warn`: auditoria que não grava é perda de trilha, e
     // trilha perdida só se descobre quando alguém precisa dela. O motivo real
     // vai junto, porque "falhou" sem o porquê não deixa ninguém consertar.
+    contabilizarFalha(dados, error);
     logger.error('falha ao registrar auditoria (a operação seguiu; a transação foi preservada)', {
       action: dados.action, entity: dados.entity, entityId: dados.entityId,
       organizationId: dados.organizationId, temAtor: Boolean(dados.userId),
       codigo: error.code, erro: error.message
     });
     return null;
+  }
+}
+
+// ============================================================================
+// AUDITORIA OBRIGATÓRIA — QUANDO A TRILHA É CONDIÇÃO DA OPERAÇÃO.
+//
+// O CONTEXTO QUE FALTAVA. `/auth/login` e `/auth/register` são as únicas rotas
+// que gravam trilha sem `req.user` — por construção, porque é dentro delas que a
+// identidade nasce. Sem `req.user`, `asyncHandler` não abre transação; sem
+// transação não há `SET LOCAL mci.user_id`; e a política `auditoria_escrita`,
+// que exige que o `userId` da linha seja o ator da sessão, recusava o INSERT com
+// 42501. O login respondia 200 e a trilha se perdia em silêncio. A correção é
+// gravar dentro do contexto do ator que a autenticação acabou de estabelecer —
+// sem tocar a política, medido nas sondas P1 e P2 do diagnóstico.
+//
+// `record` É TOLERANTE de propósito: 44 chamadas dependem de que uma falha de
+// trilha não derrube a operação auditada. Esta função é o oposto, e existe para
+// os eventos em que a ausência de trilha torna a operação inaceitável — decisão
+// expressa da administração para a autenticação: sem registro, sem sessão.
+//
+// AS TRÊS DIFERENÇAS EM RELAÇÃO A `record`:
+//
+//   1. A FALHA SOBE. Não há `catch` que a engula, nem `return null` que a
+//      disfarce de sucesso. Quem chamou decide o que fazer — e, no caso da
+//      autenticação, o que se faz é recusar.
+//   2. A PERSISTÊNCIA É CONFERIDA, e não presumida. O banco diz quantas linhas
+//      entraram; `count !== 1` é falha, mesmo sem exceção. Chamar o serviço não
+//      é o mesmo que gravar a linha, e é a linha que interessa.
+//   3. A CAUSA REAL FICA NO LOG E NUNCA NA RESPOSTA. O cliente recebe uma
+//      mensagem genérica de indisponibilidade: dizer "violação de política de
+//      linha" a quem tenta entrar entrega o desenho do banco a um anônimo.
+//
+// POR QUE O ATOR NÃO PODE VIR DO CLIENTE: `actor` é sempre um registro que o
+// servidor leu do banco depois de conferir a credencial, ou a linha que ele
+// acabou de criar. E a política continua conferindo: mesmo que alguém
+// conseguisse passar outro ator aqui, a linha só entra se `userId` e sessão
+// coincidirem.
+//
+// SOBRE O COMMIT, que é o ponto delicado. Fora de transação, o INSERT
+// autocommita: retorno com `count = 1` é linha no banco. DENTRO de uma
+// transação — o caso do cadastro —, `count = 1` diz que o statement passou, e o
+// COMMIT vem depois, quando a transação de quem chamou resolve. Se esse commit
+// falhar, a transação inteira volta atrás e quem chamou recebe o erro: nenhuma
+// sessão é emitida nos dois cenários, que é a garantia pedida. O que NÃO existe
+// é o caminho do meio — sessão emitida com trilha ausente.
+const MENSAGEM_DE_INDISPONIBILIDADE = 'Não foi possível concluir a operação agora. Tente novamente em instantes.';
+
+async function registrarObrigatorio(evento) {
+  const dados = montarEvento(evento);
+  const ator = dados.userId;
+
+  const gravar = async () => {
+    const resultado = await inserir(dados);
+    if (!resultado || resultado.count !== 1) {
+      throw new Error(`auditoria não confirmada pelo banco (count=${resultado?.count ?? 'ausente'})`);
+    }
+    return resultado;
+  };
+
+  try {
+    // O ATOR DO EVENTO MANDA NO CONTEXTO — mesmo dentro de outra transação.
+    //
+    // A primeira versão só abria contexto quando não havia nenhum, copiando a
+    // regra de uma função anterior. Medido: o cadastro atômico abre a transação
+    // com ator VAZIO (quem se cadastra ainda não é ninguém), então a auditoria
+    // caía na transação existente sem definir o ator, a política recusava, e
+    // TODO cadastro passou a responder 503. `withUserContext` já sabe fazer a
+    // coisa certa nos dois casos: sem transação abre uma; com transação em curso
+    // reaproveita, define o ator e restaura o anterior ao sair.
+    //
+    // Sem ator — é o caso de `LOGIN_FAILED` — não há contexto a definir: a linha
+    // nasce com `userId` nulo, que a política aceita sem ator nenhum.
+    if (!ator) return await gravar();
+    return await withUserContext(ator, gravar);
+  } catch (error) {
+    contabilizarFalha(dados, error);
+    // `error` e não `warn`: aqui a trilha NÃO foi gravada e a operação foi
+    // recusada. As duas coisas precisam estar no log, com a causa real.
+    logger.error('auditoria OBRIGATÓRIA não persistida — a operação foi recusada', {
+      action: dados.action, entity: dados.entity, entityId: dados.entityId,
+      temAtor: Boolean(dados.userId), codigo: error.code, erro: error.message
+    });
+    throw new AppError(503, 'AUDIT_UNAVAILABLE', MENSAGEM_DE_INDISPONIBILIDADE);
   }
 }
 
@@ -233,4 +489,15 @@ async function list(filtros, actor) {
   };
 }
 
-module.exports = { record, list, sanitize, ACTIONS };
+/** A saúde da trilha, para quem tem permissão de lê-la. */
+async function integridade(actor) {
+  if (!can(actor, 'audit.read', null)) {
+    throw new AppError(403, 'FORBIDDEN', 'Sem permissão para consultar a auditoria');
+  }
+  return estadoDaTrilha();
+}
+
+module.exports = {
+  record, registrarObrigatorio, list, sanitize, ACTIONS,
+  integridade, estadoDaTrilha, reiniciarContagemDeFalhas
+};

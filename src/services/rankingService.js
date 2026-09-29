@@ -336,7 +336,10 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
   const result = await prisma.result.findUnique({
     where: { id: resultId },
     include: {
-      event: { select: { id: true, organizationId: true, seasonId: true } },
+      // `startDate` entra aqui por causa de R-01: a elegibilidade do ponto é a
+      // do vínculo que existia NA DATA OFICIAL do evento, e sem a data não há
+      // como responder isso.
+      event: { select: { id: true, organizationId: true, seasonId: true, startDate: true } },
       competitionClass: { include: { division: { include: { eventCategory: { select: { categoryId: true } } } } } },
       entries: { select: { athleteId: true, placing: true, status: true } }
     }
@@ -412,6 +415,106 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
     })).map(inscricao => [inscricao.athleteId, inscricao.affiliationId])
   );
 
+  // ==========================================================================
+  // A EQUIPE DA ÉPOCA — DECISÃO R-01.
+  //
+  // R-01: o ponto pertence ao vínculo que existia NA DATA OFICIAL do evento, e
+  // não há retroatividade automática.
+  //
+  // O QUE ESTAVA AQUI ANTES, E POR QUE MUDOU. A equipe vinha de
+  // `Athlete.teamId` — o vínculo CORRENTE no instante da projeção. Enquanto o
+  // resultado é publicado no próprio dia, os dois coincidem e ninguém nota. Eles
+  // divergem no caso normal: o resultado é publicado dias depois, e nesse
+  // intervalo o atleta é transferido. O ponto ia para a equipe NOVA — que não
+  // competiu — e a decisão R-01 diz exatamente o contrário.
+  //
+  // O caminho da IMPORTAÇÃO já fazia certo desde antes deste módulo: ver
+  // `vinculoDoResultado` em `muscleWarService.js`, que resolve o vínculo pela
+  // data do resultado. Eram dois caminhos respondendo diferente à mesma
+  // pergunta; agora os dois seguem a mesma regra, com a MESMA cadeia de recurso
+  // e a mesma janela inclusiva, de propósito — duas semânticas para "vínculo da
+  // época" seria pior do que a divergência que isto corrige.
+  //
+  // A CADEIA DE RECURSO, e uma divergência DELIBERADA em relação ao importador:
+  //
+  //   1. com data oficial e COM histórico de vínculo: o vínculo válido NAQUELA
+  //      data, e nada mais. Se o atleta tinha histórico e nenhum vínculo valia
+  //      ali, o lançamento fica SEM equipe.
+  //   2. SEM histórico de vínculo nenhum: o espelho `Athlete.teamId`. Não há
+  //      fato temporal registrado a contradizer, e é a mesma regra 3 do
+  //      importador ("atleta que nunca teve vínculo: o arquivo segue sendo a
+  //      única fonte").
+  //   3. sem data oficial (evento com `startDate` nulo): o vínculo ATIVO, e na
+  //      falta dele o espelho — não há data contra a qual comparar.
+  //
+  // POR QUE A REGRA 2 EXISTE, E ELA NÃO ABRE A PORTA QUE R-01 FECHA.
+  //
+  // MEDIDO na regressão completa: sem ela, 9 testes de `ranking-oficial`
+  // reprovaram — os de pontuação de equipe e de empresa. A causa é que a
+  // fixture `eventoPontuado` grava `Athlete.teamId` DIRETO, sem criar linha de
+  // `AthleteTeamMembership`, e antes desta fase era esse espelho que a projeção
+  // lia. Existe também o caso de base ANTIGA: `athleteService.create` só passou
+  // a criar o vínculo junto numa fase posterior, então pode haver atleta com
+  // espelho e sem histórico.
+  //
+  // A regra 2 só vale quando NÃO HÁ NENHUMA linha de vínculo para o atleta.
+  // Qualquer transferência, qualquer desvínculo e qualquer vínculo posterior
+  // CRIAM histórico — e histórico faz a regra 1 valer, com o recorte temporal.
+  // Ou seja: a retroatividade que R-01 proíbe continua impossível, porque ela
+  // depende justamente de haver um vínculo novo, e um vínculo novo é histórico.
+  //
+  // POR QUE AQUI NÃO HÁ O RECURSO AO VÍNCULO ATIVO QUE O IMPORTADOR TEM.
+  //
+  // `vinculoDoResultado`, em `muscleWarService`, cai no vínculo ativo quando não
+  // acha o da época. Lá isso é proteção: a alternativa seria acreditar na equipe
+  // declarada NO ARQUIVO, e bastaria datar a linha antes do vínculo para
+  // atribuí-la a quem se quisesse. O comentário de lá diz exatamente isso.
+  //
+  // Aqui não existe arquivo. A alternativa ao vínculo da época é NENHUMA equipe
+  // — e essa é a resposta honesta: na data do evento, nenhuma equipe respondia
+  // pelo atleta. Cair no vínculo ativo faria a equipe que chegou DEPOIS receber
+  // o ponto, que é a retroatividade automática que R-01 proíbe em letra.
+  //
+  // MEDIDO: a primeira versão desta função copiava a cadeia do importador inteira
+  // e `tests/r01-equipe-da-epoca.test.mjs` reprovou no caso "vínculo que só nasce
+  // depois do evento" — o ponto ia para a equipe nova. A divergência é a
+  // correção, e ela é estreita: os dois caminhos continuam respondendo IGUAL
+  // sempre que existe vínculo na data, que é o caso de toda etapa normal (o
+  // vínculo é anterior à inscrição).
+  //
+  // ISTO NÃO TOCA EM PONTUAÇÃO. Nenhuma parcela muda, nenhuma fórmula muda: só
+  // muda QUAL equipe é registrada na linha. E vale para lançamentos NOVOS —
+  // `recomputarEm` preserva `teamId` do lançamento existente (ver
+  // `projetarLancamento`), então nada já gravado é reescrito por esta mudança.
+  // ==========================================================================
+  const dataOficial = result.event.startDate ?? null;
+
+  const vinculosRegistrados = new Map();
+  for (const linha of await prisma.athleteTeamMembership.findMany({
+    where: { athleteId: { in: atletasClassificados } },
+    select: { athleteId: true, teamId: true, startedAt: true, endedAt: true, team: { select: { companyId: true } } }
+  })) {
+    if (!vinculosRegistrados.has(linha.athleteId)) vinculosRegistrados.set(linha.athleteId, []);
+    vinculosRegistrados.get(linha.athleteId).push(linha);
+  }
+
+  const vinculoDaEpoca = athleteId => {
+    const linhas = vinculosRegistrados.get(athleteId) || [];
+    // SEM HISTÓRICO: devolve `undefined`, e quem chama cai no espelho. Note a
+    // diferença de `null`: `null` significa "havia histórico e nenhum vínculo
+    // valia na data", que é resposta DEFINITIVA e não deve cair em recurso
+    // nenhum. É essa distinção que mantém R-01 de pé.
+    if (!linhas.length) return undefined;
+
+    // A janela é inclusiva nas duas pontas — a MESMA de `vinculoDoResultado` no
+    // importador e de `membershipService.vinculoNaData`. Três lugares
+    // respondendo a mesma pergunta temporal precisam responder igual.
+    if (dataOficial) {
+      return linhas.find(linha => linha.startedAt <= dataOficial && (!linha.endedAt || linha.endedAt >= dataOficial)) ?? null;
+    }
+    return linhas.find(linha => !linha.endedAt) ?? null;
+  };
+
   const vinculos = new Map(
     (await prisma.athlete.findMany({
       where: { id: { in: atletasClassificados } },
@@ -422,9 +525,13 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
     })).map(atleta => {
       const daInscricao = inscricoes.get(atleta.id) ?? null;
       const affiliationId = daInscricao ?? atleta.affiliationId ?? null;
+      const daEpoca = vinculoDaEpoca(atleta.id);
+      // `undefined` = sem histórico → o espelho responde (regra 2).
+      // `null` = havia histórico e nenhum vínculo valia na data → sem equipe.
+      const semHistorico = daEpoca === undefined;
       return [atleta.id, {
-        teamId: atleta.teamId,
-        companyId: atleta.team?.companyId ?? null,
+        teamId: semHistorico ? atleta.teamId : (daEpoca?.teamId ?? null),
+        companyId: semHistorico ? (atleta.team?.companyId ?? null) : (daEpoca?.team?.companyId ?? null),
         affiliationId,
         // A matrícula só acompanha quando é da MESMA entidade. Copiar o número
         // de uma federação para outra produziria uma matrícula que não existe.
@@ -434,6 +541,35 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
       }];
     })
   );
+
+  // ==========================================================================
+  // A REATRIBUIÇÃO DE EQUIPE NUM RECOMPUTO NÃO PODE SER SILENCIOSA — achado A-12.
+  //
+  // `recompute: true` APAGA as linhas vivas deste resultado e as recria, e a
+  // equipe da linha nova é resolvida outra vez pela janela temporal de R-01. Na
+  // etapa normal isso dá exatamente o mesmo `teamId`, porque o vínculo não muda
+  // no passado. Mas ele MUDA quando alguém corrige o histórico de vínculo — uma
+  // data de início errada, um desvínculo registrado atrasado — e aí o recomputo
+  // reescreve a QUEM aquele ponto pertenceu, que é atribuição histórica.
+  //
+  // A correção NÃO é impedir a reatribuição: pela regra R-01, a equipe da data
+  // oficial é a certa, e congelar o valor errado seria preservar o erro. A
+  // correção é que ela deixe RASTRO: quem investigar o ranking de uma equipe daqui
+  // a um ano precisa poder ver que um recomputo mudou a atribuição, quando, por
+  // ordem de quem, e de qual equipe para qual.
+  //
+  // A PRÉVIA continua sendo outra função, e é somente leitura:
+  // `GET /coaches/ranking/divergences` (`coachRankingService.divergencias`)
+  // responde, ANTES de qualquer escrita, quais lançamentos têm `teamId`
+  // divergente do vínculo da data. É a simulação que a homologação exige, e ela
+  // não altera nada.
+  // ==========================================================================
+  const atribuicaoAnterior = recompute
+    ? new Map((await prisma.rankingPoint.findMany({
+      where: { seasonId, resultId, voidedAt: null },
+      select: { athleteId: true, teamId: true }
+    })).map(linha => [linha.athleteId, linha.teamId ?? null]))
+    : new Map();
 
   const atribuidos = await prisma.$transaction(async tx => {
     // A REPONTUAÇÃO NÃO REVOGA UMA INVALIDAÇÃO ADMINISTRATIVA.
@@ -581,6 +717,37 @@ async function awardForResult(resultId, actor, { recompute = false } = {}) {
     actor, action: audit.ACTIONS.RANKING_UPDATE, entity: 'Result', entityId: resultId,
     organizationId: result.event.organizationId, metadata: { seasonId, awarded: atribuidos, recompute }
   });
+
+  // A TRILHA DA REATRIBUIÇÃO — achado A-12. Uma ação própria, e não um campo
+  // dentro de RANKING_UPDATE: quem audita ranking de equipe precisa achar as
+  // reatribuições sem filtrar JSON, pela mesma razão que separou
+  // RANKING_POINT_EDITED de RANKING_POINT_VOIDED.
+  //
+  // A linha só nasce quando ALGO mudou. Recomputo que reproduz a mesma atribuição
+  // — o caso comum — não gera evento, senão a trilha ficaria cheia de "nada
+  // mudou" e a mudança de verdade se perderia no meio.
+  if (recompute && atribuicaoAnterior.size) {
+    const depois = await prisma.rankingPoint.findMany({
+      where: { seasonId, resultId, voidedAt: null },
+      select: { athleteId: true, teamId: true }
+    });
+    const mudancas = depois
+      .filter(linha => atribuicaoAnterior.has(linha.athleteId)
+        && (atribuicaoAnterior.get(linha.athleteId) ?? null) !== (linha.teamId ?? null))
+      .map(linha => ({
+        athleteId: linha.athleteId,
+        de: atribuicaoAnterior.get(linha.athleteId) ?? null,
+        para: linha.teamId ?? null
+      }));
+
+    if (mudancas.length) {
+      await audit.record({
+        actor, action: audit.ACTIONS.RANKING_TEAM_REATTRIBUTED, entity: 'Result', entityId: resultId,
+        organizationId: result.event.organizationId,
+        metadata: { seasonId, eventId: result.eventId, dataOficial, mudancas }
+      });
+    }
+  }
 
   return { awarded: atribuidos, seasonId };
 }
@@ -933,8 +1100,28 @@ async function republicarProjecao(tx, seasonId, pontos, competidorDe) {
   });
 }
 
+// A TRAVA FALTAVA AQUI, E ERA ESTE O S4.
+//
+// `recomputarEm` reescreve a projeção pública da temporada INTEIRA:
+// `republicarProjecao` faz `deleteMany({ seasonId })` e em seguida
+// `createMany(...)` com `id: ponto.id` — DETERMINÍSTICO. Duas execuções
+// concorrentes sobre a mesma temporada inserem exatamente os mesmos ids, e a
+// segunda colide na chave primária.
+//
+// Medido antes da correção, com seis recomputes simultâneos da mesma
+// temporada: 1×200 e 5×409. O recálculo legítimo do operador falhava por
+// conflito, e no caminho do importador o mesmo conflito aborta a transação da
+// requisição — ou seja, o lote inteiro volta atrás depois de já ter escrito.
+//
+// A chave é a MESMA que a correção de lançamento e o ajuste em lote já usavam
+// (`travarTemporada`). O recurso disputado é a temporada, então a chave é a da
+// temporada; quem recalculava sem pedi-la era este caminho. Nenhuma abstração
+// nova: a que existia passou a valer para todos.
 async function recompute_(seasonId) {
-  return prisma.$transaction(tx => recomputarEm(tx, seasonId), OPCOES_TRANSACAO);
+  return prisma.$transaction(async tx => {
+    await travarTemporada(tx, seasonId);
+    return recomputarEm(tx, seasonId);
+  }, OPCOES_TRANSACAO);
 }
 
 /**
@@ -3027,7 +3214,13 @@ async function voidRankingPoints(rankingPointIds, { reason }, actor, organizatio
   // Um lote vive numa temporada só; travar a de cada lançamento seria travar a
   // mesma várias vezes. O conjunto existe porque um lote antigo pode ter
   // lançamentos migrados, e nesse caso cada temporada é travada uma vez.
-  const temporadas = [...new Set(alvos.map(ponto => ponto.seasonId))];
+  //
+  // ORDENADAS, e a ordem importa: duas invalidações em lote que tocassem as
+  // MESMAS duas temporadas em ordens opostas travariam uma a primeira e a outra
+  // a segunda, e cada uma esperaria a chave que a outra já tem — deadlock
+  // clássico de aquisição fora de ordem. Ordem total e igual para todos remove
+  // o ciclo por construção, sem custo nenhum.
+  const temporadas = [...new Set(alvos.map(ponto => ponto.seasonId))].sort();
 
   const registrados = [];
 

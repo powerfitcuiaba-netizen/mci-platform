@@ -411,7 +411,140 @@ describe('o calendário não pede migration nenhuma', () => {
       // ganha UM papel na lista e mantém a exigência de membresia NAQUELA
       // organização — nenhuma política foi afrouxada, nenhum FORCE removido.
       '20260923060000_conta_de_servico_da_federacao',
-      '20260923060100_operator_of_reconhece_conta_de_servico'
+      '20260923060100_operator_of_reconhece_conta_de_servico',
+      // F1 e F3 — o banco passa a concordar com o serviço. ADITIVA e de POLÍTICA:
+      // substitui `comentario_leitura` e `atleta_alteracao`, e não cria, altera
+      // nem apaga coluna, tabela, índice ou dado.
+      //
+      // `comentario_leitura` ganha as ramificações que `comentario_alteracao` já
+      // reconhecia — moderação, autor do comentário e autor da PUBLICAÇÃO. Sem
+      // elas, o soft delete gravava a linha que a política proibia e a rota
+      // respondia 500 para todo ator autorizado (PostgreSQL 42501, medido).
+      //
+      // `atleta_alteracao` ganha o DONO no WITH CHECK, que é quem
+      // `athleteService.update` já autorizava pela ramificação `ehODono`. Não é
+      // afrouxamento: `"userId" = mci_current_user_id()` é avaliado na LINHA NOVA,
+      // então o dono também não consegue reatribuir o atleta para outra conta.
+      //
+      // A proteção por COLUNA (filiação, matrícula, número de atleta, treinador,
+      // academia, situação) continua sendo do serviço, via `camposRestritos` —
+      // RLS é row-level e não compara coluna a coluna.
+      '20260925070000_f1_f3_autorizacao_coerente',
+      // T4/S6 — as quatro políticas que tinham `WITH CHECK = true`.
+      //
+      // `USING` diz quais linhas o ator alcança; `WITH CHECK` diz como a linha
+      // NOVA pode ficar. Com `true`, quem alcançava uma linha podia reescrevê-la
+      // em qualquer coisa — e, em política `FOR ALL`, inserir sem restrição
+      // alguma, porque para o INSERT só o `WITH CHECK` vale.
+      //
+      // As quatro não tinham o mesmo risco, e espelhar o `USING` só serve em
+      // uma: em `Conversation` isso bloquearia SAIR da conversa, em
+      // `ConversationMember` não fecharia o auto-ingresso em conversa alheia, e
+      // em `Notification` desligaria a notificação da plataforma, que existe
+      // justamente para avisar OUTRA pessoa.
+      //
+      // Sobra UMA escrita ampla, agora declarada e isolada num policy de INSERT
+      // (`notificacao_entrega`), com justificativa e controles compensatórios
+      // escritos na própria migration. ADITIVA: substitui quatro políticas,
+      // acrescenta uma quinta, e não cria, altera nem apaga coluna, tabela,
+      // índice ou dado.
+      '20260925230000_t4_with_check_coerente',
+      // MÓDULO TREINADORES & EQUIPES — o modelo de dados.
+      //
+      // ADITIVA e reversível por omissão: acrescenta três enums, quatro tabelas
+      // (`CoachDocument`, `CoachOrganization`, `TeamMembershipRequest`,
+      // `CentralAuthorization`), colunas em `Coach` e `Team`, três CHECK de
+      // coerência de estado e as políticas das tabelas novas — que nascem com
+      // `ENABLE` e `FORCE ROW LEVEL SECURITY`. Não apaga nem renomeia nada.
+      //
+      // `Coach.status` nasce com `DEFAULT 'PENDING'` e as linhas EXISTENTES são
+      // atualizadas para `APPROVED` na própria migration: os técnicos já
+      // cadastrados continuam operando, e só os novos passam pela aprovação
+      // central de R-03.
+      '20260926020000_modulo_treinadores_equipes',
+      // O TREINADOR PASSA A SER UM ATOR QUE O BANCO CONHECE.
+      //
+      // Cinco correções de política, todas medidas contra o comportamento real e
+      // todas ADITIVAS no sentido de acrescentarem cláusula a política
+      // existente, sem remover nenhuma das anteriores:
+      //
+      //   `Athlete` e `AthleteTeamMembership` passam a ser LEGÍVEIS pelo
+      //   treinador aprovado e autorizado (antes: lista vazia no painel dele);
+      //   `CoachOrganization` passa a ser ESCRITA pelo operador da própria
+      //   federação, que é quem autoriza a atuação por R-04 (antes: 42501);
+      //   `AthleteTeamMembership` aceita INSERT do PRÓPRIO atleta, porque é a
+      //   confirmação dele que cria o vínculo (antes: 42501) — e o `FOR ALL`
+      //   virou INSERT/UPDATE/DELETE separados justamente para que ele NÃO possa
+      //   encerrar o vínculo sozinho;
+      //   `AuditLog` aceita a trilha do treinador na federação em que ele atua
+      //   (antes: a busca por matrícula não deixava rastro).
+      '20260926040000_treinador_como_ator_de_rls',
+      // O VÍNCULO POR CONFIRMAÇÃO EXIGE O CONVITE DAQUELA EQUIPE — achado A-04.
+      //
+      // Só política, nenhum schema: `vinculo_criacao` deixava o atleta gravar
+      // vínculo para si em QUALQUER equipe, porque a cláusula dele não dizia nada
+      // sobre `teamId`. Passa a exigir pedido PENDING daquela equipe para aquele
+      // atleta. A cláusula do operador é reproduzida byte a byte, e
+      // `vinculo_alteracao`/`vinculo_remocao` não são tocadas — o atleta continua
+      // sem encerrar o próprio vínculo, que é o poder central de R-02.
+      '20260927010000_vinculo_exige_pedido_pendente',
+      // A LEITURA DE ATLETA PELO TREINADOR FICA MAIS ESTREITA — achado A-03.
+      //
+      // Só política e uma função nova: além de cadastro aprovado (R-03) e
+      // autorização viva na federação (R-04), o treinador passa a precisar ser
+      // RESPONSÁVEL POR ALGUMA EQUIPE daquela federação. Treinador sem equipe não
+      // tem a quem listar nem para onde convidar — lia a federação inteira sem uso
+      // legítimo para a leitura. As três cláusulas anteriores da política são
+      // reproduzidas sem alteração.
+      '20260927020000_leitura_de_atleta_pelo_treinador',
+      // O CADASTRO LEGADO DE TREINADOR NÃO FICA APROVADO POR MIGRATION — A-05.
+      //
+      // ESCREVE DADO, e é a única deste conjunto que escreve. Devolve a `PENDING`
+      // exatamente as linhas de `Coach` aprovadas SEM revisor e SEM data de
+      // revisão — as que a migration 20260926020000 aprovou com um `UPDATE` sem
+      // `WHERE`, contra R-03, que diz que quem aprova é a administração central.
+      // `reviewedById`/`reviewedAt` só são escritos por `coachService.transicionar`,
+      // então o predicado não alcança cadastro aprovado por pessoa. Idempotente.
+      // Nenhuma tabela é criada, apagada ou renomeada; nenhuma política é tocada.
+      '20260927030000_status_legado_de_treinador',
+      // APROVAÇÃO AUTOMÁTICA DO CADASTRO DE TREINADOR (EQUIPE).
+      //
+      // ADITIVA: uma coluna ANULÁVEL em "Coach" (`autoApprovedAt`) e um índice
+      // parcial sobre ela. Sem DROP, sem NOT NULL, sem alteração de tipo, sem
+      // política tocada e sem escrita em linha nenhuma — nenhum cadastro antigo
+      // é aprovado retroativamente por ela.
+      //
+      // A coluna existe porque três estados passaram a precisar ser DISTINGUÍVEIS:
+      // aprovado por pessoa (tem revisor), aprovado automaticamente (tem esta
+      // data e não tem revisor) e o legado que a migration 20260926020000 aprovou
+      // sozinha (não tem nem um nem outro). Sem ela, a correção de A-05 não teria
+      // como separar o segundo caso do terceiro.
+      '20260927040000_aprovacao_automatica_de_treinador',
+      // AUTORIZAÇÃO AUTOMÁTICA NA NPC — a federação oficial única.
+      //
+      // Acrescenta `autoGrantedAt` (coluna ANULÁVEL) e um índice parcial em
+      // "CoachOrganization", e cria UMA política de INSERT.
+      //
+      // A POLÍTICA É O PONTO QUE EXIGE REVISÃO, e é por isso que esta linha tem
+      // comentário: ela permite que o próprio treinador insira a autorização
+      // dele, o que seria perigoso se não fosse conjuntiva. As cinco condições,
+      // todas obrigatórias: status APPROVED, `grantedById` nulo, `autoGrantedAt`
+      // preenchido, o treinador é o da conta que insere E está APPROVED, e a
+      // organização é a dona da entidade oficial (Affiliation ativa com código
+      // NPC) e está ativa. É só de INSERT: com `@@unique([coachId,
+      // organizationId])`, autorização revogada não volta sozinha, e alterar a
+      // linha continua exigindo operador. Nenhuma política existente foi tocada.
+      '20260928010000_autorizacao_automatica_na_npc',
+      // FOTO DE PERFIL OBRIGATÓRIA DO TREINADOR.
+      //
+      // ADITIVA: uma coluna ANULÁVEL em "Coach" (`photoKey`) e um índice parcial
+      // de AUSÊNCIA, que serve ao aviso de regularização. Sem DROP, sem NOT NULL,
+      // sem política tocada e sem escrita em linha nenhuma.
+      //
+      // Anulável de propósito: há treinadores cadastrados antes da decisão, e
+      // `NOT NULL` recusaria toda linha deles. A obrigatoriedade vive na rota e no
+      // serviço, que recusam o autocadastro sem arquivo.
+      '20260928020000_foto_obrigatoria_do_treinador'
     ]);
   });
 });

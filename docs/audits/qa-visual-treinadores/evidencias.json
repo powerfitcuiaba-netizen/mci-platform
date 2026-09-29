@@ -1,0 +1,1176 @@
+{
+  "quando": "2026-09-27T12:23:51.541Z",
+  "navegador": "Chromium (Playwright)",
+  "larguras": [
+    360,
+    390,
+    430,
+    768,
+    1024,
+    1280,
+    1440,
+    1920
+  ],
+  "ambiente": {
+    "api": "http://127.0.0.1:4611/api/v1",
+    "web": "http://127.0.0.1:5611",
+    "banco": "mci_qa_treinadores",
+    "dados": "sintéticos"
+  },
+  "total": 229,
+  "pass": 218,
+  "fail": 0,
+  "naoTestado": 0,
+  "controle": 3,
+  "informativas": 8,
+  "arquivosDeRodadaAnterior": [
+    "api.log"
+  ],
+  "itens": [
+    {
+      "rotulo": "A1 treinador entra e a barra lateral aparece",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @360 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @360 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @360 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @390 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @390 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @390 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @390 mostra o conteúdo esperado",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @430 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @430 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @430 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @768 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @768 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @1024 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @1024 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @1280 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @1280 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @1440 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @1440 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @1920 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A2 painel do treinador @1920 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A3 treinador aprovado e autorizado recebe o botão de convidar",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @360 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @360 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @360 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @390 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @390 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @390 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @390 mostra o conteúdo esperado",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @430 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @430 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @430 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @768 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @768 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @1024 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @1024 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @1280 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @1280 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @1440 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @1440 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @1920 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A4 modal de convite @1920 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A5 busca por matrícula devolve o atleta e NÃO mostra CPF",
+      "veredito": "PASS",
+      "detalhe": "Convidar atleta para a equipe Localize o atleta pela matrícula da federação. O convite não vincula ninguém: o vínculo nasce quando o atleta "
+    },
+    {
+      "rotulo": "A6 atleta com pedido pendente tem o convite bloqueado na tela",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A7 o painel mostra a equipe e os atletas vinculados",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A8 o painel do treinador NÃO fala de CPF nem de documento",
+      "veredito": "PASS",
+      "detalhe": "TREINADORES E EQUIPES QA Treinadora Marta O seu cadastro, as suas equipes e os atletas vinculados a você. Convidar atleta Situação cadastral APROVADO Registro p"
+    },
+    {
+      "rotulo": "A9 o convite enviado aparece na lista de convites",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A10 o ranking do treinador avisa que está em homologação",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A11 o painel não apresenta posição de treinador",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A12 cadastro em análise mostra o estado e NÃO oferece convidar",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A13 painel em análise @360 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A13 painel em análise @360 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A13 painel em análise @360 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A13 painel em análise @390 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A13 painel em análise @390 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A13 painel em análise @390 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A13 painel em análise @430 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A13 painel em análise @430 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A13 painel em análise @430 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A13 painel em análise @768 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A13 painel em análise @768 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A13 painel em análise @1024 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A13 painel em análise @1024 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A13 painel em análise @1280 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A13 painel em análise @1280 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A13 painel em análise @1440 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A13 painel em análise @1440 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A13 painel em análise @1920 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A13 painel em análise @1920 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "A14 o painel do treinador não provoca recusa na projeção do ranking",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @360 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @360 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @360 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @390 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @390 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @390 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @390 mostra o conteúdo esperado",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @430 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @430 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @430 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @768 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @768 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @1024 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @1024 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @1280 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @1280 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @1440 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @1440 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @1920 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B1 minha equipe @1920 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B2 o convite mostra a equipe e o treinador solicitante",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B3 a CONSEQUÊNCIA do vínculo é dita antes do botão",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B4 as duas ações são oferecidas com o mesmo peso",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B5 confirmar é focável por teclado",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "B6 o foco é visível (outline ou sombra)",
+      "veredito": "PASS",
+      "detalhe": "outline=false sombra=true"
+    },
+    {
+      "rotulo": "B7 confirmar pedido de OUTRO atleta é recusado",
+      "veredito": "PASS",
+      "detalhe": "HTTP 404"
+    },
+    {
+      "rotulo": "B8 depois de confirmar, a tela mostra o histórico e não o convite pendente",
+      "veredito": "PASS",
+      "detalhe": "MINHA EQUIPE Convites de equipe Nenhuma equipe inclui você sem a sua confirmação. É a sua resposta que cria o vínculo. Convites anteriores EQUIPE SITUAÇÃO RESPO"
+    },
+    {
+      "rotulo": "B9 o vínculo existe no banco depois da confirmação pela tela",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @360 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @360 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @360 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @390 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @390 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @390 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @390 mostra o conteúdo esperado",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @430 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @430 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @430 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @768 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @768 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @1024 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @1024 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @1280 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @1280 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @1440 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @1440 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @1920 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C1 mesa de treinadores @1920 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C2 a fila mostra o cadastro em análise",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C3 a fila oferece aprovar e não aprovar",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C4 a delegação central aparece com escopo e prazo",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C5 a listagem mostra CONTAGEM de documentos, não o documento",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @360 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @360 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @360 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @390 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @390 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @390 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @390 mostra o conteúdo esperado",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @430 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @430 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @430 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @768 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @768 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @1024 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @1024 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @1280 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @1280 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @1440 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @1440 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @1920 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C6 diálogo de decisão @1920 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C7 aprovar pela tela muda o estado no banco",
+      "veredito": "PASS",
+      "detalhe": "status=APPROVED"
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @360 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @360 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @360 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @390 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @390 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @390 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @390 mostra o conteúdo esperado",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @430 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @430 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @430 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @768 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @768 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @1024 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @1024 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @1280 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @1280 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @1440 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @1440 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @1920 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C8 diálogo de delegação @1920 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C9 o diálogo de delegação só oferece a permissão delegável",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C10 diretor de evento NÃO transfere — R-02",
+      "veredito": "PASS",
+      "detalhe": "HTTP 403"
+    },
+    {
+      "rotulo": "C11 delegado com concessão viva transfere",
+      "veredito": "PASS",
+      "detalhe": "HTTP 200"
+    },
+    {
+      "rotulo": "C12 a auditoria mostra ações do módulo",
+      "veredito": "PASS",
+      "detalhe": "SEGURANÇA Auditoria Trilha das ações críticas: quem fez, o quê, quando e sobre qual registro. Mostrando 36 de 36 registro(s). QUANDO ATOR AÇÃO ENTIDADE DETALHE "
+    },
+    {
+      "rotulo": "C13 auditoria @360 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C13 auditoria @360 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C13 auditoria @360 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C13 auditoria @390 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C13 auditoria @390 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C13 auditoria @390 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C13 auditoria @430 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C13 auditoria @430 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C13 auditoria @430 alvo de toque >= 40px",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C13 auditoria @768 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C13 auditoria @768 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C13 auditoria @1024 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C13 auditoria @1024 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C13 auditoria @1280 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C13 auditoria @1280 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C13 auditoria @1440 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C13 auditoria @1440 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C13 auditoria @1920 sem rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "C13 auditoria @1920 nada estoura a viewport",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "D1 o ranking de treinadores responde 409",
+      "veredito": "PASS",
+      "detalhe": "HTTP 409"
+    },
+    {
+      "rotulo": "D2 a recusa diz que a fórmula não foi homologada",
+      "veredito": "PASS",
+      "detalhe": "{\"error\":{\"code\":\"COACH_RANKING_NOT_HOMOLOGATED\",\"message\":\"A fórmula do ranking de treinadores não foi homologada pela MuscleContest. Não há classificação ofic"
+    },
+    {
+      "rotulo": "D3 a projeção não apresenta total nem posição de treinador",
+      "veredito": "PASS",
+      "detalhe": "homologado=false total=null posicao=null"
+    },
+    {
+      "rotulo": "D4 o apelido /coaches/ranking não existe",
+      "veredito": "PASS",
+      "detalhe": "HTTP 404"
+    },
+    {
+      "rotulo": "E1 painel do treinador traduzido em pt-BR",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "E1 painel do treinador traduzido em en",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "E1 painel do treinador traduzido em es",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "G1 controle admin/atletas @360 rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "G2 controle admin/atletas @360 elementos que estouram",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "G3 controle admin/atletas @360 alvos abaixo de 40px",
+      "veredito": "CONTROLE",
+      "detalhe": "select.(23px)"
+    },
+    {
+      "rotulo": "G1 controle admin/atletas @390 rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "G2 controle admin/atletas @390 elementos que estouram",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "G3 controle admin/atletas @390 alvos abaixo de 40px",
+      "veredito": "CONTROLE",
+      "detalhe": "select.(23px)"
+    },
+    {
+      "rotulo": "G1 controle admin/atletas @430 rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "G2 controle admin/atletas @430 elementos que estouram",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "G3 controle admin/atletas @430 alvos abaixo de 40px",
+      "veredito": "CONTROLE",
+      "detalhe": "select.(23px)"
+    },
+    {
+      "rotulo": "G1 controle admin/atletas @768 rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "G2 controle admin/atletas @768 elementos que estouram",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "G1 controle admin/atletas @1024 rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "G2 controle admin/atletas @1024 elementos que estouram",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "G1 controle admin/atletas @1280 rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "G2 controle admin/atletas @1280 elementos que estouram",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "G1 controle admin/atletas @1440 rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "G2 controle admin/atletas @1440 elementos que estouram",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "G1 controle admin/atletas @1920 rolagem lateral",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "G2 controle admin/atletas @1920 elementos que estouram",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "G4 console da tela de controle",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "F1 sem erro de console — treinador",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "F2 sem falha de rede nem 5xx — treinador",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "F3 excluído do cômputo — treinador",
+      "veredito": "INFO",
+      "detalhe": "rede de terceiro: https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap — net::ERR_ABORTED | rede de terceiro: https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap — net::ERR_CERT_AUTHORITY_INVALID | console de terceiro: https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap"
+    },
+    {
+      "rotulo": "F4 recusas da API observadas — treinador",
+      "veredito": "INFO",
+      "detalhe": "nenhuma"
+    },
+    {
+      "rotulo": "F1 sem erro de console — em análise",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "F2 sem falha de rede nem 5xx — em análise",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "F3 excluído do cômputo — em análise",
+      "veredito": "INFO",
+      "detalhe": "rede de terceiro: https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap — net::ERR_ABORTED | rede de terceiro: https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap — net::ERR_CERT_AUTHORITY_INVALID | console de terceiro: https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap"
+    },
+    {
+      "rotulo": "F4 recusas da API observadas — em análise",
+      "veredito": "INFO",
+      "detalhe": "nenhuma"
+    },
+    {
+      "rotulo": "F1 sem erro de console — atleta",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "F2 sem falha de rede nem 5xx — atleta",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "F3 excluído do cômputo — atleta",
+      "veredito": "INFO",
+      "detalhe": "rede de terceiro: https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap — net::ERR_ABORTED | rede de terceiro: https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap — net::ERR_CERT_AUTHORITY_INVALID | console de terceiro: https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap"
+    },
+    {
+      "rotulo": "F4 recusas da API observadas — atleta",
+      "veredito": "INFO",
+      "detalhe": "nenhuma"
+    },
+    {
+      "rotulo": "F1 sem erro de console — central",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "F2 sem falha de rede nem 5xx — central",
+      "veredito": "PASS",
+      "detalhe": ""
+    },
+    {
+      "rotulo": "F3 excluído do cômputo — central",
+      "veredito": "INFO",
+      "detalhe": "rede de terceiro: https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap — net::ERR_ABORTED | rede de terceiro: https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap — net::ERR_CERT_AUTHORITY_INVALID | console de terceiro: https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap"
+    },
+    {
+      "rotulo": "F4 recusas da API observadas — central",
+      "veredito": "INFO",
+      "detalhe": "nenhuma"
+    }
+  ]
+}

@@ -408,9 +408,57 @@ async function provisionar(organizationId, actor) {
   return { ...depois, acoes };
 }
 
+/**
+ * A FEDERAÇÃO OFICIAL ÚNICA — a organização dona da entidade NPC.
+ *
+ * Existe porque a decisão da autorização automática precisa responder "qual é a
+ * federação oficial" em tempo de execução, e precisa responder o MESMO que o
+ * banco responde: a política `coach_org_autorizacao_automatica` (migration
+ * 20260928010000) usa exatamente este marcador — uma `Affiliation` ativa com
+ * código NPC — para decidir se aceita a linha. Serviço e política concordando
+ * por construção é o que impede o caso pior: a rota achar que autorizou e o
+ * banco recusar, ou o contrário.
+ *
+ * `MCI_NPC_ORGANIZATION_ID` tem precedência quando está definida, porque é a
+ * configuração explícita da instalação — a mesma que `provisionar` usa. Sem ela,
+ * a entidade oficial aponta a organização dona, que é o que existe numa
+ * instalação já provisionada.
+ *
+ * DEVOLVE `null` EM VEZ DE ESTOURAR, e isso é decisão: numa instalação onde a
+ * NPC ainda não foi provisionada, o cadastro do treinador precisa CONCLUIR —
+ * recusá-lo por causa de configuração de infraestrutura puniria a pessoa errada.
+ * Quem chama registra a ausência na trilha e segue.
+ *
+ * `Organization` e `Affiliation` não têm RLS (medido): a leitura funciona no
+ * contexto do próprio treinador, sem privilégio nenhum.
+ */
+async function organizacaoOficial() {
+  const configurada = String(process.env.MCI_NPC_ORGANIZATION_ID || '').trim();
+
+  if (configurada) {
+    const org = await prisma.organization.findUnique({
+      where: { id: configurada },
+      select: { id: true, name: true, slug: true, active: true }
+    });
+    return org?.active ? org : null;
+  }
+
+  // `mode: 'insensitive'` porque `@@unique([organizationId, code])` é sensível a
+  // maiúscula e 'npc' minúsculo existe no banco sem violar nada — a mesma razão
+  // pela qual `diagnosticar` compara com `toUpperCase`.
+  const oficial = await prisma.affiliation.findFirst({
+    where: { code: { equals: CODIGO_OFICIAL, mode: 'insensitive' }, active: true },
+    orderBy: { createdAt: 'asc' },
+    select: { organization: { select: { id: true, name: true, slug: true, active: true } } }
+  });
+
+  return oficial?.organization?.active ? oficial.organization : null;
+}
+
 module.exports = {
   diagnosticar,
   provisionar,
+  organizacaoOficial,
   NOME_OFICIAL,
   CODIGO_OFICIAL,
   TIPO_OFICIAL,

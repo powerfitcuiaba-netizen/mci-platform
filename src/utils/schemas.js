@@ -10,6 +10,23 @@ const texto = (min, max) => z.string().trim().min(min).max(max);
 const opcional = schema => schema.optional().nullable();
 const dataIso = z.coerce.date();
 
+// DATA OBRIGATÓRIA, COM RECUSA LEGÍVEL.
+//
+// `z.coerce.date()` não serve como campo obrigatório: a coerção roda ANTES da
+// conferência, e `new Date(undefined)` produz uma data inválida. O resultado,
+// medido, é a recusa "Invalid input: expected date, received Date" para um campo
+// que simplesmente não foi enviado — mensagem que não diz a ninguém o que fazer.
+//
+// Aqui o valor CRU é conferido primeiro (texto ou Date), e só então convertido.
+// Campo ausente, nulo, vazio ou malformado recebe a mesma instrução, que é o que
+// quem está preenchendo precisa ler.
+const dataIsoObrigatoria = z
+  .union([z.string().trim(), z.date()], { error: 'Informe a data no formato ISO, por exemplo 2026-12-31' })
+  .transform(valor => (valor instanceof Date ? valor : new Date(valor)))
+  .refine(valor => !Number.isNaN(valor.getTime()), {
+    error: 'Informe a data no formato ISO, por exemplo 2026-12-31'
+  });
+
 // Booleano vindo de formulário ou querystring chega como TEXTO, e `z.coerce
 // .boolean()` aplica `Boolean(...)`: a string 'false' vira `true`, e com ela um
 // documento marcado como privado era gravado como público. Aqui a palavra vale
@@ -677,11 +694,146 @@ const teamCreate = z.object({
   // Empresa que inscreve a equipe. Opcional: equipe sem empresa compete
   // normalmente, apenas não pontua para nenhuma.
   companyId: opcional(id),
+  // Treinador responsável. Opcional pela mesma razão da coluna no schema: as
+  // equipes que já existem não têm treinador, e exigir um quebraria o cadastro
+  // atual. Quem confere se o treinador pode responder por esta federação é o
+  // serviço — aqui só se aceita a forma.
+  coachId: opcional(id),
   city: opcional(texto(2, 90)), state: opcional(texto(2, 2))
 });
+
+// Trocar o responsável é ato próprio, com rota própria: `null` remove o
+// vínculo, e remover não é o mesmo que esquecer de informar na criação.
+const teamCoachSet = z.object({ coachId: opcional(id) });
 const companyCreate = z.object({ organizationId: id, name: texto(2, 120), city: opcional(texto(2, 90)), state: opcional(texto(2, 2)) });
 const coachCreate = z.object({ name: texto(2, 120), userId: opcional(id), city: opcional(texto(2, 90)), state: opcional(texto(2, 2)) });
 const gymCreate = z.object({ organizationId: id, name: texto(2, 120), city: opcional(texto(2, 90)), state: opcional(texto(2, 2)) });
+
+// ===================================================== MÓDULO TREINADORES & EQUIPES
+//
+// `status` NÃO aparece em nenhum destes corpos, e a ausência é a decisão R-03:
+// o estado do cadastro é decisão da administração central, e aceitar o campo do
+// cliente devolveria ao interessado a caneta que a regra tirou dele. Cada
+// transição tem a sua rota própria.
+
+const coachSelfRegister = z.object({
+  name: texto(2, 120),
+  registration: opcional(texto(2, 60)),
+  bio: opcional(texto(2, 1000)),
+  phone: opcional(telefone),
+  email: opcional(z.string().trim().toLowerCase().email().max(160))
+});
+
+// `.partial()` sobre os mesmos campos: o treinador corrige um campo sem
+// reenviar os outros. `name` continua com o mesmo mínimo quando vem.
+const coachSelfUpdate = coachSelfRegister.partial();
+
+// A EQUIPE CRIADA PELO PRÓPRIO TREINADOR.
+//
+// Compare com `teamCreate`, que é a do operador: ali `coachId` e `companyId` são
+// aceitos; aqui NÃO existem. `coachId` sai porque o responsável é quem está
+// pedindo — o serviço grava o cadastro DELE, e aceitar o campo abriria criar
+// equipe no nome de outro treinador. `companyId` sai porque empresa acima da
+// equipe é decisão de federação, e ela pontua.
+const coachTeamCreate = z.object({
+  organizationId: id,
+  name: texto(2, 120),
+  city: opcional(texto(2, 90)),
+  state: opcional(texto(2, 2))
+});
+
+// Renomear e corrigir localidade. `organizationId` também sai: mover a equipe de
+// federação não é correção de cadastro, é transferência — e é ato de federação.
+const coachTeamUpdate = z.object({
+  name: opcional(texto(2, 120)),
+  city: opcional(texto(2, 90)),
+  state: opcional(texto(2, 2))
+}).refine(corpo => Object.keys(corpo).length > 0, { message: 'Informe ao menos um campo' });
+
+const coachReviewQuery = paginacao.extend({
+  status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED', 'CANCELLED']).optional(),
+  search: z.string().trim().max(120).optional()
+});
+
+// Motivo obrigatório onde a decisão é contra o interessado (rejeitar, suspender,
+// encerrar) e opcional onde é a favor (aprovar, reativar). Quem exige de fato é
+// o serviço; o schema apenas não deixa passar string vazia disfarçada de motivo.
+const coachDecision = z.object({ reason: opcional(texto(3, 500)) });
+const coachDecisionWithReason = z.object({ reason: texto(3, 500) });
+
+const coachOrgAuthorize = z.object({ organizationId: id, reason: opcional(texto(3, 300)) });
+const coachOrgRevoke = z.object({ organizationId: id, reason: texto(3, 300) });
+
+const coachDocumentUpload = z.object({
+  title: z.string().trim().max(160).optional(),
+  kind: z.enum(['ID', 'MEDICAL', 'TERM', 'AFFILIATION_PROOF', 'OTHER']).optional()
+});
+
+const coachTeamQuery = z.object({ teamId: id.optional() });
+
+// A LISTA DA FEDERAÇÃO (R-04). `organizationId` é OBRIGATÓRIO, e não é detalhe
+// de validação: é o escopo contra o qual a rota e o serviço conferem
+// `coaches.authorize_org`. Sem ele, `effectivePermissions` somaria as
+// permissões de TODAS as federações do ator — o mesmo buraco que A-02 fechou na
+// delegação central. Escopo ausente aqui seria escopo ausente lá.
+const coachAuthorizableQuery = paginacao.extend({
+  organizationId: id,
+  search: z.string().trim().max(120).optional()
+});
+
+// A BUSCA POR MATRÍCULA. Não há busca por nome, nem por prefixo, nem paginação:
+// a matrícula vem COMPLETA e a resposta é um registro ou nenhum. É a primeira
+// das três contenções de enumeração descritas em `membershipRequestService`.
+const athleteAffiliationLookup = z.object({
+  organizationId: id,
+  affiliationNumber: texto(1, 40),
+  affiliationId: opcional(id)
+});
+
+const membershipRequestCreate = z.object({
+  athleteId: id, teamId: id, reason: opcional(texto(3, 300))
+});
+const membershipRequestReason = z.object({ reason: opcional(texto(3, 500)) });
+const membershipRequestAdminApprove = z.object({ reason: texto(3, 500) });
+const membershipRequestQuery = paginacao.extend({
+  teamId: id,
+  status: z.enum(['PENDING', 'CONFIRMED', 'REJECTED', 'CANCELLED']).optional()
+});
+
+// -------------------------------------------------- delegação central (R-02)
+//
+// `permission` é string livre AQUI de propósito: a lista branca do que é
+// delegável vive em `src/utils/permissions.js` e é conferida pelo serviço. Um
+// `z.enum` aqui seria uma segunda cópia da lista, e as duas cópias divergiriam
+// na primeira mudança — com a agravante de que o Zod roda ANTES da autorização,
+// então um nome fora da lista viraria 400 no lugar do 422 que explica o motivo.
+// Escopo e prazo são OBRIGATÓRIOS (achado A-02): concessão sem federação valia
+// em todas, e concessão sem prazo valia para sempre. O schema recusa na borda; o
+// serviço recusa de novo, e `effectivePermissions` ignora a linha que tenha
+// entrado por outro caminho. Três conferências, porque delegação de R-02 é o
+// poder de mexer em atribuição de pontos.
+const centralGrantCreate = z.object({
+  userId: id,
+  permission: texto(3, 60),
+  organizationId: id,
+  reason: texto(3, 500),
+  expiresAt: dataIsoObrigatoria
+});
+const centralGrantRevoke = z.object({ reason: texto(3, 500) });
+const centralGrantQuery = paginacao.extend({
+  userId: id.optional(),
+  permission: z.string().trim().max(60).optional(),
+  organizationId: id.optional(),
+  incluirRevogadas: booleano.optional()
+});
+
+const coachRankingQuery = z.object({
+  seasonId: id.optional(),
+  categoryId: opcional(id),
+  organizationId: id.optional()
+});
+const coachEligibilityQuery = z.object({ seasonId: id });
+const coachDivergenceQuery = paginacao.extend({ seasonId: id, teamId: id.optional() });
 
 const brandCreate = z.object({
   organizationId: id,
@@ -925,7 +1077,13 @@ module.exports = {
   classCatalogUpsert, classCatalogQuery, classesParaFiltroQuery, superOverallQuery,
   muscleWarImportCreate, muscleWarLink, muscleWarPreviewQuery,
   rankingPointEdit, rankingPointPreviewQuery, rankingPointReason, rankingPointAdjust,
-  teamCreate, companyCreate, coachCreate, gymCreate, brandCreate, sponsorCreate, sponsorshipCreate,
+  teamCreate, teamCoachSet, companyCreate, coachCreate, gymCreate, brandCreate, sponsorCreate, sponsorshipCreate,
+  coachSelfRegister, coachSelfUpdate, coachTeamCreate, coachTeamUpdate, coachReviewQuery, coachDecision, coachDecisionWithReason,
+  coachOrgAuthorize, coachOrgRevoke, coachDocumentUpload, coachTeamQuery, coachAuthorizableQuery,
+  athleteAffiliationLookup, membershipRequestCreate, membershipRequestReason,
+  membershipRequestAdminApprove, membershipRequestQuery,
+  centralGrantCreate, centralGrantRevoke, centralGrantQuery,
+  coachRankingQuery, coachEligibilityQuery, coachDivergenceQuery,
   partnershipCreate, partnershipStatus,
   profileCreate, profileUpdateSocial, postCreate, commentCreate, shareCreate, storyCaption, feedQuery,
   reportCreate, reportResolve,
