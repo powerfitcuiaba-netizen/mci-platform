@@ -132,6 +132,24 @@ defeito**, e a diferença importa: medi o uso e ele aparece **0 vez** como
 entrega 3,71 a 4,28. O sistema já tem `--vermelho-claro` (5,70 a 6,57) para
 texto. A disciplina existe; eu conferi em vez de supor.
 
+### 3.4 Dependências
+
+```
+backend, só produção .......... 0 vulnerabilidades
+frontend, só produção ......... 0 vulnerabilidades
+frontend, incluindo dev ....... 1 alta (undici, transitiva)
+```
+
+A alta **não tem exposição em produção**, e a prova é dupla: `npm audit
+--omit=dev` devolve zero, e `undici` aparece **0 vez** nos arquivos do pacote
+construído. A cadeia é `frontend -> jsdom@30.0.1 -> undici@8.10.0`, e `jsdom` é
+o ambiente de teste do vitest — não vai para o navegador de ninguém.
+
+Fica no backlog como R-4, e não foi corrigida agora de propósito: quem fixa a
+versão de `undici` é o `jsdom`, então subi-la significa subir o ambiente de teste
+inteiro. Isso arrisca as 704 conferências de frontend na véspera de uma
+publicação, em troca de zero benefício em produção. A conta não fecha.
+
 ---
 
 ## 4. FASE D e FASE 6 — Desempenho
@@ -321,6 +339,7 @@ carrega risco de perda de dado.
 | R-1 | A vitrine monta o perfil social com um `select` inline em vez de `profilePublic` | P3 | Duas definições da mesma projeção. Hoje coerentes — conferi campo por campo. É risco de **divergência futura**, da mesma classe que causou o defeito do cartão "Resultados publicados". Unificar exige tocar uma rota pública em véspera de teste operacional. |
 | R-2 | Bloco inicial ainda em 674,17 kB | P3 | O corte por perfil de uso rendeu 218 kB. Descer mais exige fatiar dependências compartilhadas, que é trabalho de risco maior e retorno menor. |
 | R-3 | Cobertura de RLS localmente | P3 | §6.1. Depende de credencial de papel, que não se pede por chat. |
+| R-4 | `undici` com vulnerabilidade alta na árvore de desenvolvimento | P3 | §3.4. Zero exposição em produção, medida duas vezes. Corrigir exige subir o `jsdom`, que é o ambiente de teste — risco nas 704 conferências de frontend por benefício nulo em produção. |
 
 Nenhum item P0 ou P1 aberto.
 
