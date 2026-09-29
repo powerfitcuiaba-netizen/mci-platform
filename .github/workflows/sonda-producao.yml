@@ -265,7 +265,25 @@ jobs:
       # central, a área do treinador, a criação da equipe própria, o autocadastro
       # e o diagnóstico de divergências. Sem sessão, 401 — e não 403, 404 ou 422,
       # porque a autenticação vem ANTES de qualquer outra barreira.
-      - name: Sem token, todo o módulo de treinadores recusa com 401
+      # SÓ LEITURA, E SÓ GET — e a primeira versão deste passo errou isso.
+      #
+      # Eu tinha escrito aqui `curl -X POST` contra o autocadastro, a criação de
+      # equipe, a troca de foto, a busca por matrícula e o pedido de vínculo, para
+      # conferir que respondem 401 sem sessão. `sonda-producao-coerente` reprovou,
+      # e com razão: a sonda NÃO USA MÉTODO DE ESCRITA contra produção, e o teste
+      # guarda isso com
+      #
+      #     expect(tudo).not.toMatch(/-X\s+(POST|PUT|PATCH|DELETE)/)
+      #
+      # O argumento "mas devolve 401 antes de gravar" é exatamente o que o guarda
+      # existe para recusar: ele depende de a barreira estar certa, e a sonda é o
+      # instrumento que mede se ela está. Instrumento não aposta no resultado.
+      #
+      # A proteção das rotas de ESCRITA é medida onde pode ser medida sem escrever
+      # em produção: `tests/rotas.test.mjs` exige 401 sem sessão de toda rota fora
+      # da superfície pública declarada, e `gate-autorizacao-por-rota` exige uma
+      # linha de matriz por rota mutante. As duas rodam na CI a cada push.
+      - name: Sem token, as leituras do módulo de treinadores recusam com 401
         run: |
           FALHOU=0
           for R in 'coaches/me' 'coaches/me/teams' 'coaches/me/athletes' 'coaches/review?status=PENDING' 'coaches/authorizable' 'coaches/ranking/divergences'; do
@@ -273,15 +291,10 @@ jobs:
             echo "GET $R → HTTP $C"
             [ "$C" = "401" ] || FALHOU=1
           done
-          for R in 'coaches/self-register' 'coaches/me/teams' 'coaches/me/photo' 'athletes/lookup-affiliation' 'team-membership-requests'; do
-            C="$(curl -sS -m 60 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' "$API/api/v1/$R")"
-            echo "POST $R → HTTP $C"
-            [ "$C" = "401" ] || FALHOU=1
-          done
           if [ "$FALHOU" = "0" ]; then
-            echo '| 11 rotas de treinador sem token | 401 em todas | 401 em todas | PASS |' >> /tmp/placar.md
+            echo '| 6 leituras de treinador sem token | 401 em todas | 401 em todas | PASS |' >> /tmp/placar.md
           else
-            echo '| 11 rotas de treinador sem token | 401 em todas | **ver log** | **FAIL** |' >> /tmp/placar.md
+            echo '| 6 leituras de treinador sem token | 401 em todas | **ver log** | **FAIL** |' >> /tmp/placar.md
             echo "FALHAS=$((FALHAS+1))" >> "$GITHUB_ENV"
           fi
 
