@@ -190,6 +190,42 @@ protege o casco em vez de derrubá-lo.
 permissão está intacto. Adiar o download de uma tela não a torna acessível a quem
 não podia abri-la.
 
+**Confirmado NA PRODUÇÃO, e não por inferência.** A sonda passou a medir o
+tamanho em bytes crus do bloco de entrada servido pela produção:
+
+```
+bloco de entrada: /assets/index-D9WvrNwL.js
+bytes crus ......: 674194  (658 kB binários)
+teto ............: 798720  (780 kB)
+PASS — dentro do teto.
+```
+
+674 194 bytes contra os ~913 974 de antes do corte. O meu build local deste mesmo
+commit dá 674,17 kB, e a diferença de poucos bytes é o comprimento da string de
+`VITE_API_URL`, que difere entre ambientes. Isto deixa de ser dedução: **o
+frontend no ar É o build com o corte.**
+
+Antes deste passo a sonda sabia dizer que a interface responde 200 com o título
+certo, e **não** sabia dizer qual build estava servindo — o mesmo tipo de cegueira
+que fez a sonda 16 parecer defeito de produto quando era artefato de tempo.
+
+Duas decisões de desenho desse passo, ambas tomadas depois de medir:
+
+* **não** compara o hash do nome do arquivo. O hash depende de `VITE_API_URL`:
+  dois builds locais seguidos dão o mesmo, e o do gate visual dá outro, porque
+  aponta para `127.0.0.1`. Comparar hash entre ambientes seria chamar de
+  divergência uma diferença esperada;
+* **relata** em vez de reprovar a execução, como o resto do job da interface.
+  Peso acima do teto é sinal de regressão de pacote, não de produção fora do ar.
+
+E um defeito meu, nesse mesmo passo, registrado porque o modo de descoberta
+importa: a primeira versão reusava o arquivo HTML gravado pelo passo anterior,
+que percorre **dois** hosts e grava os dois no mesmo caminho — o segundo devolve
+404, então eu lia o corpo do 404. O job ficou **verde** (o passo relata, não
+reprova) e eu só achei porque fui **ler a saída**. Verde não é evidência de que a
+medição aconteceu. O passo era fail-closed, então avisou em vez de reportar zero
+byte como PASS.
+
 **Guarda:** `frontend/src/carregamentoSobDemanda.test.jsx`, 25 conferências.
 Medido que ele **morde**: reintroduzi o import ansioso de `adminPlatform` e ele
 reprovou nomeando o módulo e dizendo o que fazer; restaurado, 25/25.

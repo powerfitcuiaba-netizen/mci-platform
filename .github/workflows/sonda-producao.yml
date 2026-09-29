@@ -555,6 +555,80 @@ jobs:
             echo "$U → HTTP $C · título: ${TITULO:-(sem título)}"
           done
 
+      # ====================================================================
+      # O PESO DO PRIMEIRO CARREGAMENTO, MEDIDO NA PRODUÇÃO.
+      #
+      # Este passo existe porque a sonda tinha um ponto cego que já enganou:
+      # ela sabia dizer que a interface responde 200 com o título certo, e
+      # NÃO sabia dizer QUAL build estava no ar. Depois de uma publicação,
+      # "o site abre" não distingue a versão nova da antiga.
+      #
+      # POR QUE MEDIR TAMANHO, E NÃO O NOME DO ARQUIVO. O nome tem hash de
+      # conteúdo, e o conteúdo depende de `VITE_API_URL`, que difere entre o
+      # ambiente de quem constrói e a produção. Medi: dois builds locais
+      # seguidos dão o mesmo hash, e o build do gate visual dá outro, porque
+      # aponta para outra API. Comparar hash entre ambientes seria comparar
+      # coisas diferentes e chamar de divergência.
+      #
+      # Tamanho não tem esse problema, e ainda é a grandeza que interessa:
+      # o pacote saía em 892,55 kB num bloco único, com a administração
+      # inteira dentro, e passou a 674,17 kB depois de as telas de operação
+      # virarem carregamento sob demanda. O teto de 780 kB fica no meio, com
+      # folga para crescimento honesto e abaixo do valor que denuncia o
+      # retorno dos imports ansiosos.
+      #
+      # `Accept-Encoding: identity` pede os bytes CRUS. Sem isso o servidor
+      # devolve comprimido e o número medido seria outro, o que tornaria o
+      # teto arbitrário.
+      #
+      # RELATA e não reprova a execução, como o resto deste job: o teto é um
+      # sinal de regressão de peso, não um indicador de produção fora do ar.
+      # ====================================================================
+      - name: O bloco de entrada continua enxuto
+        run: |
+          U=https://mci-platform-web.onrender.com
+          TETO=798720   # 780 kB
+
+          # BUSCA O HTML DE NOVO, de propósito, em vez de reusar /tmp/w.html.
+          #
+          # O passo anterior percorre DOIS hosts candidatos e grava os dois no
+          # mesmo arquivo. O segundo não resolve para esta aplicação e devolve
+          # 404, então quem lê /tmp/w.html depois do laço lê o corpo do 404 —
+          # foi assim que a primeira versão deste passo falhou, avisando que
+          # não achava o bloco de entrada. O arquivo estava certo; era o outro
+          # arquivo.
+          curl -sS -m 120 -o /tmp/entrada.html "$U"
+
+          ENTRADA="$(grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' /tmp/entrada.html | head -1)"
+          if [ -z "$ENTRADA" ]; then
+            echo "::warning::não achei o bloco de entrada no HTML de $U — o padrão do nome mudou?"
+            exit 0
+          fi
+
+          BYTES="$(curl -sS -m 120 -H 'Accept-Encoding: identity' \
+                        -o /dev/null -w '%{size_download}' "$U$ENTRADA")"
+          KB=$(( BYTES / 1024 ))
+          echo "bloco de entrada: $ENTRADA"
+          echo "bytes crus ......: $BYTES  (${KB} kB)"
+          echo "teto ............: $TETO  (780 kB)"
+
+          {
+            echo
+            echo '## Peso do primeiro carregamento'
+            echo
+            echo "| Medição | Valor |"
+            echo "|---|---|"
+            echo "| bloco de entrada | \`$ENTRADA\` |"
+            echo "| bytes crus | $BYTES (${KB} kB) |"
+            echo "| teto | 780 kB |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$BYTES" -gt "$TETO" ]; then
+            echo "::warning::O bloco de entrada está em ${KB} kB, acima do teto de 780 kB. O sintoma clássico é import ansioso de tela de operação em App.jsx — ver carregamentoSobDemanda.test.jsx."
+          else
+            echo "PASS — ${KB} kB, dentro do teto."
+          fi
+
   # ==========================================================================
   # DEMO = 0 EM PRODUÇÃO — o que esta sonda PODE e o que NÃO PODE provar.
   #
