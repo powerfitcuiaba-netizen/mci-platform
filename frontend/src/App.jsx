@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { permissoesDe } from './lib/permissoes';
 import {
   Bell, ClipboardCheck, History, Home, IdCard, LayoutDashboard, LogOut, Megaphone, Menu, MessageSquare,
@@ -8,7 +8,7 @@ import {
 import { AuthProvider, useAuth } from './AuthContext';
 import api from './services/api';
 import { useDebounce, useFetch, useHashRoute, useToasts } from './lib/hooks';
-import { Avatar, BlocoDaMarca, Toasts } from './components/ui';
+import { Avatar, BlocoDaMarca, Skeleton, Toasts } from './components/ui';
 import SeletorDeIdioma from './components/seletorDeIdioma';
 import { useIdioma } from './lib/idioma';
 import { caminhoDoAvatar, papel } from './lib/format';
@@ -22,20 +22,61 @@ import Auth from './pages/authPages';
 import { AtletaDetalhe, Atletas, CampeonatoDetalhe, Campeonatos, Inicio, Ranking } from './pages/publicPages';
 import { ComunidadeDetalhe, Comunidades, Feed, MeuPerfilSocial, Notificacoes, Perfil, Salvos } from './pages/socialPages';
 import Messenger from './pages/messengerPage';
-import { AdminCheckin, AdminCredenciamento, AdminEventoDetalhe, AdminEventos, AdminInscricoes, AdminPalco, AdminPesagem } from './pages/adminEvent';
-import { AdminResultados } from './pages/adminResults';
-import { AdminAuditoria, AdminConfiguracoes, AdminMuscleWar, AdminPainel, AdminRanking } from './pages/adminPlatform';
 import { MeuPainel, MinhaConta } from './pages/mePages';
 import { MeuHistorico, MinhaFiliacao } from './pages/minhaCarreira';
-import { AdminOverall } from './pages/adminOverall';
-import { AdminLancamentos } from './pages/adminLancamentos';
 import MinhaSolicitacao from './pages/minhaSolicitacao';
-import AdminSolicitacoes from './pages/adminSolicitacoes';
-import { AdminAtletas } from './pages/adminAtletas';
-import { AdminAtleta } from './pages/adminAtleta';
-import { AdminMensagens } from './pages/adminMensagens';
 import MensagemDaFederacao from './components/mensagemDaFederacao';
-import { AdminTreinadores, MinhaEquipe, PainelDoTreinador } from './pages/treinadores';
+
+// ============================================================================
+// AS TELAS DE OPERAÇÃO ENTRAM SOB DEMANDA.
+//
+// Elas eram importadas de forma ansiosa, e o resultado é que TODO visitante —
+// o atleta que só quer ver o próprio histórico, e até quem chega deslogado na
+// vitrine — baixava o código da administração inteira antes da primeira
+// pintura. Medido no pacote de produção: um único bloco de 892,55 kB (229,40 kB
+// comprimido), e os módulos `admin*` mais o de treinadores somam 388,8 kB de
+// fonte, que é a maior parte disso.
+//
+// O corte é por PERFIL DE USO, e não por tamanho: quem não é operador nunca
+// abre estas telas, então elas não pertencem ao primeiro carregamento. As telas
+// de uso comum (vitrine, social, minha carreira, autenticação) continuam
+// ansiosas de propósito — adiá-las trocaria bytes por espera no caminho
+// quente, que é o oposto do que se quer.
+//
+// `sob` resolve a exportação NOMEADA: `React.lazy` exige um módulo cujo
+// `default` seja o componente, e quase todas estas telas são exportações
+// nomeadas. O especificador do `import()` é literal em cada chamada porque o
+// empacotador precisa enxergá-lo para criar o bloco — uma variável aqui
+// devolveria um pacote só, que é justamente o defeito que estamos corrigindo.
+//
+// Isto NÃO muda autorização: a decisão continua no servidor, e o desvio de
+// rota por permissão, logo abaixo, continua igual. Adiar o download de uma
+// tela não a torna acessível a quem não podia abri-la.
+// ============================================================================
+const sob = (importar, nome) => lazy(() => importar().then(m => ({ default: nome ? m[nome] : m.default })));
+
+const AdminCheckin = sob(() => import('./pages/adminEvent'), 'AdminCheckin');
+const AdminCredenciamento = sob(() => import('./pages/adminEvent'), 'AdminCredenciamento');
+const AdminEventoDetalhe = sob(() => import('./pages/adminEvent'), 'AdminEventoDetalhe');
+const AdminEventos = sob(() => import('./pages/adminEvent'), 'AdminEventos');
+const AdminInscricoes = sob(() => import('./pages/adminEvent'), 'AdminInscricoes');
+const AdminPalco = sob(() => import('./pages/adminEvent'), 'AdminPalco');
+const AdminPesagem = sob(() => import('./pages/adminEvent'), 'AdminPesagem');
+const AdminResultados = sob(() => import('./pages/adminResults'), 'AdminResultados');
+const AdminAuditoria = sob(() => import('./pages/adminPlatform'), 'AdminAuditoria');
+const AdminConfiguracoes = sob(() => import('./pages/adminPlatform'), 'AdminConfiguracoes');
+const AdminMuscleWar = sob(() => import('./pages/adminPlatform'), 'AdminMuscleWar');
+const AdminPainel = sob(() => import('./pages/adminPlatform'), 'AdminPainel');
+const AdminRanking = sob(() => import('./pages/adminPlatform'), 'AdminRanking');
+const AdminOverall = sob(() => import('./pages/adminOverall'), 'AdminOverall');
+const AdminLancamentos = sob(() => import('./pages/adminLancamentos'), 'AdminLancamentos');
+const AdminSolicitacoes = sob(() => import('./pages/adminSolicitacoes'));
+const AdminAtletas = sob(() => import('./pages/adminAtletas'), 'AdminAtletas');
+const AdminAtleta = sob(() => import('./pages/adminAtleta'), 'AdminAtleta');
+const AdminMensagens = sob(() => import('./pages/adminMensagens'), 'AdminMensagens');
+const AdminTreinadores = sob(() => import('./pages/treinadores'), 'AdminTreinadores');
+const MinhaEquipe = sob(() => import('./pages/treinadores'), 'MinhaEquipe');
+const PainelDoTreinador = sob(() => import('./pages/treinadores'), 'PainelDoTreinador');
 
 // A navegação é montada a partir das permissões efetivas do usuário: um item
 // que a API recusaria não aparece no menu. A autoridade continua no servidor —
@@ -492,7 +533,17 @@ function Shell() {
             menu e a barra de topo continuam de pé, e o operador navega para
             outra em vez de ficar diante de uma página em branco. A chave pela
             rota rearma o limite a cada navegação. */}
-        <main><LimiteDeErro key={rota}>{conteudo()}</LimiteDeErro></main>
+        {/* `Suspense` existe porque as telas de operação chegam sob demanda
+            (ver o bloco `sob` no topo). O esqueleto é o MESMO que as listas já
+            usam enquanto buscam dados — quem espera vê a linguagem de
+            carregamento de sempre, e não uma tela branca nem um texto solto.
+            Ele fica DENTRO do limite de erro: falha ao baixar um bloco é erro
+            de tela, e cai na mesma rede que já protege o casco. */}
+        <main>
+          <LimiteDeErro key={rota}>
+            <Suspense fallback={<Skeleton linhas={6} />}>{conteudo()}</Suspense>
+          </LimiteDeErro>
+        </main>
       </div>
 
       {/* Um único palco de experiência no aplicativo inteiro. Ele NÃO substitui
