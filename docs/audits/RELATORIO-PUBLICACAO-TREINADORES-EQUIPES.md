@@ -119,31 +119,51 @@ caminho. PASS.
 ## 3. CI na `main` — execução 359
 
 SHA `42a0785`. A mesma bateria que aprovou `bff11b4` na execução 358, agora sobre o
-commit de merge.
+commit de merge. **Conclusão: `success`.**
 
 | Job | Estado | Duração |
 |---|---|---|
 | Higiene do repositório | `success` | 7 s |
 | Frontend — testes e build | `success` | 1 min 13 s |
-| Backend — migrations, RLS e testes | **ainda em execução** quando este documento foi escrito | — |
+| Backend — migrations, RLS e testes | `success` | 26 min 55 s |
 
-O job de higiene confere, e aprovou: nenhum segredo real versionado, nenhum `.env`
-versionado, nenhum marcador de trabalho inacabado, **nenhum módulo financeiro no
-repositório**.
+O job de higiene aprovou o que ele existe para cobrar: nenhum segredo real versionado,
+nenhum `.env` versionado, nenhum marcador de trabalho inacabado, **nenhum módulo
+financeiro no repositório**.
 
-O job de backend já passou por 17 dos seus passos antes de entrar nos testes: schema do
-Prisma validado, ESLint limpo, inspeção de segredos limpa, migrations aplicadas,
-**nenhuma migration pendente**, e os papéis de RLS e de backup provisionados. O que
-falta é o passo 18, a regressão completa — que na execução 358 levou 21 min 23 s — e os
-oito passos que conferem que nenhuma suíte foi pulada.
+O job de backend passou pelos 17 passos anteriores à regressão — schema do Prisma
+validado, ESLint limpo, inspeção de segredos limpa, migrations aplicadas, **nenhuma
+migration pendente**, papéis de RLS e de backup provisionados — e então:
 
-**Este documento será atualizado com o resultado final da execução 359.** Até lá, o
-estado do job de backend é NÃO CONCLUÍDO — e não PASS.
+* **regressão completa: `success`**, das 18:53:20 às 19:16:38, **23 min 18 s**;
+* os passos 19 e 20, "que teste caiu" e "guardar a saída completa dos testes", saíram
+  `skipped`. Eles só rodam quando a suíte reprova: o `skipped` deles **é** o sinal de
+  que nada caiu.
+
+### Os oito guardas anti-pulo
+
+Existem porque uma suíte pulada passa despercebida num total que continua verde. Cada
+um re-executa um recorte e reprova o job se o número de pulados não for zero:
+
+| Guarda | Resultado |
+|---|---|
+| Ensaio de backup/restore não foi pulado | `success` |
+| Teste real de BYPASSRLS não foi pulado | `success` |
+| Taxonomia, ajuste e diagnóstico | **42 passaram, 0 pulados** |
+| Catálogo de categorias e backfill | **23 passaram, 0 pulados** |
+| Correção de categoria | **13 passaram, 0 pulados** |
+| Motor de pontuação e Overall | **28 passaram, 0 pulados** |
+| Gestão do atleta | **71 passaram, 0 pulados** |
+| Catálogo terminou provisionado | **11 categorias** |
+
+O total de testes da regressão não consta desta seção porque o workflow só despeja o
+resumo do vitest **quando reprova** — e ele não reprovou. O que está afirmado aqui é o
+que foi lido: `success` no passo, e os cinco recortes acima com zero pulados.
 
 A CI é gate de repositório, não de produção: ela roda depois do push, em paralelo com o
 deploy do Render, e não tem poder de barrar a promoção da versão. Quem barra é o
 `preDeployCommand`. Por isso o pré-voo em `bff11b4` foi feito **antes** do merge, com a
-CI 358 já verde — e é dela que vem a garantia de que este código passa.
+CI 358 já verde — e a árvore do merge é byte a byte a mesma que ela aprovou.
 
 ---
 
@@ -237,6 +257,10 @@ A publicação foi concluída e verificada de fora: o código novo está servind
 migrations foram aplicadas, o banco, o armazenamento e o RLS respondem, e as dez
 conferências do smoke test de produção passaram — incluindo as quatro que existem para
 provar que nada indevido foi exposto.
+
+A CI 359, sobre o SHA do merge, fechou com os **três jobs em `success`**, a regressão
+completa verde e os **oito guardas anti-pulo aprovados**. O código publicado é o mesmo
+que a CI 358 aprovou, e agora é também o que a 359 aprovou.
 
 As ressalvas da §6 são de **observabilidade**, não de defeito: são coisas que não tenho
 como medir daqui, e que estão listadas em vez de presumidas.
