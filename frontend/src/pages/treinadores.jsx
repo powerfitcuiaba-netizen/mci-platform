@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ClipboardCheck, IdCard, Search, ShieldCheck, UserPlus, Users2 } from 'lucide-react';
 import { api, fetchMediaObjectUrl, refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
+import { ACEITO_NO_SELETOR, CHAVE_DA_RECUSA, normalizarFotoDoAparelho } from '../lib/fotoDoAparelho';
 import {
   AsyncSection, Badge, EmptyState, Field, Modal, ModalActions, PageHead, Skeleton
 } from '../components/ui';
@@ -87,16 +88,56 @@ function FormularioDeAutocadastro({ notificar, aoConcluir }) {
   // na memória do navegador até a aba fechar.
   const [foto, setFoto] = useState(null);
   const [previa, setPrevia] = useState(null);
+  // Preparo da foto: estado separado de `enviando` porque acontece ANTES do
+  // envio e pode falhar sem que nada tenha ido à rede.
+  const [preparando, setPreparando] = useState(false);
 
   const campo = (chave, valor) => setDados(atual => ({ ...atual, [chave]: valor }));
 
-  const escolherFoto = arquivo => {
+  // A FOTO PASSA PELO NORMALIZADOR DO APARELHO ANTES DE VIRAR ESCOLHA.
+  //
+  // O servidor aceita PNG, JPEG e WebP. O padrão de câmera do iPhone é HEIC, e
+  // sem esta passagem a pessoa escolhia a foto, via a prévia, clicava em enviar
+  // e só então levava 415 — o pior momento possível para descobrir.
+  //
+  // `normalizarFotoDoAparelho` devolve o PRÓPRIO arquivo quando ele já serve, e
+  // isso importa: reencodar um JPEG apagaria a etiqueta EXIF de orientação, que
+  // é o que o servidor usa para endireitar foto de retrato.
+  //
+  // A recusa vai para `recusa`, o mesmo lugar onde a recusa do servidor
+  // aparece — uma frase só, num lugar só, dita antes da ida à rede.
+  const escolherFoto = async arquivo => {
+    setRecusa(null);
+
+    if (!arquivo) {
+      setPrevia(anterior => { if (anterior) URL.revokeObjectURL(anterior); return null; });
+      setFoto(null);
+      return;
+    }
+
+    // O PREPARO TEM ESTADO PRÓPRIO porque tem DURAÇÃO própria: decodificar e
+    // reduzir uma foto de 12 MP leva um instante visível num celular, e sem
+    // dizer nada a tela fica parada depois do toque — quem usa toca de novo.
+    setPreparando(true);
+    let pronta;
+    try {
+      pronta = await normalizarFotoDoAparelho(arquivo);
+    } catch (erro) {
+      // A recusa vem com CÓDIGO: a frase é a do idioma em vigor, não a do
+      // módulo. `erro.message` fica como reserva para o que não tiver código.
+      setRecusa(erro.codigo ? t(CHAVE_DA_RECUSA[erro.codigo]) : erro.message);
+      setPrevia(anterior => { if (anterior) URL.revokeObjectURL(anterior); return null; });
+      setFoto(null);
+      return;
+    } finally {
+      setPreparando(false);
+    }
+
     setPrevia(anterior => {
       if (anterior) URL.revokeObjectURL(anterior);
-      return arquivo ? URL.createObjectURL(arquivo) : null;
+      return URL.createObjectURL(pronta);
     });
-    setFoto(arquivo ?? null);
-    setRecusa(null);
+    setFoto(pronta);
   };
 
   useEffect(() => () => { if (previa) URL.revokeObjectURL(previa); }, [previa]);
@@ -169,10 +210,15 @@ function FormularioDeAutocadastro({ notificar, aoConcluir }) {
       <Field label={t('treinador.campoFoto')} required hint={t('treinador.campoFotoDica')}>
         <input
           type="file"
-          accept="image/jpeg,image/png,image/webp"
+          accept={ACEITO_NO_SELETOR}
+          disabled={preparando}
           onChange={evento => escolherFoto(evento.target.files?.[0] ?? null)}
         />
       </Field>
+
+      {/* `aria-live` porque quem usa leitor de tela também precisa saber que a
+          foto está sendo preparada — o campo desabilitado, sozinho, é silêncio. */}
+      {preparando && <p className="muted" aria-live="polite">{t('foto.preparando')}</p>}
 
       {previa && (
         <div className="foto-escolhida">
@@ -184,7 +230,7 @@ function FormularioDeAutocadastro({ notificar, aoConcluir }) {
       )}
 
       <div className="acoes-do-cartao">
-        <button type="submit" className="button button-primary" disabled={enviando || !foto}>
+        <button type="submit" className="button button-primary" disabled={enviando || preparando || !foto}>
           {t('treinador.enviarCadastro')}
         </button>
       </div>
@@ -440,12 +486,29 @@ function FotoDoTreinador({ coachId, temFoto, notificar, aoTrocar }) {
     };
   }, [coachId, temFoto]);
 
+  // A TROCA PASSA PELO MESMO NORMALIZADOR DO CADASTRO, e por um motivo que não é
+  // simetria: quem troca a foto depois costuma estar no celular, então é aqui que
+  // o HEIC aparece MAIS, não menos. A conversão ficar só no cadastro deixaria o
+  // 415 exatamente na tela de quem já é treinador.
   const enviar = async arquivo => {
     if (!arquivo) return;
     setRecusa(null);
+
+    // `enviando` cobre o preparo TAMBÉM: para quem está olhando, escolher a foto
+    // e a foto subir é um gesto só, e o campo precisa ficar indisponível do
+    // começo ao fim dele.
     setEnviando(true);
+    let pronta;
     try {
-      await api.coaches.setMyPhoto(arquivo);
+      pronta = await normalizarFotoDoAparelho(arquivo);
+    } catch (problema) {
+      setRecusa(problema.codigo ? t(CHAVE_DA_RECUSA[problema.codigo]) : problema.message);
+      setEnviando(false);
+      return;
+    }
+
+    try {
+      await api.coaches.setMyPhoto(pronta);
       refreshData();
       notificar?.(t('treinador.fotoAtualizada'), 'sucesso');
       aoTrocar?.();
@@ -485,7 +548,7 @@ function FotoDoTreinador({ coachId, temFoto, notificar, aoTrocar }) {
       <Field label={t(temFoto ? 'treinador.trocarFoto' : 'treinador.enviarFoto')} hint={t('treinador.campoFotoDica')}>
         <input
           type="file"
-          accept="image/jpeg,image/png,image/webp"
+          accept={ACEITO_NO_SELETOR}
           disabled={enviando}
           onChange={evento => enviar(evento.target.files?.[0] ?? null)}
         />

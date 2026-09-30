@@ -88,11 +88,16 @@ afterEach(cleanup);
 // `fireEvent.change` com `files` é como o navegador o preenche. O conteúdo não
 // importa aqui — quem valida bytes é o servidor, e isso está medido em
 // tests/foto-obrigatoria-do-treinador.
-const escolherFoto = () => {
+// O `await` NÃO é enfeite: a escolha passa pelo normalizador do aparelho, que é
+// assíncrono porque decodificar imagem é assíncrono. Sem esperar a prévia, o
+// clique em "Concluir" chegava antes de a foto existir no estado, e o teste media
+// a barreira de tela em vez do que pretendia medir.
+const escolherFoto = async () => {
   const campo = document.querySelector('input[type="file"]');
   const arquivo = new File(['imagem-de-teste'], 'foto.png', { type: 'image/png' });
   Object.defineProperty(campo, 'files', { value: [arquivo], configurable: true });
   fireEvent.change(campo);
+  await screen.findByAltText(/Prévia da foto/i);
   return arquivo;
 };
 
@@ -266,7 +271,7 @@ describe('painel do treinador', () => {
     // A FOTO É OBRIGATÓRIA desde a decisão da foto: sem ela o botão fica
     // desabilitado e o clique não chega ao servidor — então este teste, que mede
     // a RECUSA DO SERVIDOR, precisa passar da barreira de tela primeiro.
-    escolherFoto();
+    await escolherFoto();
     // "Concluir cadastro", e não "Enviar para análise": não há mais análise a
     // aguardar — o cadastro nasce aprovado.
     fireEvent.click(screen.getByRole('button', { name: /Concluir cadastro/i }));
@@ -294,7 +299,7 @@ describe('painel do treinador', () => {
     render(<PainelDoTreinador notificar={vi.fn()} />);
     await screen.findByLabelText(/^Nome/i);
 
-    escolherFoto();
+    await escolherFoto();
     expect(await screen.findByAltText(/Prévia da foto/i)).toBeTruthy();
     expect(screen.getByRole('button', { name: /Concluir cadastro/i }).disabled).toBe(false);
 
@@ -303,13 +308,47 @@ describe('painel do treinador', () => {
     expect(screen.getByRole('button', { name: /Concluir cadastro/i }).disabled).toBe(true);
   });
 
+  it('foto que este aparelho não sabe ler é recusada NA TELA, antes de qualquer ida à rede', async () => {
+    // O jsdom não tem `createImageBitmap` — e isso não é limitação do teste, é
+    // exatamente a situação de um navegador sem o codec do HEIC. A recusa tem de
+    // vir com a frase do DICIONÁRIO, não com a do módulo, porque a aplicação é
+    // trilíngue.
+    api.coaches.me.mockRejectedValue(Object.assign(new Error('404'), { status: 404 }));
+
+    render(<PainelDoTreinador notificar={vi.fn()} />);
+    await screen.findByLabelText(/^Nome/i);
+
+    const campo = document.querySelector('input[type="file"]');
+    const heic = new File(['bytes-de-heic'], 'IMG_0042.HEIC', { type: 'image/heic' });
+    Object.defineProperty(campo, 'files', { value: [heic], configurable: true });
+    fireEvent.change(campo);
+
+    expect(await screen.findByText(/Não foi possível ler esta foto neste aparelho/i)).toBeTruthy();
+    // Sem prévia e sem envio: o botão continua desabilitado.
+    expect(screen.queryByAltText(/Prévia da foto/i)).toBeNull();
+    expect(screen.getByRole('button', { name: /Concluir cadastro/i }).disabled).toBe(true);
+    expect(api.coaches.selfRegister).not.toHaveBeenCalled();
+  });
+
+  it('o seletor de foto não esconde a foto de câmera do celular', async () => {
+    // `accept` enumerando tipos fazia o iOS esconder o HEIC da galeria: a pessoa
+    // abria o seletor e via as próprias fotos apagadas.
+    api.coaches.me.mockRejectedValue(Object.assign(new Error('404'), { status: 404 }));
+
+    render(<PainelDoTreinador notificar={vi.fn()} />);
+    await screen.findByLabelText(/^Nome/i);
+
+    const campo = document.querySelector('input[type="file"]');
+    expect(campo.getAttribute('accept')).toBe('image/*');
+  });
+
   it('a foto viaja junto com o cadastro, na mesma chamada', async () => {
     api.coaches.me.mockRejectedValue(Object.assign(new Error('404'), { status: 404 }));
     api.coaches.selfRegister.mockResolvedValue({ id: 'c1', status: 'APPROVED', hasPhoto: true });
 
     render(<PainelDoTreinador notificar={vi.fn()} />);
     fireEvent.change(await screen.findByLabelText(/^Nome/i), { target: { value: 'Marta Treinadora' } });
-    escolherFoto();
+    await escolherFoto();
     fireEvent.click(screen.getByRole('button', { name: /Concluir cadastro/i }));
 
     await waitFor(() => expect(api.coaches.selfRegister).toHaveBeenCalled());

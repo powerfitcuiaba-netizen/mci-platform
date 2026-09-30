@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ImagePlus, Plus, Send, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import { useFetch } from '../lib/hooks';
+import { ACEITO_NO_SELETOR_DE_MIDIA, CHAVE_DA_RECUSA, normalizarMidiaDoAparelho } from '../lib/fotoDoAparelho';
 import { Lightbox, Avatar, EmptyState, Field, Modal, ModalActions, ProtectedMedia, Skeleton } from '../components/ui';
 import { caminhoDoAvatar, desde, formatarHora } from '../lib/format';
 import { useIdioma } from '../lib/idioma';
@@ -145,9 +146,20 @@ export function Conversa({ conversationId, notificar, onVoltar, onMudou }) {
   };
 
   const enviarMidia = async evento => {
-    const arquivo = evento.target.files?.[0];
+    const escolhido = evento.target.files?.[0];
     evento.target.value = '';
-    if (!arquivo) return;
+    if (!escolhido) return;
+
+    // Vídeo e GIF passam intactos — o servidor aceita os dois numa mensagem. O
+    // que muda é a foto que ele recusaria, como o HEIC de iPhone: ela é
+    // convertida no aparelho que sabe lê-la.
+    let arquivo;
+    try {
+      arquivo = await normalizarMidiaDoAparelho(escolhido);
+    } catch (problema) {
+      notificar(problema.codigo ? t(CHAVE_DA_RECUSA[problema.codigo]) : problema.message, 'erro');
+      return;
+    }
 
     try {
       await api.messenger.sendMedia(conversationId, arquivo);
@@ -284,7 +296,7 @@ export function Conversa({ conversationId, notificar, onVoltar, onMudou }) {
       )}
       <form className="chat-foot" onSubmit={enviar}>
         <button type="button" className="icon-button" onClick={() => inputArquivo.current?.click()} aria-label={t('messenger.enviarMidia')}><ImagePlus size={16} /></button>
-        <input ref={inputArquivo} type="file" accept="image/*,video/*" hidden onChange={enviarMidia} />
+        <input ref={inputArquivo} type="file" accept={ACEITO_NO_SELETOR_DE_MIDIA} hidden onChange={enviarMidia} />
         <input type="text" value={texto} onChange={evento => setTexto(evento.target.value)} placeholder={t('messenger.escrevaUmaMensagem')} aria-label={t('messenger.mensagem')} maxLength={4000} />
         <button type="submit" className="button button-primary" disabled={enviando || !texto.trim()} aria-label={t(enviando ? 'messenger.enviandoMensagem' : 'messenger.enviarMensagem')}>
           <Send size={15} />

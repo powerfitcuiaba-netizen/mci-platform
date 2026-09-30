@@ -102,6 +102,22 @@
 
 * { box-sizing: border-box; }
 
+/* A FOTO NUNCA PASSA DA LARGURA DO QUE A CONTÉM.
+   Isto não é precaução teórica: MEDIDO em Chromium, uma foto de 1280x960 no
+   visualizador de story renderizava 1275px de largura dentro de uma viewport de
+   320px. `document.scrollWidth` continuava 320 — o corpo do modal rola por
+   dentro —, e foi por isso que o gate de responsividade, que mede rolagem
+   horizontal do DOCUMENTO, nunca viu. Quem estava com o celular na mão via a
+   faixa central de uma foto de retrato e concluía que a foto tinha subido
+   errada.
+   As regras específicas (`.post-media img`, `.chat-msg img`, `.foto-previa img`
+   e as demais) continuam valendo e vencem esta por especificidade: aqui só
+   entra um piso para o `<img>` e o `<video>` que nenhuma delas alcança — hoje o
+   visualizador de story, amanhã a próxima tela que alguém escrever.
+   `height: auto` acompanha porque, com atributos `width`/`height` na marcação,
+   limitar só a largura esmagaria a proporção. */
+img, video { max-width: 100%; height: auto; }
+
 body {
   margin: 0;
   min-width: 320px;

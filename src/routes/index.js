@@ -399,8 +399,18 @@ router.route('/coaches')
 // ------------------------------------------------- o treinador e o que é dele
 //
 // O autocadastro NÃO tem `perm(...)`: qualquer conta autenticada pode se
-// cadastrar como treinador, e o cadastro nasce PENDING por R-03. O teto de
-// conteúdo segura a criação em massa.
+// cadastrar como treinador. O teto de conteúdo segura a criação em massa.
+//
+// O cadastro nasce **APPROVED**, com `reviewedAt` e `autoApprovedAt` gravados e
+// `reviewedById` nulo — ver `coachService.autocadastro`. Esta linha já disse
+// "nasce PENDING por R-03", e era verdade até a decisão de aprovação automática;
+// ficou para trás e passou a afirmar o contrário do código. Quem ler a rota tira
+// a conclusão errada sobre o que o treinador vê ao terminar o cadastro, então o
+// texto é corrigido aqui em vez de remendado.
+//
+// O que a aprovação automática NÃO concede continua valendo: atuar numa federação
+// exige `CoachOrganization`, e é a autorização automática na NPC que a cria — não
+// o status do cadastro.
 // O AUTOCADASTRO PASSOU A SER MULTIPART, e é por isso que a foto não tem como
 // ser contornada: ela vem na MESMA requisição que cria o cadastro, e o serviço
 // recusa antes de qualquer escrita quando ela falta. Não existe janela entre
