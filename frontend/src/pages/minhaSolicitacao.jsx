@@ -7,7 +7,8 @@ import {
   mascararCpfEntrada, cpfResumido, errosDaSolicitacao, corpoDaSolicitacao, cpfValido
 } from '../lib/formulario';
 import { formatarData } from '../lib/format';
-import { conferirFoto, TIPOS_DE_FOTO } from '../lib/foto';
+import { conferirFoto } from '../lib/foto';
+import { ACEITO_NO_SELETOR, CHAVE_DA_RECUSA, normalizarFotoDoAparelho } from '../lib/fotoDoAparelho';
 import { useIdioma } from '../lib/idioma';
 
 // ============================================================================
@@ -267,6 +268,9 @@ function EscolhaDaFoto({ foto, aoEscolher, desabilitado }) {
   const [erro, setErro] = useState(null);
   const entrada = useRef(null);
   const [previa, setPrevia] = useState(null);
+  // Preparo da foto: tem duração própria num celular, e sem dizer nada a tela
+  // fica parada depois do toque.
+  const [preparando, setPreparando] = useState(false);
 
   useEffect(() => {
     if (!foto?.arquivo) { setPrevia(null); return undefined; }
@@ -275,12 +279,27 @@ function EscolhaDaFoto({ foto, aoEscolher, desabilitado }) {
     return () => URL.revokeObjectURL(url);
   }, [foto]);
 
-  const escolher = evento => {
-    const arquivo = evento.target.files?.[0];
+  const escolher = async evento => {
+    const escolhido = evento.target.files?.[0];
     // Limpa o input para que escolher O MESMO arquivo de novo dispare `change`
     // — sem isso, corrigir um erro reenviando o mesmo arquivo não faz nada.
     evento.target.value = '';
-    if (!arquivo) return;
+    if (!escolhido) return;
+
+    // A CONVERSÃO VEM ANTES DA CONFERÊNCIA, e a ordem é o ponto: a foto do
+    // iPhone chega HEIC e com vários megabytes, e conferir primeiro recusaria na
+    // tela justamente a foto que o aparelho sabe converter. Este é o caminho do
+    // ATLETA se cadastrando — é onde a foto de celular aparece mais.
+    setPreparando(true);
+    let arquivo;
+    try {
+      arquivo = await normalizarFotoDoAparelho(escolhido);
+    } catch (problema) {
+      setErro(problema.codigo ? t(CHAVE_DA_RECUSA[problema.codigo]) : problema.message);
+      return;
+    } finally {
+      setPreparando(false);
+    }
 
     const resultado = conferirFoto(arquivo);
     // A conferência devolve chave e números crus; o tamanho é escrito aqui,
@@ -315,13 +334,13 @@ function EscolhaDaFoto({ foto, aoEscolher, desabilitado }) {
           <input
             ref={entrada}
             type="file"
-            accept={TIPOS_DE_FOTO.join(',')}
+            accept={ACEITO_NO_SELETOR}
             onChange={escolher}
             className="sr-only"
             id="entrada-da-foto"
-            disabled={desabilitado}
+            disabled={desabilitado || preparando}
           />
-          <label htmlFor="entrada-da-foto" className={`button button-secondary${desabilitado ? ' is-disabled' : ''}`}>
+          <label htmlFor="entrada-da-foto" className={`button button-secondary${desabilitado || preparando ? ' is-disabled' : ''}`}>
             {t(foto ? 'solicitacao.trocarFoto' : 'solicitacao.escolherFoto')}
           </label>
           {foto && (
@@ -333,6 +352,7 @@ function EscolhaDaFoto({ foto, aoEscolher, desabilitado }) {
         </div>
       </div>
 
+      {preparando && <small className="muted" aria-live="polite">{t('foto.preparando')}</small>}
       {erro && <small className="campo-erro" role="alert">{erro}</small>}
     </div>
   );

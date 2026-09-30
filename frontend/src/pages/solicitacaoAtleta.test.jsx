@@ -561,14 +561,61 @@ describe('foto da solicitação', () => {
     expect(screen.queryByAltText(/Pré-visualização da foto/i)).not.toBeInTheDocument();
   });
 
-  it('arquivo grande demais é barrado com os dois tamanhos na mensagem', async () => {
-    render(<MinhaSolicitacao notificar={() => {}} />);
-    await screen.findByLabelText(/^CPF/i);
+  // ESTE TESTE MUDOU DE VEREDITO, DE PROPÓSITO.
+  //
+  // Antes, uma foto de 6 MB era RECUSADA na tela com "o limite é 5,0 MB". A
+  // recusa era correta para o servidor e inútil para quem estava com o celular na
+  // mão: foto de celular moderno passa de 5 MB com facilidade, e a pessoa não tem
+  // como "diminuir a foto" sozinha. Agora a foto é REDUZIDA aqui e sobe.
+  //
+  // O teto de 5 MB continua existindo e continua sendo do servidor — só deixou de
+  // ser a primeira coisa que a pessoa encontra.
+  //
+  // As três funções de navegador abaixo são substituídas porque o jsdom não as
+  // implementa: `createImageBitmap` não existe, `getContext('2d')` lança e
+  // `toBlob` não existe. Substituí-las é o que permite exercitar a conversão de
+  // verdade em vez de só medir a recusa.
+  it('foto de 6 MB não é mais recusada: ela é reduzida e sobe', async () => {
+    const usuario = userEvent.setup();
+    const original = {
+      bitmap: globalThis.createImageBitmap,
+      contexto: HTMLCanvasElement.prototype.getContext,
+      blob: HTMLCanvasElement.prototype.toBlob
+    };
+    const fechado = vi.fn();
+    globalThis.createImageBitmap = vi.fn(async () => ({ width: 4032, height: 3024, close: fechado }));
+    HTMLCanvasElement.prototype.getContext = () => ({ drawImage: vi.fn() });
+    // 180 kB: a ordem de grandeza de um JPEG de 1280px de lado.
+    HTMLCanvasElement.prototype.toBlob = function (retorno, tipo) {
+      retorno(new Blob([new Uint8Array(180 * 1024)], { type: tipo }));
+    };
 
-    fireEvent.change(document.getElementById('entrada-da-foto'), { target: { files: [imagem('grande.png', 'image/png', 6 * 1024 * 1024)] } });
+    try {
+      render(<MinhaSolicitacao notificar={() => {}} />);
+      await screen.findByLabelText(/^CPF/i);
 
-    expect(await screen.findByText(/limite é 5,0 MB/i)).toBeInTheDocument();
-    expect(espioes.enviarFoto).not.toHaveBeenCalled();
+      await preencherPedido(usuario);
+      await escolherFoto(usuario, imagem('grande.png', 'image/png', 6 * 1024 * 1024));
+
+      // Nenhuma recusa de tamanho, e a prévia aparece: a foto foi aceita.
+      expect(screen.queryByText(/limite é 5,0 MB/i)).not.toBeInTheDocument();
+      expect(await screen.findByAltText(/Pré-visualização da foto/i)).toBeInTheDocument();
+
+      await usuario.click(screen.getByRole('button', { name: /concluir cadastro/i }));
+      await waitFor(() => expect(espioes.enviarFoto).toHaveBeenCalled());
+
+      // O que subiu é JPEG, renomeado e MENOR que o teto do servidor.
+      const enviado = espioes.enviarFoto.mock.calls[0][1];
+      expect(enviado.type).toBe('image/jpeg');
+      expect(enviado.name).toBe('grande.jpg');
+      expect(enviado.size).toBeLessThan(5 * 1024 * 1024);
+      // A memória do bitmap é liberada na hora, e não quando o coletor quiser.
+      expect(fechado).toHaveBeenCalled();
+    } finally {
+      globalThis.createImageBitmap = original.bitmap;
+      HTMLCanvasElement.prototype.getContext = original.contexto;
+      HTMLCanvasElement.prototype.toBlob = original.blob;
+    }
   });
 
   // A ordem importa: a rota da foto é `/athlete-requests/:id/photo`, e o id só

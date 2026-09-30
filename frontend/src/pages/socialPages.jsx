@@ -4,7 +4,10 @@ import {
 } from 'lucide-react';
 import api, { refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
-import { ACEITOS_PELO_SERVIDOR, ACEITO_NO_SELETOR, CHAVE_DA_RECUSA, TETO_DE_BYTES, normalizarFotoDoAparelho } from '../lib/fotoDoAparelho';
+import {
+  ACEITOS_PELO_SERVIDOR, ACEITO_NO_SELETOR, ACEITO_NO_SELETOR_DE_MIDIA, CHAVE_DA_RECUSA,
+  TETO_DE_BYTES, normalizarFotoDoAparelho, normalizarMidiaDoAparelho
+} from '../lib/fotoDoAparelho';
 import { AsyncSection, Avatar, Badge, EmptyState, Lightbox, Modal, ModalActions, PageHead, Paginacao, ProtectedMedia, Field } from '../components/ui';
 import { anunciar, MCIEvento } from '../lib/experiencia';
 import { caminhoDoAvatar, desde, ESTADO_PRO, formatarData, tipoDePerfil } from '../lib/format';
@@ -21,11 +24,21 @@ function Stories({ notificar }) {
   const [enviando, setEnviando] = useState(false);
 
   const publicar = async evento => {
-    const arquivo = evento.target.files?.[0];
+    const escolhido = evento.target.files?.[0];
     evento.target.value = '';
-    if (!arquivo) return;
+    if (!escolhido) return;
 
     setEnviando(true);
+    // `normalizarMidiaDoAparelho` deixa VÍDEO e GIF intactos — o servidor aceita
+    // os dois aqui. Só converte o que ele recusaria, como o HEIC do iPhone.
+    let arquivo;
+    try {
+      arquivo = await normalizarMidiaDoAparelho(escolhido);
+    } catch (problema) {
+      notificar(problema.codigo ? t(CHAVE_DA_RECUSA[problema.codigo]) : problema.message, 'erro');
+      setEnviando(false);
+      return;
+    }
     try {
       await api.social.createStory(arquivo, {});
       notificar(t('social.storyPublicado'));
@@ -54,7 +67,7 @@ function Stories({ notificar }) {
           <span className="story-ring is-seen"><span className="avatar"><ImageIcon size={18} /></span></span>
           <small>{t(enviando ? 'social.enviando' : 'social.seuStory')}</small>
         </button>
-        <input ref={inputRef} type="file" accept="image/*,video/*" hidden onChange={publicar} aria-label={t('social.publicarStory')} />
+        <input ref={inputRef} type="file" accept={ACEITO_NO_SELETOR_DE_MIDIA} hidden onChange={publicar} aria-label={t('social.publicarStory')} />
 
         {(estado.data?.items || []).map(grupo => {
           const todosVistos = grupo.items.every(item => item.seen);
@@ -106,6 +119,19 @@ function Composer({ notificar, onPublicado }) {
     return () => URL.revokeObjectURL(url);
   }, [arquivo]);
 
+  // A MÍDIA É PREPARADA NA ESCOLHA, não no envio, e isso é deliberado: assim a
+  // miniatura mostra o que VAI subir, e uma recusa aparece antes de a pessoa
+  // escrever o texto todo. Vídeo e GIF passam intactos.
+  const escolherMidia = async escolhido => {
+    if (!escolhido) { setArquivo(null); return; }
+    try {
+      setArquivo(await normalizarMidiaDoAparelho(escolhido));
+    } catch (problema) {
+      notificar(problema.codigo ? t(CHAVE_DA_RECUSA[problema.codigo]) : problema.message, 'erro');
+      setArquivo(null);
+    }
+  };
+
   const publicar = async evento => {
     evento.preventDefault();
     if (!conteudo.trim()) return;
@@ -149,9 +175,9 @@ function Composer({ notificar, onPublicado }) {
         <input
           ref={inputRef}
           type="file"
-          accept="image/*,video/*"
+          accept={ACEITO_NO_SELETOR_DE_MIDIA}
           hidden
-          onChange={evento => setArquivo(evento.target.files?.[0] || null)}
+          onChange={evento => escolherMidia(evento.target.files?.[0] || null)}
           aria-label={t('social.anexarMidia')}
         />
         {arquivo && (

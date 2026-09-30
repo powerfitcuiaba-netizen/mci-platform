@@ -349,7 +349,7 @@ export default {
   'solicitacao.trocarFoto': 'Change photo',
   'solicitacao.escolherFoto': 'Choose photo',
   'solicitacao.remover': 'Remove',
-  'solicitacao.formatosDaFoto': 'JPG, PNG or WebP, up to 5 MB.',
+  'solicitacao.formatosDaFoto': 'Any photo from your phone or computer. The photo is prepared here before it is uploaded.',
   'solicitacao.solicitarPerfil': 'Request an athlete profile',
   'solicitacao.solicitarTexto': 'These details go straight to the federation you choose. Nothing is kept in this browser.',
   'solicitacao.ultimaRecusada': 'Your last request was rejected.',

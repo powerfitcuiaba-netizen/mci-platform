@@ -349,7 +349,7 @@ export default {
   'solicitacao.trocarFoto': 'Cambiar la foto',
   'solicitacao.escolherFoto': 'Elegir foto',
   'solicitacao.remover': 'Quitar',
-  'solicitacao.formatosDaFoto': 'JPG, PNG o WebP, hasta 5 MB.',
+  'solicitacao.formatosDaFoto': 'Cualquier foto del celular o de la computadora. La foto se prepara aquí antes de subirla.',
   'solicitacao.solicitarPerfil': 'Solicitar perfil de atleta',
   'solicitacao.solicitarTexto': 'Estos datos van directo a la federación que elija. Nada queda guardado en este navegador.',
   'solicitacao.ultimaRecusada': 'Su última solicitud fue rechazada.',

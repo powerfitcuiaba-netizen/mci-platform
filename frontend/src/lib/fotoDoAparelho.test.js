@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   ACEITOS_PELO_SERVIDOR, FORMATO_DE_SAIDA, LADO_MAXIMO, MENSAGEM_NAO_E_IMAGEM,
   ACEITO_NO_SELETOR, CHAVE_DA_RECUSA, CODIGO_NAO_E_IMAGEM, CODIGO_SEM_SUPORTE,
+  CODIGO_TIPO_RECUSADO, RECUSADOS_SEMPRE, ehVideo, normalizarMidiaDoAparelho,
   MENSAGEM_SEM_SUPORTE, TETO_DE_BYTES, dimensoesDestino, nomeConvertido,
   normalizarFotoDoAparelho, precisaConverter
 } from './fotoDoAparelho';
@@ -296,7 +297,8 @@ describe('a recusa carrega código, e não só frase', () => {
 
   it('todo código tem chave de dicionário, e as chaves existem nos três idiomas', () => {
     const aqui = dirname(fileURLToPath(import.meta.url));
-    expect(Object.keys(CHAVE_DA_RECUSA).sort()).toEqual([CODIGO_NAO_E_IMAGEM, CODIGO_SEM_SUPORTE].sort());
+    expect(Object.keys(CHAVE_DA_RECUSA).sort())
+      .toEqual([CODIGO_NAO_E_IMAGEM, CODIGO_SEM_SUPORTE, CODIGO_TIPO_RECUSADO].sort());
     for (const idioma of ['ptBR', 'en', 'es']) {
       const dicionario = readFileSync(join(aqui, `idiomas/${idioma}.js`), 'utf8');
       for (const chave of Object.values(CHAVE_DA_RECUSA)) {
@@ -312,5 +314,67 @@ describe('a recusa carrega código, e não só frase', () => {
       const fonte = readFileSync(join(aqui, '../pages/', nome), 'utf8');
       expect(fonte, `${nome} não traduz a recusa`).toMatch(/codigo \? t\(CHAVE_DA_RECUSA\[/);
     }
+  });
+});
+
+describe('o que é recusado por DECISÃO, e não por incapacidade', () => {
+  it('SVG é recusado ANTES de qualquer tentativa de converter', async () => {
+    // O navegador sabe rasterizar SVG. O servidor exclui SVG de propósito, por
+    // segurança. Converter aqui entregaria um JPEG inofensivo e contornaria a
+    // decisão — a barreira andaria para trás sem ninguém decidir.
+    const { deps } = dependenciasFalsas(bitmapFalso(100, 100));
+    const erro = await normalizarFotoDoAparelho(arquivoFalso('a.svg', 'image/svg+xml'), deps).catch(e => e);
+    expect(erro.codigo).toBe(CODIGO_TIPO_RECUSADO);
+    expect(deps.decodificar, 'nem tentou converter — é o ponto').not.toHaveBeenCalled();
+  });
+
+  it('a lista de recusados nomeia o SVG, e o servidor também o exclui', () => {
+    expect(RECUSADOS_SEMPRE).toContain('image/svg+xml');
+    const aqui = dirname(fileURLToPath(import.meta.url));
+    const servidor = readFileSync(join(aqui, '../../../src/services/storageService.js'), 'utf8');
+    const bloco = servidor.slice(servidor.indexOf('const ALLOWED_AVATAR'));
+    expect(bloco.slice(0, bloco.indexOf('});'))).not.toContain('svg');
+  });
+});
+
+describe('mídia de publicação, story e mensagem é outra lista', () => {
+  it('vídeo passa INTACTO — canvas devolveria um quadro só', async () => {
+    const video = arquivoFalso('treino.mp4', 'video/mp4', 30_000_000);
+    expect(ehVideo(video)).toBe(true);
+    const { deps } = dependenciasFalsas(bitmapFalso(100, 100));
+    await expect(normalizarMidiaDoAparelho(video, deps)).resolves.toBe(video);
+    expect(deps.decodificar).not.toHaveBeenCalled();
+  });
+
+  it('GIF passa INTACTO — converter apagaria a animação, e o servidor aceita GIF', async () => {
+    const gif = arquivoFalso('meme.gif', 'image/gif', 1_000_000);
+    const { deps } = dependenciasFalsas(bitmapFalso(100, 100));
+    await expect(normalizarMidiaDoAparelho(gif, deps)).resolves.toBe(gif);
+    // Mas na foto de PERFIL o GIF não é aceito, e ali ele é convertido:
+    expect(precisaConverter(gif)).toBe(true);
+  });
+
+  it('HEIC de iPhone É convertido também como mídia', async () => {
+    const { deps } = dependenciasFalsas(bitmapFalso(3024, 4032));
+    const saida = await normalizarMidiaDoAparelho(arquivoFalso('IMG_1.HEIC', 'image/heic', 4_000_000), deps);
+    expect(saida.type).toBe(FORMATO_DE_SAIDA);
+  });
+
+  it('o teto de mídia é o do servidor, não o do avatar', async () => {
+    const aqui = dirname(fileURLToPath(import.meta.url));
+    const ambiente = readFileSync(join(aqui, '../../../src/config/environment.js'), 'utf8');
+    expect(ambiente).toMatch(/mediaMaxBytes:\s*inteiro\([^,]+,\s*50 \* 1024 \* 1024\)/);
+    // Um GIF de 10 MB cabe como mídia e NÃO cabe como avatar.
+    const gif = arquivoFalso('g.gif', 'image/gif', 10 * 1024 * 1024);
+    const { deps } = dependenciasFalsas(bitmapFalso(50, 50));
+    await expect(normalizarMidiaDoAparelho(gif, deps)).resolves.toBe(gif);
+  });
+
+  it('as três telas de mídia chamam a porta de mídia, e não a de avatar', () => {
+    const aqui = dirname(fileURLToPath(import.meta.url));
+    const social = readFileSync(join(aqui, '../pages/socialPages.jsx'), 'utf8');
+    expect(social).toContain('normalizarMidiaDoAparelho(');
+    const messenger = readFileSync(join(aqui, '../pages/messengerPage.jsx'), 'utf8');
+    expect(messenger).toContain('normalizarMidiaDoAparelho(');
   });
 });

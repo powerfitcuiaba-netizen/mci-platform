@@ -61,12 +61,25 @@ export const MENSAGEM_SEM_SUPORTE = 'Não foi possível ler esta foto neste apar
 
 export const MENSAGEM_NAO_E_IMAGEM = 'O arquivo escolhido não é uma imagem.';
 
+export const MENSAGEM_TIPO_RECUSADO = 'A foto precisa ser JPG, PNG ou WebP.';
+
 // AS DUAS RECUSAS TÊM CÓDIGO, e não só frase, porque a interface é trilíngue.
 // A frase acima é o padrão de quem chamar este módulo fora de uma tela (e o
 // que os testes leem); a tela traduz pelo código. Sem isto, a pessoa que usa a
 // aplicação em inglês levaria a recusa em português.
 export const CODIGO_SEM_SUPORTE = 'FOTO_SEM_SUPORTE';
 export const CODIGO_NAO_E_IMAGEM = 'FOTO_NAO_E_IMAGEM';
+export const CODIGO_TIPO_RECUSADO = 'FOTO_TIPO_RECUSADO';
+
+// O QUE ESTE MÓDULO RECUSA MESMO PODENDO CONVERTER.
+//
+// SVG é imagem e o navegador sabe rasterizá-lo — e é justamente por isso que
+// esta lista existe. O servidor exclui SVG DE PROPÓSITO, por segurança: SVG
+// carrega script. Converter aqui entregaria um JPEG inofensivo ao servidor e,
+// com isso, contornaria uma decisão de segurança tomada de caso pensado. Uma
+// conversão que passa a aceitar o que foi deliberadamente recusado não é
+// conveniência: é a barreira andando para trás sem ninguém decidir.
+export const RECUSADOS_SEMPRE = Object.freeze(['image/svg+xml']);
 
 // O mapa fica AQUI, com as chaves escritas por extenso, para que uma busca por
 // `foto.semSuporte` no repositório encontre o uso. Chave montada por
@@ -74,7 +87,10 @@ export const CODIGO_NAO_E_IMAGEM = 'FOTO_NAO_E_IMAGEM';
 // que toda chave existe nos três dicionários.
 export const CHAVE_DA_RECUSA = Object.freeze({
   [CODIGO_SEM_SUPORTE]: 'foto.semSuporte',
-  [CODIGO_NAO_E_IMAGEM]: 'foto.naoEImagem'
+  [CODIGO_NAO_E_IMAGEM]: 'foto.naoEImagem',
+  // A MESMA frase que a conferência da solicitação já usava: o formato recusado
+  // é o mesmo assunto, e duas frases diferentes para ele confundiriam.
+  [CODIGO_TIPO_RECUSADO]: 'foto.erro.tipo'
 });
 
 const recusa = (codigo, mensagem) => Object.assign(new Error(mensagem), { codigo });
@@ -92,6 +108,15 @@ const recusa = (codigo, mensagem) => Object.assign(new Error(mensagem), { codigo
 // `accept` não alarga nada do lado de lá.
 export const ACEITO_NO_SELETOR = 'image/*';
 
+// MÍDIA DE PUBLICAÇÃO, STORY E MENSAGEM É OUTRA LISTA, e a diferença não é
+// detalhe: `ALLOWED_MEDIA` no servidor aceita GIF e VÍDEO, que `ALLOWED_AVATAR`
+// recusa de propósito. Usar a lista do avatar aqui converteria um GIF animado em
+// JPEG estático — a animação morreria calada — e tentaria desenhar um vídeo num
+// canvas.
+export const ACEITOS_COMO_MIDIA = Object.freeze(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+export const TETO_DE_MIDIA_EM_BYTES = 50 * 1024 * 1024;
+export const ACEITO_NO_SELETOR_DE_MIDIA = 'image/*,video/*';
+
 /**
  * Cabe no que o servidor aceita, do jeito que está?
  *
@@ -99,11 +124,16 @@ export const ACEITO_NO_SELETOR = 'image/*';
  * foto JPEG de 9 MB é aceita no tipo e recusada no tamanho — e precisa de
  * conversão tanto quanto um HEIC.
  */
-export function precisaConverter(arquivo) {
+export function precisaConverter(arquivo, { aceitos = ACEITOS_PELO_SERVIDOR, teto = TETO_DE_BYTES } = {}) {
   if (!arquivo) return false;
   const tipo = String(arquivo.type || '').toLowerCase();
-  if (!ACEITOS_PELO_SERVIDOR.includes(tipo)) return true;
-  return Number(arquivo.size || 0) > TETO_DE_BYTES;
+  if (!aceitos.includes(tipo)) return true;
+  return Number(arquivo.size || 0) > teto;
+}
+
+/** O tipo declarado é de vídeo? Vídeo nunca entra em canvas. */
+export function ehVideo(arquivo) {
+  return String(arquivo?.type || '').toLowerCase().startsWith('video/');
 }
 
 /**
@@ -171,7 +201,15 @@ export async function normalizarFotoDoAparelho(arquivo, opcoes = {}) {
     throw recusa(CODIGO_NAO_E_IMAGEM, MENSAGEM_NAO_E_IMAGEM);
   }
 
-  if (!precisaConverter(arquivo)) return arquivo;
+  // Antes de tentar converter: o que é recusado por decisão, e não por
+  // incapacidade, é recusado aqui.
+  if (RECUSADOS_SEMPRE.includes(tipo)) {
+    throw recusa(CODIGO_TIPO_RECUSADO, MENSAGEM_TIPO_RECUSADO);
+  }
+
+  const aceitos = opcoes.aceitos ?? ACEITOS_PELO_SERVIDOR;
+  const teto = opcoes.teto ?? TETO_DE_BYTES;
+  if (!precisaConverter(arquivo, { aceitos, teto })) return arquivo;
 
   const { decodificar, criarTela, paraBlob } = { ...dependenciasPadrao(), ...opcoes };
   const lado = opcoes.lado ?? LADO_MAXIMO;
@@ -207,4 +245,27 @@ export async function normalizarFotoDoAparelho(arquivo, opcoes = {}) {
     // Numa foto de 12 MP isso é dezenas de megabytes por escolha de arquivo.
     if (typeof bitmap?.close === 'function') bitmap.close();
   }
+}
+
+/**
+ * A MESMA IDEIA, PARA MÍDIA DE PUBLICAÇÃO, STORY E MENSAGEM.
+ *
+ * Duas diferenças em relação à foto de perfil, e as duas são para NÃO estragar o
+ * que já funciona:
+ *
+ *   * vídeo passa intacto. Desenhar vídeo em canvas devolveria um quadro só, e a
+ *     pessoa perderia o vídeo sem nem ver a perda;
+ *   * GIF passa intacto quando cabe no teto, porque o servidor aceita GIF.
+ *     Convertê-lo para JPEG apagaria a animação.
+ *
+ * Sobra o que de fato precisa: HEIC de iPhone, e imagem acima do teto de 50 MB.
+ */
+export async function normalizarMidiaDoAparelho(arquivo, opcoes = {}) {
+  if (!arquivo) return arquivo;
+  if (ehVideo(arquivo)) return arquivo;
+  return normalizarFotoDoAparelho(arquivo, {
+    aceitos: ACEITOS_COMO_MIDIA,
+    teto: TETO_DE_MIDIA_EM_BYTES,
+    ...opcoes
+  });
 }
