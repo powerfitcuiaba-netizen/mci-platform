@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ClipboardCheck, IdCard, Search, ShieldCheck, UserPlus, Users2 } from 'lucide-react';
 import { api, fetchMediaObjectUrl, refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
+import { ACEITO_NO_SELETOR, normalizarFotoDoAparelho } from '../lib/fotoDoAparelho';
 import {
   AsyncSection, Badge, EmptyState, Field, Modal, ModalActions, PageHead, Skeleton
 } from '../components/ui';
@@ -90,13 +91,42 @@ function FormularioDeAutocadastro({ notificar, aoConcluir }) {
 
   const campo = (chave, valor) => setDados(atual => ({ ...atual, [chave]: valor }));
 
-  const escolherFoto = arquivo => {
+  // A FOTO PASSA PELO NORMALIZADOR DO APARELHO ANTES DE VIRAR ESCOLHA.
+  //
+  // O servidor aceita PNG, JPEG e WebP. O padrão de câmera do iPhone é HEIC, e
+  // sem esta passagem a pessoa escolhia a foto, via a prévia, clicava em enviar
+  // e só então levava 415 — o pior momento possível para descobrir.
+  //
+  // `normalizarFotoDoAparelho` devolve o PRÓPRIO arquivo quando ele já serve, e
+  // isso importa: reencodar um JPEG apagaria a etiqueta EXIF de orientação, que
+  // é o que o servidor usa para endireitar foto de retrato.
+  //
+  // A recusa vai para `recusa`, o mesmo lugar onde a recusa do servidor
+  // aparece — uma frase só, num lugar só, dita antes da ida à rede.
+  const escolherFoto = async arquivo => {
+    setRecusa(null);
+
+    if (!arquivo) {
+      setPrevia(anterior => { if (anterior) URL.revokeObjectURL(anterior); return null; });
+      setFoto(null);
+      return;
+    }
+
+    let pronta;
+    try {
+      pronta = await normalizarFotoDoAparelho(arquivo);
+    } catch (erro) {
+      setRecusa(erro.message);
+      setPrevia(anterior => { if (anterior) URL.revokeObjectURL(anterior); return null; });
+      setFoto(null);
+      return;
+    }
+
     setPrevia(anterior => {
       if (anterior) URL.revokeObjectURL(anterior);
-      return arquivo ? URL.createObjectURL(arquivo) : null;
+      return URL.createObjectURL(pronta);
     });
-    setFoto(arquivo ?? null);
-    setRecusa(null);
+    setFoto(pronta);
   };
 
   useEffect(() => () => { if (previa) URL.revokeObjectURL(previa); }, [previa]);
@@ -169,7 +199,7 @@ function FormularioDeAutocadastro({ notificar, aoConcluir }) {
       <Field label={t('treinador.campoFoto')} required hint={t('treinador.campoFotoDica')}>
         <input
           type="file"
-          accept="image/jpeg,image/png,image/webp"
+          accept={ACEITO_NO_SELETOR}
           onChange={evento => escolherFoto(evento.target.files?.[0] ?? null)}
         />
       </Field>
@@ -440,12 +470,25 @@ function FotoDoTreinador({ coachId, temFoto, notificar, aoTrocar }) {
     };
   }, [coachId, temFoto]);
 
+  // A TROCA PASSA PELO MESMO NORMALIZADOR DO CADASTRO, e por um motivo que não é
+  // simetria: quem troca a foto depois costuma estar no celular, então é aqui que
+  // o HEIC aparece MAIS, não menos. A conversão ficar só no cadastro deixaria o
+  // 415 exatamente na tela de quem já é treinador.
   const enviar = async arquivo => {
     if (!arquivo) return;
     setRecusa(null);
+
+    let pronta;
+    try {
+      pronta = await normalizarFotoDoAparelho(arquivo);
+    } catch (problema) {
+      setRecusa(problema.message);
+      return;
+    }
+
     setEnviando(true);
     try {
-      await api.coaches.setMyPhoto(arquivo);
+      await api.coaches.setMyPhoto(pronta);
       refreshData();
       notificar?.(t('treinador.fotoAtualizada'), 'sucesso');
       aoTrocar?.();
@@ -485,7 +528,7 @@ function FotoDoTreinador({ coachId, temFoto, notificar, aoTrocar }) {
       <Field label={t(temFoto ? 'treinador.trocarFoto' : 'treinador.enviarFoto')} hint={t('treinador.campoFotoDica')}>
         <input
           type="file"
-          accept="image/jpeg,image/png,image/webp"
+          accept={ACEITO_NO_SELETOR}
           disabled={enviando}
           onChange={evento => enviar(evento.target.files?.[0] ?? null)}
         />

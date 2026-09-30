@@ -88,11 +88,16 @@ afterEach(cleanup);
 // `fireEvent.change` com `files` é como o navegador o preenche. O conteúdo não
 // importa aqui — quem valida bytes é o servidor, e isso está medido em
 // tests/foto-obrigatoria-do-treinador.
-const escolherFoto = () => {
+// O `await` NÃO é enfeite: a escolha passa pelo normalizador do aparelho, que é
+// assíncrono porque decodificar imagem é assíncrono. Sem esperar a prévia, o
+// clique em "Concluir" chegava antes de a foto existir no estado, e o teste media
+// a barreira de tela em vez do que pretendia medir.
+const escolherFoto = async () => {
   const campo = document.querySelector('input[type="file"]');
   const arquivo = new File(['imagem-de-teste'], 'foto.png', { type: 'image/png' });
   Object.defineProperty(campo, 'files', { value: [arquivo], configurable: true });
   fireEvent.change(campo);
+  await screen.findByAltText(/Prévia da foto/i);
   return arquivo;
 };
 
@@ -266,7 +271,7 @@ describe('painel do treinador', () => {
     // A FOTO É OBRIGATÓRIA desde a decisão da foto: sem ela o botão fica
     // desabilitado e o clique não chega ao servidor — então este teste, que mede
     // a RECUSA DO SERVIDOR, precisa passar da barreira de tela primeiro.
-    escolherFoto();
+    await escolherFoto();
     // "Concluir cadastro", e não "Enviar para análise": não há mais análise a
     // aguardar — o cadastro nasce aprovado.
     fireEvent.click(screen.getByRole('button', { name: /Concluir cadastro/i }));
@@ -294,7 +299,7 @@ describe('painel do treinador', () => {
     render(<PainelDoTreinador notificar={vi.fn()} />);
     await screen.findByLabelText(/^Nome/i);
 
-    escolherFoto();
+    await escolherFoto();
     expect(await screen.findByAltText(/Prévia da foto/i)).toBeTruthy();
     expect(screen.getByRole('button', { name: /Concluir cadastro/i }).disabled).toBe(false);
 
@@ -309,7 +314,7 @@ describe('painel do treinador', () => {
 
     render(<PainelDoTreinador notificar={vi.fn()} />);
     fireEvent.change(await screen.findByLabelText(/^Nome/i), { target: { value: 'Marta Treinadora' } });
-    escolherFoto();
+    await escolherFoto();
     fireEvent.click(screen.getByRole('button', { name: /Concluir cadastro/i }));
 
     await waitFor(() => expect(api.coaches.selfRegister).toHaveBeenCalled());

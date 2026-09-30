@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import api, { refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
+import { ACEITOS_PELO_SERVIDOR, ACEITO_NO_SELETOR, TETO_DE_BYTES, normalizarFotoDoAparelho } from '../lib/fotoDoAparelho';
 import { AsyncSection, Avatar, Badge, EmptyState, Lightbox, Modal, ModalActions, PageHead, Paginacao, ProtectedMedia, Field } from '../components/ui';
 import { anunciar, MCIEvento } from '../lib/experiencia';
 import { caminhoDoAvatar, desde, ESTADO_PRO, formatarData, tipoDePerfil } from '../lib/format';
@@ -923,8 +924,12 @@ export function MeuPerfilSocial({ notificar }) {
 // hora em vez de esperar o envio. Ela não é barreira: quem decide é o
 // servidor, que confere os BYTES do arquivo e não o rótulo. O frontend nunca é
 // autoridade neste projeto.
-const TIPOS_DE_FOTO = ['image/png', 'image/jpeg', 'image/webp'];
-const LIMITE_DA_FOTO = 5 * 1024 * 1024;
+// Os limites vêm do módulo da foto, não de uma cópia local: a cópia local era o
+// mesmo par de valores escrito duas vezes, e um teste guarda a sincronia daquele
+// lado com o servidor. Duas listas divergindo dariam recusa de tela numa foto que
+// o servidor aceita, ou o contrário.
+const TIPOS_DE_FOTO = ACEITOS_PELO_SERVIDOR;
+const LIMITE_DA_FOTO = TETO_DE_BYTES;
 
 function FotoDePerfil({ perfil, notificar, onMudou }) {
   const { t } = useIdioma();
@@ -940,21 +945,35 @@ function FotoDePerfil({ perfil, notificar, onMudou }) {
     return () => URL.revokeObjectURL(url);
   }, [arquivo]);
 
-  const escolher = evento => {
+  // A CONVERSÃO ACONTECE ANTES DAS DUAS CONFERÊNCIAS, e a ordem é o ponto: a foto
+  // do iPhone chega HEIC e com vários megabytes, então conferir primeiro seria
+  // recusar na tela justamente a foto que o aparelho sabe converter. Depois da
+  // conversão, as duas conferências valem como última rede — o arquivo já é JPEG
+  // e já cabe, e se um dia não couber, a frase de tela ainda aparece.
+  const escolher = async evento => {
     const escolhido = evento.target.files?.[0] || null;
     // Limpar o input permite escolher DE NOVO o mesmo arquivo depois de
     // cancelar; sem isto, o `change` não dispara na segunda vez.
     evento.target.value = '';
     if (!escolhido) return;
-    if (!TIPOS_DE_FOTO.includes(escolhido.type)) {
+
+    let pronta;
+    try {
+      pronta = await normalizarFotoDoAparelho(escolhido);
+    } catch (problema) {
+      notificar(problema.message, 'erro');
+      return;
+    }
+
+    if (!TIPOS_DE_FOTO.includes(pronta.type)) {
       notificar(t('social.formatoNaoAceito'), 'erro');
       return;
     }
-    if (escolhido.size > LIMITE_DA_FOTO) {
+    if (pronta.size > LIMITE_DA_FOTO) {
       notificar(t('social.fotoGrandeDemais'), 'erro');
       return;
     }
-    setArquivo(escolhido);
+    setArquivo(pronta);
   };
 
   const salvar = async () => {
@@ -1025,7 +1044,7 @@ function FotoDePerfil({ perfil, notificar, onMudou }) {
         <input
           ref={inputRef}
           type="file"
-          accept="image/png,image/jpeg,image/webp"
+          accept={ACEITO_NO_SELETOR}
           hidden
           onChange={escolher}
           aria-label={t('social.escolherFoto')}
