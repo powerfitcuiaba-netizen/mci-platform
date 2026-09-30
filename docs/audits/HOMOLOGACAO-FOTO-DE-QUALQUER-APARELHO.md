@@ -186,3 +186,203 @@ O teto de 5 MB continua existindo e continua sendo do servidor. Deixou de ser a
 primeira coisa que a pessoa encontra.
 
 ---
+
+
+## 6. Resultados dos gates — tudo executado, nada inferido
+
+### Regressão do backend
+
+```
+141 arquivos · 2518 aprovados · 15 pulados · 0 reprovados · 1976 s
+```
+
+Os 15 pulados são os de RLS e backup que exigem autenticação local liberada no
+PostgreSQL deste contêiner (§8, item 5). Na CI eles rodam, e 8 guardas anti-pulo
+reprovam a execução se qualquer um for silenciosamente pulado.
+
+Vale repetir o que dá validade a este número: **nenhuma linha de `src/`,
+`prisma/` ou `tests/` mudou** nos commits deste trabalho. A regressão mede o
+mesmo backend do SHA final.
+
+### Interface
+
+```
+64 arquivos · 780 aprovados · 0 reprovados
+eslint ......... 0 problemas
+build .......... 678,13 kB no bloco de entrada (teto da sonda: 780 kB)
+```
+
+### Gate visual — responsividade, estabilidade e movimento reduzido
+
+```
+343 aprovados · 0 reprovados · APROVADO
+```
+
+| O que foi medido | Cobertura |
+|---|---|
+| Larguras | **15**: 320, 375, 390, 414, 430, 560, 768, 820, 1024, 1180, 1280, 1366, 1440, 1600, 1920 |
+| Telas medidas em todas as larguras | 7 (filiação, histórico, ranking, homologação, lista de atletas, perfil do atleta, mensagens) |
+| Alvos de toque >= 40 px | 35 conferências (as 5 larguras de telefone x 7 telas) |
+| Rolagem lateral de tabela | conferida nas larguras de telefone |
+| Erros de página e respostas 5xx | nenhum |
+| Sessão recusada com 401 em rota de dados | nenhuma |
+
+**Estabilidade (fluxo prolongado):** 25 ciclos x 6 telas = **150 navegações**.
+
+```
+heap        5,3 MB → 5,6 MB   (+6,5%)
+listeners   404 → 417         (+13)
+nós DOM     965 → 1034
+documentos  2 → 2
+```
+
+Documentos 2 → 2 é o número que importa: documento que vaza é o sintoma de
+componente desmontado que continua vivo.
+
+**Suavidade e transição — `prefers-reduced-motion`.** Primeiro o controle, que é
+o que dá sentido ao resto: com movimento permitido, **335 elementos** têm
+animação ou transição. Com movimento reduzido, em quatro rotas:
+
+* nenhuma animação ou transição sobrevive;
+* a rolagem deixa de ser suave (`scroll-behavior: auto`);
+* **a tela continua mostrando conteúdo** — 654, 1066, 571 e 789 caracteres. A
+  preferência tira o movimento, não o conteúdo, e sem esta conferência "sem
+  animação" poderia significar "tela vazia".
+
+### Gate novo — a foto cabe na tela
+
+```
+42 medições (7 cenas x 6 larguras) · APROVADO
+mutação: removida a linha de CSS, reprova 6 casos
+```
+
+### Varreduras de segurança
+
+| Verificação | Resultado |
+|---|---|
+| Segredo real versionado | 0 |
+| `.env` versionado | 0 |
+| `console.log`, `debugger`, TODO, FIXME | 0 |
+| Arquivo de módulo financeiro | 0 |
+| Inspeção de segredos (`inspecionar-segredos.js`) | nenhum desconhecido; **nenhum valor impresso** |
+| SVG aceito por conversão | **não** — recusado de propósito (§2) |
+
+---
+## 7. Preservação — o que NÃO foi tocado
+
+Isto é o mais importante deste relatório, e vem antes dos números de propósito.
+
+| Bloqueio | Estado |
+|---|---|
+| `FORMULA_HOMOLOGADA` | continua **false**; ranking de treinadores segue bloqueado com 409 |
+| Resultados, pontuações, classificações históricas | **nenhuma linha tocada** |
+| Cadastro e vínculo de Lucas Gouveia Lima | **não tocado** |
+| Aprovação manual de treinador, privilégios, escopos | **nada concedido** |
+| Migrations | **zero criadas**; nenhuma operação destrutiva |
+| CPF, documentos, credenciais, tokens | **nada exibido** em relatório, log, commit ou mensagem |
+| Backups | **preservados**; nenhuma restauração executada |
+| Regras esportivas | **nenhuma inventada** |
+| Camada financeira | **inexistente**, conferido por nome de arquivo na CI |
+| Histórico Git | **preservado**; sem force push, sem squash, sem rebase |
+
+Também não houve nenhuma alteração em `src/`, `prisma/` ou `tests/`. O trabalho
+inteiro está em `frontend/src/`, num script de QA novo e numa linha de
+`package.json`.
+
+---
+
+## 8. Limitações — o que este trabalho NÃO prova
+
+Cada linha aqui é uma coisa que eu não posso afirmar. Vale mais registrá-las do
+que entregar um relatório que parece completo.
+
+**1. A conversão depende de o navegador do aparelho saber ler o formato.**
+iOS Safari decodifica HEIC; um navegador de computador que não seja Safari
+**não** decodifica. Nesse caso a tela recusa com a frase que diz o que fazer, o
+que é melhor do que a recusa técnica do servidor — mas não é o mesmo que "todo
+aparelho converte". O teste que cobre esse caminho usa o jsdom, que também não
+tem `createImageBitmap`, ou seja: o caminho de falha é exercitado de verdade, o
+caminho de sucesso no iPhone **não foi exercitado num iPhone real**.
+
+**2. Não testei num iPhone.** Não tenho um. O que existe é: a medição de que o
+sharp daqui não decodifica HEIC/HEVC (portanto a correção no servidor estava
+descartada), o fato documentado de que iOS tem o codec no sistema, e a conversão
+exercitada de ponta a ponta com as três funções de navegador substituídas. O
+primeiro contato com um HEIC de verdade será o seu teste de amanhã.
+
+**3. O gate da foto mede o CSS construído, não a aplicação de pé.** Ele monta as
+marcações das telas em vez de navegar por elas. É o que o torna rápido o
+suficiente para rodar em toda mudança de CSS, e é também o que ele não prova:
+uma tela nova que não esteja na lista de cenas não é medida. O gate de
+responsividade continua sendo o que prova a aplicação inteira.
+
+**4. Ele também não roda na CI.** A CI não tem Playwright instalado, e
+instalá-lo em toda execução custaria mais do que resolve. O que roda na CI é o
+guarda de código (`styles.foto.test.js`), que exige a regra de CSS existir. Isso
+significa que **uma tela nova com imagem sem classe passaria pela CI** e só seria
+pega se alguém rodasse o gate localmente.
+
+**5. As 15 vagas de teste puladas continuam puladas neste contêiner.** São
+testes de RLS e de backup que exigem autenticação local liberada no PostgreSQL —
+e a tentativa de liberá-la foi barrada, com razão, por enfraquecer a segurança do
+ambiente. Elas rodam na CI, onde 8 guardas anti-pulo reprovam a execução se
+qualquer uma delas for silenciosamente pulada.
+
+**6. `prefers-reduced-motion` é medido em quatro rotas, não em todas.** As quatro
+são as que concentram animação. Uma rota nova com movimento não seria medida.
+
+---
+
+## 9. Para o teste de amanhã com o treinador
+
+O guia completo está em `docs/TESTE-COM-TREINADOR-REAL.md`, e **ele foi
+atualizado neste trabalho**: a versão anterior ensinava a contornar a recusa do
+HEIC, e o contorno não é mais necessário.
+
+O que mudou na prática, em três linhas:
+
+1. **ele pode tirar a foto na hora, com o iPhone como veio de fábrica.** A foto é
+   convertida no aparelho antes de subir;
+2. **pode aparecer "Preparando a foto…" por um instante.** É a conversão, e o
+   botão de concluir fica desabilitado até terminar — de propósito;
+3. **num PC com Chrome ou Firefox, um arquivo `.HEIC` copiado do iPhone ainda é
+   recusado** — com a frase que diz o que fazer, antes do envio. Não é defeito.
+
+O resto do guia continua valendo: são dois passos (criar a conta e entrar, depois
+se cadastrar como treinador), a foto é obrigatória, e o cadastro nasce **aprovado**
+com autorização automática na NPC.
+
+---
+
+## 10. Veredito
+
+**SISTEMA HOMOLOGADO PARA O TESTE OPERACIONAL, com as ressalvas de §8
+nomeadas.**
+
+O que sustenta a declaração:
+
+| Gate | Resultado |
+|---|---|
+| Regressão do backend | 2518 aprovados, 0 reprovados |
+| Interface | 780 aprovados, 0 reprovados |
+| ESLint | 0 problemas |
+| Build de produção | PASS, 678,13 kB (teto 780 kB) |
+| Gate visual: 15 larguras, 343 conferências | APROVADO |
+| Estabilidade: 150 navegações | APROVADO, documentos 2 → 2 |
+| Movimento reduzido: 4 rotas | APROVADO |
+| Gate da foto: 42 medições | APROVADO |
+| Varreduras de segurança | 0 achados |
+
+Nenhum P0. Nenhum P1. O único defeito de produto encontrado neste trabalho — a
+foto que não cabia na tela do celular — foi corrigido, medido antes e depois, e
+tem gate próprio com mutação verificada.
+
+**O que a palavra "homologado" NÃO cobre aqui**, e é isso que a torna
+utilizável: ela cobre o que foi executado e está listado acima. Não cobre a
+conversão de HEIC num iPhone físico, que não tenho como exercitar (§8, itens 1
+e 2). O primeiro HEIC de verdade será o de amanhã — e é por isso que o guia
+descreve o que esperar e o que anotar se algo divergir.
+
+`FORMULA_HOMOLOGADA` continua **false**. O ranking de treinadores continua
+bloqueado com **409** até homologação formal pela MuscleContest. Isso não é
+pendência deste trabalho: é decisão que não é minha nem sua isoladamente.

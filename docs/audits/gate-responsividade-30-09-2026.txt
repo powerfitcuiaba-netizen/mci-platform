@@ -1,0 +1,386 @@
+
+> mci-platform@1.0.0 qa:responsividade
+> node scripts/qa/responsividade.mjs
+
+
+=== GATE VISUAL — FASE 9 ===
+
+preparando banco de QA…
+subindo API…
+API no ar.
+semeando dados de QA…
+construindo e servindo o frontend…
+frontend no ar.
+
+
+--- Minha filiação ---
+  PASS    Minha filiação @ 320px — sem overflow horizontal
+  PASS    Minha filiação @ 320px — nenhum elemento fora da viewport
+  PASS    Minha filiação @ 320px — sem rolagem lateral de tabela
+  PASS    Minha filiação @ 320px — alvos de toque >= 40px
+  PASS    Minha filiação @ 375px — sem overflow horizontal
+  PASS    Minha filiação @ 375px — nenhum elemento fora da viewport
+  PASS    Minha filiação @ 375px — sem rolagem lateral de tabela
+  PASS    Minha filiação @ 375px — alvos de toque >= 40px
+  PASS    Minha filiação @ 390px — sem overflow horizontal
+  PASS    Minha filiação @ 390px — nenhum elemento fora da viewport
+  PASS    Minha filiação @ 390px — sem rolagem lateral de tabela
+  PASS    Minha filiação @ 390px — alvos de toque >= 40px
+  PASS    Minha filiação @ 414px — sem overflow horizontal
+  PASS    Minha filiação @ 414px — nenhum elemento fora da viewport
+  PASS    Minha filiação @ 414px — sem rolagem lateral de tabela
+  PASS    Minha filiação @ 414px — alvos de toque >= 40px
+  PASS    Minha filiação @ 430px — sem overflow horizontal
+  PASS    Minha filiação @ 430px — nenhum elemento fora da viewport
+  PASS    Minha filiação @ 430px — sem rolagem lateral de tabela
+  PASS    Minha filiação @ 430px — alvos de toque >= 40px
+  PASS    Minha filiação @ 560px — sem overflow horizontal
+  PASS    Minha filiação @ 560px — nenhum elemento fora da viewport
+  PASS    Minha filiação @ 768px — sem overflow horizontal
+  PASS    Minha filiação @ 768px — nenhum elemento fora da viewport
+  PASS    Minha filiação @ 820px — sem overflow horizontal
+  PASS    Minha filiação @ 820px — nenhum elemento fora da viewport
+  PASS    Minha filiação @ 1024px — sem overflow horizontal
+  PASS    Minha filiação @ 1024px — nenhum elemento fora da viewport
+  PASS    Minha filiação @ 1180px — sem overflow horizontal
+  PASS    Minha filiação @ 1180px — nenhum elemento fora da viewport
+  PASS    Minha filiação @ 1280px — sem overflow horizontal
+  PASS    Minha filiação @ 1280px — nenhum elemento fora da viewport
+  PASS    Minha filiação @ 1366px — sem overflow horizontal
+  PASS    Minha filiação @ 1366px — nenhum elemento fora da viewport
+  PASS    Minha filiação @ 1440px — sem overflow horizontal
+  PASS    Minha filiação @ 1440px — nenhum elemento fora da viewport
+  PASS    Minha filiação — a tela carregou o conteúdo esperado
+  PASS    Minha filiação @ 1600px — sem overflow horizontal
+  PASS    Minha filiação @ 1600px — nenhum elemento fora da viewport
+  PASS    Minha filiação @ 1920px — sem overflow horizontal
+  PASS    Minha filiação @ 1920px — nenhum elemento fora da viewport
+
+--- Meu histórico ---
+  PASS    Meu histórico @ 320px — sem overflow horizontal
+  PASS    Meu histórico @ 320px — nenhum elemento fora da viewport
+  PASS    Meu histórico @ 320px — sem rolagem lateral de tabela
+  PASS    Meu histórico @ 320px — alvos de toque >= 40px
+  PASS    Meu histórico @ 375px — sem overflow horizontal
+  PASS    Meu histórico @ 375px — nenhum elemento fora da viewport
+  PASS    Meu histórico @ 375px — sem rolagem lateral de tabela
+  PASS    Meu histórico @ 375px — alvos de toque >= 40px
+  PASS    Meu histórico @ 390px — sem overflow horizontal
+  PASS    Meu histórico @ 390px — nenhum elemento fora da viewport
+  PASS    Meu histórico @ 390px — sem rolagem lateral de tabela
+  PASS    Meu histórico @ 390px — alvos de toque >= 40px
+  PASS    Meu histórico @ 414px — sem overflow horizontal
+  PASS    Meu histórico @ 414px — nenhum elemento fora da viewport
+  PASS    Meu histórico @ 414px — sem rolagem lateral de tabela
+  PASS    Meu histórico @ 414px — alvos de toque >= 40px
+  PASS    Meu histórico @ 430px — sem overflow horizontal
+  PASS    Meu histórico @ 430px — nenhum elemento fora da viewport
+  PASS    Meu histórico @ 430px — sem rolagem lateral de tabela
+  PASS    Meu histórico @ 430px — alvos de toque >= 40px
+  PASS    Meu histórico @ 560px — sem overflow horizontal
+  PASS    Meu histórico @ 560px — nenhum elemento fora da viewport
+  PASS    Meu histórico @ 768px — sem overflow horizontal
+  PASS    Meu histórico @ 768px — nenhum elemento fora da viewport
+  PASS    Meu histórico @ 820px — sem overflow horizontal
+  PASS    Meu histórico @ 820px — nenhum elemento fora da viewport
+  PASS    Meu histórico @ 1024px — sem overflow horizontal
+  PASS    Meu histórico @ 1024px — nenhum elemento fora da viewport
+  PASS    Meu histórico @ 1180px — sem overflow horizontal
+  PASS    Meu histórico @ 1180px — nenhum elemento fora da viewport
+  PASS    Meu histórico @ 1280px — sem overflow horizontal
+  PASS    Meu histórico @ 1280px — nenhum elemento fora da viewport
+  PASS    Meu histórico @ 1366px — sem overflow horizontal
+  PASS    Meu histórico @ 1366px — nenhum elemento fora da viewport
+  PASS    Meu histórico @ 1440px — sem overflow horizontal
+  PASS    Meu histórico @ 1440px — nenhum elemento fora da viewport
+  PASS    Meu histórico — a tela carregou o conteúdo esperado
+  PASS    Meu histórico @ 1600px — sem overflow horizontal
+  PASS    Meu histórico @ 1600px — nenhum elemento fora da viewport
+  PASS    Meu histórico @ 1920px — sem overflow horizontal
+  PASS    Meu histórico @ 1920px — nenhum elemento fora da viewport
+
+--- Ranking público ---
+  PASS    Ranking público @ 320px — sem overflow horizontal
+  PASS    Ranking público @ 320px — nenhum elemento fora da viewport
+  PASS    Ranking público @ 320px — sem rolagem lateral de tabela
+  PASS    Ranking público @ 320px — alvos de toque >= 40px
+  PASS    Ranking público @ 375px — sem overflow horizontal
+  PASS    Ranking público @ 375px — nenhum elemento fora da viewport
+  PASS    Ranking público @ 375px — sem rolagem lateral de tabela
+  PASS    Ranking público @ 375px — alvos de toque >= 40px
+  PASS    Ranking público @ 390px — sem overflow horizontal
+  PASS    Ranking público @ 390px — nenhum elemento fora da viewport
+  PASS    Ranking público @ 390px — sem rolagem lateral de tabela
+  PASS    Ranking público @ 390px — alvos de toque >= 40px
+  PASS    Ranking público @ 414px — sem overflow horizontal
+  PASS    Ranking público @ 414px — nenhum elemento fora da viewport
+  PASS    Ranking público @ 414px — sem rolagem lateral de tabela
+  PASS    Ranking público @ 414px — alvos de toque >= 40px
+  PASS    Ranking público @ 430px — sem overflow horizontal
+  PASS    Ranking público @ 430px — nenhum elemento fora da viewport
+  PASS    Ranking público @ 430px — sem rolagem lateral de tabela
+  PASS    Ranking público @ 430px — alvos de toque >= 40px
+  PASS    Ranking público @ 560px — sem overflow horizontal
+  PASS    Ranking público @ 560px — nenhum elemento fora da viewport
+  PASS    Ranking público @ 768px — sem overflow horizontal
+  PASS    Ranking público @ 768px — nenhum elemento fora da viewport
+  PASS    Ranking público @ 820px — sem overflow horizontal
+  PASS    Ranking público @ 820px — nenhum elemento fora da viewport
+  PASS    Ranking público @ 1024px — sem overflow horizontal
+  PASS    Ranking público @ 1024px — nenhum elemento fora da viewport
+  PASS    Ranking público @ 1180px — sem overflow horizontal
+  PASS    Ranking público @ 1180px — nenhum elemento fora da viewport
+  PASS    Ranking público @ 1280px — sem overflow horizontal
+  PASS    Ranking público @ 1280px — nenhum elemento fora da viewport
+  PASS    Ranking público @ 1366px — sem overflow horizontal
+  PASS    Ranking público @ 1366px — nenhum elemento fora da viewport
+  PASS    Ranking público @ 1440px — sem overflow horizontal
+  PASS    Ranking público @ 1440px — nenhum elemento fora da viewport
+  PASS    Ranking público — a tela carregou o conteúdo esperado
+  PASS    Ranking público @ 1600px — sem overflow horizontal
+  PASS    Ranking público @ 1600px — nenhum elemento fora da viewport
+  PASS    Ranking público @ 1920px — sem overflow horizontal
+  PASS    Ranking público @ 1920px — nenhum elemento fora da viewport
+
+--- Homologação do Overall (fluxo real) ---
+  PASS    a tela de homologação abre para o operador
+  PASS    mostra o campeonato e a classe absoluta
+  PASS    NÃO oferece classe não absoluta
+  PASS    cada candidato tem o mesmo botão — nenhum vem escolhido  1 botão(ões)
+  PASS    o clique abre a PRÉVIA, e não homologa
+  PASS    a prévia mostra a conta aberta (+10)  Homologação do Overall |  | Confira o impacto antes de confirmar. |  | Campeonato | Etapa 
+  PASS    a prévia diz que a plataforma não decide
+  PASS    prévia @ 320px — modal dentro da viewport
+  PASS    prévia @ 320px — sem overflow horizontal
+  PASS    prévia @ 375px — modal dentro da viewport
+  PASS    prévia @ 375px — sem overflow horizontal
+  PASS    prévia @ 390px — modal dentro da viewport
+  PASS    prévia @ 390px — sem overflow horizontal
+  PASS    estado HOMOLOGADO aparece depois da confirmação  PLATAFORMA | Início | Campeonatos | Atletas | Ranking | Social | Messenger | Comunidades | Meu painel | Minha filiação | Meu histórico | Minha
+  PASS    o botão de declarar some do recorte homologado
+  PASS    a correção existe como operação própria
+  PASS    Homologação @ 320px — a tela carregou
+  PASS    Homologação @ 320px — sem overflow horizontal
+  PASS    Homologação @ 320px — nenhum elemento fora da viewport
+  PASS    Homologação @ 320px — sem rolagem lateral de tabela
+  PASS    Homologação @ 320px — alvos de toque >= 40px
+  PASS    Homologação @ 375px — a tela carregou
+  PASS    Homologação @ 375px — sem overflow horizontal
+  PASS    Homologação @ 375px — nenhum elemento fora da viewport
+  PASS    Homologação @ 375px — sem rolagem lateral de tabela
+  PASS    Homologação @ 375px — alvos de toque >= 40px
+  PASS    Homologação @ 390px — a tela carregou
+  PASS    Homologação @ 390px — sem overflow horizontal
+  PASS    Homologação @ 390px — nenhum elemento fora da viewport
+  PASS    Homologação @ 390px — sem rolagem lateral de tabela
+  PASS    Homologação @ 390px — alvos de toque >= 40px
+  PASS    Homologação @ 414px — a tela carregou
+  PASS    Homologação @ 414px — sem overflow horizontal
+  PASS    Homologação @ 414px — nenhum elemento fora da viewport
+  PASS    Homologação @ 414px — sem rolagem lateral de tabela
+  PASS    Homologação @ 414px — alvos de toque >= 40px
+  PASS    Homologação @ 430px — a tela carregou
+  PASS    Homologação @ 430px — sem overflow horizontal
+  PASS    Homologação @ 430px — nenhum elemento fora da viewport
+  PASS    Homologação @ 430px — sem rolagem lateral de tabela
+  PASS    Homologação @ 430px — alvos de toque >= 40px
+  PASS    Homologação @ 560px — a tela carregou
+  PASS    Homologação @ 560px — sem overflow horizontal
+  PASS    Homologação @ 560px — nenhum elemento fora da viewport
+  PASS    Homologação @ 768px — a tela carregou
+  PASS    Homologação @ 768px — sem overflow horizontal
+  PASS    Homologação @ 768px — nenhum elemento fora da viewport
+  PASS    Homologação @ 820px — a tela carregou
+  PASS    Homologação @ 820px — sem overflow horizontal
+  PASS    Homologação @ 820px — nenhum elemento fora da viewport
+  PASS    Homologação @ 1024px — a tela carregou
+  PASS    Homologação @ 1024px — sem overflow horizontal
+  PASS    Homologação @ 1024px — nenhum elemento fora da viewport
+  PASS    Homologação @ 1180px — a tela carregou
+  PASS    Homologação @ 1180px — sem overflow horizontal
+  PASS    Homologação @ 1180px — nenhum elemento fora da viewport
+  PASS    Homologação @ 1280px — a tela carregou
+  PASS    Homologação @ 1280px — sem overflow horizontal
+  PASS    Homologação @ 1280px — nenhum elemento fora da viewport
+  PASS    Homologação @ 1366px — a tela carregou
+  PASS    Homologação @ 1366px — sem overflow horizontal
+  PASS    Homologação @ 1366px — nenhum elemento fora da viewport
+  PASS    Homologação @ 1440px — a tela carregou
+  PASS    Homologação @ 1440px — sem overflow horizontal
+  PASS    Homologação @ 1440px — nenhum elemento fora da viewport
+  PASS    Homologação @ 1600px — a tela carregou
+  PASS    Homologação @ 1600px — sem overflow horizontal
+  PASS    Homologação @ 1600px — nenhum elemento fora da viewport
+  PASS    Homologação @ 1920px — a tela carregou
+  PASS    Homologação @ 1920px — sem overflow horizontal
+  PASS    Homologação @ 1920px — nenhum elemento fora da viewport
+
+--- Administração → Atletas (lista e perfil) ---
+  PASS    a lista administrativa de atletas abre para o operador  PLATAFORMA | Início | Campeonatos | Atletas | Ranking | Social | Messenger | Comunidades | Meu painel | Minha filiação | Meu histórico | Minha equipe | Treinador (E
+  PASS    a listagem não mostra documento, nem mascarado
+  PASS    a lista tem campo de busca
+  PASS    a busca encontra o atleta
+  PASS    o termo buscado não entra na URL  #admin/atletas 
+  PASS    o filtro por estado existe na lista
+  PASS    filtrar por SUSPENSO tira o atleta ativo da lista
+  PASS    o perfil administrativo abre  PLATAFORMA | Início | Campeonatos | Atletas | Ranking | Social | Messenger | Comunidades | Meu painel | Minha filiação | Meu histórico | Minha equipe | Treinador (E
+  PASS    o perfil mostra o CPF MASCARADO por padrão  PLATAFORMA | Início | Campeonatos | Atletas | Ranking | Social | Messenger | Comunidades | Meu painel | Minha filiação | Meu histórico | Minha equipe | Treinador (Equipe) | ADMINISTRAÇÃO | Painel | Eventos | Inscrições | Solicitações | 
+  PASS    o CPF inteiro NÃO está na tela antes de alguém pedir
+  PASS    atleta ativo não oferece Reativar
+  PASS    atleta ativo oferece Suspender e Arquivar
+  PASS    o perfil oferece pedir o CPF inteiro
+  PASS    o servidor devolve o CPF inteiro a quem pode  PLATAFORMA | Início | Campeonatos | Atletas | Ranking | Social | Messenger | Comunidades | Meu painel | Minha filiação | Meu histórico | Minha equipe | Treinador (Equipe) | ADMINISTRAÇÃO | Painel | Eventos | Inscrições | Solicitações | 
+  PASS    a tela avisa que a consulta ficou registrada na auditoria
+  PASS    a aba de histórico importado abre  PLATAFORMA | Início | Campeonatos | Atletas | Ranking | Social | Messenger | Comunidades | Meu painel | Minha filiação | Meu histórico | Minha equipe | Treinador (Equipe) | ADMINISTRAÇÃO
+  PASS    sem candidatos, a tela diz que não há — não fica em branco
+
+--- Lista de atletas (larguras) ---
+  PASS    Lista de atletas @ 320px — sem overflow horizontal
+  PASS    Lista de atletas @ 320px — nenhum elemento fora da viewport
+  PASS    Lista de atletas @ 320px — alvos de toque >= 40px
+  PASS    Lista de atletas @ 375px — sem overflow horizontal
+  PASS    Lista de atletas @ 375px — nenhum elemento fora da viewport
+  PASS    Lista de atletas @ 375px — alvos de toque >= 40px
+  PASS    Lista de atletas @ 390px — sem overflow horizontal
+  PASS    Lista de atletas @ 390px — nenhum elemento fora da viewport
+  PASS    Lista de atletas @ 390px — alvos de toque >= 40px
+  PASS    Lista de atletas @ 414px — sem overflow horizontal
+  PASS    Lista de atletas @ 414px — nenhum elemento fora da viewport
+  PASS    Lista de atletas @ 414px — alvos de toque >= 40px
+  PASS    Lista de atletas @ 430px — sem overflow horizontal
+  PASS    Lista de atletas @ 430px — nenhum elemento fora da viewport
+  PASS    Lista de atletas @ 430px — alvos de toque >= 40px
+  PASS    Lista de atletas @ 560px — sem overflow horizontal
+  PASS    Lista de atletas @ 560px — nenhum elemento fora da viewport
+  PASS    Lista de atletas @ 768px — sem overflow horizontal
+  PASS    Lista de atletas @ 768px — nenhum elemento fora da viewport
+  PASS    Lista de atletas @ 820px — sem overflow horizontal
+  PASS    Lista de atletas @ 820px — nenhum elemento fora da viewport
+  PASS    Lista de atletas @ 1024px — sem overflow horizontal
+  PASS    Lista de atletas @ 1024px — nenhum elemento fora da viewport
+  PASS    Lista de atletas @ 1180px — sem overflow horizontal
+  PASS    Lista de atletas @ 1180px — nenhum elemento fora da viewport
+  PASS    Lista de atletas @ 1280px — sem overflow horizontal
+  PASS    Lista de atletas @ 1280px — nenhum elemento fora da viewport
+  PASS    Lista de atletas @ 1366px — sem overflow horizontal
+  PASS    Lista de atletas @ 1366px — nenhum elemento fora da viewport
+  PASS    Lista de atletas @ 1440px — sem overflow horizontal
+  PASS    Lista de atletas @ 1440px — nenhum elemento fora da viewport
+  PASS    Lista de atletas @ 1600px — sem overflow horizontal
+  PASS    Lista de atletas @ 1600px — nenhum elemento fora da viewport
+  PASS    Lista de atletas @ 1920px — sem overflow horizontal
+  PASS    Lista de atletas @ 1920px — nenhum elemento fora da viewport
+
+--- Perfil do atleta (larguras) ---
+  PASS    Perfil do atleta @ 320px — sem overflow horizontal
+  PASS    Perfil do atleta @ 320px — nenhum elemento fora da viewport
+  PASS    Perfil do atleta @ 320px — alvos de toque >= 40px
+  PASS    Perfil do atleta @ 375px — sem overflow horizontal
+  PASS    Perfil do atleta @ 375px — nenhum elemento fora da viewport
+  PASS    Perfil do atleta @ 375px — alvos de toque >= 40px
+  PASS    Perfil do atleta @ 390px — sem overflow horizontal
+  PASS    Perfil do atleta @ 390px — nenhum elemento fora da viewport
+  PASS    Perfil do atleta @ 390px — alvos de toque >= 40px
+  PASS    Perfil do atleta @ 414px — sem overflow horizontal
+  PASS    Perfil do atleta @ 414px — nenhum elemento fora da viewport
+  PASS    Perfil do atleta @ 414px — alvos de toque >= 40px
+  PASS    Perfil do atleta @ 430px — sem overflow horizontal
+  PASS    Perfil do atleta @ 430px — nenhum elemento fora da viewport
+  PASS    Perfil do atleta @ 430px — alvos de toque >= 40px
+  PASS    Perfil do atleta @ 560px — sem overflow horizontal
+  PASS    Perfil do atleta @ 560px — nenhum elemento fora da viewport
+  PASS    Perfil do atleta @ 768px — sem overflow horizontal
+  PASS    Perfil do atleta @ 768px — nenhum elemento fora da viewport
+  PASS    Perfil do atleta @ 820px — sem overflow horizontal
+  PASS    Perfil do atleta @ 820px — nenhum elemento fora da viewport
+  PASS    Perfil do atleta @ 1024px — sem overflow horizontal
+  PASS    Perfil do atleta @ 1024px — nenhum elemento fora da viewport
+  PASS    Perfil do atleta @ 1180px — sem overflow horizontal
+  PASS    Perfil do atleta @ 1180px — nenhum elemento fora da viewport
+  PASS    Perfil do atleta @ 1280px — sem overflow horizontal
+  PASS    Perfil do atleta @ 1280px — nenhum elemento fora da viewport
+  PASS    Perfil do atleta @ 1366px — sem overflow horizontal
+  PASS    Perfil do atleta @ 1366px — nenhum elemento fora da viewport
+  PASS    Perfil do atleta @ 1440px — sem overflow horizontal
+  PASS    Perfil do atleta @ 1440px — nenhum elemento fora da viewport
+  PASS    Perfil do atleta @ 1600px — sem overflow horizontal
+  PASS    Perfil do atleta @ 1600px — nenhum elemento fora da viewport
+  PASS    Perfil do atleta @ 1920px — sem overflow horizontal
+  PASS    Perfil do atleta @ 1920px — nenhum elemento fora da viewport
+
+--- Mensagens (larguras) ---
+  PASS    Mensagens @ 320px — sem overflow horizontal
+  PASS    Mensagens @ 320px — nenhum elemento fora da viewport
+  PASS    Mensagens @ 320px — alvos de toque >= 40px
+  PASS    Mensagens @ 375px — sem overflow horizontal
+  PASS    Mensagens @ 375px — nenhum elemento fora da viewport
+  PASS    Mensagens @ 375px — alvos de toque >= 40px
+  PASS    Mensagens @ 390px — sem overflow horizontal
+  PASS    Mensagens @ 390px — nenhum elemento fora da viewport
+  PASS    Mensagens @ 390px — alvos de toque >= 40px
+  PASS    Mensagens @ 414px — sem overflow horizontal
+  PASS    Mensagens @ 414px — nenhum elemento fora da viewport
+  PASS    Mensagens @ 414px — alvos de toque >= 40px
+  PASS    Mensagens @ 430px — sem overflow horizontal
+  PASS    Mensagens @ 430px — nenhum elemento fora da viewport
+  PASS    Mensagens @ 430px — alvos de toque >= 40px
+  PASS    Mensagens @ 560px — sem overflow horizontal
+  PASS    Mensagens @ 560px — nenhum elemento fora da viewport
+  PASS    Mensagens @ 768px — sem overflow horizontal
+  PASS    Mensagens @ 768px — nenhum elemento fora da viewport
+  PASS    Mensagens @ 820px — sem overflow horizontal
+  PASS    Mensagens @ 820px — nenhum elemento fora da viewport
+  PASS    Mensagens @ 1024px — sem overflow horizontal
+  PASS    Mensagens @ 1024px — nenhum elemento fora da viewport
+  PASS    Mensagens @ 1180px — sem overflow horizontal
+  PASS    Mensagens @ 1180px — nenhum elemento fora da viewport
+  PASS    Mensagens @ 1280px — sem overflow horizontal
+  PASS    Mensagens @ 1280px — nenhum elemento fora da viewport
+  PASS    Mensagens @ 1366px — sem overflow horizontal
+  PASS    Mensagens @ 1366px — nenhum elemento fora da viewport
+  PASS    Mensagens @ 1440px — sem overflow horizontal
+  PASS    Mensagens @ 1440px — nenhum elemento fora da viewport
+  PASS    Mensagens @ 1600px — sem overflow horizontal
+  PASS    Mensagens @ 1600px — nenhum elemento fora da viewport
+  PASS    Mensagens @ 1920px — sem overflow horizontal
+  PASS    Mensagens @ 1920px — nenhum elemento fora da viewport
+
+--- Mensagem de abertura (fluxo real) ---
+  PASS    a tela de mensagens abre para o operador
+  PASS    o recado publicado aparece na lista  PLATAFORMA | Início | Campeonatos | Atletas | Ranking | Social | Messenger | Comunidades | Meu painel | Minha filiação | Meu histórico | Minha equipe | Treinador (Equipe) | ADMINISTRAÇÃO
+  PASS    a lista diz que o recado está no ar e é de uma vez só
+  PASS    a lista mostra a contagem de leituras
+  PASS    o recado aparece por cima da tela do atleta
+  PASS    o recado traz título, remetente e texto  Inscrições abertas para a etapa QA |  | FEDERAÇÃO QA |  | A etapa QA está com inscrições abertas até o fim do mês. |  | Entendi
+  PASS    o recado cabe em 390px
+  PASS    fechar o recado tira o modal da tela
+  PASS    o recado já lido NÃO volta na visita seguinte
+
+--- Estabilidade (fluxo prolongado) ---
+  25 ciclos × 6 telas = 150 navegações
+  heap      5.3MB → 5.6MB  (6.5%)
+  listeners 404 → 417  (+13)
+  nós DOM   965 → 1034
+  documentos 2 → 2
+  PASS    heap não cresce sem parar  6.5%
+  PASS    listeners não se acumulam  13
+  PASS    documentos não vazam  2 → 2
+
+--- Movimento reduzido (prefers-reduced-motion) ---
+  PASS    controle: com movimento permitido, há movimento na tela  335 elementos
+  PASS    admin/overall — nenhuma animação ou transição sobrevive ao movimento reduzido
+  PASS    admin/overall — rolagem deixa de ser suave  auto
+  PASS    admin/overall — a tela continua mostrando conteúdo  654 caracteres
+  PASS    ranking — nenhuma animação ou transição sobrevive ao movimento reduzido
+  PASS    ranking — rolagem deixa de ser suave  auto
+  PASS    ranking — a tela continua mostrando conteúdo  1066 caracteres
+  PASS    campeonatos — nenhuma animação ou transição sobrevive ao movimento reduzido
+  PASS    campeonatos — rolagem deixa de ser suave  auto
+  PASS    campeonatos — a tela continua mostrando conteúdo  571 caracteres
+  PASS    admin — nenhuma animação ou transição sobrevive ao movimento reduzido
+  PASS    admin — rolagem deixa de ser suave  auto
+  PASS    admin — a tela continua mostrando conteúdo  789 caracteres
+  PASS    nenhum erro de página nem resposta 5xx
+  PASS    nenhuma rota de dados recusou a sessão com 401
+
+=== APROVADO ===
