@@ -17,22 +17,39 @@ vez. Se algo estiver errado nessa engrenagem, é amanhã que aparece.
 |---|---|---|
 | **E-mail e senha** | conta própria na plataforma | ele cria antes, sozinho |
 | **Nome** | 2 a 120 caracteres | `coachSelfRegister` |
-| **Foto de perfil** | **obrigatória**, PNG, JPEG ou WebP, **até 5 MB** | `ALLOWED_AVATAR`, `AVATAR_MAX_BYTES` |
+| **Foto de perfil** | **obrigatória**; qualquer foto de celular ou computador | conversão no navegador + `ALLOWED_AVATAR` |
 | Matrícula, bio, telefone, e-mail de contato | opcionais | `coachSelfRegister` |
 
-### ⚠️ O risco prático: foto de iPhone
+### A foto de iPhone: RESOLVIDO, e o que esperar agora
 
-Os formatos aceitos são **PNG, JPEG e WebP**. **HEIC não entra** — e HEIC é o
-padrão de câmera do iPhone. Se ele tirar a foto na hora com um iPhone em
-configuração padrão, o envio será **recusado com 415**, e a recusa está correta.
+**Este item mudou depois de a primeira versão deste guia ser escrita.** Ele
+dizia que HEIC seria recusado com 415 e ensinava dois contornos (mandar pelo
+WhatsApp, ou trocar o formato nos Ajustes do iPhone). **Os contornos não são
+mais necessários.**
 
-**Como evitar a perda de tempo:** peça a ele para, antes de sair de casa,
-mandar a foto para si mesmo pelo WhatsApp e salvar o arquivo recebido — o
-WhatsApp converte para JPEG. Ou, no iPhone: Ajustes → Câmera → Formatos → **Mais
-Compatível**.
+O que passou a acontecer: a foto é **convertida no próprio aparelho** antes de
+subir. O iPhone tem o codec do HEIC no sistema, então ele sabe ler a foto que
+tirou; o navegador converte para JPEG, reduz para 1280 px de lado e só então
+envia. O servidor continua aceitando apenas PNG, JPEG e WebP — o que mudou é que
+a foto chega num formato que ele aceita.
 
-Se acontecer, **não é defeito** — a mensagem deve dizer quais formatos são
-aceitos. Se a mensagem *não* disser, isso sim é defeito: anote.
+Consequências práticas para amanhã:
+
+* **tirar a foto na hora, com o iPhone em configuração de fábrica, funciona.**
+  O seletor também deixou de esconder as fotos HEIC da galeria, que era o pior
+  sintoma: a pessoa abria o seletor e via as próprias fotos apagadas;
+* **foto acima de 5 MB também funciona.** Ela é reduzida antes de subir, e o
+  teto de 5 MB do servidor deixou de ser a primeira coisa que a pessoa encontra;
+* pode aparecer **"Preparando a foto…"** por um instante depois da escolha. É a
+  conversão. Numa foto de 12 MP isso é normal, e o botão de concluir fica
+  desabilitado até terminar — de propósito, para ninguém tocar duas vezes;
+* **o que ainda pode falhar:** um navegador de COMPUTADOR que não seja Safari
+  não decodifica HEIC. Se ele tentar escolher um arquivo `.HEIC` copiado do
+  iPhone para um PC com Chrome ou Firefox, a tela vai dizer que não foi possível
+  ler a foto neste aparelho e pedir JPEG ou PNG. **Isso não é defeito** — é a
+  recusa correta, dita antes do envio em vez de depois. No iPhone e no iPad,
+  onde a foto de fato nasce, a conversão funciona;
+* **se a recusa aparecer sem explicar o que fazer**, isso sim é defeito: anote.
 
 ---
 
