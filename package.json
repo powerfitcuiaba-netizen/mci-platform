@@ -17,6 +17,7 @@
     "db:seed": "node prisma/seed.js",
     "qa:estabilidade": "node scripts/qa/estabilidade.mjs",
     "qa:responsividade": "node scripts/qa/responsividade.mjs",
+    "qa:foto:responsiva": "node scripts/qa/foto-cabe-na-tela.mjs",
     "qa:visual:treinadores": "node scripts/qa/visual-treinadores.mjs",
     "qa:diagnostico:auditoria": "node scripts/qa/diagnostico-auditoria-autenticacao.mjs",
     "qa:visual:treinadores:manter": "node scripts/qa/visual-treinadores.mjs --manter",

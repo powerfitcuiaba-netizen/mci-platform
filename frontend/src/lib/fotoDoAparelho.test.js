@@ -4,7 +4,8 @@ import { dirname, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   ACEITOS_PELO_SERVIDOR, FORMATO_DE_SAIDA, LADO_MAXIMO, MENSAGEM_NAO_E_IMAGEM,
-  ACEITO_NO_SELETOR, MENSAGEM_SEM_SUPORTE, TETO_DE_BYTES, dimensoesDestino, nomeConvertido,
+  ACEITO_NO_SELETOR, CHAVE_DA_RECUSA, CODIGO_NAO_E_IMAGEM, CODIGO_SEM_SUPORTE,
+  MENSAGEM_SEM_SUPORTE, TETO_DE_BYTES, dimensoesDestino, nomeConvertido,
   normalizarFotoDoAparelho, precisaConverter
 } from './fotoDoAparelho';
 
@@ -267,6 +268,49 @@ describe('as telas que recebem foto passam por aqui', () => {
     expect(ACEITO_NO_SELETOR).toBe('image/*');
     for (const tipo of ACEITOS_PELO_SERVIDOR) {
       expect(ACEITO_NO_SELETOR).not.toContain(tipo);
+    }
+  });
+});
+
+describe('a recusa carrega código, e não só frase', () => {
+  // A aplicação é trilíngue. Uma recusa que só tem frase em português chega em
+  // português para quem está usando em inglês, e o defeito é invisível em teste
+  // que só compare a mensagem.
+  it('o que não é imagem vem com CODIGO_NAO_E_IMAGEM', async () => {
+    const erro = await normalizarFotoDoAparelho(arquivoFalso('a.pdf', 'application/pdf')).catch(e => e);
+    expect(erro.codigo).toBe(CODIGO_NAO_E_IMAGEM);
+  });
+
+  it('o aparelho sem codec vem com CODIGO_SEM_SUPORTE', async () => {
+    const erro = await normalizarFotoDoAparelho(arquivoFalso('a.HEIC', 'image/heic'), { decodificar: null })
+      .catch(e => e);
+    expect(erro.codigo).toBe(CODIGO_SEM_SUPORTE);
+  });
+
+  it('a falha ao codificar também vem com código — nenhum caminho fica sem', async () => {
+    const { deps } = dependenciasFalsas(bitmapFalso(800, 600), { falhaNoBlob: true });
+    const erro = await normalizarFotoDoAparelho(arquivoFalso('a.HEIC', 'image/heic', 9_000_000), deps)
+      .catch(e => e);
+    expect(erro.codigo).toBe(CODIGO_SEM_SUPORTE);
+  });
+
+  it('todo código tem chave de dicionário, e as chaves existem nos três idiomas', () => {
+    const aqui = dirname(fileURLToPath(import.meta.url));
+    expect(Object.keys(CHAVE_DA_RECUSA).sort()).toEqual([CODIGO_NAO_E_IMAGEM, CODIGO_SEM_SUPORTE].sort());
+    for (const idioma of ['ptBR', 'en', 'es']) {
+      const dicionario = readFileSync(join(aqui, `idiomas/${idioma}.js`), 'utf8');
+      for (const chave of Object.values(CHAVE_DA_RECUSA)) {
+        expect(dicionario, `'${chave}' falta em ${idioma}.js`).toContain(`'${chave}':`);
+      }
+      expect(dicionario, `'foto.preparando' falta em ${idioma}.js`).toContain("'foto.preparando':");
+    }
+  });
+
+  it('as telas traduzem pelo código em vez de mostrar a frase do módulo', () => {
+    const aqui = dirname(fileURLToPath(import.meta.url));
+    for (const nome of ['treinadores.jsx', 'socialPages.jsx']) {
+      const fonte = readFileSync(join(aqui, '../pages/', nome), 'utf8');
+      expect(fonte, `${nome} não traduz a recusa`).toMatch(/codigo \? t\(CHAVE_DA_RECUSA\[/);
     }
   });
 });

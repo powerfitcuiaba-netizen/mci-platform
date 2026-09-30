@@ -61,6 +61,24 @@ export const MENSAGEM_SEM_SUPORTE = 'Não foi possível ler esta foto neste apar
 
 export const MENSAGEM_NAO_E_IMAGEM = 'O arquivo escolhido não é uma imagem.';
 
+// AS DUAS RECUSAS TÊM CÓDIGO, e não só frase, porque a interface é trilíngue.
+// A frase acima é o padrão de quem chamar este módulo fora de uma tela (e o
+// que os testes leem); a tela traduz pelo código. Sem isto, a pessoa que usa a
+// aplicação em inglês levaria a recusa em português.
+export const CODIGO_SEM_SUPORTE = 'FOTO_SEM_SUPORTE';
+export const CODIGO_NAO_E_IMAGEM = 'FOTO_NAO_E_IMAGEM';
+
+// O mapa fica AQUI, com as chaves escritas por extenso, para que uma busca por
+// `foto.semSuporte` no repositório encontre o uso. Chave montada por
+// concatenação seria invisível para quem procura, e para o teste que confere
+// que toda chave existe nos três dicionários.
+export const CHAVE_DA_RECUSA = Object.freeze({
+  [CODIGO_SEM_SUPORTE]: 'foto.semSuporte',
+  [CODIGO_NAO_E_IMAGEM]: 'foto.naoEImagem'
+});
+
+const recusa = (codigo, mensagem) => Object.assign(new Error(mensagem), { codigo });
+
 // O QUE O SELETOR DO SISTEMA OFERECE.
 //
 // Aqui está o motivo de o valor ser largo em vez de a lista dos três aceitos: o
@@ -150,7 +168,7 @@ export async function normalizarFotoDoAparelho(arquivo, opcoes = {}) {
   // recusar, porque a decodificação adiante é o juiz de verdade. Mas um tipo
   // declarado que não é imagem é recusado aqui, antes de gastar memória.
   if (tipo && !tipo.startsWith('image/')) {
-    throw new Error(MENSAGEM_NAO_E_IMAGEM);
+    throw recusa(CODIGO_NAO_E_IMAGEM, MENSAGEM_NAO_E_IMAGEM);
   }
 
   if (!precisaConverter(arquivo)) return arquivo;
@@ -159,7 +177,7 @@ export async function normalizarFotoDoAparelho(arquivo, opcoes = {}) {
   const lado = opcoes.lado ?? LADO_MAXIMO;
   const qualidade = opcoes.qualidade ?? QUALIDADE;
 
-  if (!decodificar) throw new Error(MENSAGEM_SEM_SUPORTE);
+  if (!decodificar) throw recusa(CODIGO_SEM_SUPORTE, MENSAGEM_SEM_SUPORTE);
 
   let bitmap;
   try {
@@ -167,7 +185,7 @@ export async function normalizarFotoDoAparelho(arquivo, opcoes = {}) {
   } catch {
     // O aparelho não tem o codec. É o caso do HEIC num navegador de desktop que
     // não seja Safari, e é exatamente o que a mensagem precisa explicar.
-    throw new Error(MENSAGEM_SEM_SUPORTE);
+    throw recusa(CODIGO_SEM_SUPORTE, MENSAGEM_SEM_SUPORTE);
   }
 
   try {
@@ -183,7 +201,7 @@ export async function normalizarFotoDoAparelho(arquivo, opcoes = {}) {
       lastModified: Date.now()
     });
   } catch {
-    throw new Error(MENSAGEM_SEM_SUPORTE);
+    throw recusa(CODIGO_SEM_SUPORTE, MENSAGEM_SEM_SUPORTE);
   } finally {
     // `close` libera a memória do bitmap na hora em vez de esperar o coletor.
     // Numa foto de 12 MP isso é dezenas de megabytes por escolha de arquivo.

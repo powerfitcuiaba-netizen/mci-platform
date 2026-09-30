@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import api, { refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
-import { ACEITOS_PELO_SERVIDOR, ACEITO_NO_SELETOR, TETO_DE_BYTES, normalizarFotoDoAparelho } from '../lib/fotoDoAparelho';
+import { ACEITOS_PELO_SERVIDOR, ACEITO_NO_SELETOR, CHAVE_DA_RECUSA, TETO_DE_BYTES, normalizarFotoDoAparelho } from '../lib/fotoDoAparelho';
 import { AsyncSection, Avatar, Badge, EmptyState, Lightbox, Modal, ModalActions, PageHead, Paginacao, ProtectedMedia, Field } from '../components/ui';
 import { anunciar, MCIEvento } from '../lib/experiencia';
 import { caminhoDoAvatar, desde, ESTADO_PRO, formatarData, tipoDePerfil } from '../lib/format';
@@ -957,12 +957,19 @@ function FotoDePerfil({ perfil, notificar, onMudou }) {
     evento.target.value = '';
     if (!escolhido) return;
 
+    // `ocupado` cobre o preparo: num celular, decodificar e reduzir uma foto de
+    // 12 MP leva um instante visível, e o botão de trocar a foto não pode
+    // continuar convidando ao toque enquanto isso.
+    setOcupado(true);
     let pronta;
     try {
       pronta = await normalizarFotoDoAparelho(escolhido);
     } catch (problema) {
-      notificar(problema.message, 'erro');
+      // A frase é a do idioma em vigor: a recusa vem com código.
+      notificar(problema.codigo ? t(CHAVE_DA_RECUSA[problema.codigo]) : problema.message, 'erro');
       return;
+    } finally {
+      setOcupado(false);
     }
 
     if (!TIPOS_DE_FOTO.includes(pronta.type)) {

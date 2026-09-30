@@ -308,6 +308,40 @@ describe('painel do treinador', () => {
     expect(screen.getByRole('button', { name: /Concluir cadastro/i }).disabled).toBe(true);
   });
 
+  it('foto que este aparelho não sabe ler é recusada NA TELA, antes de qualquer ida à rede', async () => {
+    // O jsdom não tem `createImageBitmap` — e isso não é limitação do teste, é
+    // exatamente a situação de um navegador sem o codec do HEIC. A recusa tem de
+    // vir com a frase do DICIONÁRIO, não com a do módulo, porque a aplicação é
+    // trilíngue.
+    api.coaches.me.mockRejectedValue(Object.assign(new Error('404'), { status: 404 }));
+
+    render(<PainelDoTreinador notificar={vi.fn()} />);
+    await screen.findByLabelText(/^Nome/i);
+
+    const campo = document.querySelector('input[type="file"]');
+    const heic = new File(['bytes-de-heic'], 'IMG_0042.HEIC', { type: 'image/heic' });
+    Object.defineProperty(campo, 'files', { value: [heic], configurable: true });
+    fireEvent.change(campo);
+
+    expect(await screen.findByText(/Não foi possível ler esta foto neste aparelho/i)).toBeTruthy();
+    // Sem prévia e sem envio: o botão continua desabilitado.
+    expect(screen.queryByAltText(/Prévia da foto/i)).toBeNull();
+    expect(screen.getByRole('button', { name: /Concluir cadastro/i }).disabled).toBe(true);
+    expect(api.coaches.selfRegister).not.toHaveBeenCalled();
+  });
+
+  it('o seletor de foto não esconde a foto de câmera do celular', async () => {
+    // `accept` enumerando tipos fazia o iOS esconder o HEIC da galeria: a pessoa
+    // abria o seletor e via as próprias fotos apagadas.
+    api.coaches.me.mockRejectedValue(Object.assign(new Error('404'), { status: 404 }));
+
+    render(<PainelDoTreinador notificar={vi.fn()} />);
+    await screen.findByLabelText(/^Nome/i);
+
+    const campo = document.querySelector('input[type="file"]');
+    expect(campo.getAttribute('accept')).toBe('image/*');
+  });
+
   it('a foto viaja junto com o cadastro, na mesma chamada', async () => {
     api.coaches.me.mockRejectedValue(Object.assign(new Error('404'), { status: 404 }));
     api.coaches.selfRegister.mockResolvedValue({ id: 'c1', status: 'APPROVED', hasPhoto: true });

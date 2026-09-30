@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ClipboardCheck, IdCard, Search, ShieldCheck, UserPlus, Users2 } from 'lucide-react';
 import { api, fetchMediaObjectUrl, refreshData } from '../services/api';
 import { useFetch } from '../lib/hooks';
-import { ACEITO_NO_SELETOR, normalizarFotoDoAparelho } from '../lib/fotoDoAparelho';
+import { ACEITO_NO_SELETOR, CHAVE_DA_RECUSA, normalizarFotoDoAparelho } from '../lib/fotoDoAparelho';
 import {
   AsyncSection, Badge, EmptyState, Field, Modal, ModalActions, PageHead, Skeleton
 } from '../components/ui';
@@ -88,6 +88,9 @@ function FormularioDeAutocadastro({ notificar, aoConcluir }) {
   // na memória do navegador até a aba fechar.
   const [foto, setFoto] = useState(null);
   const [previa, setPrevia] = useState(null);
+  // Preparo da foto: estado separado de `enviando` porque acontece ANTES do
+  // envio e pode falhar sem que nada tenha ido à rede.
+  const [preparando, setPreparando] = useState(false);
 
   const campo = (chave, valor) => setDados(atual => ({ ...atual, [chave]: valor }));
 
@@ -112,14 +115,22 @@ function FormularioDeAutocadastro({ notificar, aoConcluir }) {
       return;
     }
 
+    // O PREPARO TEM ESTADO PRÓPRIO porque tem DURAÇÃO própria: decodificar e
+    // reduzir uma foto de 12 MP leva um instante visível num celular, e sem
+    // dizer nada a tela fica parada depois do toque — quem usa toca de novo.
+    setPreparando(true);
     let pronta;
     try {
       pronta = await normalizarFotoDoAparelho(arquivo);
     } catch (erro) {
-      setRecusa(erro.message);
+      // A recusa vem com CÓDIGO: a frase é a do idioma em vigor, não a do
+      // módulo. `erro.message` fica como reserva para o que não tiver código.
+      setRecusa(erro.codigo ? t(CHAVE_DA_RECUSA[erro.codigo]) : erro.message);
       setPrevia(anterior => { if (anterior) URL.revokeObjectURL(anterior); return null; });
       setFoto(null);
       return;
+    } finally {
+      setPreparando(false);
     }
 
     setPrevia(anterior => {
@@ -200,9 +211,14 @@ function FormularioDeAutocadastro({ notificar, aoConcluir }) {
         <input
           type="file"
           accept={ACEITO_NO_SELETOR}
+          disabled={preparando}
           onChange={evento => escolherFoto(evento.target.files?.[0] ?? null)}
         />
       </Field>
+
+      {/* `aria-live` porque quem usa leitor de tela também precisa saber que a
+          foto está sendo preparada — o campo desabilitado, sozinho, é silêncio. */}
+      {preparando && <p className="muted" aria-live="polite">{t('foto.preparando')}</p>}
 
       {previa && (
         <div className="foto-escolhida">
@@ -214,7 +230,7 @@ function FormularioDeAutocadastro({ notificar, aoConcluir }) {
       )}
 
       <div className="acoes-do-cartao">
-        <button type="submit" className="button button-primary" disabled={enviando || !foto}>
+        <button type="submit" className="button button-primary" disabled={enviando || preparando || !foto}>
           {t('treinador.enviarCadastro')}
         </button>
       </div>
@@ -478,15 +494,19 @@ function FotoDoTreinador({ coachId, temFoto, notificar, aoTrocar }) {
     if (!arquivo) return;
     setRecusa(null);
 
+    // `enviando` cobre o preparo TAMBÉM: para quem está olhando, escolher a foto
+    // e a foto subir é um gesto só, e o campo precisa ficar indisponível do
+    // começo ao fim dele.
+    setEnviando(true);
     let pronta;
     try {
       pronta = await normalizarFotoDoAparelho(arquivo);
     } catch (problema) {
-      setRecusa(problema.message);
+      setRecusa(problema.codigo ? t(CHAVE_DA_RECUSA[problema.codigo]) : problema.message);
+      setEnviando(false);
       return;
     }
 
-    setEnviando(true);
     try {
       await api.coaches.setMyPhoto(pronta);
       refreshData();
