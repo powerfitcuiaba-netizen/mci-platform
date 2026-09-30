@@ -386,3 +386,55 @@ descreve o que esperar e o que anotar se algo divergir.
 `FORMULA_HOMOLOGADA` continua **false**. O ranking de treinadores continua
 bloqueado com **409** até homologação formal pela MuscleContest. Isso não é
 pendência deste trabalho: é decisão que não é minha nem sua isoladamente.
+
+---
+
+## 11. A publicação, verificada em produção
+
+Merge `--no-ff` de 6 commits: `d958779` → **`4153e4d`**. Árvore do merge
+**idêntica** à ponta do ramo que a CI aprovou (`git rev-parse HEAD^{tree}`
+igual em ambos), então o merge não introduziu nem perdeu nada em relação ao
+que passou pelos gates.
+
+CI 376 no SHA `130ccbc`: **3 de 3 jobs verdes**, com os **8 guardas anti-pulo**
+todos em `success` — é isso que impede a CI de aprovar uma execução em que as 15
+vagas de RLS e backup fossem silenciosamente puladas.
+
+### Sonda de produção 22 — 7 jobs, todos verdes
+
+`/ready` respondeu **200** com as três conferências:
+
+```json
+{"ready":true,"checks":{"database":true,"storage":true,"rls":true},
+ "databaseKind":"postgresql","storageDriver":"s3"}
+```
+
+**A medição que identifica qual build está no ar** — e não deduz pelo horário:
+
+| | Antes | Agora |
+|---|---|---|
+| Bloco de entrada | `/assets/index-D9WvrNwL.js` | `/assets/index-DTxsQMRX.js` |
+| Bytes crus | 674 194 | **678 154** |
+| Teto da sonda | 798 720 | 798 720 |
+
+O nome do arquivo **mudou** e o tamanho **bate com o build local deste SHA**
+(678,13 kB; a diferença de poucas dezenas de bytes é o comprimento da string de
+`VITE_API_URL`, que difere entre ambientes). Isso prova que o frontend servido é
+esta versão. O reinício do processo da API, sozinho, não provaria: a API não teve
+uma linha alterada neste merge.
+
+### O que a sonda conferiu além de estar de pé
+
+| Conferência | Resultado |
+|---|---|
+| Campeonatos continuam publicados | PASS |
+| Ranking público responde | PASS |
+| Sem token, lista de atletas recusa | PASS |
+| Sem token, perfil recusa **antes** de dizer se existe | PASS |
+| **Nenhum CPF na busca pública** | PASS |
+| **Ranking de treinadores continua recusando classificação (§8.3)** | PASS |
+| A rota da foto do treinador não vaza a chave do objeto | PASS |
+| Sem token, leituras do módulo de treinadores recusam com 401 | PASS |
+| **Nenhuma rota financeira no ar** | PASS |
+| Nada foi escrito | PASS |
+| Teto de 5 linhas no Super Overall e nas outras tabelas públicas | PASS |
