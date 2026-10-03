@@ -657,7 +657,12 @@ jobs:
           echo "catálogo: $TOTAL artes"
           [ "$TOTAL" -gt 0 ] || { echo "::error::não li nenhuma arte do catálogo — o formato de lib/patrocinadores.js mudou?"; exit 1; }
 
-          OK=0; RUIM=0; BYTES_TOTAIS=0
+          # Uma atribuição por linha: o gate de coerência da sonda reconhece a
+          # definição ancorada no início da linha, e três numa só esconderia as
+          # duas últimas dele. Ver tests/sonda-producao-coerente.test.mjs.
+          OK=0
+          RUIM=0
+          BYTES_TOTAIS=0
           for A in $ARQUIVOS; do
             CODIGO="$(curl -sS -m 60 -o /tmp/arte.bin -w '%{http_code}' "$U/patrocinadores/$A" || echo 000)"
             TAM="$(stat -c%s /tmp/arte.bin 2>/dev/null || echo 0)"
