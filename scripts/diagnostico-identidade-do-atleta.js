@@ -223,6 +223,114 @@ async function diagnosticar({ matricula, filiacaoCodigo, actorId, organizacaoPed
   });
 }
 
+// ============================================================================
+// AS SEIS GAVETAS DE UM RESULTADO.
+//
+// A homologação pede que CADA resultado saia classificado, e a classificação
+// não pode ser opinião: ela é função dos dados do próprio resultado, da
+// identidade esportiva que o carrega e dos cadastros que existem para aquele
+// PAR filiação + matrícula. Por isso é uma função PURA, testável sem banco —
+// quem quiser conferir a regra não precisa subir PostgreSQL para ler uma
+// gaveta.
+//
+// A ordem das regras importa, e a primeira que casa decide. Duplicata vem
+// antes de tudo porque ela invalida qualquer leitura das outras; ausência de
+// matrícula vem antes de ambiguidade porque sem identificador não há par a
+// disputar.
+// ============================================================================
+const GAVETAS = Object.freeze({
+  CONSOLIDADO: 'CONSOLIDADO',
+  VINCULAVEL: 'SEPARADO MAS IDENTIFICÁVEL POR MATRÍCULA',
+  SEM_MATRICULA: 'SEM MATRÍCULA',
+  AMBIGUO: 'AMBÍGUO',
+  DUPLICADO: 'DUPLICADO',
+  OUTRO: 'OUTRO'
+});
+
+/**
+ * A assinatura que delata repetição: o MESMO evento, a MESMA classe e a MESMA
+ * colocação aparecendo duas vezes sob a mesma matrícula.
+ *
+ * NÃO é prova de duplicata — dois resultados legítimos podem coincidir nos três
+ * campos se o arquivo trouxer o evento com nomes diferentes, ou se houver duas
+ * etapas homônimas. É SINAL, e o relatório diz isso com estas palavras. A
+ * unicidade de `(source, externalId)` no banco já impede a duplicata literal.
+ */
+const assinaturaDoResultado = r =>
+  [String(r.eventName ?? '').trim().toUpperCase(),
+    String(r.className ?? '').trim().toUpperCase(),
+    r.placing ?? ''].join('|');
+
+function classificarResultado(resultado, { identidade, cadastrosDoPar = [], assinaturasRepetidas = new Set() } = {}) {
+  if (assinaturasRepetidas.has(assinaturaDoResultado(resultado))) {
+    return { gaveta: GAVETAS.DUPLICADO,
+      porque: 'mesmo evento, classe e colocação aparecem mais de uma vez sob esta matrícula — SINAL, não prova' };
+  }
+
+  if (!identidade) {
+    return { gaveta: GAVETAS.OUTRO,
+      porque: 'resultado sem identidade esportiva associada' };
+  }
+
+  if (!identidade.affiliationNumber) {
+    return { gaveta: GAVETAS.SEM_MATRICULA,
+      porque: 'o arquivo veio sem matrícula: nenhuma regra automática por identificador alcança esta linha' };
+  }
+
+  if (cadastrosDoPar.length > 1) {
+    return { gaveta: GAVETAS.AMBIGUO,
+      porque: `${cadastrosDoPar.length} cadastros para o mesmo par filiação + matrícula — quem decide é gente` };
+  }
+
+  if (resultado.athleteId) {
+    if (cadastrosDoPar.length === 1 && resultado.athleteId === cadastrosDoPar[0].id) {
+      return { gaveta: GAVETAS.CONSOLIDADO, porque: 'o resultado aponta para o cadastro do par' };
+    }
+    return { gaveta: GAVETAS.AMBIGUO,
+      porque: 'o resultado tem dono, e o dono NÃO é o cadastro deste par — trocar dono é outra operação' };
+  }
+
+  if (cadastrosDoPar.length === 1) {
+    return { gaveta: GAVETAS.VINCULAVEL,
+      porque: 'identidade inequívoca: um cadastro, um par, nenhum conflito — consolidação automática' };
+  }
+
+  return { gaveta: GAVETAS.OUTRO,
+    porque: 'histórico com matrícula e ainda sem cadastro: vincula sozinho no instante em que ele existir' };
+}
+
+/** Monta o contexto de classificação e devolve cada resultado com a sua gaveta. */
+function classificarTudo(d) {
+  const identidadePorId = new Map(d.identidades.map(i => [i.id, i]));
+
+  const cadastrosPorPar = new Map();
+  for (const c of d.cadastros) {
+    const par = `${c.affiliationId ?? '—'}|${c.affiliationNumber ?? '—'}`;
+    if (!cadastrosPorPar.has(par)) cadastrosPorPar.set(par, []);
+    cadastrosPorPar.get(par).push(c);
+  }
+
+  const vezes = new Map();
+  for (const r of d.resultados) {
+    const a = assinaturaDoResultado(r);
+    vezes.set(a, (vezes.get(a) ?? 0) + 1);
+  }
+  const assinaturasRepetidas = new Set([...vezes].filter(([, n]) => n > 1).map(([a]) => a));
+
+  return d.resultados.map(r => {
+    const identidade = r.externalAthleteId ? identidadePorId.get(r.externalAthleteId) : null;
+    const par = identidade
+      ? `${identidade.affiliationId ?? '—'}|${identidade.affiliationNumber ?? '—'}`
+      : null;
+    const cadastrosDoPar = par ? (cadastrosPorPar.get(par) ?? []) : [];
+    return {
+      resultado: r,
+      identidade,
+      ...classificarResultado(r, { identidade, cadastrosDoPar, assinaturasRepetidas })
+    };
+  });
+}
+
 function relatar(d) {
   const porFiliacao = new Map();
   for (const c of d.cadastros) {
@@ -242,6 +350,18 @@ function relatar(d) {
   linha('identidades esportivas', d.identidades.length);
   linha('resultados importados', d.resultados.length);
   linha('lançamentos de pontos', d.lancamentos.length);
+
+  // ---- O RELATÓRIO "ANTES" QUE A HOMOLOGAÇÃO PEDE, nos quatro números dela
+  titulo('ANTES — o estado atual, sem nenhuma alteração');
+  const somar = (lista, campo) => lista.reduce((t, p) => t + (p[campo] ?? 0), 0);
+  linha('quantidade de identidades', d.identidades.length);
+  linha('quantidade de resultados', d.resultados.length);
+  linha('quantidade de lançamentos', d.lancamentos.length);
+  linha('pontuação de colocação', somar(d.lancamentos, 'points'));
+  linha('pontuação de Super Overall', somar(d.lancamentos, 'superOverallPoints'));
+  linha('identidades já com dono', d.identidades.filter(i => i.athleteId).length);
+  linha('resultados já com dono', d.resultados.filter(r => r.athleteId).length);
+  linha('lançamentos já com dono', d.lancamentos.filter(p => p.athleteId).length);
 
   // ---- a conta que responde a pergunta
   titulo('QUANTOS COMPETIDORES O SISTEMA CONTA HOJE');
@@ -281,23 +401,68 @@ function relatar(d) {
       + '\n  isto é UMA pessoa: a matrícula prevalece sobre o nome.');
   }
 
-  // ---- histórico, evento a evento
-  titulo('HISTÓRICO — EVENTO A EVENTO');
+  // ---- histórico, evento a evento, COM TODOS OS CAMPOS PEDIDOS
+  titulo('HISTÓRICO — EVENTO A EVENTO, COM A GAVETA DE CADA RESULTADO');
   if (!d.resultados.length) console.log('  (nenhum resultado importado alcançável por este identificador)');
+
   // O Overall de cada resultado vem do LANÇAMENTO correspondente, que é onde
   // ele existe — `ExternalResult` não carrega essa marca.
   const lancamentoDoResultado = new Map(
     d.lancamentos.filter(p => p.externalResultId).map(p => [p.externalResultId, p])
   );
-  for (const r of d.resultados) {
-    const data = r.eventDate ? new Date(r.eventDate).toISOString().slice(0, 10) : '—';
-    const dono = r.athleteId ? `atleta ${r.athleteId}` : `identidade ${r.externalAthleteId ?? '—'}`;
+
+  const classificados = classificarTudo(d);
+  const porGaveta = new Map();
+  for (const item of classificados) {
+    if (!porGaveta.has(item.gaveta)) porGaveta.set(item.gaveta, []);
+    porGaveta.get(item.gaveta).push(item);
+  }
+
+  for (const item of classificados) {
+    const r = item.resultado;
     const ponto = lancamentoDoResultado.get(r.id);
-    const overall = ponto?.isOverallChampion ? 'OVERALL  ' : '         ';
-    console.log(`  ${data}  ${String(r.eventName ?? '—').padEnd(38).slice(0, 38)}  `
-      + `${String(r.categoryCode ?? '—').padEnd(10)} ${String(r.className ?? '—').padEnd(12)} `
-      + `${String(r.placing ?? '—').padStart(3)}º  ${String(r.points ?? 0).padStart(4)} pt  `
-      + `${overall}${dono}`);
+    const data = r.eventDate ? new Date(r.eventDate).toISOString().slice(0, 10) : '—';
+    console.log(`\n  ${data}  ${r.eventName ?? '—'}`);
+    linha('  gaveta', `${item.gaveta} — ${item.porque}`);
+    linha('  categoria / classe', `${r.categoryCode ?? '—'} / ${r.className ?? '—'}`);
+    linha('  colocação', r.placing != null ? `${r.placing}º` : '—');
+    linha('  pontos de colocação', ponto?.placementPoints ?? r.points ?? 0);
+    linha('  Overall', ponto?.isOverallChampion
+      ? `SIM · bônus ${ponto.overallBonus ?? 0} · Super Overall ${ponto.superOverallPoints ?? 0}`
+      : 'não');
+    linha('  ajuste', ponto?.adjustmentPoints ?? 0);
+    // O nome ORIGINAL da inscrição mora na identidade esportiva; o cadastro tem
+    // o nome canônico. Os dois aparecem porque é a divergência entre eles que o
+    // operador precisa ver — e que NÃO decide nada.
+    linha('  nome na fonte', item.identidade?.displayName ?? '—');
+    linha('  matrícula encontrada', item.identidade?.affiliationNumber ?? '(ausente)');
+    linha('  filiação encontrada', item.identidade?.affiliationId
+      ? (d.nomeDaFiliacao.get(item.identidade.affiliationId) ?? item.identidade.affiliationId)
+      : '(ausente)');
+    linha('  origem', `${ponto?.source ?? item.identidade?.source ?? '—'} · ${item.identidade?.identityKey ?? '—'}`);
+    linha('  identidade associada', item.identidade?.id ?? '—');
+    linha('  status do vínculo', r.athleteId
+      ? `VINCULADO ao cadastro ${r.athleteId}`
+      : 'SEM DONO');
+  }
+
+  titulo('CLASSIFICAÇÃO — QUANTOS EM CADA GAVETA');
+  for (const gaveta of Object.values(GAVETAS)) {
+    linha(gaveta, (porGaveta.get(gaveta) ?? []).length);
+  }
+  const vinculaveis = porGaveta.get(GAVETAS.VINCULAVEL) ?? [];
+  if (vinculaveis.length) {
+    console.log(`\n  ${vinculaveis.length} resultado(s) são VINCULÁVEIS por matrícula, de forma inequívoca.`);
+    console.log('  Pela regra homologada eles consolidam SOZINHOS — sem clique humano — e o');
+    console.log('  caminho que faz isso roda na criação do cadastro, na aprovação do');
+    console.log('  autocadastro e na correção da matrícula pelo perfil. Se eles estão aqui,');
+    console.log('  algum desses três caminhos não passou por este dado: reexecute a correção');
+    console.log('  da matrícula no perfil e rode o diagnóstico de novo.');
+  }
+  const ambiguos = porGaveta.get(GAVETAS.AMBIGUO) ?? [];
+  if (ambiguos.length) {
+    console.log(`\n  ${ambiguos.length} resultado(s) AMBÍGUOS. Nenhuma regra automática os toca —`);
+    console.log('  e nenhuma deve. Eles vão para conferência humana com as evidências acima.');
   }
 
   // ---- pontuação consolidada e por competidor
@@ -363,7 +528,15 @@ async function principal() {
       identidades: dados.identidades,
       resultados: dados.resultados,
       lancamentos: dados.lancamentos,
-      orfasComNomeCoincidente: dados.orfas
+      orfasComNomeCoincidente: dados.orfas,
+      classificacao: classificarTudo(dados).map(item => ({
+        resultadoId: item.resultado.id,
+        gaveta: item.gaveta,
+        porque: item.porque,
+        identidadeId: item.identidade?.id ?? null,
+        matricula: item.identidade?.affiliationNumber ?? null,
+        athleteId: item.resultado.athleteId ?? null
+      }))
     }, null, 2));
     return;
   }
@@ -376,4 +549,7 @@ if (require.main === module) {
     .finally(() => prisma.$disconnect());
 }
 
-module.exports = { normalizarMatricula, normalizarNome };
+module.exports = {
+  normalizarMatricula, normalizarNome,
+  GAVETAS, assinaturaDoResultado, classificarResultado, classificarTudo
+};
