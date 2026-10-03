@@ -85,15 +85,34 @@ const normalizarNome = nome => String(nome ?? '')
 const linha = (rotulo, valor) => console.log(`  ${String(rotulo).padEnd(34)} ${valor}`);
 const titulo = texto => console.log(`\n${texto}\n${'─'.repeat(texto.length)}`);
 
-async function diagnosticar({ matricula, filiacaoCodigo, actorId }) {
+async function diagnosticar({ matricula, filiacaoCodigo, actorId, organizacaoPedida }) {
   return withUserContext(actorId, async tx => {
+    // A ORGANIZAÇÃO NÃO MORA EM `User`. Ela vem dos vínculos
+    // (`OrganizationMember`), e um administrador de plataforma pode não ter
+    // vínculo nenhum. Por isso `--organizacao` existe: sem ele, o escopo sai
+    // do vínculo único do ator; com mais de um, o script PARA e pede, em vez
+    // de escolher um por conta própria e relatar a organização errada.
     const ator = await tx.user.findUnique({
       where: { id: actorId },
-      select: { id: true, organizationId: true, role: true }
+      select: { id: true, role: true, serviceOrganizationId: true,
+        memberships: { select: { organizationId: true, role: true } } }
     });
     if (!ator) throw new Error('Ator não encontrado, ou invisível sob a política de leitura.');
 
-    const escopo = { organizationId: ator.organizationId };
+    const candidatas = [...new Set([
+      ...(organizacaoPedida ? [organizacaoPedida] : []),
+      ...(ator.serviceOrganizationId ? [ator.serviceOrganizationId] : []),
+      ...ator.memberships.map(m => m.organizationId)
+    ])];
+    const organizationId = organizacaoPedida ?? candidatas[0] ?? null;
+    if (!organizationId) {
+      throw new Error('Sem organização: o ator não tem vínculo. Passe --organizacao <id>.');
+    }
+    if (!organizacaoPedida && candidatas.length > 1) {
+      throw new Error(`O ator tem ${candidatas.length} organizações. Passe --organizacao <id> para dizer qual.`);
+    }
+
+    const escopo = { organizationId };
 
     const filiacoes = await tx.affiliation.findMany({
       where: filiacaoCodigo
@@ -200,7 +219,7 @@ async function diagnosticar({ matricula, filiacaoCodigo, actorId }) {
       })).filter(i => nomesConhecidos.has(normalizarNome(i.displayName)))
       : [];
 
-    return { ator, matricula, filiacaoCodigo, nomeDaFiliacao, cadastros, identidades, resultados, lancamentos, orfas };
+    return { ator, organizationId, matricula, filiacaoCodigo, nomeDaFiliacao, cadastros, identidades, resultados, lancamentos, orfas };
   });
 }
 
@@ -218,7 +237,7 @@ function relatar(d) {
   }
 
   titulo(`MATRÍCULA ${d.matricula}${d.filiacaoCodigo ? ` · filiação ${d.filiacaoCodigo}` : ' · todas as filiações'}`);
-  linha('organização do ator', d.ator.organizationId);
+  linha('organização', d.organizationId);
   linha('cadastros encontrados', d.cadastros.length);
   linha('identidades esportivas', d.identidades.length);
   linha('resultados importados', d.resultados.length);
@@ -326,14 +345,15 @@ async function principal() {
   const matricula = normalizarMatricula(argumento('matricula'));
   const actorId = argumento('ator');
   const filiacaoCodigo = argumento('filiacao');
+  const organizacaoPedida = argumento('organizacao');
 
   if (!matricula || !actorId) {
-    console.error('Uso: node scripts/diagnostico-identidade-do-atleta.js --matricula <nº> --ator <userId> [--filiacao <CÓDIGO>] [--json]');
+    console.error('Uso: node scripts/diagnostico-identidade-do-atleta.js --matricula <nº> --ator <userId> [--organizacao <id>] [--filiacao <CÓDIGO>] [--json]');
     process.exitCode = 1;
     return;
   }
 
-  const dados = await diagnosticar({ matricula, filiacaoCodigo, actorId });
+  const dados = await diagnosticar({ matricula, filiacaoCodigo, actorId, organizacaoPedida });
 
   if (temBandeira('json')) {
     console.log(JSON.stringify({

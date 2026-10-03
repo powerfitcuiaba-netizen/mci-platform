@@ -350,3 +350,149 @@ describe('a causa real da separação: linha SEM matrícula', () => {
     expect(semMatricula[0].displayName).toBe('Lucas Lima');
   });
 });
+
+// ========================================================= o caso do Lucas
+describe('o caso real: resultados ANTES do cadastro', () => {
+  it('importa sob três grafias, cadastra depois pela matrícula, e o histórico vem junto', async () => {
+    // Esta é a ordem que acontece de verdade: o histórico dos campeonatos
+    // antigos entra primeiro, e o atleta se cadastra depois. Se a adoção não
+    // fosse automática pela matrícula, os pontos ficariam órfãos — que é
+    // exatamente o sintoma de "atleta partido em vários".
+    await importarEAplicar(csv([
+      `r1,,Lucas Lima,${filiacao.code},2932,MENS_BODYBUILDING,OPEN,2,80,Campeonato A`,
+      `r2,,Lucas de Lima,${filiacao.code},2932,MENS_BODYBUILDING,OPEN,1,100,Campeonato B`,
+      `r3,,LÚCAS GOUVÊIA LIMA,${filiacao.code},2932,MENS_BODYBUILDING,MASTER,3,60,Campeonato C`
+    ]));
+
+    // ANTES do cadastro: um competidor só, mas sem dono.
+    const antes = await competidoresDaMatricula('2932');
+    expect(antes.size).toBe(1);
+    expect([...antes][0]).toMatch(/^IDENT:/);
+
+    const athlete = await criarAtleta(gerente, organizationId, {
+      fullName: 'Lucas Gouveia Lima',
+      cpf: gerarCpf(606060606),
+      affiliationId: filiacao.id,
+      affiliationNumber: '2932'
+    });
+
+    // DEPOIS: o mesmo competidor, agora com dono — e NENHUM lançamento novo.
+    const identidade = await noLedger(tx => tx.externalAthlete.findFirst({
+      where: { organizationId, affiliationId: filiacao.id, affiliationNumber: '2932' },
+      select: { id: true, athleteId: true, displayName: true }
+    }));
+    expect(identidade.athleteId, 'a matrícula adotou o cadastro sozinha').toBe(athlete.id);
+
+    const pontos = await noLedger(tx => tx.rankingPoint.findMany({
+      where: { organizationId, externalAthleteId: identidade.id },
+      select: { athleteId: true, points: true }
+    }));
+    expect(pontos).toHaveLength(3);
+    expect(pontos.every(p => p.athleteId === athlete.id), 'todo ponto aponta para o cadastro').toBe(true);
+
+    // O nome exibido do CADASTRO é o canônico; as grafias da fonte ficam no
+    // histórico, sem decidir nada.
+    expect(athlete.fullName).toBe('Lucas Gouveia Lima');
+
+    const resultados = await noLedger(tx => tx.externalResult.findMany({
+      where: { organizationId, athleteId: athlete.id },
+      select: { eventName: true, placing: true, points: true }
+    }));
+    expect(resultados).toHaveLength(3);
+    expect(resultados.reduce((t, r) => t + r.points, 0)).toBe(80 + 100 + 60);
+  });
+
+  it('e o atleta de OUTRA matrícula não leva nada junto', async () => {
+    await importarEAplicar(csv([
+      `r1,,Lucas Lima,${filiacao.code},2932,MENS_BODYBUILDING,OPEN,2,80,Campeonato A`,
+      `r2,,Lucas Lima,${filiacao.code},9999,MENS_BODYBUILDING,OPEN,1,100,Campeonato B`
+    ]));
+    const athlete = await criarAtleta(gerente, organizationId, {
+      fullName: 'Lucas Lima', cpf: gerarCpf(707070707),
+      affiliationId: filiacao.id, affiliationNumber: '2932'
+    });
+    const minhas = await noLedger(tx => tx.externalResult.findMany({
+      where: { organizationId, athleteId: athlete.id },
+      select: { eventName: true }
+    }));
+    // Mesmo nome, matrícula diferente: o Campeonato B NÃO é dele.
+    expect(minhas.map(r => r.eventName)).toEqual(['Campeonato A']);
+  });
+});
+
+// ===================================================== ranking e fronteira
+describe('ranking e isolamento', () => {
+  it('o ranking NÃO duplica o atleta: uma linha, pontos somados', async () => {
+    await importarEAplicar(csv([
+      `r1,,Lucas Lima,${filiacao.code},2932,MENS_BODYBUILDING,OPEN,2,80,Campeonato A`,
+      `r2,,Lucas de Lima,${filiacao.code},2932,MENS_BODYBUILDING,OPEN,1,100,Campeonato B`
+    ]));
+    const athlete = await criarAtleta(gerente, organizationId, {
+      fullName: 'Lucas Gouveia Lima', cpf: gerarCpf(808080808),
+      affiliationId: filiacao.id, affiliationNumber: '2932'
+    });
+
+    const resposta = await api().get(`/api/v1/ranking?organizationId=${organizationId}&seasonId=${seasonId}`)
+      .set(gerente.auth());
+    expect(resposta.status, JSON.stringify(resposta.body)).toBe(200);
+
+    const linhas = resposta.body.items ?? resposta.body.data ?? resposta.body;
+    const minhas = (Array.isArray(linhas) ? linhas : [])
+      .filter(l => (l.athleteId ?? l.athlete?.id) === athlete.id);
+    expect(minhas.length, 'o atleta aparece UMA vez no ranking').toBe(1);
+    expect(minhas[0].points ?? minhas[0].totalPoints).toBe(180);
+  });
+
+  // ESTE TESTE SÓ MEDE ALGUMA COISA COM PAPEL SEM SUPERUSUÁRIO.
+  //
+  // Superusuário ignora RLS incondicionalmente, mesmo com FORCE. Num banco
+  // provisionado com o usuário de bootstrap, a asserção abaixo falha — e falha
+  // por causa do AMBIENTE, não do produto. Foi o que aconteceu aqui: a
+  // primeira execução acusou vazamento cross-tenant que não existe. A CI
+  // provisiona `mci_owner` NOSUPERUSER justamente para isto, e quem rodar
+  // localmente precisa fazer o mesmo (ver .github/workflows/ci.yml).
+  it('outra organização NÃO alcança a matrícula desta', async () => {
+    await importarEAplicar(csv([
+      `r1,,Lucas Lima,${filiacao.code},2932,MENS_BODYBUILDING,OPEN,1,100,Campeonato A`
+    ]));
+
+    const outroAdmin = await criarUsuario({ role: 'SUPER_ADMIN', name: 'Outro Admin' });
+    const outraOrg = await criarOrganizacao(outroAdmin, { name: 'Federação Vizinha' });
+    const intruso = await criarUsuario({ name: 'Gerente Vizinho' });
+    await vincular(outraOrg.id, intruso, 'RANKING_MANAGER');
+
+    // A matrícula 2932 existe — mas noutro tenant. Quem olha daqui não a vê.
+    const vistas = await comoAtor(intruso, tx => tx.externalAthlete.findMany({
+      where: { affiliationNumber: '2932' },
+      select: { id: true, organizationId: true }
+    }));
+    expect(vistas.filter(v => v.organizationId === organizationId)).toHaveLength(0);
+  });
+
+  it('cadastrar a MESMA matrícula noutra organização não rouba o histórico', async () => {
+    await importarEAplicar(csv([
+      `r1,,Lucas Lima,${filiacao.code},2932,MENS_BODYBUILDING,OPEN,1,100,Campeonato A`
+    ]));
+
+    const outroAdmin = await criarUsuario({ role: 'SUPER_ADMIN', name: 'Admin Vizinho' });
+    const outraOrg = await criarOrganizacao(outroAdmin, { name: 'Federação Vizinha 2' });
+    const vizinho = await criarUsuario({ name: 'Operador Vizinho' });
+    await vincular(outraOrg.id, vizinho, 'RANKING_MANAGER');
+    await vincular(outraOrg.id, vizinho, 'REGISTRATION_OPERATOR');
+    const filiacaoVizinha = (await api().post('/api/v1/affiliations').set(outroAdmin.auth())
+      .send({ organizationId: outraOrg.id, name: 'Fed Vizinha', code: 'FED-VZ' })).body;
+
+    await criarAtleta(vizinho, outraOrg.id, {
+      fullName: 'Lucas Lima', cpf: gerarCpf(909090909),
+      affiliationId: filiacaoVizinha.id, affiliationNumber: '2932'
+    });
+
+    // O histórico desta organização continua sem dono: o cadastro do vizinho
+    // tem a mesma matrícula, mas noutra filiação e noutro tenant.
+    const identidade = await noLedger(tx => tx.externalAthlete.findFirst({
+      where: { organizationId, affiliationId: filiacao.id, affiliationNumber: '2932' },
+      select: { athleteId: true }
+    }));
+    expect(identidade.athleteId).toBeNull();
+  });
+});
