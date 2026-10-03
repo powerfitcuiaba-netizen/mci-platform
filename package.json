@@ -41,7 +41,8 @@
     "qa:mutantes:motor": "node scripts/qa/mutantes-motor.mjs",
     "auditoria:categoria": "node scripts/backfill-categoria-do-lancamento.js",
     "qa:mutantes:atleta": "node scripts/qa/mutantes-atleta.mjs",
-    "qa:auditoria": "node scripts/qa/auditoria-demo.mjs"
+    "qa:auditoria": "node scripts/qa/auditoria-demo.mjs",
+    "qa:entrada": "node scripts/qa/tela-de-entrada.mjs"
   },
   "keywords": [],
   "author": "",

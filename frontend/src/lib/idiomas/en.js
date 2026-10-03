@@ -129,6 +129,25 @@ export default {
   'login.entrar': 'Sign in',
   'login.semConta': 'No account yet?',
   'login.criarConta': 'Create account',
+  'login.lembrarDeMim': 'Remember me',
+  'login.esqueciSenha': 'Forgot password',
+  'login.recuperarTitulo': 'Password recovery',
+  'login.recuperarComo': 'Resetting is handled by the federation, not by the system: contact your state organisation or the MCI head office and ask for your account password to be changed.',
+  'login.recuperarPorQue': 'This screen states what the system actually does. Automatic e-mail delivery does not exist here yet — promising a link that never arrives would be worse than promising nothing.',
+  'login.recuperarFechar': 'Close',
+  'login.chancela': 'Muscle Contest International',
+  'login.desde': 'Since 1988 · NPC Federation',
+  'login.tituloLinha1': 'Brazilian Championship',
+  'login.tituloLinha2': 'Muscle Contest',
+  'login.lema': 'Honour · Discipline · Legacy',
+
+  // Sponsor wall. The tier NAMES are not translated: Global, Diamante, Gold
+  // and Silver are the names sold under contract.
+  'patrocinio.parede': 'Official sponsors',
+  'patrocinio.global': 'Global Sponsors',
+  'patrocinio.diamante': 'Diamante',
+  'patrocinio.gold': 'Gold',
+  'patrocinio.silver': 'Silver · support and partners',
 
   // Busca global do topo.
   'busca.placeholder': 'Search athlete, event, profile, community…',

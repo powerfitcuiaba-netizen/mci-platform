@@ -2645,3 +2645,210 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
   height: 120px;
   margin-bottom: 12px;
 }
+
+/* ================================================= ENTRADA: A TELA DE LOGIN
+   A apresentação da entrada, e só isso: nada aqui decide autenticação,
+   autorização ou rota. O formulário continua o mesmo.
+
+   No desktop a tela é de duas colunas — marca e título à esquerda, cartão de
+   entrada à direita. Abaixo de 900px vira uma coluna, na ordem que importa no
+   telefone: logo, título, formulário, patrocinadores. A parede fica por último
+   em qualquer largura: ela é contexto, não é o que a pessoa veio fazer. */
+.auth-shell.auth-arena { display: block; place-items: unset; padding: 0; min-height: 100vh; }
+.auth-arena .arena-palco {
+  position: relative; z-index: 1;
+  display: grid; grid-template-columns: 1.05fr .95fr; gap: var(--e9);
+  align-items: center; max-width: 1240px; margin: 0 auto;
+  padding: var(--e9) var(--e6) var(--e8);
+}
+.auth-arena .arena-marca { display: grid; gap: var(--e5); }
+.auth-arena .arena-chancela { display: flex; align-items: center; gap: var(--e5); }
+.auth-arena .arena-chancela-txt { display: grid; gap: 3px; }
+.auth-arena .arena-chancela-txt b {
+  font: 700 13px/1.25 var(--fonte-corpo); letter-spacing: .22em; text-transform: uppercase;
+  color: var(--ouro);
+}
+.auth-arena .arena-chancela-txt span { color: var(--cinza-fraco); font-size: 12.5px; }
+.auth-arena .arena-titulo { display: grid; gap: var(--e3); }
+.auth-arena .arena-titulo .linha1 {
+  font-family: var(--fonte-display); font-weight: 400; letter-spacing: 1.5px;
+  font-size: clamp(26px, 3.4vw, 46px); line-height: 1; margin: 0; color: var(--branco);
+  text-wrap: balance;
+}
+.auth-arena .arena-titulo .linha2 {
+  font-family: var(--fonte-display); font-weight: 400; letter-spacing: 1.5px;
+  font-size: clamp(38px, 6vw, 78px); line-height: .95; margin: 0;
+  background: linear-gradient(104deg, #ffffff 18%, #ffd9da 52%, var(--vermelho-claro) 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  text-wrap: balance;
+}
+.auth-arena .arena-lema {
+  display: flex; align-items: center; gap: var(--e4);
+  font: 700 11px/1 var(--fonte-corpo); letter-spacing: .34em; text-transform: uppercase;
+  color: var(--ouro);
+}
+.auth-arena .arena-lema i { height: 1px; flex: 1; display: block; background: linear-gradient(90deg, var(--ouro-borda), transparent); }
+.auth-arena .arena-lema i:first-child { background: linear-gradient(270deg, var(--ouro-borda), transparent); }
+
+/* O cartão herda tudo de .auth-card; aqui ele só perde a centralização, porque
+   agora mora numa coluna. */
+.auth-arena .auth-card { width: min(100%, 440px); margin-inline: auto; }
+
+/* Brilho de uma passada só no título. Uma vez, na entrada — repetir em laço
+   transforma ênfase em distração. Só transform e opacity. */
+.auth-arena .arena-titulo .linha2 { position: relative; }
+.auth-arena .arena-titulo .linha2::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(104deg, transparent 38%, rgba(255,255,255,.55) 50%, transparent 62%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  opacity: 0; animation: lustro-do-titulo 1400ms ease-out 420ms 1;
+  pointer-events: none;
+}
+@keyframes lustro-do-titulo {
+  0%   { opacity: 0; transform: translate3d(-18%, 0, 0); }
+  35%  { opacity: 1; }
+  100% { opacity: 0; transform: translate3d(18%, 0, 0); }
+}
+
+/* ------------------------------------------------- parede de patrocínio */
+.parede-patro {
+  position: relative; z-index: 1;
+  border-top: 1px solid var(--linha);
+  background: linear-gradient(180deg, rgba(6,8,11,.55) 0, rgba(6,8,11,.92) 100%);
+  padding: var(--e7) 0 var(--e8);
+}
+.faixa-patro { max-width: 1240px; margin: 0 auto var(--e6); padding-inline: var(--e6); }
+.faixa-patro:last-child { margin-bottom: 0; }
+.faixa-patro-cab { display: flex; align-items: center; gap: var(--e3); margin-bottom: var(--e4); }
+.faixa-patro-cab span {
+  font: 700 10px/1 var(--fonte-corpo); letter-spacing: .3em; text-transform: uppercase;
+  color: var(--cor-tier); white-space: nowrap;
+}
+.faixa-patro-cab i { height: 1px; flex: 1; display: block; background: linear-gradient(90deg, var(--cor-tier), transparent); }
+
+/* A HIERARQUIA É A RAZÃO ENTRE AS CAIXAS, e nunca inverte. Os mesmos números
+   estão em lib/patrocinadores.js, que é o que os testes leem. */
+.t-global   { --cor-tier: var(--ouro);      --caixa-l: 244px; --caixa-a: 90px; }
+.t-diamante { --cor-tier: var(--ciano);     --caixa-l: 188px; --caixa-a: 69px; }
+.t-gold     { --cor-tier: #e0b24a;          --caixa-l: 146px; --caixa-a: 54px; }
+.t-silver   { --cor-tier: var(--cinza);     --caixa-l: 97px;  --caixa-a: 36px; }
+
+/* CAIXA IGUAL DENTRO DA FAIXA. Toda marca da mesma categoria ocupa o mesmo
+   retângulo; a arte encaixa dentro na própria proporção, sem esticar. */
+.patro {
+  width: var(--caixa-l); height: var(--caixa-a); flex: 0 0 auto;
+  display: grid; place-items: center;
+  transition: transform var(--t-medio, 240ms) var(--mola, ease);
+}
+/* O LIMITE É ABSOLUTO, NÃO PERCENTUAL. Com `max-height: 100%` a arte alta
+   estoura a caixa — medido: a Integralmedica saiu 244x124 numa caixa de
+   244x90, porque o percentual não resolveu contra a caixa. Em px sempre
+   resolve. Há um teste que reprova se isto voltar a ser percentual. */
+.patro img {
+  max-width: var(--caixa-l); max-height: var(--caixa-a);
+  width: auto; height: auto; display: block;
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,.6));
+}
+.patro:hover { transform: translate3d(0, -3px, 0); }
+
+/* A SILVER VAI SOBRE PASTILHA CLARA, e não é enfeite: duas das três marcas têm
+   tinta PRETA (o texto da Lipoxyderm, o contorno da Muscle Contest
+   International) e sumiriam no fundo escuro. A pastilha devolve o fundo que a
+   arte pressupõe SEM alterar um pixel do arquivo. */
+/* O recheio é APERTADO de propósito, e os mesmos números estão em
+   lib/patrocinadores.js. A pastilha entra na conta de hierarquia: com recheio
+   folgado o retângulo visível da Silver ficava MAIOR que o da Gold, e a ordem
+   das cotas invertia na tela — foi o gate no navegador que pegou. */
+.patro-pastilha {
+  width: calc(var(--caixa-l) + 14px); height: calc(var(--caixa-a) + 8px);
+  background: #eef2f6; border-radius: 8px; padding: 4px 7px;
+  box-shadow: 0 2px 10px rgba(0,0,0,.5), inset 0 1px 0 #fff;
+}
+.patro-pastilha img { filter: none; }
+
+.esteira {
+  overflow: hidden; width: 100%;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 7%, #000 93%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 7%, #000 93%, transparent 100%);
+}
+.esteira-trilho {
+  display: flex; width: max-content; will-change: transform;
+  animation: esteira-correr var(--dur, 30s) linear infinite;
+}
+.esteira-grupo { display: flex; align-items: center; gap: 56px; padding-right: 56px; }
+.esteira-grupo-diamante { gap: 44px; padding-right: 44px; }
+.esteira-grupo-gold     { gap: 36px; padding-right: 36px; }
+.esteira-grupo-silver   { gap: 30px; padding-right: 30px; }
+.esteira[data-sentido="direita"] .esteira-trilho { animation-direction: reverse; }
+
+/* O passo do ciclo é a largura de UMA cópia. Com isso a emenda cai em cima de
+   si mesma e não há salto visível no reinício. */
+@keyframes esteira-correr {
+  to { transform: translate3d(calc(-100% / var(--copias, 2)), 0, 0); }
+}
+/* Parar quando alguém quer olhar — com o cursor ou com o teclado. */
+.esteira:hover .esteira-trilho,
+.esteira:focus-within .esteira-trilho { animation-play-state: paused; }
+
+/* SEM MOVIMENTO a esteira vira lista estática. Uma parede de patrocínio não
+   pode depender de animação para ser vista: quem liga a preferência precisa
+   enxergar TODAS as marcas, não o trecho que calhou de estar na janela. */
+@media (prefers-reduced-motion: reduce) {
+  .esteira { overflow: visible; -webkit-mask-image: none; mask-image: none; }
+  .esteira-trilho { animation: none !important; flex-wrap: wrap; width: auto; justify-content: center; }
+  .esteira-grupo { flex-wrap: wrap; justify-content: center; gap: 24px 30px; padding-right: 0; }
+  .esteira-grupo[aria-hidden="true"] { display: none; }
+  .auth-arena .arena-titulo .linha2::after { animation: none; }
+  .patro { transition: none; }
+  .patro:hover { transform: none; }
+}
+
+/* ------------------------------------------------- uma coluna no telefone */
+@media (max-width: 899px) {
+  .auth-arena .arena-palco {
+    grid-template-columns: 1fr; gap: var(--e7);
+    padding: var(--e7) var(--e5) var(--e6);
+  }
+  .auth-arena .auth-card { margin-inline: 0; width: 100%; }
+}
+@media (max-width: 480px) {
+  .auth-arena .arena-palco { padding: var(--e6) var(--e4) var(--e5); }
+  .auth-arena .arena-chancela { gap: var(--e3); }
+  .parede-patro { padding: var(--e6) 0 var(--e7); }
+  .faixa-patro { padding-inline: var(--e4); margin-bottom: var(--e5); }
+  .esteira-grupo { gap: 34px; padding-right: 34px; }
+  /* As caixas encolhem JUNTAS: a razão entre as categorias é a mesma, e a
+     ordem de tamanho entre elas não inverte em largura nenhuma. */
+  .t-global   { --caixa-l: 190px; --caixa-a: 70px; }
+  .t-diamante { --caixa-l: 146px; --caixa-a: 54px; }
+  .t-gold     { --caixa-l: 114px; --caixa-a: 42px; }
+  .t-silver   { --caixa-l: 72px;  --caixa-a: 27px; }
+}
+
+/* ------------------------------------------------- lembrar de mim / senha */
+.auth-linha-apoio {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--e3); flex-wrap: wrap; margin: 0 0 var(--e5);
+}
+/* O alvo de toque é o RÓTULO INTEIRO, não a caixinha de 17px: no telefone
+   ninguém acerta 17px de propósito. */
+.auth-lembrar {
+  display: flex; align-items: center; gap: var(--e2);
+  min-height: 44px; cursor: pointer; font-size: 13px; color: var(--cinza);
+  user-select: none;
+}
+.auth-lembrar input { width: 17px; height: 17px; accent-color: var(--vermelho); cursor: pointer; }
+.auth-esqueci {
+  background: none; border: 0; padding: 0; min-height: 44px;
+  font: inherit; font-size: 13px; color: var(--ciano); cursor: pointer;
+  transition: color var(--t-rapido) ease;
+}
+.auth-esqueci:hover { color: var(--branco); }
+.auth-recuperar {
+  margin: 0 0 var(--e5); padding: var(--e4);
+  border: 1px solid var(--ouro-borda); border-radius: var(--raio-2);
+  background: var(--ouro-fundo); color: var(--cinza); font-size: 12.5px; line-height: 1.6;
+}
+.auth-recuperar b { color: var(--branco); }
+.auth-recuperar p { margin: 0 0 var(--e2); }
+.auth-recuperar p:last-child { margin: 0; }

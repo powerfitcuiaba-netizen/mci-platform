@@ -17,20 +17,60 @@ export const SESSAO_EXPIRADA = 'mci-sessao-expirada';
 // tela de entrada em que ele já está, apagando a mensagem do erro real.
 const ROTAS_DE_ENTRADA = ['/auth/login', '/auth/register'];
 
-export const getAuthToken = () => {
-  try {
-    return localStorage.getItem(AUTH_STORAGE_KEY);
-  } catch (error) {
-    return null;
-  }
+// ONDE O TOKEN FICA GUARDADO — E POR QUE AGORA HÁ ESCOLHA
+//
+// Até aqui o token ia SEMPRE para `localStorage`: todo mundo ficava lembrado,
+// quisesse ou não. Num computador compartilhado de academia isso é risco real,
+// e ninguém tinha escolhido. A caixa "Lembrar de mim" na entrada passa a
+// decidir:
+//
+//   marcada    -> localStorage,   sobrevive a fechar o navegador;
+//   desmarcada -> sessionStorage, acaba junto com a aba.
+//
+// O token mora em UM lugar só. Gravar num e deixar resto no outro criaria uma
+// sessão fantasma: a pessoa desmarca "lembrar", fecha o navegador, e continua
+// entrada por causa do que sobrou. Por isso toda escrita apaga o outro.
+//
+// Isto NÃO muda autenticação nem autorização: o token é o mesmo, a validade é
+// a do servidor, e quem decide permissão continua sendo o servidor.
+const cofres = () => {
+  const lista = [];
+  try { if (typeof sessionStorage !== 'undefined') lista.push(sessionStorage); } catch (error) { /* bloqueado */ }
+  try { if (typeof localStorage !== 'undefined') lista.push(localStorage); } catch (error) { /* bloqueado */ }
+  return lista;
 };
 
-export const setAuthToken = token => {
+export const getAuthToken = () => {
+  // A aba vence o navegador: quem entrou AGORA sem "lembrar" não deve herdar o
+  // token antigo de outra sessão que ficou gravado.
+  for (const cofre of cofres()) {
+    try {
+      const token = cofre.getItem(AUTH_STORAGE_KEY);
+      if (token) return token;
+    } catch (error) {
+      /* este cofre não responde; tenta o próximo */
+    }
+  }
+  return null;
+};
+
+/**
+ * Guarda (ou apaga) o token.
+ *
+ * `lembrar` ausente mantém o comportamento antigo — `localStorage` — porque
+ * cadastro e renovação de sessão não perguntam nada à pessoa, e mudar o padrão
+ * deles por tabela derrubaria quem já estava entrado.
+ */
+export const setAuthToken = (token, { lembrar = true } = {}) => {
+  for (const cofre of cofres()) {
+    try { cofre.removeItem(AUTH_STORAGE_KEY); } catch (error) { /* bloqueado */ }
+  }
+  if (!token) return;
   try {
-    if (token) localStorage.setItem(AUTH_STORAGE_KEY, token);
-    else localStorage.removeItem(AUTH_STORAGE_KEY);
+    const destino = lembrar ? localStorage : sessionStorage;
+    destino.setItem(AUTH_STORAGE_KEY, token);
   } catch (error) {
-    /* armazenamento indisponível: a sessão vale apenas para esta aba */
+    /* armazenamento indisponível: a sessão vale apenas enquanto a página viver */
   }
 };
 
