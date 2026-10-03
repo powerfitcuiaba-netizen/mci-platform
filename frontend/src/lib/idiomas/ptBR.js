@@ -129,6 +129,25 @@ export default {
   'login.entrar': 'Entrar',
   'login.semConta': 'Não tem conta?',
   'login.criarConta': 'Criar conta',
+  'login.lembrarDeMim': 'Lembrar de mim',
+  'login.esqueciSenha': 'Esqueci a senha',
+  'login.recuperarTitulo': 'Recuperação de senha',
+  'login.recuperarComo': 'A redefinição é feita pela federação, não pelo sistema: fale com a organização do seu estado ou com a central do MCI e peça a troca da senha da sua conta.',
+  'login.recuperarPorQue': 'Esta tela diz o que o sistema realmente faz. Envio automático de e-mail ainda não existe aqui — prometer um link que não chega seria pior do que não prometer.',
+  'login.recuperarFechar': 'Fechar',
+  'login.chancela': 'Muscle Contest International',
+  'login.desde': 'Desde 1988 · Federação NPC',
+  'login.tituloLinha1': 'Campeonato Brasileiro',
+  'login.tituloLinha2': 'Muscle Contest',
+  'login.lema': 'Honra · Disciplina · Legado',
+
+  // A parede de patrocínio. Os NOMES das cotas não se traduzem: Global,
+  // Diamante, Gold e Silver são os nomes vendidos em contrato.
+  'patrocinio.parede': 'Patrocinadores oficiais',
+  'patrocinio.global': 'Patrocinadores Global',
+  'patrocinio.diamante': 'Diamante',
+  'patrocinio.gold': 'Gold',
+  'patrocinio.silver': 'Silver · apoio e parceiros',
 
   // Busca global do topo.
   'busca.placeholder': 'Buscar atleta, evento, perfil, comunidade…',

@@ -129,6 +129,25 @@ export default {
   'login.entrar': 'Entrar',
   'login.semConta': '¿No tiene cuenta?',
   'login.criarConta': 'Crear cuenta',
+  'login.lembrarDeMim': 'Recordarme',
+  'login.esqueciSenha': 'Olvidé la contraseña',
+  'login.recuperarTitulo': 'Recuperación de contraseña',
+  'login.recuperarComo': 'El restablecimiento lo hace la federación, no el sistema: hable con la organización de su estado o con la central del MCI y pida el cambio de la contraseña de su cuenta.',
+  'login.recuperarPorQue': 'Esta pantalla dice lo que el sistema realmente hace. El envío automático por correo todavía no existe aquí — prometer un enlace que no llega sería peor que no prometer nada.',
+  'login.recuperarFechar': 'Cerrar',
+  'login.chancela': 'Muscle Contest International',
+  'login.desde': 'Desde 1988 · Federación NPC',
+  'login.tituloLinha1': 'Campeonato Brasileño',
+  'login.tituloLinha2': 'Muscle Contest',
+  'login.lema': 'Honor · Disciplina · Legado',
+
+  // Pared de patrocinio. Los NOMBRES de las cuotas no se traducen: Global,
+  // Diamante, Gold y Silver son los nombres vendidos por contrato.
+  'patrocinio.parede': 'Patrocinadores oficiales',
+  'patrocinio.global': 'Patrocinadores Global',
+  'patrocinio.diamante': 'Diamante',
+  'patrocinio.gold': 'Gold',
+  'patrocinio.silver': 'Silver · apoyo y socios',
 
   // Busca global do topo.
   'busca.placeholder': 'Buscar atleta, evento, perfil, comunidad…',

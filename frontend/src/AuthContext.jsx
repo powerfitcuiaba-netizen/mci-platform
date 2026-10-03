@@ -36,9 +36,12 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener(SESSAO_EXPIRADA, aoExpirar);
   }, []);
 
-  const login = async (payload) => {
+  // `lembrar` vem da caixa na tela de entrada e decide ONDE o token fica: no
+  // navegador (sobrevive a fechá-lo) ou só na aba. Nada mais muda — as
+  // credenciais, a rota e a validade do token são as mesmas.
+  const login = async ({ lembrar = true, ...payload }) => {
     const response = await api.auth.login(payload);
-    setAuthToken(response.token);
+    setAuthToken(response.token, { lembrar });
     setUser(response.user);
     return response.user;
   };
