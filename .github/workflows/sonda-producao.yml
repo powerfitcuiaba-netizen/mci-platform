@@ -540,6 +540,10 @@ jobs:
     needs: sondar
     runs-on: ubuntu-latest
     steps:
+      # O catálogo de patrocinadores é lido do repositório, e não copiado para
+      # dentro deste YAML: duas listas divergem, e a que envelhece é a do YAML.
+      - uses: actions/checkout@v4
+
       - name: Perguntar aos candidatos
         run: |
           for U in https://mci-platform-web.onrender.com https://mci-web.onrender.com; do
@@ -628,6 +632,62 @@ jobs:
           else
             echo "PASS — ${KB} kB, dentro do teto."
           fi
+
+      # ======================================================================
+      # AS ARTES DOS PATROCINADORES ESTÃO SENDO SERVIDAS?
+      #
+      # Elas não entram no pacote: são arquivos em `public/`, servidos pela
+      # raiz. Build verde e pacote do tamanho certo NÃO provam que chegaram —
+      # um erro de caminho, de maiúscula ou de regra de reescrita da SPA
+      # devolveria o index.html com HTTP 200 no lugar da imagem, e a parede
+      # apareceria vazia com tudo "no ar".
+      #
+      # Por isso o teste não é o código HTTP: é o TIPO e a ASSINATURA. PNG
+      # começa com os bytes 89 50 4E 47 ("\x89PNG"). Se vier HTML, o magic
+      # number não bate e o passo reprova.
+      #
+      # A lista sai do catálogo versionado, não de uma cópia escrita à mão
+      # aqui: duas listas divergem, e a que fica velha é sempre a do YAML.
+      - name: As 15 artes dos patrocinadores
+        run: |
+          U=https://mci-platform-web.onrender.com
+          ARQUIVOS="$(grep -oE "arquivo: '[^']+\.png'" frontend/src/lib/patrocinadores.js \
+                      | sed -E "s/arquivo: '([^']+)'/\1/")"
+          TOTAL="$(printf '%s\n' "$ARQUIVOS" | grep -c .)"
+          echo "catálogo: $TOTAL artes"
+          [ "$TOTAL" -gt 0 ] || { echo "::error::não li nenhuma arte do catálogo — o formato de lib/patrocinadores.js mudou?"; exit 1; }
+
+          OK=0; RUIM=0; BYTES_TOTAIS=0
+          for A in $ARQUIVOS; do
+            CODIGO="$(curl -sS -m 60 -o /tmp/arte.bin -w '%{http_code}' "$U/patrocinadores/$A" || echo 000)"
+            TAM="$(stat -c%s /tmp/arte.bin 2>/dev/null || echo 0)"
+            ASSINATURA="$(head -c 4 /tmp/arte.bin | od -An -tx1 | tr -d ' \n')"
+            if [ "$CODIGO" = "200" ] && [ "$ASSINATURA" = "89504e47" ]; then
+              OK=$((OK+1)); BYTES_TOTAIS=$((BYTES_TOTAIS+TAM))
+              printf '  %-34s HTTP %s  %6s bytes  PNG\n' "$A" "$CODIGO" "$TAM"
+            else
+              RUIM=$((RUIM+1))
+              printf '  %-34s HTTP %s  %6s bytes  NAO E PNG (%s)\n' "$A" "$CODIGO" "$TAM" "${ASSINATURA:-vazio}"
+            fi
+          done
+
+          KBT=$(( BYTES_TOTAIS / 1024 ))
+          {
+            echo
+            echo '## Artes dos patrocinadores'
+            echo
+            echo "| Medição | Valor |"
+            echo "|---|---|"
+            echo "| artes no catálogo | $TOTAL |"
+            echo "| servidas como PNG | $OK |"
+            echo "| peso somado | $BYTES_TOTAIS (${KBT} kB) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$RUIM" -gt 0 ]; then
+            echo "::error::$RUIM de $TOTAL artes não chegaram como PNG. A parede de patrocínio fica furada em produção."
+            exit 1
+          fi
+          echo "PASS — $OK de $TOTAL artes servidas como PNG, ${KBT} kB somados."
 
   # ==========================================================================
   # DEMO = 0 EM PRODUÇÃO — o que esta sonda PODE e o que NÃO PODE provar.
