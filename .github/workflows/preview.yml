@@ -299,6 +299,23 @@ jobs:
           echo "EMAIL_OPERADOR=$(grep -oE 'demo\.diretora\.[a-z0-9]+@mci\.local' /tmp/demo.log | head -1)" >> "$GITHUB_ENV"
           echo "EMAIL_ATLETA=$(grep -oE 'demo\.atleta\.[a-z0-9]+@mci\.local' /tmp/demo.log | head -1)" >> "$GITHUB_ENV"
 
+          # ------------------------------------------------------------------
+          # O CASO 2932, PARA TESTE HUMANO DA CONSOLIDAÇÃO POR MATRÍCULA.
+          #
+          # O conjunto de demonstração não contém este caso, e ele é o que a
+          # homologação da consolidação pede para ser conferido à mão: histórico
+          # importado ANTES do cadastro, três grafias do nome, uma matrícula.
+          # Sem isto no ar, quem abre o preview não tem o que testar.
+          #
+          # Dados FICTÍCIOS, como todo o resto deste ambiente: o preview é
+          # público e nada real entra nele.
+          # ------------------------------------------------------------------
+          DEMO_ADMIN_PASSWORD="$SENHA_ADMIN" node scripts/qa/semear-caso-2932.mjs \
+            --api "http://127.0.0.1:${PORTA_API}/api/v1" \
+            --admin-email semeadura.qa@mci.local | tee /tmp/caso-2932.log
+
+          grep -E '^CASO_2932_' /tmp/caso-2932.log >> "$GITHUB_ENV"
+
       # ---------------------------------------------- MÓDULO TREINADORES & EQUIPES
       #
       # Passo PRÓPRIO, e não uma linha dentro do demo: o cenário do módulo tem
@@ -554,6 +571,28 @@ jobs:
           | **Expira em** | ${EXPIRA_UTC} · ${EXPIRA_BR} (Brasília) |
           | **Verificação do cadastro** | ${{ steps.verificacao_cadastro.outcome }} |
           | **Execução** | ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} |
+
+          ## TESTE DA CONSOLIDAÇÃO POR MATRÍCULA — CASO 2932
+
+          Dados **fictícios**. O atleta nasce **sem filiação**, e o histórico dele
+          já está no ranking **sem dono**, repartido em três competidores chamados
+          "Lucas Lima".
+
+          **Abra o perfil:** ${URL_WEB}/#/admin/atletas/${CASO_2932_ATLETA_ID}
+
+          1. confira que diz **Sem entidade de filiação**, `Matrícula —`, `Pontos acumulados 0`;
+          2. **Editar cadastro** → **Entidade de filiação** = `${CASO_2932_FILIACAO}` → **Matrícula** = `2932` → **Salvar**;
+          3. recarregue a página.
+
+          **Esperado:** 3 resultados vinculados e **250 pontos** — 240 de colocação
+          (80 + 100 + 60) mais **10** de bônus de Overall. Nenhum lançamento novo.
+
+          **No ranking** (temporada `QA · Caso 2932`): **uma única linha** para a
+          filiação + 2932, com o nome do cadastro.
+
+          **NÃO deve acontecer:** a linha sem matrícula entrar; a matrícula 2932 da
+          outra federação entrar; o homônimo de matrícula `9999` receber nada.
+          Essas três continuam separadas de propósito.
 
           ## Credenciais de QA
 
