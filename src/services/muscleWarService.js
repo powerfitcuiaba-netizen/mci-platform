@@ -2395,9 +2395,47 @@ async function listImports(filtros, actor) {
 // ============================================================================
 const TETO_DA_VARREDURA_POR_NOME = 500;
 
+// A PROJEÇÃO DO HISTÓRICO IMPORTADO PASSA A LER O LEDGER, E NÃO SÓ O ARQUIVO.
+//
+// O DEFEITO, medido no caso real: a aba "Histórico importado" mostrava
+// "campeonato —" e "0 pontos" para uma participação que valia 15 pontos no
+// ranking, com 1 etapa e 1 Overall. Nada estava desvinculado — `athleteId`
+// estava preenchido, o lançamento existia e o agregado estava certo. A tela
+// mostrava OUTRA FONTE:
+//
+//   `ExternalResult.points`    é a COLUNA DE PONTOS DO ARQUIVO — `item.points
+//                              ?? 0`, com `@default(0)` no schema. Arquivo sem
+//                              coluna de pontos grava zero, legitimamente.
+//   `ExternalResult.eventName` é o TEXTO do arquivo. Vazio vira "—".
+//
+//   `RankingPoint.points`      é a pontuação OFICIAL: a tabela homologada
+//                              aplicada à colocação, mais o bônus de Overall.
+//   `RankingPoint.eventId`     é o evento, vindo do LOTE de importação —
+//                              `ExternalResult` não tem coluna de evento
+//                              nenhuma, só o nome digitado.
+//
+// Então a mesma participação tinha duas respostas, e a tela escolhia a do
+// arquivo embaixo do rótulo "Pontos". Isso não é dado faltando: é dado certo
+// no lugar errado.
+//
+// A relação `ExternalResult.rankingPoint` é 1:1 e JÁ EXISTE. Esta projeção
+// apenas a lê. NÃO há escrita, NÃO há recálculo, NÃO há criação de lançamento
+// e NÃO há migration: o número que aparece é o que o ledger já guardava.
+//
+// `rankingPoint` NULO é estado legítimo e precisa ser dizível: lote sem
+// temporada não gera lançamento, e o resultado existe sem pontuação oficial.
+// Nesse caso a resposta diz `officialPoints: null` em vez de inventar zero.
 const RESULTADO_IMPORTADO = Object.freeze({
   id: true, eventName: true, eventDate: true, categoryCode: true,
-  className: true, placing: true, points: true, seasonId: true, athleteId: true
+  className: true, placing: true, points: true, seasonId: true, athleteId: true,
+  rankingPoint: {
+    select: {
+      id: true, points: true, placementPoints: true, overallBonus: true,
+      adjustmentPoints: true, isOverallChampion: true, didNotShow: true,
+      voidedAt: true, athleteId: true,
+      event: { select: { id: true, name: true, slug: true } }
+    }
+  }
 });
 
 const identidadeParaTela = identidade => ({
@@ -2409,16 +2447,42 @@ const identidadeParaTela = identidade => ({
     : null,
   affiliationNumber: identidade.affiliationNumber ?? null,
   linkedAt: identidade.linkedAt ?? null,
-  results: (identidade.externalResults || []).map(resultado => ({
-    id: resultado.id,
-    eventName: resultado.eventName,
-    eventDate: resultado.eventDate,
-    categoryCode: resultado.categoryCode,
-    className: resultado.className,
-    placing: resultado.placing,
-    points: resultado.points,
-    seasonId: resultado.seasonId
-  }))
+  results: (identidade.externalResults || []).map(resultado => {
+    const lancamento = resultado.rankingPoint ?? null;
+    return {
+      id: resultado.id,
+      eventName: resultado.eventName,
+      eventDate: resultado.eventDate,
+      categoryCode: resultado.categoryCode,
+      className: resultado.className,
+      placing: resultado.placing,
+      // `points` CONTINUA SENDO O NÚMERO DO ARQUIVO, e não muda de significado.
+      //
+      // A tela de revisão legitimamente mostra o que a fonte declarou — é
+      // assim que o operador confere o arquivo contra a súmula. Trocar o
+      // sentido desta chave quebraria essa conferência e qualquer consumidor
+      // que já a lê. O que faltava era a OUTRA metade, abaixo.
+      points: resultado.points,
+      seasonId: resultado.seasonId,
+      // A PONTUAÇÃO OFICIAL, do ledger. `null` quando não há lançamento —
+      // nunca zero, porque zero é um valor e ausência é outra coisa.
+      officialPoints: lancamento ? lancamento.points : null,
+      placementPoints: lancamento ? lancamento.placementPoints : null,
+      overallBonus: lancamento ? lancamento.overallBonus : null,
+      adjustmentPoints: lancamento ? lancamento.adjustmentPoints : null,
+      isOverallChampion: lancamento ? lancamento.isOverallChampion : null,
+      didNotShow: lancamento ? lancamento.didNotShow : null,
+      // Lançamento invalidado não pontua, e a tela precisa poder dizer isso
+      // em vez de exibir um número que não conta para nada.
+      voided: lancamento ? Boolean(lancamento.voidedAt) : false,
+      // O EVENTO, pelo identificador que o ledger guarda — e não pelo nome
+      // digitado. Nulo quando o lote não declarou evento, caso legítimo.
+      event: lancamento?.event ?? null,
+      // Resultado sem lançamento nenhum: existe, não pontua, e a diferença
+      // entre "não pontua" e "pontua zero" é informação, não detalhe.
+      hasLedgerEntry: Boolean(lancamento)
+    };
+  })
 });
 
 async function historicoImportadoDoAtleta(athleteId, actor) {

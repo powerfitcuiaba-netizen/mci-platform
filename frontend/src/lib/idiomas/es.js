@@ -1404,6 +1404,9 @@ export default {
   'atleta.numeroDeFiliacao': 'Número de afiliación',
   'atleta.numeroDeFiliacaoDica': 'Este es el número de su afiliación. Junto con la entidad de afiliación, es lo que identifica oficialmente al atleta.',
   'atleta.numeroDeAtletaDica': 'El número de atleta es distinto del número de afiliación. La federación lo utiliza para la acreditación, el llamado a escena y las operaciones del evento.',
+  'atleta.pontosNaFonte': 'archivo: {n}',
+  'atleta.lancamentoInvalidado': 'asiento invalidado',
+  'atleta.semLancamento': 'sin asiento en el ranking',
 
   // MI REGISTRO. Donde el atleta completa lo que falta — y ve, sin poder
   // reescribirlo, lo que identifica oficialmente a la persona.

@@ -1407,6 +1407,9 @@ export default {
   'atleta.numeroDeFiliacao': 'Número de filiação',
   'atleta.numeroDeFiliacaoDica': 'Este é o número da sua filiação. Junto com a entidade de filiação, ele identifica oficialmente o atleta.',
   'atleta.numeroDeAtletaDica': 'Número de atleta é diferente do número de filiação. É utilizado pela federação para credenciamento, chamada de palco e operações do evento.',
+  'atleta.pontosNaFonte': 'arquivo: {n}',
+  'atleta.lancamentoInvalidado': 'lançamento invalidado',
+  'atleta.semLancamento': 'sem lançamento no ranking',
 
   // MEU CADASTRO. A tela onde o atleta completa o que falta — e vê, sem poder
   // reescrever, o que identifica oficialmente a pessoa.
