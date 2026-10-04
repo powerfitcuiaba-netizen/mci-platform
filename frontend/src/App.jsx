@@ -25,6 +25,7 @@ import Messenger from './pages/messengerPage';
 import { MeuPainel, MinhaConta } from './pages/mePages';
 import { MeuHistorico, MinhaFiliacao } from './pages/minhaCarreira';
 import MinhaSolicitacao from './pages/minhaSolicitacao';
+import MeuCadastro from './pages/meuCadastro';
 import MensagemDaFederacao from './components/mensagemDaFederacao';
 
 // ============================================================================
@@ -91,6 +92,10 @@ const NAVEGACAO_PRINCIPAL = [
   { rota: 'messenger', rotulo: 'Messenger', icone: MessageSquare, contador: 'mensagens' },
   { rota: 'comunidades', rotulo: 'Comunidades', icone: Users2 },
   { rota: 'meu-painel', rotulo: 'Meu painel', icone: UserCircle },
+  // MEU CADASTRO é item próprio, e não uma aba dentro do painel: é onde o
+  // atleta COMPLETA o que falta no cadastro dele. Quem tem campo em branco
+  // precisa encontrar o caminho sem procurar — e quem não tem passa reto.
+  { rota: 'meu-cadastro', rotulo: 'Meu cadastro', icone: PencilLine },
   // Duas telas, e não uma aba escondida dentro do painel: filiação e histórico
   // são as duas perguntas que o atleta faz sobre si mesmo, e as duas têm de
   // estar a um toque.
@@ -399,6 +404,7 @@ function Shell() {
       case 'notificacoes': return <Notificacoes />;
       case 'meu-painel': return <MeuPainel navegar={navegar} />;
       case 'minha-conta': return <MinhaConta notificar={notificar} />;
+      case 'meu-cadastro': return <MeuCadastro notificar={notificar} />;
       case 'minha-filiacao': return <MinhaFiliacao />;
       case 'meu-historico': return <MeuHistorico />;
       case 'minha-solicitacao': return <MinhaSolicitacao notificar={notificar} />;

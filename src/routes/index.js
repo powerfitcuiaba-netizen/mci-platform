@@ -115,6 +115,11 @@ router.get('/athlete-requests/me', requireAuth, wrap(c.athleteRequests.meus));
 // parâmetro capaz de apontar para outra pessoa. Ver src/services/meService.js.
 router.get('/me/affiliation', requireAuth, wrap(c.me.affiliation));
 router.get('/me/history', requireAuth, validate(s.meuHistoricoQuery, 'query'), wrap(c.me.history));
+// MEU CADASTRO — sem id no caminho, pela mesma razão das duas acima: uma rota
+// sem parâmetro de identidade não tem IDOR a defender. A ESCRITA continua sendo
+// `PATCH /athletes/:id`, que já recusa do dono os campos restritos — não se
+// abre porta de escrita nova para ganhar uma tela.
+router.get('/me/cadastro', requireAuth, wrap(c.me.cadastro));
 
 // A MENSAGEM DE ABERTURA, do lado de quem a recebe. Não tem `perm()`: o
 // escopo é o CADASTRO DE ATLETA do próprio usuário, que o serviço resolve —

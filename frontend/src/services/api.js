@@ -336,6 +336,11 @@ export const api = {
   me: {
     affiliation: () => get('/me/affiliation'),
     history: params => get('/me/history', params),
+    // MEU CADASTRO. Devolve o que o atleta pode editar separado do que ele
+    // apenas lê — filiação, número de filiação, número de atleta e CPF
+    // mascarado. A escrita continua sendo `athletes.update`, que é onde a
+    // regra de campo restrito mora: esta rota não escreve nada.
+    cadastro: () => get('/me/cadastro'),
     // Os recados da federação para este atleta. `deveExibir` vem pronto do
     // servidor: a regra de "uma vez só" não é recalculada aqui.
     notices: () => get('/me/notices'),

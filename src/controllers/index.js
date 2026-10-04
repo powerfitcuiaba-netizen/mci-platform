@@ -109,6 +109,7 @@ module.exports = {
   // Minha Filiação e Meu Histórico. `req.user` e nada mais: nenhum parâmetro
   // de cliente entra na identificação de quem está perguntando.
   me: {
+    cadastro: async (req, res) => res.json(await meService.cadastro(req.user)),
     affiliation: async (req, res) => res.json(await meService.affiliation(req.user)),
     history: async (req, res) => res.json(await meService.history(req.user, req.query)),
     // Os recados da federação para este atleta, e a marcação de leitura.
