@@ -280,6 +280,48 @@ async function update(id, data, actor) {
     organizationId: athlete.organizationId, metadata: { fields: Object.keys(payload) }
   });
 
+  // A MATRÍCULA CORRIGIDA AQUI TAMBÉM PRECISA ALCANÇAR O HISTÓRICO.
+  //
+  // O defeito que esta chamada conserta, medido antes de existir:
+  // `vincularPendentesDoAtleta` rodava na CRIAÇÃO do cadastro e na aprovação
+  // do autocadastro — e a EDIÇÃO não é nenhuma das duas. O caminho real que
+  // ficava quebrado:
+  //
+  //   1. o campeonato antigo é importado com a matrícula, e o resultado entra
+  //      no ledger sob a identidade `AFF:{filiação}:{matrícula}`, sem dono;
+  //   2. o atleta é cadastrado SEM filiação — ou com a matrícula digitada
+  //      errada, que é o caso comum;
+  //   3. o operador corrige a matrícula no perfil;
+  //   4. nada acontecia. O histórico seguia órfão, e a única saída era um
+  //      clique humano na tela de sugestões — o clique que a regra homologada
+  //      diz ser desnecessário quando a identidade é inequívoca.
+  //
+  // O passo 3 é EXATAMENTE o instante em que a pessoa passa a ser alcançável
+  // por filiação + matrícula. Reconhecer ali não é escolher: a decisão
+  // continua inteira dentro de `vincularPendentesDoAtleta`, com as mesmas
+  // recusas — CPF divergente, filiação divergente, matrícula com mais de um
+  // dono. Nome continua sem poder nenhum.
+  //
+  // SÓ QUANDO O PAR MUDOU, e nunca em toda edição: salvar o perfil trocando a
+  // cidade não tem por que varrer histórico. O par RESULTANTE é o que conta,
+  // pelo mesmo motivo que `assertMatriculaLivre` olha o resultante — editar só
+  // o número, mantendo a filiação, muda a chave do mesmo jeito.
+  //
+  // Fora de transação e com a falha engolida para o log, como na criação: se o
+  // vínculo falhar, a edição do cadastro continua válida e gravada, e a
+  // operação é idempotente — repetir não encontra mais nada para fazer.
+  const parMudou = atualizado.affiliationId !== athlete.affiliationId
+    || atualizado.affiliationNumber !== athlete.affiliationNumber;
+
+  if (parMudou && atualizado.affiliationId && atualizado.affiliationNumber) {
+    try {
+      await muscleWar.vincularPendentesDoAtleta(atualizado, actor);
+    } catch (erro) {
+      logger.error({ erro: erro.message, athleteId: id },
+        'matrícula atualizada, mas o vínculo de resultados pendentes falhou');
+    }
+  }
+
   return athleteFor(atualizado, actor, athlete.organizationId);
 }
 

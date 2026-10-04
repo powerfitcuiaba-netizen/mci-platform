@@ -782,18 +782,31 @@ describe('§8 concorrência: vinte aprovações, um vínculo', () => {
     expect(donos).toBe(2);
   }, 180_000);
 
-  it('sobre linha AINDA sem dono, exatamente uma das vinte chamadas vincula', async () => {
+  it('sobre linha AINDA sem dono, vinte EDIÇÕES simultâneas vinculam uma vez só', async () => {
     // O CAMINHO QUE AINDA PRODUZ "HISTÓRICO PENDENTE + ATLETA CADASTRADO".
     //
     // Com o cadastro vinculando sozinho, e a importação já reconhecendo por
     // CPF quem existe, a corrida por CPF deixou de ser alcançável — e provar
     // unicidade sobre um vínculo que já ocorreu não prova unicidade.
     //
-    // A EDIÇÃO não dispara o vínculo, e é onde o estado continua nascendo de
-    // verdade: o atleta é cadastrado sem filiação, o arquivo antigo não traz
-    // CPF, ninguém se alcança; semanas depois o operador registra a matrícula
-    // dele, e só então a chave existe. As vinte chamadas abaixo disputam
-    // linhas genuinamente sem dono.
+    // O estado continua nascendo na EDIÇÃO: o atleta é cadastrado sem filiação,
+    // o arquivo antigo não traz CPF, ninguém se alcança; semanas depois o
+    // operador registra a matrícula dele, e só então a chave existe.
+    //
+    // ESTE TESTE MUDOU DE PORTA, E O MOTIVO FICA ESCRITO.
+    //
+    // Antes, a edição era usada como TRUQUE DE MONTAGEM: ela não disparava o
+    // vínculo, então deixava linhas genuinamente sem dono para vinte chamadas
+    // manuais disputarem. Depois da fase de consolidação operacional, a edição
+    // é o vínculo — corrigir a matrícula no perfil reconhece o histórico na
+    // hora, porque esse é exatamente o instante em que a pessoa passa a ser
+    // alcançável por filiação + matrícula.
+    //
+    // O que o teste PROVA não mudou: concorrência sobre linha sem dono vincula
+    // UMA VEZ. O que mudou é que agora ele prova isso pela porta real, e não
+    // por uma chamada interna que o produto não expõe. É a mesma lição que o
+    // comentário de `linhasDe` já registra: mede-se o ESTADO FINAL, não o
+    // retorno de uma chamada específica.
     const importId = await historicoPendente([
       linha({ n: 1, classe: CLASSES[0], primeiro: 'CORRIDA', ultimo: 'POR MATRICULA', matricula: 'NPC-D1', cpf: '' })
     ]);
@@ -801,29 +814,29 @@ describe('§8 concorrência: vinte aprovações, um vínculo', () => {
     const atleta = await cadastrarPorOperador({ nome: 'CORRIDA POR MATRICULA', cpf: gerarCpf(303030303) });
     expect(await linhasDe(atleta.id), 'sem chave em comum, o cadastro não alcança nada').toBe(0);
 
-    const edicao = await api().patch(`/api/v1/athletes/${atleta.id}`).set(admin.auth())
-      .send({ affiliationId: npc.id, affiliationNumber: 'NPC-D1' });
-    expect(edicao.status, JSON.stringify(edicao.body).slice(0, 200)).toBe(200);
-    expect(await linhasDe(atleta.id), 'a edição não vincula por conta própria').toBe(0);
-
-    const comMatricula = { ...atleta, affiliationId: npc.id, affiliationNumber: 'NPC-D1' };
     const respostas = await Promise.allSettled(
-      Array.from({ length: 20 }, () => vincularComo(comMatricula))
+      Array.from({ length: 20 }, () => api().patch(`/api/v1/athletes/${atleta.id}`)
+        .set(admin.auth()).send({ affiliationId: npc.id, affiliationNumber: 'NPC-D1' }))
     );
 
     expect(respostas.filter(r => r.status === 'rejected')
       .map(f => String(f.reason?.message ?? f.reason)), 'corrida não pode virar exceção').toEqual([]);
+    const codigos = [...new Set(respostas.map(r => r.value?.status))];
+    expect(codigos, 'as vinte edições respondem 200').toEqual([200]);
 
-    const efetivos = respostas.filter(r => r.status === 'fulfilled').map(r => r.value.vinculados);
-    // EXATAMENTE UMA. Dezenove zeros não são falha silenciosa: são a repetição
-    // não tendo efeito.
-    expect(efetivos.filter(n => n > 0), 'uma só das vinte pode vincular').toHaveLength(1);
-    expect(efetivos.reduce((s, n) => s + n, 0)).toBe(1);
-
-    expect(await linhasDe(atleta.id)).toBe(1);
+    // O ESTADO FINAL: uma linha, um dono, nenhuma duplicata. Dezenove das vinte
+    // não tiveram efeito, e isso é o que idempotência significa.
+    expect(await linhasDe(atleta.id), 'uma linha e uma só ficou com este dono').toBe(1);
     const [item] = await itens(importId);
     expect(item.athleteId).toBe(atleta.id);
     expect(item.matchedBy).toBe('AFFILIATION_NUMBER');
+
+    // O LOTE AQUI ESTÁ PENDENTE, não aplicado: o ponto só nasce na aplicação.
+    // Medir lançamento neste ponto mediria a aplicação, não a corrida — e foi
+    // o que uma asserção minha errada fez, acusando zero como se fosse falha.
+    // O que a corrida tem de garantir é UM item com dono, e é o que se mede.
+    const comDono = (await itens(importId)).filter(i => i.athleteId).length;
+    expect(comDono, 'um item com dono, não vinte').toBe(1);
   }, 180_000);
 });
 
