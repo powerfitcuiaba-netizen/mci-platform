@@ -4,8 +4,14 @@ import {
   api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
   criarAtleta, gerarCpf
 } from './helpers.mjs';
-const require = createRequire('/home/user/mci-platform/');
-const { can, PERMISSIONS } = require('/home/user/mci-platform/src/utils/permissions.js');
+// CAMINHO RELATIVO AO PRÓPRIO ARQUIVO, e não absoluto.
+//
+// A primeira versão deste arquivo fixou `/home/user/mci-platform/` — o
+// diretório do contêiner em que ele foi escrito. Passou aqui e reprovou na CI
+// com MODULE_NOT_FOUND, porque lá o repositório é clonado em outro lugar. Um
+// gate que só roda numa máquina não é gate.
+const require = createRequire(import.meta.url);
+const { can, PERMISSIONS } = require('../src/utils/permissions.js');
 
 // ============================================================================
 // O 403 DO SUPER ADMIN NO HISTÓRICO IMPORTADO — MEDIDO, NÃO LIDO.
