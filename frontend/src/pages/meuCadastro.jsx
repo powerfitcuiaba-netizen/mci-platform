@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { IdCard, Lock } from 'lucide-react';
+import { IdCard, Image as ImageIcon, Lock } from 'lucide-react';
 import api from '../services/api';
 import { useFetch } from '../lib/hooks';
 import { AsyncSection, Badge, EmptyState, Field, PageHead } from '../components/ui';
@@ -70,7 +70,7 @@ const paraOServidor = form => {
   return payload;
 };
 
-export default function MeuCadastro({ notificar }) {
+export default function MeuCadastro({ notificar, navegar }) {
   const { t } = useIdioma();
   const estado = useFetch(() => api.me.cadastro(), []);
 
@@ -97,6 +97,7 @@ export default function MeuCadastro({ notificar }) {
             <>
               <IdentidadeEsportiva identidade={dados.identidade} organizacao={dados.organization} />
               <Complemento dados={dados} notificar={notificar} recarregar={estado.reload} />
+              <Foto navegar={navegar} />
             </>
           );
         }}
@@ -143,6 +144,26 @@ function IdentidadeEsportiva({ identidade, organizacao }) {
       <p className="hint" style={{ margin: '8px 0 0' }}>
         {t('meuCadastro.quemMuda', { organizacao: organizacao?.name || t('carreira.suaOrganizacao') })}
       </p>
+    </section>
+  );
+}
+
+// A FOTO NÃO É REFEITA AQUI.
+//
+// Ela já tem fluxo próprio, com normalização no aparelho, validação de MIME por
+// assinatura de bytes e remoção. Construir um segundo envio nesta tela criaria
+// duas fotos da mesma pessoa em dois lugares — e a pergunta "qual vale?" não
+// tem resposta boa. Então esta seção APONTA para o fluxo que existe.
+function Foto({ navegar }) {
+  const { t } = useIdioma();
+
+  return (
+    <section className="panel" style={{ marginTop: 18 }}>
+      <div className="panel-head"><h2>{t('meuCadastro.foto')}</h2></div>
+      <p className="hint" style={{ margin: '0 0 12px' }}>{t('meuCadastro.fotoDica')}</p>
+      <button type="button" className="button button-secondary" onClick={() => navegar?.('perfil')}>
+        <ImageIcon size={14} /> {t('meuCadastro.irParaAFoto')}
+      </button>
     </section>
   );
 }

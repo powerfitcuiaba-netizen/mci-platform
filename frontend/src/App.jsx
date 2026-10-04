@@ -404,7 +404,7 @@ function Shell() {
       case 'notificacoes': return <Notificacoes />;
       case 'meu-painel': return <MeuPainel navegar={navegar} />;
       case 'minha-conta': return <MinhaConta notificar={notificar} />;
-      case 'meu-cadastro': return <MeuCadastro notificar={notificar} />;
+      case 'meu-cadastro': return <MeuCadastro notificar={notificar} navegar={navegar} />;
       case 'minha-filiacao': return <MinhaFiliacao />;
       case 'meu-historico': return <MeuHistorico />;
       case 'minha-solicitacao': return <MinhaSolicitacao notificar={notificar} />;
