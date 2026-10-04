@@ -109,7 +109,7 @@ export function AdminAtletas({ navegar }) {
                     <tr>
                       <th>{t('atleta.nomeCompleto')}</th>
                       <th>{t('atleta.filiacao')}</th>
-                      <th>{t('atleta.matricula')}</th>
+                      <th>{t('atleta.numeroDeFiliacao')}</th>
                       <th>{t('atletas.situacao')}</th>
                       <th className="num" aria-label={t('atletas.abrir')} />
                     </tr>
@@ -127,7 +127,7 @@ export function AdminAtletas({ navegar }) {
                           </div>
                         </td>
                         <td data-rotulo={t('atleta.filiacao')}>{atleta.affiliation?.name || '—'}</td>
-                        <td data-rotulo={t('atleta.matricula')}>{atleta.affiliationNumber || '—'}</td>
+                        <td data-rotulo={t('atleta.numeroDeFiliacao')}>{atleta.affiliationNumber || '—'}</td>
                         <td data-rotulo={t('atletas.situacao')}>
                           <Badge tom={TOM[atleta.status] || 'neutro'}>{t(ROTULO[atleta.status] || 'atleta.estadoAtivo')}</Badge>
                         </td>

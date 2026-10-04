@@ -1,4 +1,5 @@
 const prisma = require('../config/prisma');
+const { maskCpf } = require('../utils/cpf');
 
 // ============================================================================
 // A SUPERFÍCIE DO PRÓPRIO ATLETA.
@@ -184,4 +185,101 @@ async function history(actor, filtros = {}) {
   };
 }
 
-module.exports = { affiliation, history };
+// ============================================================================
+// MEU CADASTRO — o complemento, do lado do atleta.
+//
+// POR QUE ESTA ROTA EXISTE, SE JÁ HÁ `GET /athletes/:id`
+//
+// Pelo mesmo motivo das outras duas deste arquivo: aqui não há id no caminho,
+// então não há IDOR a defender. A rota do operador continua existindo, com a
+// autorização dela; esta responde sobre QUEM PEDE e mais ninguém.
+//
+// O QUE ELA DEVOLVE, E O QUE ELA DELIBERADAMENTE SEPARA
+//
+// Dois blocos, e a separação é a mensagem:
+//
+//   `editaveis`  — o que o próprio atleta pode mudar. É exatamente o conjunto
+//                  que `athleteService.update` aceita do dono: o que ele
+//                  recusa aqui não aparece como campo, em vez de aparecer e
+//                  ser silenciosamente descartado no servidor.
+//
+//   `identidade` — filiação, número de filiação e número de atleta. SOMENTE
+//                  LEITURA. Não é omissão: é o atleta poder CONFERIR o que
+//                  identifica a carreira dele sem poder reescrever. Quem muda
+//                  é o operador da federação, e isso é regra de segurança
+//                  (`athleteService.js`, `camposRestritos`), não limitação de
+//                  tela.
+//
+// O CPF VEM MASCARADO, como em toda superfície que não é a revelação explícita
+// e auditada do operador.
+//
+// `faltando` é CONTAGEM REAL dos campos editáveis vazios — não é percentual
+// inventado. A tela mostra o que falta porque a lista é a verdade; um "70%"
+// sem conta por trás seria número bonito e mentiroso.
+// ============================================================================
+
+// Os campos que o DONO pode editar. Espelha `camposRestritos` de
+// `athleteService.update` pelo complemento: o que não está restrito, está aqui.
+// `cpf` fica fora porque `athleteUpdate` o remove (`omit`), e `sex` fica fora
+// porque é elegibilidade competitiva, não dado de contato.
+const CAMPOS_DO_ATLETA = Object.freeze([
+  'fullName', 'stageName', 'birthDate', 'city', 'state', 'phone', 'email'
+]);
+
+async function cadastro(actor) {
+  if (!actor?.id) return { athlete: null, editaveis: null, identidade: null, faltando: [] };
+
+  const athlete = await prisma.athlete.findUnique({
+    where: { userId: actor.id },
+    select: {
+      id: true, organizationId: true,
+      fullName: true, stageName: true, birthDate: true, sex: true,
+      city: true, state: true, phone: true, email: true,
+      athleteNumber: true, affiliationNumber: true,
+      organization: { select: { id: true, name: true, slug: true } },
+      affiliation: { select: { id: true, name: true, code: true } },
+      identity: { select: { cpf: true } }
+    }
+  });
+
+  // Conta sem perfil de atleta é resposta legítima, não erro — mesma razão de
+  // `affiliation`: quem ainda não foi aprovado tem conta e não tem cadastro.
+  if (!athlete) return { athlete: null, editaveis: null, identidade: null, faltando: [] };
+
+  const editaveis = {};
+  for (const campo of CAMPOS_DO_ATLETA) {
+    const valor = athlete[campo];
+    editaveis[campo] = campo === 'birthDate' && valor
+      ? new Date(valor).toISOString().slice(0, 10)
+      : (valor ?? null);
+  }
+
+  // Vazio é string em branco OU nulo: um campo preenchido com espaços não está
+  // preenchido, e fingir que está deixaria a pessoa sem saber o que falta.
+  const faltando = CAMPOS_DO_ATLETA.filter(campo => !String(editaveis[campo] ?? '').trim());
+
+  // O CPF vem de "AthleteIdentity", tabela com política de linha própria: o
+  // dono lê o seu, e quem não pode lê-lo recebe `identity` nulo do banco. Aqui
+  // ele sai SEMPRE mascarado, pelo mesmo mascarador do resto do sistema — esta
+  // tela é para a pessoa reconhecer o próprio cadastro, não para conferir o
+  // número dígito a dígito.
+  const cpf = athlete.identity?.cpf ?? null;
+
+  return {
+    athlete: { id: athlete.id, organizationId: athlete.organizationId },
+    organization: athlete.organization,
+    editaveis,
+    // SOMENTE LEITURA, e a tela diz isso em palavras.
+    identidade: {
+      affiliation: athlete.affiliation,
+      affiliationNumber: athlete.affiliationNumber ?? null,
+      athleteNumber: athlete.athleteNumber ?? null,
+      cpfMasked: cpf ? (maskCpf(cpf) || null) : null
+    },
+    campos: CAMPOS_DO_ATLETA,
+    faltando
+  };
+}
+
+module.exports = { affiliation, history, cadastro, CAMPOS_DO_ATLETA };
+

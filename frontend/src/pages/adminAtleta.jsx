@@ -93,7 +93,7 @@ export function AdminAtleta({ id, navegar, notificar }) {
                             reconstrói nem revela nada. */}
                         {atleta.cpfMasked || atleta.cpf || t('atleta.semCpf')}
                         {' · '}{atleta.affiliation?.name || t('atleta.semFiliacao')}
-                        {atleta.affiliationNumber ? ` · ${t('atleta.matricula')} ${atleta.affiliationNumber}` : ''}
+                        {atleta.affiliationNumber ? ` · ${t('atleta.numeroDeFiliacao')} ${atleta.affiliationNumber}` : ''}
                       </small>
                     </div>
                   </div>
@@ -174,7 +174,7 @@ function Resumo({ atleta, dados }) {
       <div className="panel-head"><h2>{t('atleta.abaResumo')}</h2></div>
       <dl className="definicoes">
         <Linha rotulo={t('atleta.filiacao')} valor={atleta.affiliation?.name} />
-        <Linha rotulo={t('atleta.matricula')} valor={atleta.affiliationNumber} />
+        <Linha rotulo={t('atleta.numeroDeFiliacao')} valor={atleta.affiliationNumber} />
         <Linha rotulo={t('atleta.equipe')} valor={atleta.team?.name} />
         <Linha rotulo={t('atleta.treinador')} valor={atleta.coach?.name} />
         <Linha rotulo={t('atleta.campeonatos')} valor={String((dados.registrations || []).length)} />
@@ -266,7 +266,7 @@ function Cadastro({ atleta }) {
         <div className="panel-head"><h2>{t('atleta.filiacao')}</h2></div>
         <dl className="definicoes">
           <Linha rotulo={t('atleta.entidade')} valor={atleta.affiliation?.name} />
-          <Linha rotulo={t('atleta.matricula')} valor={atleta.affiliationNumber} />
+          <Linha rotulo={t('atleta.numeroDeFiliacao')} valor={atleta.affiliationNumber} />
           <Linha rotulo={t('atleta.numeroDeAtleta')} valor={atleta.athleteNumber} />
         </dl>
       </section>
@@ -374,7 +374,7 @@ function IdentidadeImportada({ identidade, titulo, acao }) {
           <h2 style={{ margin: 0 }}>{identidade.displayName}</h2>
           <small style={{ color: 'var(--cinza-fraco)' }}>
             {identidade.affiliation?.name || t('atleta.semFiliacao')}
-            {identidade.affiliationNumber ? ` · ${t('atleta.matricula')} ${identidade.affiliationNumber}` : ''}
+            {identidade.affiliationNumber ? ` · ${t('atleta.numeroDeFiliacao')} ${identidade.affiliationNumber}` : ''}
             {' · '}{t('atleta.resultadosNoHistorico', { total: identidade.results.length })}
           </small>
         </div>
@@ -511,7 +511,7 @@ function DialogoDeVinculo({ atleta, identidade, notificar, onClose, onPronto }) 
           <dl className="definicoes">
             <Linha rotulo={t('atleta.nomeCompleto')} valor={atleta.fullName} />
             <Linha rotulo={t('atleta.entidade')} valor={atleta.affiliation?.name} />
-            <Linha rotulo={t('atleta.matricula')} valor={atleta.affiliationNumber} />
+            <Linha rotulo={t('atleta.numeroDeFiliacao')} valor={atleta.affiliationNumber} />
           </dl>
         </div>
         <div>
@@ -519,7 +519,7 @@ function DialogoDeVinculo({ atleta, identidade, notificar, onClose, onPronto }) 
           <dl className="definicoes">
             <Linha rotulo={t('atleta.nomeNaFonte')} valor={identidade.displayName} />
             <Linha rotulo={t('atleta.entidade')} valor={identidade.affiliation?.name} />
-            <Linha rotulo={t('atleta.matricula')} valor={identidade.affiliationNumber} />
+            <Linha rotulo={t('atleta.numeroDeFiliacao')} valor={identidade.affiliationNumber} />
           </dl>
         </div>
       </div>
@@ -597,6 +597,24 @@ function Pontuacao({ dados }) {
 // Só o que MUDOU é enviado, e campo esvaziado vai como `null`: o schema aceita
 // nulo e recusa string vazia, então mandar `''` transformaria "apaguei o
 // telefone" em erro de validação.
+// OS DOIS NÚMEROS, E POR QUE ELES NÃO SE COPIAM.
+//
+// `affiliationNumber` é o NÚMERO DE FILIAÇÃO — a metade do par que, junto com a
+// entidade, identifica oficialmente o atleta. `athleteNumber` é o número de uso
+// interno da federação: credenciamento, chamada de palco, operação do evento.
+//
+// Já se cogitou replicar um no outro para o operador digitar uma vez só. O
+// diagnóstico mostrou por que não: as unicidades são DIFERENTES.
+//
+//   affiliationNumber  único por (organização, FILIAÇÃO, número)
+//   athleteNumber      único por (organização, número) — sem a filiação
+//
+// Copiar faria `NPC + 2932` e `IFBB + 2932` colidirem em `athleteNumber`, e o
+// segundo atleta — legítimo, de outra federação — seria recusado com 409. Então
+// os dois seguem independentes, e a tela EXPLICA a diferença em vez de sugerir
+// que são a mesma coisa.
+//
+// O quarto item é a chave da dica, quando o campo precisa de uma.
 const CAMPOS_EDITAVEIS = Object.freeze([
   ['fullName', 'atleta.nomeCompleto', 'text'],
   ['stageName', 'atleta.nomeEsportivo', 'text'],
@@ -605,8 +623,8 @@ const CAMPOS_EDITAVEIS = Object.freeze([
   ['state', 'atleta.estadoUf', 'text'],
   ['phone', 'atleta.telefone', 'text'],
   ['email', 'atleta.email', 'email'],
-  ['affiliationNumber', 'atleta.matricula', 'text'],
-  ['athleteNumber', 'atleta.numeroDeAtleta', 'text']
+  ['affiliationNumber', 'atleta.numeroDeFiliacao', 'text', 'atleta.numeroDeFiliacaoDica'],
+  ['athleteNumber', 'atleta.numeroDeAtleta', 'text', 'atleta.numeroDeAtletaDica']
 ]);
 
 const paraFormulario = atleta => {
@@ -663,8 +681,8 @@ function DialogoDeEdicao({ atleta, notificar, onClose, onPronto }) {
           </div>
         )}
 
-        {CAMPOS_EDITAVEIS.map(([campo, rotulo, tipo]) => (
-          <Field key={campo} label={t(rotulo)} required={campo === 'fullName'}>
+        {CAMPOS_EDITAVEIS.map(([campo, rotulo, tipo, dica]) => (
+          <Field key={campo} label={t(rotulo)} hint={dica ? t(dica) : undefined} required={campo === 'fullName'}>
             <input
               type={tipo}
               value={form[campo]}
