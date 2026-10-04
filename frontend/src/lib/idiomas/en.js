@@ -1404,6 +1404,9 @@ export default {
   'atleta.numeroDeFiliacao': 'Affiliation number',
   'atleta.numeroDeFiliacaoDica': 'This is your affiliation number. Together with the affiliation body, it is what officially identifies the athlete.',
   'atleta.numeroDeAtletaDica': 'The athlete number is not the affiliation number. The federation uses it for accreditation, stage call and event operations.',
+  'atleta.pontosNaFonte': 'file: {n}',
+  'atleta.lancamentoInvalidado': 'entry voided',
+  'atleta.semLancamento': 'no ranking entry',
 
   // MY REGISTRATION. Where the athlete completes what is missing — and sees,
   // without being able to rewrite it, what officially identifies the person.

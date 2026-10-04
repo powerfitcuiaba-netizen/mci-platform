@@ -43,10 +43,18 @@ const perfil = () => ({
   registrations: [], proHistory: [], results: [], rankings: []
 });
 
+// O FIXTURE CARREGA O QUE O SERVIDOR PASSA A MANDAR.
+//
+// `points` continua sendo o número do ARQUIVO; `officialPoints` é o do ledger,
+// e `event` é o evento do lançamento. Um mock que só tivesse os campos antigos
+// deixaria a tela nova passar sem nunca exercitar o caminho novo.
 const resultado = (extra = {}) => ({
   id: 'r1', eventName: 'Etapa Ipiranga', eventDate: '2026-09-12T00:00:00.000Z',
   categoryCode: 'BIKINI', className: "Women's Bikini - Open Class A",
-  placing: 1, points: 5, seasonId: 's1', ...extra
+  placing: 1, points: 5, seasonId: 's1',
+  officialPoints: 5, placementPoints: 5, overallBonus: 0, adjustmentPoints: 0,
+  isOverallChampion: false, didNotShow: false, voided: false,
+  event: null, hasLedgerEntry: true, ...extra
 });
 
 const identidade = (extra = {}) => ({
@@ -113,6 +121,80 @@ describe('a força da pista vem do servidor e aparece na tela', () => {
   it('o aviso de homônimos aparece na lista quando o servidor o manda', async () => {
     await abrirAba(historico({ suggestions: [identidade({ homonimos: true })] }));
     expect(screen.getAllByText('Homônimos').length).toBeGreaterThan(0);
+  });
+});
+
+// ==========================================================================
+// A COLUNA DE PONTOS MOSTRA O LEDGER, E O CAMPEONATO VEM DO LANÇAMENTO.
+//
+// O DEFEITO que estes testes trancam foi observado no caso real: a tela dizia
+// "campeonato —" e "0 pontos" numa participação que valia 15 pontos no
+// ranking. Nada estava desvinculado — a tela lia a COLUNA DO ARQUIVO
+// (`points`, com default 0) em vez da pontuação oficial (`officialPoints`), e
+// o nome digitado (`eventName`) em vez do evento do lançamento (`event`).
+//
+// Aqui a prova é pela TELA, com a resposta do servidor como ela é hoje.
+// ==========================================================================
+describe('a coluna de pontos diz a pontuação oficial, não a do arquivo', () => {
+  const abrirComResultados = async results => {
+    await abrirAba(historico({ suggestions: [identidade({ results })] }));
+    fireEvent.click(screen.getByRole('button', { name: /Vincular a este atleta/i }));
+    return screen.findByRole('dialog');
+  };
+
+  it('arquivo sem pontos e ledger com 15: a tela mostra 15, não 0', async () => {
+    const dialogo = await abrirComResultados([resultado({
+      points: 0, officialPoints: 15, hasLedgerEntry: true,
+      placementPoints: 5, overallBonus: 10, isOverallChampion: true
+    })]);
+
+    expect(within(dialogo).getByText('15')).toBeTruthy();
+    // E o número do arquivo não desaparece: ele é dito como o que é.
+    expect(within(dialogo).getByText('arquivo: 0')).toBeTruthy();
+  });
+
+  it('o campeonato vem do lançamento, e vence o nome digitado no arquivo', async () => {
+    const dialogo = await abrirComResultados([resultado({
+      eventName: 'texto digitado no arquivo',
+      event: { id: 'e1', name: 'Campeonato Razor', slug: 'razor' },
+      officialPoints: 15, hasLedgerEntry: true
+    })]);
+
+    expect(within(dialogo).getByText('Campeonato Razor')).toBeTruthy();
+    expect(within(dialogo).queryByText('texto digitado no arquivo')).toBeNull();
+  });
+
+  it('sem evento no lançamento, o nome do arquivo ainda serve', async () => {
+    const dialogo = await abrirComResultados([resultado({
+      eventName: 'Etapa Ipiranga', event: null, officialPoints: 5, hasLedgerEntry: true
+    })]);
+
+    expect(within(dialogo).getByText('Etapa Ipiranga')).toBeTruthy();
+  });
+
+  it('sem lançamento no ranking, a tela DIZ isso em vez de exibir zero calado', async () => {
+    const dialogo = await abrirComResultados([resultado({
+      points: 0, officialPoints: null, hasLedgerEntry: false
+    })]);
+
+    expect(within(dialogo).getByText('sem lançamento no ranking')).toBeTruthy();
+  });
+
+  it('lançamento invalidado é marcado, para ninguém somar o que não conta', async () => {
+    const dialogo = await abrirComResultados([resultado({
+      officialPoints: 5, hasLedgerEntry: true, voided: true
+    })]);
+
+    expect(within(dialogo).getByText('lançamento invalidado')).toBeTruthy();
+  });
+
+  it('pontos iguais nos dois lados não poluem a célula com a repetição', async () => {
+    const dialogo = await abrirComResultados([resultado({
+      points: 5, officialPoints: 5, hasLedgerEntry: true
+    })]);
+
+    expect(within(dialogo).getByText('5')).toBeTruthy();
+    expect(within(dialogo).queryByText('arquivo: 5')).toBeNull();
   });
 });
 

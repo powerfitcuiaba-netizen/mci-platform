@@ -349,15 +349,44 @@ function ResultadosImportados({ resultados }) {
           </tr>
         </thead>
         <tbody>
-          {resultados.map(linha => (
-            <tr key={linha.id}>
-              <td data-rotulo={t('atleta.campeonato')}>{linha.eventName || '—'}</td>
-              <td data-rotulo={t('atleta.categoria')}>{linha.categoryCode || '—'}</td>
-              <td data-rotulo={t('atleta.classe')}>{linha.className || '—'}</td>
-              <td className="num" data-rotulo={t('atleta.colocacao')}>{linha.placing != null ? `${linha.placing}º` : '—'}</td>
-              <td className="num" data-rotulo={t('atleta.pontos')}>{linha.points}</td>
-            </tr>
-          ))}
+          {resultados.map(linha => {
+            // O CAMPEONATO VEM DO LEDGER PRIMEIRO, do arquivo depois.
+            //
+            // `linha.event` é o evento que o lançamento aponta — identificador
+            // oficial. `linha.eventName` é o texto digitado no arquivo, que
+            // continua servindo quando o lote não declarou evento. Só quando
+            // não há nenhum dos dois a célula fica vazia, e aí "—" é verdade.
+            const campeonato = linha.event?.name || linha.eventName || '—';
+
+            // A PONTUAÇÃO OFICIAL MANDA. `officialPoints` nulo significa que
+            // não existe lançamento — e aí o número do arquivo é o único dado
+            // que há, mostrado como tal.
+            const temOficial = linha.officialPoints != null;
+            const pontos = temOficial ? linha.officialPoints : linha.points;
+            // Os dois divergirem é o caso COMUM, não o erro: o arquivo pode
+            // não ter coluna de pontos, e a tabela homologada é que vale. Dizer
+            // os dois números é o que permite conferir arquivo contra regra.
+            const divergente = temOficial && linha.officialPoints !== linha.points;
+
+            return (
+              <tr key={linha.id}>
+                <td data-rotulo={t('atleta.campeonato')}>{campeonato}</td>
+                <td data-rotulo={t('atleta.categoria')}>{linha.categoryCode || '—'}</td>
+                <td data-rotulo={t('atleta.classe')}>{linha.className || '—'}</td>
+                <td className="num" data-rotulo={t('atleta.colocacao')}>{linha.placing != null ? `${linha.placing}º` : '—'}</td>
+                <td className="num" data-rotulo={t('atleta.pontos')}>
+                  {pontos}
+                  {linha.voided && <small style={{ display: 'block' }}>{t('atleta.lancamentoInvalidado')}</small>}
+                  {!linha.voided && divergente && (
+                    <small style={{ display: 'block' }}>{t('atleta.pontosNaFonte', { n: linha.points })}</small>
+                  )}
+                  {linha.hasLedgerEntry === false && (
+                    <small style={{ display: 'block' }}>{t('atleta.semLancamento')}</small>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
