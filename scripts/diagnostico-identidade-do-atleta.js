@@ -46,6 +46,7 @@
  */
 const prisma = require('../src/config/prisma');
 const { withUserContext } = require('../src/config/rlsSession');
+const { resolverAtor, listarOperadores } = require('./lib/ator');
 
 const argumento = (nome, padrao = null) => {
   const i = process.argv.indexOf(`--${nome}`);
@@ -578,15 +579,55 @@ function relatar(d) {
 }
 
 async function principal() {
+  // A LISTA, para quem não sabe qual conta usar. Vem antes de tudo porque é a
+  // pergunta anterior a qualquer diagnóstico: "com qual conta eu rodo isto?".
+  if (temBandeira('listar-operadores')) {
+    const contas = await listarOperadores();
+    titulo(`CONTAS QUE PODEM SER O ATOR — ${contas.length}`);
+    for (const c of contas) {
+      const orgs = c.memberships.map(m => `${m.organization.name} (${m.role})`).join(', ') || 'sem vínculo';
+      console.log(`\n  ${c.email}`);
+      linha('  nome', c.name ?? '—');
+      linha('  papel', c.role);
+      linha('  organizações', orgs);
+    }
+    console.log('\n  Use o e-mail: --email <o seu>. Esta lista tem dado pessoal de operadores;');
+    console.log('  é para o seu terminal, não para colar em lugar público.\n');
+    return;
+  }
+
   const matricula = normalizarMatricula(argumento('matricula'));
-  const actorId = argumento('ator');
   const filiacaoCodigo = argumento('filiacao');
   const organizacaoPedida = argumento('organizacao');
 
-  if (!matricula || !actorId) {
-    console.error('Uso: node scripts/diagnostico-identidade-do-atleta.js --matricula <nº> --ator <userId> [--organizacao <id>] [--filiacao <CÓDIGO>] [--json]');
+  if (!matricula) {
+    console.error('Informe a matrícula: --matricula <nº>');
+    console.error('Uso: node scripts/diagnostico-identidade-do-atleta.js --matricula <nº> --email <seu e-mail> [--organizacao <id>] [--filiacao <CÓDIGO>] [--json]');
     process.exitCode = 1;
     return;
+  }
+
+  // O ATOR, por E-MAIL ou por identificador. O e-mail é o caminho normal: é o
+  // mesmo com que se entra no MCI, e a interface não mostra o UUID. Daqui para
+  // frente as POLÍTICAS mandam — este script alimenta o RLS, não o contorna.
+  let ator;
+  try {
+    ator = await resolverAtor({ ator: argumento('ator'), email: argumento('email') });
+  } catch (erro) {
+    console.error(`\n  ${erro.message}\n`);
+    console.error('  Uso: node scripts/diagnostico-identidade-do-atleta.js --matricula <nº> --email <seu e-mail> [--filiacao NPC] [--json]');
+    console.error('  Não lembra qual conta usar? node scripts/diagnostico-identidade-do-atleta.js --listar-operadores\n');
+    process.exitCode = 2;
+    return;
+  }
+  const actorId = ator.id;
+
+  if (!temBandeira('json')) {
+    titulo('ATOR DO DIAGNÓSTICO');
+    linha('conta', ator.email);
+    linha('nome', ator.name ?? '—');
+    linha('papel', ator.role);
+    console.log('  As políticas de linha valem para ESTA conta: o que ela não enxerga, não sai aqui.');
   }
 
   const dados = await diagnosticar({ matricula, filiacaoCodigo, actorId, organizacaoPedida });

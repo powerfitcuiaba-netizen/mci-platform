@@ -63,6 +63,7 @@
  */
 const prisma = require('../src/config/prisma');
 const { withUserContext } = require('../src/config/rlsSession');
+const { resolverAtor, listarOperadores } = require('./lib/ator');
 
 const argumento = (nome, padrao = null) => {
   const i = process.argv.indexOf(`--${nome}`);
@@ -176,13 +177,33 @@ async function diagnosticar({ actorId, organizacaoPedida, filiacaoCodigo }) {
 }
 
 async function principal() {
-  const actorId = argumento('ator');
-  if (!actorId) {
-    console.error('PRECISO DO USER_ID DO OPERADOR PARA EXECUTAR O DIAGNÓSTICO COM RLS.');
-    console.error('Uso: node scripts/diagnostico-historico-por-filiacao.js --ator <userId> [--organizacao <id>] [--filiacao NPC] [--json]');
+  if (temBandeira('listar-operadores')) {
+    const contas = await listarOperadores();
+    titulo(`CONTAS QUE PODEM SER O ATOR — ${contas.length}`);
+    for (const c of contas) {
+      const orgs = c.memberships.map(m => `${m.organization.name} (${m.role})`).join(', ') || 'sem vínculo';
+      console.log(`\n  ${c.email}`);
+      linha('  nome', c.name ?? '—');
+      linha('  papel', c.role);
+      linha('  organizações', orgs);
+    }
+    console.log('\n  Use o e-mail: --email <o seu>.\n');
+    return;
+  }
+
+  // O ator por e-mail, pelo mesmo motivo do outro diagnóstico: a interface não
+  // mostra o UUID, e caçá-lo na mão transforma investigação em obstáculo.
+  let ator;
+  try {
+    ator = await resolverAtor({ ator: argumento('ator'), email: argumento('email') });
+  } catch (erro) {
+    console.error(`\n  ${erro.message}\n`);
+    console.error('  Uso: node scripts/diagnostico-historico-por-filiacao.js --email <seu e-mail> [--filiacao NPC] [--json]');
+    console.error('  Não lembra qual conta usar? node scripts/diagnostico-historico-por-filiacao.js --listar-operadores\n');
     process.exitCode = 2;
     return;
   }
+  const actorId = ator.id;
 
   const relatorio = await diagnosticar({
     actorId,
