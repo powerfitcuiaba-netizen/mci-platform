@@ -46,6 +46,7 @@
  */
 const prisma = require('../src/config/prisma');
 const { withUserContext } = require('../src/config/rlsSession');
+const { resolverAtor, listarOperadores } = require('./lib/ator');
 
 const argumento = (nome, padrao = null) => {
   const i = process.argv.indexOf(`--${nome}`);
@@ -154,6 +155,39 @@ async function diagnosticar({ matricula, filiacaoCodigo, actorId, organizacaoPed
       orderBy: { createdAt: 'asc' }
     });
 
+    // -------------------------------- AS LINHAS DO ARQUIVO, pelo NÚMERO CRU
+    //
+    // POR QUE ESTA CONSULTA EXISTE, e por que ela não podia faltar
+    //
+    // Tudo acima procura por `affiliationNumber` em `ExternalAthlete` e em
+    // `Athlete`. Isso só encontra quem JÁ TEM identidade formada — e o caso que
+    // mais importa é exatamente o contrário: a linha cujo número o sistema
+    // leu, mas cuja identidade saiu `EXT:` porque a filiação faltou. Nessa
+    // linha, `ExternalAthlete.affiliationNumber` é NULO, e as consultas de cima
+    // devolvem vazio.
+    //
+    // O resultado era um diagnóstico que dizia "nenhum resultado alcançável por
+    // este identificador" para um atleta que TEM resultado — só que órfão. Um
+    // relatório que não distingue "não existe" de "existe e eu não alcanço"
+    // não serve para investigar nada.
+    //
+    // `MuscleWarImportItem` guarda o que o ARQUIVO disse: `memberNumber`,
+    // `affiliationCode`, `matchStatus`, `matchedBy` e `reason` — o motivo
+    // escrito pelo próprio sistema no momento em que decidiu vincular ou não.
+    // E guarda `raw`, a linha inteira como veio. É aqui que a resposta mora.
+    const linhasDoArquivo = await tx.muscleWarImportItem.findMany({
+      where: { memberNumber: matricula, import: { organizationId } },
+      select: {
+        id: true, rowNumber: true, externalResultId: true,
+        athleteName: true, affiliationCode: true, memberNumber: true,
+        categoryCode: true, className: true, placing: true, isOverallChampion: true,
+        matchStatus: true, matchedBy: true, reason: true,
+        athleteId: true, suggestedAthleteId: true, linkedAt: true, raw: true,
+        import: { select: { id: true, sourceRef: true, status: true, eventId: true, createdAt: true } }
+      },
+      orderBy: [{ createdAt: 'asc' }, { rowNumber: 'asc' }]
+    });
+
     // ------------------------------------------------------- resultados
     const idsDeIdentidade = identidades.map(i => i.id);
     const idsDeCadastro = cadastros.map(c => c.id);
@@ -219,7 +253,7 @@ async function diagnosticar({ matricula, filiacaoCodigo, actorId, organizacaoPed
       })).filter(i => nomesConhecidos.has(normalizarNome(i.displayName)))
       : [];
 
-    return { ator, organizationId, matricula, filiacaoCodigo, nomeDaFiliacao, cadastros, identidades, resultados, lancamentos, orfas };
+    return { ator, organizationId, matricula, filiacaoCodigo, nomeDaFiliacao, cadastros, identidades, resultados, lancamentos, orfas, linhasDoArquivo };
   });
 }
 
@@ -402,6 +436,44 @@ function relatar(d) {
   }
 
   // ---- histórico, evento a evento, COM TODOS OS CAMPOS PEDIDOS
+  // ==========================================================================
+  // A LINHA DO ARQUIVO — o que a origem disse, e o que o sistema decidiu.
+  //
+  // Esta seção vem ANTES do histórico de propósito: ela encontra a linha pelo
+  // NÚMERO CRU, sem depender de identidade formada. É a única que enxerga o
+  // resultado cuja identidade saiu `EXT:` — e é justamente esse que não
+  // aparece no perfil do atleta e que se quer investigar.
+  //
+  // `motivo` é o texto que o PRÓPRIO sistema escreveu quando analisou a linha.
+  // Não é dedução deste relatório: é o registro da decisão.
+  // ==========================================================================
+  titulo(`A LINHA DO ARQUIVO — ${d.linhasDoArquivo.length} com o número ${d.matricula}`);
+  if (!d.linhasDoArquivo.length) {
+    console.log('  (nenhuma linha de importação trouxe este número — o arquivo não o informou,');
+    console.log('   ou o parser não leu a coluna. Confira `raw` de um lote do mesmo evento.)');
+  }
+  for (const l of d.linhasDoArquivo) {
+    console.log(`\n  lote ${l.import.sourceRef} · linha ${l.rowNumber} · ${l.import.status}`);
+    linha('  nome no arquivo', l.athleteName ?? '—');
+    linha('  entidade lida', l.affiliationCode ?? '(AUSENTE — é isto que quebra a identidade)');
+    linha('  número lido', l.memberNumber ?? '—');
+    linha('  categoria / classe', `${l.categoryCode ?? '—'} / ${l.className ?? '—'}`);
+    linha('  colocação', l.placing != null ? `${l.placing}º` : '—');
+    linha('  Overall no arquivo', l.isOverallChampion ? 'SIM' : 'não');
+    linha('  situação', l.matchStatus);
+    linha('  reconhecido por', l.matchedBy ?? '(nenhuma chave reconheceu)');
+    linha('  MOTIVO REGISTRADO', l.reason ?? '—');
+    linha('  atleta vinculado', l.athleteId ?? '(nenhum)');
+    linha('  sugestão por nome', l.suggestedAthleteId ?? '(nenhuma)');
+    linha('  vinculado em', l.linkedAt ? new Date(l.linkedAt).toISOString() : '(nunca)');
+    linha('  id do resultado', l.externalResultId);
+    linha('  evento do lote', l.import.eventId ?? '(lote sem evento)');
+    // As CHAVES do arquivo original, não os valores: o cabeçalho é o que
+    // explica uma coluna não lida, e os valores podem carregar dado pessoal.
+    const chaves = l.raw && typeof l.raw === 'object' ? Object.keys(l.raw) : [];
+    linha('  colunas do arquivo', chaves.length ? chaves.join(', ') : '—');
+  }
+
   titulo('HISTÓRICO — EVENTO A EVENTO, COM A GAVETA DE CADA RESULTADO');
   if (!d.resultados.length) console.log('  (nenhum resultado importado alcançável por este identificador)');
 
@@ -507,15 +579,55 @@ function relatar(d) {
 }
 
 async function principal() {
+  // A LISTA, para quem não sabe qual conta usar. Vem antes de tudo porque é a
+  // pergunta anterior a qualquer diagnóstico: "com qual conta eu rodo isto?".
+  if (temBandeira('listar-operadores')) {
+    const contas = await listarOperadores();
+    titulo(`CONTAS QUE PODEM SER O ATOR — ${contas.length}`);
+    for (const c of contas) {
+      const orgs = c.memberships.map(m => `${m.organization.name} (${m.role})`).join(', ') || 'sem vínculo';
+      console.log(`\n  ${c.email}`);
+      linha('  nome', c.name ?? '—');
+      linha('  papel', c.role);
+      linha('  organizações', orgs);
+    }
+    console.log('\n  Use o e-mail: --email <o seu>. Esta lista tem dado pessoal de operadores;');
+    console.log('  é para o seu terminal, não para colar em lugar público.\n');
+    return;
+  }
+
   const matricula = normalizarMatricula(argumento('matricula'));
-  const actorId = argumento('ator');
   const filiacaoCodigo = argumento('filiacao');
   const organizacaoPedida = argumento('organizacao');
 
-  if (!matricula || !actorId) {
-    console.error('Uso: node scripts/diagnostico-identidade-do-atleta.js --matricula <nº> --ator <userId> [--organizacao <id>] [--filiacao <CÓDIGO>] [--json]');
+  if (!matricula) {
+    console.error('Informe a matrícula: --matricula <nº>');
+    console.error('Uso: node scripts/diagnostico-identidade-do-atleta.js --matricula <nº> --email <seu e-mail> [--organizacao <id>] [--filiacao <CÓDIGO>] [--json]');
     process.exitCode = 1;
     return;
+  }
+
+  // O ATOR, por E-MAIL ou por identificador. O e-mail é o caminho normal: é o
+  // mesmo com que se entra no MCI, e a interface não mostra o UUID. Daqui para
+  // frente as POLÍTICAS mandam — este script alimenta o RLS, não o contorna.
+  let ator;
+  try {
+    ator = await resolverAtor({ ator: argumento('ator'), email: argumento('email') });
+  } catch (erro) {
+    console.error(`\n  ${erro.message}\n`);
+    console.error('  Uso: node scripts/diagnostico-identidade-do-atleta.js --matricula <nº> --email <seu e-mail> [--filiacao NPC] [--json]');
+    console.error('  Não lembra qual conta usar? node scripts/diagnostico-identidade-do-atleta.js --listar-operadores\n');
+    process.exitCode = 2;
+    return;
+  }
+  const actorId = ator.id;
+
+  if (!temBandeira('json')) {
+    titulo('ATOR DO DIAGNÓSTICO');
+    linha('conta', ator.email);
+    linha('nome', ator.name ?? '—');
+    linha('papel', ator.role);
+    console.log('  As políticas de linha valem para ESTA conta: o que ela não enxerga, não sai aqui.');
   }
 
   const dados = await diagnosticar({ matricula, filiacaoCodigo, actorId, organizacaoPedida });
