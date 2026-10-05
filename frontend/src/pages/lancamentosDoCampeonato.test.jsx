@@ -92,7 +92,7 @@ describe('a lista de lançamentos', () => {
   it('mostra o lançamento com colocação, pontos e situação', async () => {
     await abrir([ponto()]);
     expect(await screen.findByText('JOANA SILVA')).toBeTruthy();
-    expect(screen.getByText(/Matrícula 88281/)).toBeTruthy();
+    expect(screen.getByText(/Filiação 88281/)).toBeTruthy();
     expect(screen.getByText('Válido')).toBeTruthy();
   });
 

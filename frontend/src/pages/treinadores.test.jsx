@@ -226,18 +226,18 @@ describe('painel do treinador', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Convidar atleta/i }));
 
     const dialogo = await screen.findByRole('dialog');
-    expect(within(dialogo).getByLabelText(/Matrícula na federação/i)).toBeTruthy();
+    expect(within(dialogo).getByLabelText(/Número de filiação na federação/i)).toBeTruthy();
     // A prova de que não há busca por nome é a LISTA de controles do diálogo:
     // uma seleção de equipe e um campo de matrícula, e nada mais. Procurar um
     // rótulo ausente é frágil — casa por acidente com qualquer palavra que
     // contenha o termo.
     const rotulos = Array.from(dialogo.querySelectorAll('label.field > span')).map(no => no.textContent.replace(/\s*\*$/, '').trim());
-    expect(rotulos, 'só equipe e matrícula; nenhum campo de nome').toEqual(['Equipe', 'Matrícula na federação']);
+    expect(rotulos, 'só equipe e filiação; nenhum campo de nome').toEqual(['Equipe', 'Número de filiação na federação']);
 
-    fireEvent.change(within(dialogo).getByLabelText(/Matrícula na federação/i), { target: { value: '5001' } });
+    fireEvent.change(within(dialogo).getByLabelText(/Número de filiação na federação/i), { target: { value: '5001' } });
     fireEvent.click(within(dialogo).getByRole('button', { name: /Localizar/i }));
 
-    expect(await screen.findByText(/Nenhum atleta com essa matrícula/i)).toBeTruthy();
+    expect(await screen.findByText(/Nenhum atleta com esse número de filiação/i)).toBeTruthy();
     expect(api.membershipRequests.lookupByAffiliation).toHaveBeenCalledWith({ organizationId: 'o1', affiliationNumber: '5001' });
   });
 
@@ -253,7 +253,7 @@ describe('painel do treinador', () => {
     render(<PainelDoTreinador notificar={vi.fn()} />);
     fireEvent.click(await screen.findByRole('button', { name: /Convidar atleta/i }));
     const dialogo = await screen.findByRole('dialog');
-    fireEvent.change(within(dialogo).getByLabelText(/Matrícula na federação/i), { target: { value: '5002' } });
+    fireEvent.change(within(dialogo).getByLabelText(/Número de filiação na federação/i), { target: { value: '5002' } });
     fireEvent.click(within(dialogo).getByRole('button', { name: /Localizar/i }));
 
     expect(await screen.findByText(/Equipe Rival/)).toBeTruthy();

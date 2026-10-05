@@ -114,7 +114,7 @@ describe('a força da pista vem do servidor e aparece na tela', () => {
       ]
     }));
 
-    expect(screen.getByText('Filiação + matrícula')).toBeTruthy();
+    expect(screen.getByText('Entidade + filiação')).toBeTruthy();
     expect(screen.getByText('Só o nome confere')).toBeTruthy();
   });
 
