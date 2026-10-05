@@ -892,7 +892,7 @@ const COLUNAS_DA_EXPORTACAO = [
   ['plataforma.colunaNumero', item => item.rowNumber],
   ['plataforma.colunaCpf', item => (item.cpf ? ocultarCpf(item.cpf) : '')],
   ['plataforma.colunaAtleta', item => item.athlete?.fullName || item.athleteName || ''],
-  ['plataforma.colunaFiliacao', item => item.affiliationCode || ''],
+  ['plataforma.colunaFiliacao', item => item.correctedAffiliationCode || item.affiliationCode || ''],
   ['plataforma.matricula', item => item.memberNumber || ''],
   ['plataforma.colunaCategoria', item => item.categoryCode || ''],
   ['plataforma.colunaClasse', item => item.className || ''],
@@ -1122,7 +1122,24 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                         <td className="num">{item.rowNumber}</td>
                         <td className="num">{item.cpf || '—'}</td>
                         <td>{item.athlete?.fullName || item.athleteName || '—'}</td>
-                        <td>{item.affiliationCode || '—'}</td>
+                        <td>
+                          {/* A ENTIDADE EFETIVA, com a origem em miúdo quando
+                              houve correção. "Fonte não informou" é a frase que
+                              explica, meses depois, por que aquele resultado
+                              ficou órfão — e ela não pode desaparecer só porque
+                              alguém consertou. */}
+                          {item.correctedAffiliationCode ? (
+                            <>
+                              <strong>{item.correctedAffiliationCode}</strong>
+                              <br />
+                              <small className="text-muted" style={{ fontSize: '.72rem' }}>
+                                {item.affiliationCode
+                                  ? t('plataforma.fonteInformou', { original: item.affiliationCode })
+                                  : t('plataforma.fonteNaoInformouEntidade')}
+                              </small>
+                            </>
+                          ) : (item.affiliationCode || '—')}
+                        </td>
                         <td className="num">
                           {/* §9 — OS DOIS NÚMEROS, quando houve correção. O
                               efetivo em destaque e a origem em miúdo: quem abre
@@ -1238,7 +1255,12 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                               sozinho não identifica ninguém. E exige que a
                               linha ainda não tenha dono — trocar o dono de um
                               histórico publicado é outra operação. */}
-                          {item.affiliationCode && !item.athleteId
+                          {/* O CASO REAL TEM ENTIDADE NULA — e era por isto
+                              que a primeira versão desta tela não o atendia.
+                              A condição exige MATRÍCULA (a corrigir) e AUSÊNCIA
+                              DE DONO; a entidade pode faltar, e quando falta é
+                              o operador que a informa no modal. */}
+                          {(item.correctedMemberNumber || item.memberNumber) && !item.athleteId
                             && dados.import.status !== 'REJECTED' && (
                             <div className="acoes-da-linha">
                               <button
@@ -1319,6 +1341,7 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
             {corrigindoFiliacao && (
               <CorrigirFiliacao
                 item={corrigindoFiliacao}
+                organizationId={dados.import.organizationId}
                 notificar={notificar}
                 onClose={() => setCorrigindoFiliacao(null)}
                 onSalvo={() => { setCorrigindoFiliacao(null); estado.reload(); onMudou(); }}
@@ -1347,14 +1370,31 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
 // prova documental, e o do cadastro se edita no perfil do atleta. Aqui só se
 // corrige o IDENTIFICADOR ESPORTIVO.
 // ============================================================================
-function CorrigirFiliacao({ item, notificar, onClose, onSalvo }) {
+function CorrigirFiliacao({ item, organizationId, notificar, onClose, onSalvo }) {
   const { t } = useIdioma();
   const [nova, setNova] = useState('');
+  const [entidade, setEntidade] = useState(item.correctedAffiliationCode ?? '');
   const [motivo, setMotivo] = useState('');
   const [avaliacao, setAvaliacao] = useState(null);
   const [ocupado, setOcupado] = useState(false);
 
+  // AS ENTIDADES CADASTRADAS NA ORGANIZAÇÃO, e não um campo de texto livre.
+  // Digitar 'NPC ' ou 'npc-brasil' produziria "entidade não cadastrada" sem o
+  // operador entender por quê; a lista só oferece o que existe. Só é buscada
+  // quando a fonte não declarou entidade — nos outros casos o campo não aparece.
+  // `useFetch` devolve `{ data, loading, error }` — e a resposta da lista vem
+  // em `{ items }`. Escrever `.dados` aqui deixava o select VAZIO, e nenhum
+  // teste de integração pegava: eles chamam a rota, não abrem a tela.
+  const entidades = useFetch(
+    () => (item.affiliationCode
+      ? Promise.resolve({ items: [] })
+      : api.affiliations.list({ organizationId, limit: 100 })),
+    [organizationId, item.affiliationCode],
+    { ativo: !item.affiliationCode }
+  );
+
   const original = item.correctedMemberNumber ?? item.memberNumber ?? '—';
+  const entidadeFaltando = !item.affiliationCode;
 
   // Mudar o número INVALIDA a validação anterior. Sem isto, o operador validaria
   // 2932, digitaria 2933 e confirmaria com a tela ainda mostrando o atleta do
@@ -1365,7 +1405,10 @@ function CorrigirFiliacao({ item, notificar, onClose, onSalvo }) {
     evento.preventDefault();
     setOcupado(true);
     try {
-      setAvaliacao(await api.muscleWar.validarFiliacao(item.id, { novaMatricula: nova }));
+      setAvaliacao(await api.muscleWar.validarFiliacao(item.id, {
+        novaMatricula: nova,
+        ...(entidade ? { novaEntidade: entidade } : {})
+      }));
     } catch (erro) {
       notificar(erro.message, 'erro');
     } finally {
@@ -1377,7 +1420,9 @@ function CorrigirFiliacao({ item, notificar, onClose, onSalvo }) {
     setOcupado(true);
     try {
       const feito = await api.muscleWar.corrigirFiliacao(item.id, {
-        novaMatricula: nova, ...(motivo.trim() ? { motivo: motivo.trim() } : {})
+        novaMatricula: nova,
+        ...(entidade ? { novaEntidade: entidade } : {}),
+        ...(motivo.trim() ? { motivo: motivo.trim() } : {})
       });
       notificar(feito.athleteId
         ? t('plataforma.filiacaoCorrigidaEVinculada')
@@ -1400,10 +1445,33 @@ function CorrigirFiliacao({ item, notificar, onClose, onSalvo }) {
           <dt>{t('plataforma.atletaNaFonte')}</dt>
           <dd><strong>{item.athleteName || '—'}</strong></dd>
           <dt>{t('evento.filiacao')}</dt>
-          <dd>{item.affiliationCode || '—'}</dd>
+          <dd>{item.affiliationCode || t('plataforma.naoInformada')}</dd>
           <dt>{t('plataforma.filiacaoOriginal')}</dt>
           <dd className="mono">{original}</dd>
         </dl>
+
+        {/* A ENTIDADE SÓ É PEDIDA ONDE A FONTE NÃO DECLAROU NENHUMA.
+            Quando o arquivo disse NPC, o campo não aparece: trocar a entidade
+            declarada não é corrigir digitação, é reescrever de qual federação
+            foi o resultado — e o servidor recusa isso com 409, não só a tela. */}
+        {!item.affiliationCode && (
+          <Field
+            label={t('plataforma.entidadeCorreta')}
+            hint={t('plataforma.entidadeCorretaDica')}
+            required
+          >
+            <select
+              value={entidade}
+              onChange={evento => { setEntidade(evento.target.value); setAvaliacao(null); }}
+              aria-label={t('plataforma.entidadeCorreta')}
+            >
+              <option value="">{t('plataforma.selecione')}</option>
+              {(entidades.data?.items ?? []).map(f => (
+                <option key={f.id} value={f.code}>{f.code} — {f.name}</option>
+              ))}
+            </select>
+          </Field>
+        )}
 
         {/* CHAVE PRÓPRIA, e não `plataforma.novaFiliacao`.
             Aquela chave já significa "criar uma nova ENTIDADE de filiação" —
@@ -1435,7 +1503,7 @@ function CorrigirFiliacao({ item, notificar, onClose, onSalvo }) {
               <dt>{t('atleta.nomeCompleto')}</dt>
               <dd><strong>{encontrado.fullName}</strong></dd>
               <dt>{t('evento.filiacao')}</dt>
-              <dd>{avaliacao.entity}</dd>
+              <dd>{avaliacao.newEntity}</dd>
               <dt>{t('plataforma.matricula')}</dt>
               <dd className="mono">{encontrado.affiliationNumber}</dd>
             </dl>
@@ -1456,12 +1524,22 @@ function CorrigirFiliacao({ item, notificar, onClose, onSalvo }) {
           </div>
         )}
 
-        <ModalActions>
+        {/* `<div className="modal-actions">` e NÃO `<ModalActions>`.
+            Aquele componente IGNORA os filhos: ele desenha o seu próprio par
+            Cancelar + Salvar a partir de `confirmLabel`. Usá-lo aqui descartava
+            em silêncio os três botões condicionais, e o passo de CONFIRMAÇÃO
+            simplesmente não existia na tela — o fluxo de dois passos ficava
+            inalcançável pelo navegador, com os testes todos verdes.
+            Quem pegou isso foi o QA visual, não a suíte. */}
+        <div className="modal-actions">
           <button type="button" className="button button-secondary" onClick={onClose} disabled={ocupado}>
             {t('acao.cancelar')}
           </button>
           {!avaliacao && (
-            <button type="submit" className="button button-primary" disabled={ocupado || !nova.trim()}>
+            <button
+              type="submit" className="button button-primary"
+              disabled={ocupado || !nova.trim() || (entidadeFaltando && !entidade)}
+            >
               {t('plataforma.validarESalvar')}
             </button>
           )}
@@ -1477,7 +1555,7 @@ function CorrigirFiliacao({ item, notificar, onClose, onSalvo }) {
               {t('plataforma.salvarCorrecaoPendente')}
             </button>
           )}
-        </ModalActions>
+        </div>
       </form>
     </Modal>
   );

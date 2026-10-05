@@ -164,8 +164,31 @@ const cadastrarLucas = (extra = {}) => criarAtleta(gerente, organizationId, {
   affiliationId: npc.id, affiliationNumber: '2932', ...extra
 });
 
-// Monta o caso real inteiro: cadastro certo, resultado aplicado com o número
-// errado, sem dono.
+// A LINHA DO RAZOR COMO ELA É DE VERDADE: sem entidade nenhuma.
+//
+// O cabeçalho oficial de etapa NPC não tem coluna de entidade, e a filiação do
+// lote não foi preenchida — então `affiliationCode` nasce NULO. É este o caso
+// que a primeira versão desta funcionalidade recusava.
+const LINHA_SEM_ENTIDADE = (matricula = '2952') =>
+  `RAZOR-${matricula}-MENS_BODYBUILDING,,Lucas Gouveia,,${matricula},MENS_BODYBUILDING,OPEN,1,,Razor,sim`;
+
+// O cenário REAL: entidade ausente, matrícula com o dígito trocado, APPLIED
+// sem dono, e o cadastro correto existindo em NPC + 2932.
+async function cenarioRealDoRazor() {
+  const lucas = await cadastrarLucas();
+  const evento = await criarEvento('Razor');
+  const importId = await importarEAplicar(csv([LINHA_SEM_ENTIDADE('2952')]), { eventId: evento.id });
+  const item = await primeiraLinha(importId);
+
+  expect(item.affiliationCode, 'ENTIDADE = — (a fonte não declarou)').toBeFalsy();
+  expect(item.memberNumber, 'FILIAÇÃO = 2952').toBe('2952');
+  expect(item.matchStatus, 'STATUS = APPLIED').toBe('APPLIED');
+  expect(item.athleteId, 'e sem dono: o sistema não vinculou pelo nome').toBeFalsy();
+
+  return { lucas, evento, importId, item };
+}
+
+// Monta o caso com entidade JÁ declarada pela fonte: só a matrícula está errada.
 async function cenarioDoRazor() {
   const lucas = await cadastrarLucas();
   const evento = await criarEvento('Razor');
@@ -255,6 +278,164 @@ describe('§10 o caso real: Razor 2952 → 2932', () => {
 
     const depoisDaSegunda = await retratoDoLedger();
     expect(depoisDaSegunda).toEqual(depoisDaPrimeira);
+  });
+});
+
+// ============== O CASO REAL, COM A ENTIDADE AUSENTE — É ESTE QUE IMPORTA ====
+describe('o caso REAL do Razor: ENTIDADE — + 2952 → NPC + 2932', () => {
+  it('1-10. informa a entidade, corrige a matrícula, vincula o APPLIED e não duplica nada', async () => {
+    const { lucas, item } = await cenarioRealDoRazor();
+    const antes = await retratoDoLedger();
+
+    // A VALIDAÇÃO PRIMEIRO, como o operador faz na tela.
+    const validacao = await validar(item.id, { novaMatricula: '2932', novaEntidade: 'NPC' });
+    expect(validacao.status, JSON.stringify(validacao.body).slice(0, 400)).toBe(200);
+    expect(validacao.body.estado).toBe('ENCONTRADA');
+    expect(validacao.body.entity, 'a fonte não declarou entidade').toBeNull();
+    expect(validacao.body.entityMissingInSource).toBe(true);
+    expect(validacao.body.newEntity, 'a entidade informada pelo operador').toBe('NPC');
+    expect(validacao.body.originalAffiliationNumber).toBe('2952');
+    expect(validacao.body.newAffiliationNumber).toBe('2932');
+    expect(validacao.body.candidatos).toHaveLength(1);
+    expect(validacao.body.candidatos[0].fullName, '3. validado contra o cadastro, nunca pelo nome')
+      .toBe('Lucas Gouveia Lima');
+
+    // Validar NÃO escreve.
+    expect(await retratoDoLedger()).toEqual(antes);
+
+    // A CONFIRMAÇÃO.
+    const resposta = await corrigir(item.id, {
+      novaMatricula: '2932', novaEntidade: 'NPC',
+      motivo: 'etapa sem coluna de entidade e dígito trocado na matrícula'
+    });
+    expect(resposta.status, JSON.stringify(resposta.body).slice(0, 400)).toBe(200);
+    expect(resposta.body.estado).toBe('ENCONTRADA');
+    expect(resposta.body.athleteId, '7. vinculado ao atleta correto').toBe(lucas.id);
+    expect(resposta.body.originalEntity, 'a fonte não informou nada').toBeNull();
+    expect(resposta.body.correctedEntity, '6. NPC registrada como entidade corrigida').toBe('NPC');
+    expect(resposta.body.originalAffiliationNumber, '5. 2952 preservado').toBe('2952');
+    expect(resposta.body.correctedAffiliationNumber).toBe('2932');
+
+    const linha = await noLedger(tx => tx.muscleWarImportItem.findUnique({ where: { id: item.id } }));
+    expect(linha.affiliationCode, '5. o nulo da fonte é PRESERVADO — é a prova da causa raiz').toBeNull();
+    expect(linha.memberNumber, '5. e o 2952 também').toBe('2952');
+    expect(linha.correctedAffiliationCode, '2 e 6. entidade corrigida: NPC').toBe('NPC');
+    expect(linha.correctedMemberNumber, '2. filiação corrigida: 2932').toBe('2932');
+    expect(linha.athleteId, '7. o resultado APPLIED agora tem dono').toBe(lucas.id);
+    expect(linha.matchStatus, 'e continua APPLIED — não voltou a ser candidato').toBe('APPLIED');
+    expect(linha.athleteName, '4. o nome da fonte não participou de nada').toBe('Lucas Gouveia');
+
+    // 8, 9. NADA DUPLICADO, MESMOS IDs.
+    const depois = await retratoDoLedger();
+    expect(depois.atletas, '8. nenhum atleta criado').toBe(antes.atletas);
+    expect(depois.resultados, '8. nenhum ExternalResult criado').toBe(antes.resultados);
+    expect(depois.pontos, '8. nenhum RankingPoint criado').toBe(antes.pontos);
+    expect(depois.idsDosPontos, '9. os MESMOS ids de lançamento').toEqual(antes.idsDosPontos);
+    expect(depois.identidades.length, 'nenhuma identidade nova').toBe(antes.identidades.length);
+    expect(depois.identidades[0].id, '9. a MESMA identidade externa').toBe(antes.identidades[0].id);
+    expect(depois.totalDePontos, 'a pontuação não mudou de valor').toBe(antes.totalDePontos);
+    expect(depois.totalDePontos, '1º lugar = 5 + Overall = 10').toBe(15);
+    expect(depois.pontosComDono, 'e o ponto passou a ter dono').toBe(1);
+
+    // O histórico do atleta mostra o Razor.
+    const historico = await historicoImportado(lucas.id);
+    const resultados = historico.body.linked.flatMap(i => i.results);
+    expect(resultados).toHaveLength(1);
+    expect(resultados[0].placing).toBe(1);
+    expect(resultados[0].event?.name ?? resultados[0].eventName).toBe('Razor');
+  });
+
+  it('a identidade externa continua sendo o retrato da fonte: EXT:, sem entidade e sem número', async () => {
+    const { lucas, item } = await cenarioRealDoRazor();
+    await corrigir(item.id, { novaMatricula: '2932', novaEntidade: 'NPC' });
+
+    const { identidades } = await retratoDoLedger();
+    expect(identidades).toHaveLength(1);
+    const [identidade] = identidades;
+
+    // Sem entidade na linha, `chaveDeIdentidade` produziu `EXT:` — e a correção
+    // NÃO a reescreve. Reescrever apagaria a prova de que a fonte não declarou
+    // entidade, que é a causa raiz de 408 históricos órfãos nesta base.
+    expect(identidade.identityKey.startsWith('EXT:'), identidade.identityKey).toBe(true);
+    expect(identidade.affiliationNumber, 'a identidade nasceu sem número').toBeNull();
+    expect(identidade.displayName).toBe('Lucas Gouveia');
+    expect(identidade.athleteId, 'o que mudou foi só o DONO').toBe(lucas.id);
+  });
+
+  it('10. a segunda execução não duplica nada e reconhece que já foi feita', async () => {
+    const { item } = await cenarioRealDoRazor();
+    await corrigir(item.id, { novaMatricula: '2932', novaEntidade: 'NPC' });
+    const depoisDaPrimeira = await retratoDoLedger();
+
+    const segunda = await corrigir(item.id, { novaMatricula: '2932', novaEntidade: 'NPC' });
+    expect(segunda.status).toBe(200);
+    expect(segunda.body.alreadyApplied).toBe(true);
+    expect(segunda.body.correctedEntity).toBe('NPC');
+    expect(segunda.body.lancamentos).toBe(0);
+
+    expect(await retratoDoLedger()).toEqual(depoisDaPrimeira);
+  });
+
+  it('10b. repetir SEM reinformar a entidade também é idempotente', async () => {
+    // A entidade já está gravada na linha; omiti-la na segunda chamada não pode
+    // fazer o serviço achar que é outra correção.
+    const { item } = await cenarioRealDoRazor();
+    await corrigir(item.id, { novaMatricula: '2932', novaEntidade: 'NPC' });
+    const depoisDaPrimeira = await retratoDoLedger();
+
+    const segunda = await corrigir(item.id, { novaMatricula: '2932' });
+    expect(segunda.status).toBe(200);
+    expect(segunda.body.alreadyApplied).toBe(true);
+    expect(await retratoDoLedger()).toEqual(depoisDaPrimeira);
+  });
+
+  it('entidade informada mas matrícula que não existe: registra e não vincula', async () => {
+    const { item } = await cenarioRealDoRazor();
+    const antes = await retratoDoLedger();
+
+    const resposta = await corrigir(item.id, { novaMatricula: '888888', novaEntidade: 'NPC' });
+    expect(resposta.status).toBe(200);
+    expect(resposta.body.estado).toBe('NAO_ENCONTRADA');
+    expect(resposta.body.athleteId).toBeNull();
+
+    const linha = await noLedger(tx => tx.muscleWarImportItem.findUnique({ where: { id: item.id } }));
+    expect(linha.correctedAffiliationCode, 'a entidade informada fica registrada').toBe('NPC');
+    expect(linha.correctedMemberNumber).toBe('888888');
+    expect(linha.athleteId, 'e ninguém foi vinculado').toBeNull();
+    expect(await retratoDoLedger()).toMatchObject({
+      atletas: antes.atletas, pontos: antes.pontos, pontosComDono: antes.pontosComDono
+    });
+  });
+
+  it('a auditoria registra entidade original NULA e entidade corrigida NPC', async () => {
+    const { lucas, item } = await cenarioRealDoRazor();
+    await corrigir(item.id, { novaMatricula: '2932', novaEntidade: 'NPC', motivo: 'conferido na ficha' });
+
+    const registros = await noLedger(tx => tx.auditLog.findMany({
+      where: { organizationId, entityId: item.id }, orderBy: { createdAt: 'desc' }
+    }));
+    const daCorrecao = registros.find(r => r.metadata?.operacao === 'CORRECAO_DE_FILIACAO');
+    expect(daCorrecao).toBeTruthy();
+    expect(daCorrecao.metadata.entidadeOriginal, 'a fonte não informou — e isso fica escrito').toBeNull();
+    expect(daCorrecao.metadata.entidadeCorrigida).toBe('NPC');
+    expect(daCorrecao.metadata.entidade, 'a efetiva').toBe('NPC');
+    expect(daCorrecao.metadata.filiacaoOriginal).toBe('2952');
+    expect(daCorrecao.metadata.filiacaoCorrigida).toBe('2932');
+    expect(daCorrecao.metadata.athleteIdAntes).toBeNull();
+    expect(daCorrecao.metadata.athleteIdDepois).toBe(lucas.id);
+    expect(daCorrecao.userId).toBe(gerente.id);
+  });
+
+  it('operador sem permissão não corrige nem informando a entidade', async () => {
+    const { item } = await cenarioRealDoRazor();
+    const antes = await retratoDoLedger();
+
+    const operador = await criarUsuario({ name: 'Operador de Resultados' });
+    await vincular(organizationId, operador, 'RESULTS_OPERATOR');
+
+    const resposta = await corrigir(item.id, { novaMatricula: '2932', novaEntidade: 'NPC' }, operador);
+    expect(resposta.status).toBe(403);
+    expect(await retratoDoLedger()).toEqual(antes);
   });
 });
 
@@ -472,18 +653,64 @@ describe('§11 o que a correção RECUSA', () => {
     expect(linha.correctedMemberNumber, 'o zero é preservado como vier').toBe('02932');
   });
 
-  it('linha sem entidade declarada não tem identidade para corrigir', async () => {
-    await cadastrarLucas();
-    const evento = await criarEvento('Razor');
-    const importId = await importarEAplicar(csv([
-      `RAZOR-SEM-ENTIDADE,,Lucas Gouveia,,2952,MENS_BODYBUILDING,OPEN,1,,Razor,sim`
-    ]), { eventId: evento.id });
-    const item = await primeiraLinha(importId);
-    expect(item.affiliationCode, 'a linha não declarou entidade').toBeFalsy();
+  it('a fonte não declarou entidade E o operador não informou: recusa pedindo a entidade', async () => {
+    // ESTE TESTE SUBSTITUI UM ANTERIOR, e a diferença é de REGRA, não de
+    // conveniência: antes a linha sem entidade era INCORRIGÍVEL
+    // (`ITEM_WITHOUT_ENTITY`). Isso recusava justamente o caso real do Razor.
+    //
+    // Agora a recusa só vale quando NINGUÉM informou a entidade — nem a fonte,
+    // nem o operador. Continua sendo recusa correta: o número sozinho não
+    // identifica ninguém, porque federações diferentes emitem o mesmo número.
+    const { item } = await cenarioRealDoRazor();
+    const antes = await retratoDoLedger();
 
     const resposta = await corrigir(item.id, { novaMatricula: '2932' });
     expect(resposta.status).toBe(422);
-    expect(resposta.body.error.code).toBe('ITEM_WITHOUT_ENTITY');
+    expect(resposta.body.error.code).toBe('ENTITY_REQUIRED');
+
+    expect(await retratoDoLedger()).toEqual(antes);
+    const linha = await noLedger(tx => tx.muscleWarImportItem.findUnique({ where: { id: item.id } }));
+    expect(linha.correctedMemberNumber, 'nada foi gravado').toBeNull();
+    expect(linha.correctedAffiliationCode).toBeNull();
+  });
+
+  it('a fonte DECLAROU a entidade: trocá-la por outra é recusado com 409', async () => {
+    // Corrigir digitação de número é uma coisa. Dizer que o resultado foi de
+    // OUTRA federação é outra afirmação, com outro peso — e esta porta não tem
+    // autorização para fazê-la.
+    const { item } = await cenarioDoRazor();
+    const outra = (await api().post('/api/v1/affiliations').set(admin.auth())
+      .send({ organizationId, name: 'IFBB Brasil', code: 'IFBB' })).body;
+    expect(outra.code).toBe('IFBB');
+
+    const antes = await retratoDoLedger();
+    const resposta = await corrigir(item.id, { novaMatricula: '2932', novaEntidade: 'IFBB' });
+    expect(resposta.status).toBe(409);
+    expect(resposta.body.error.code).toBe('ENTITY_DIVERGES_FROM_SOURCE');
+
+    expect(await retratoDoLedger()).toEqual(antes);
+    const linha = await noLedger(tx => tx.muscleWarImportItem.findUnique({ where: { id: item.id } }));
+    expect(linha.affiliationCode, 'o que a fonte disse continua lá').toBe('NPC');
+    expect(linha.correctedAffiliationCode).toBeNull();
+  });
+
+  it('entidade informada que não está cadastrada na organização é recusada', async () => {
+    const { item } = await cenarioRealDoRazor();
+    const antes = await retratoDoLedger();
+
+    const resposta = await corrigir(item.id, { novaMatricula: '2932', novaEntidade: 'WFF' });
+    expect(resposta.status).toBe(422);
+    expect(resposta.body.error.code).toBe('ENTITY_NOT_REGISTERED');
+
+    expect(await retratoDoLedger()).toEqual(antes);
+  });
+
+  it('entidade com forma inválida é recusada pelo schema, antes de qualquer consulta', async () => {
+    const { item } = await cenarioRealDoRazor();
+    for (const valor of ['n', 'NPC!', 'npc brasil']) {
+      const resposta = await corrigir(item.id, { novaMatricula: '2932', novaEntidade: valor });
+      expect([400, 422], `"${valor}"`).toContain(resposta.status);
+    }
   });
 });
 

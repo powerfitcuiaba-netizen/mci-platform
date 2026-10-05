@@ -1157,12 +1157,25 @@ const normalizarFiliacao = valor => {
   return limpo || null;
 };
 
+// A ENTIDADE é um CÓDIGO, e código se compara em caixa alta. É o que
+// `chaveDeIdentidade`, `atletasPorFiliacao` e `codigosDeFiliacao` já fazem —
+// divergir aqui faria 'npc' não encontrar a NPC.
+const normalizarEntidade = valor => {
+  const limpo = valor == null ? '' : String(valor).trim().toUpperCase();
+  return limpo || null;
+};
+
 /**
- * A matrícula que VALE para esta linha. Uma função só, usada pela validação,
- * pela correção e pela tela — para que não exista um lugar onde a regra seja
- * outra.
+ * O par que VALE para esta linha. Uma função só, usada pela validação, pela
+ * correção e pela tela — para que não exista um lugar onde a regra seja outra.
+ *
+ * A entidade entra aqui pelo mesmo motivo da matrícula: no arquivo oficial de
+ * etapa NPC ela PODE FALTAR, porque aquele cabeçalho não tem a coluna e a
+ * filiação do lote é opcional. Quando falta, quem a informa é o operador, e o
+ * que a fonte disse — nada — continua gravado ao lado.
  */
 const filiacaoEfetiva = item => item.correctedMemberNumber ?? item.memberNumber ?? null;
+const entidadeEfetiva = item => item.correctedAffiliationCode ?? item.affiliationCode ?? null;
 
 /**
  * QUEM a matrícula nova encontra. SOMENTE LEITURA — duas consultas, nenhuma
@@ -1175,19 +1188,32 @@ const filiacaoEfetiva = item => item.correctedMemberNumber ?? item.memberNumber 
  * uma trava que depende de um índice continuar existindo tem de falhar
  * fechada se o índice sumir, não escolher um candidato ao acaso.
  */
-async function avaliarCorrecaoDeFiliacao(item, novaMatricula) {
+async function avaliarCorrecaoDeFiliacao(item, novaMatricula, novaEntidade = null) {
   const organizationId = item.import.organizationId;
+  const daFonte = normalizarEntidade(item.affiliationCode);
+  const pedida = normalizarEntidade(novaEntidade);
 
-  if (!item.affiliationCode) {
+  // A FONTE TEM PRECEDÊNCIA QUANDO ELA FALOU.
+  //
+  // Informar entidade só é permitido onde a fonte NÃO declarou nenhuma. Se o
+  // arquivo disse NPC, trocar para IFBB não é corrigir digitação: é reescrever
+  // de qual federação foi o resultado — outra afirmação, com outro peso, e que
+  // esta porta não tem autorização para fazer.
+  if (daFonte && pedida && pedida !== daFonte) {
+    return { estado: 'ENTIDADE_DIVERGE_DA_FONTE', entidade: daFonte, entidadePedida: pedida, candidatos: [] };
+  }
+
+  const codigo = pedida ?? entidadeEfetiva(item);
+  if (!codigo) {
     return { estado: 'SEM_ENTIDADE', candidatos: [] };
   }
 
   const filiacao = await prisma.affiliation.findFirst({
-    where: { organizationId, code: String(item.affiliationCode).toUpperCase() },
+    where: { organizationId, code: codigo },
     select: { id: true, code: true, name: true }
   });
   if (!filiacao) {
-    return { estado: 'ENTIDADE_NAO_CADASTRADA', entidade: item.affiliationCode, candidatos: [] };
+    return { estado: 'ENTIDADE_NAO_CADASTRADA', entidade: codigo, candidatos: [] };
   }
 
   // `take: 3` e não `take: 1`: para DIZER que há conflito é preciso ver mais de
@@ -1211,7 +1237,7 @@ async function avaliarCorrecaoDeFiliacao(item, novaMatricula) {
  * O passo de VALIDAÇÃO da tela: o operador digita a matrícula nova e vê o que
  * o sistema achou, ANTES de confirmar. Não escreve nada.
  */
-async function validarCorrecaoDeFiliacao(itemId, { novaMatricula }, actor) {
+async function validarCorrecaoDeFiliacao(itemId, { novaMatricula, novaEntidade }, actor) {
   const nova = normalizarFiliacao(novaMatricula);
   if (!nova) {
     throw new AppError(422, 'AFFILIATION_NUMBER_REQUIRED', 'Informe o número de filiação corrigido.');
@@ -1228,12 +1254,18 @@ async function validarCorrecaoDeFiliacao(itemId, { novaMatricula }, actor) {
   // quem está cadastrado: não é pergunta para anônimo.
   assertCan(actor, 'musclewar.review', item.import.organizationId);
 
-  const avaliacao = await avaliarCorrecaoDeFiliacao(item, nova);
+  const avaliacao = await avaliarCorrecaoDeFiliacao(item, nova, novaEntidade);
 
   return {
     itemId: item.id,
     athleteNameFromSource: item.athleteName ?? null,
+    // A entidade em TRÊS leituras, porque a tela precisa das três: o que a
+    // fonte disse (às vezes nada), o que vale hoje, e o que valeria com a
+    // correção pedida.
     entity: item.affiliationCode ?? null,
+    currentEffectiveEntity: entidadeEfetiva(item),
+    newEntity: normalizarEntidade(novaEntidade) ?? entidadeEfetiva(item),
+    entityMissingInSource: !item.affiliationCode,
     originalAffiliationNumber: item.memberNumber ?? null,
     currentEffectiveAffiliationNumber: filiacaoEfetiva(item),
     newAffiliationNumber: nova,
@@ -1251,7 +1283,7 @@ async function validarCorrecaoDeFiliacao(itemId, { novaMatricula }, actor) {
  * com o par corrigido, delega o vínculo a `linkItem` — a mesma porta da
  * revisão manual, com as mesmas recusas e a mesma idempotência.
  */
-async function corrigirFiliacao(itemId, { novaMatricula, motivo }, actor) {
+async function corrigirFiliacao(itemId, { novaMatricula, novaEntidade, motivo }, actor) {
   const nova = normalizarFiliacao(novaMatricula);
   if (!nova) {
     throw new AppError(422, 'AFFILIATION_NUMBER_REQUIRED', 'Informe o número de filiação corrigido.');
@@ -1269,12 +1301,20 @@ async function corrigirFiliacao(itemId, { novaMatricula, motivo }, actor) {
     throw new AppError(422, 'IMPORT_REJECTED', 'Lote rejeitado não aceita correção de filiação');
   }
 
+  const entidadePedida = normalizarEntidade(novaEntidade);
+
   // IDEMPOTÊNCIA, PRIMEIRO RAMO: a mesma correção, já aplicada e já vinculada.
   // Repetir não pode doer, e também não pode mentir dizendo que fez de novo.
-  if (item.correctedMemberNumber === nova && item.athleteId) {
+  //
+  // A entidade entra na comparação: repetir a MESMA matrícula com OUTRA
+  // entidade não é repetição, é outra afirmação — e cai nas recusas abaixo.
+  const mesmaEntidade = !entidadePedida || entidadePedida === entidadeEfetiva(item);
+  if (item.correctedMemberNumber === nova && mesmaEntidade && item.athleteId) {
     return {
       alreadyApplied: true,
       itemId: item.id,
+      originalEntity: item.affiliationCode ?? null,
+      correctedEntity: item.correctedAffiliationCode ?? null,
       originalAffiliationNumber: item.memberNumber ?? null,
       correctedAffiliationNumber: item.correctedMemberNumber,
       athleteId: item.athleteId,
@@ -1296,13 +1336,25 @@ async function corrigirFiliacao(itemId, { novaMatricula, motivo }, actor) {
       + 'trocaria o dono de um histórico já publicado — desfaça o vínculo existente primeiro.');
   }
 
-  const avaliacao = await avaliarCorrecaoDeFiliacao(item, nova);
+  const avaliacao = await avaliarCorrecaoDeFiliacao(item, nova, entidadePedida);
 
+  // SEM ENTIDADE AGORA SIGNIFICA: a fonte não declarou E o operador não
+  // informou. A recusa continua, e continua certa — o número sozinho não
+  // identifica ninguém, porque federações diferentes emitem o mesmo número.
+  // O que mudou é que agora existe saída: informar a entidade.
   if (avaliacao.estado === 'SEM_ENTIDADE') {
-    throw new AppError(422, 'ITEM_WITHOUT_ENTITY',
-      'Esta linha não declara entidade de filiação. Sem entidade não existe identidade esportiva '
-      + 'para corrigir: o número sozinho não identifica ninguém, porque federações diferentes '
+    throw new AppError(422, 'ENTITY_REQUIRED',
+      'A fonte não declarou entidade de filiação nesta linha. Informe a entidade correta junto '
+      + 'com a matrícula: o número sozinho não identifica ninguém, porque federações diferentes '
       + 'emitem o mesmo número.');
+  }
+
+  if (avaliacao.estado === 'ENTIDADE_DIVERGE_DA_FONTE') {
+    throw new AppError(409, 'ENTITY_DIVERGES_FROM_SOURCE',
+      `A fonte declarou a entidade "${avaliacao.entidade}" nesta linha. Trocá-la por `
+      + `"${avaliacao.entidadePedida}" não é corrigir digitação: é reescrever de qual federação `
+      + 'foi o resultado. Esta porta corrige a matrícula, e informa a entidade apenas onde a fonte '
+      + 'não declarou nenhuma.');
   }
 
   if (avaliacao.estado === 'ENTIDADE_NAO_CADASTRADA') {
@@ -1319,12 +1371,18 @@ async function corrigirFiliacao(itemId, { novaMatricula, motivo }, actor) {
 
   const correcao = {
     correctedMemberNumber: nova,
+    // Só grava a entidade corrigida quando ela foi REALMENTE informada e a
+    // fonte não a tinha. Gravar o mesmo valor que a fonte já declarou poluiria
+    // a leitura "houve correção de entidade" com casos em que não houve.
+    ...(entidadePedida && !item.affiliationCode ? { correctedAffiliationCode: entidadePedida } : {}),
     correctionReason: motivo?.trim() || null,
     correctedById: actor?.id ?? null,
     correctedAt: new Date()
   };
 
   const original = item.memberNumber ?? null;
+  const entidadeOriginal = item.affiliationCode ?? null;
+  const entidadeFinal = avaliacao.filiacao.code;
 
   // NÃO ENCONTRADA: a correção fica REGISTRADA e PENDENTE. Nada é vinculado,
   // nenhum atleta é inventado, e o nome continua não participando de nada. O
@@ -1335,7 +1393,8 @@ async function corrigirFiliacao(itemId, { novaMatricula, motivo }, actor) {
       where: { id: item.id },
       data: {
         ...correcao,
-        reason: `Filiação corrigida de ${original ?? '—'} para ${nova}; nenhum cadastro com este par ainda`
+        reason: `Filiação corrigida de ${entidadeOriginal ?? '—'}/${original ?? '—'} `
+          + `para ${entidadeFinal}/${nova}; nenhum cadastro com este par ainda`
       }
     });
 
@@ -1344,7 +1403,9 @@ async function corrigirFiliacao(itemId, { novaMatricula, motivo }, actor) {
       organizationId: item.import.organizationId,
       metadata: {
         operacao: 'CORRECAO_DE_FILIACAO',
-        entidade: item.affiliationCode,
+        entidadeOriginal,
+        entidadeCorrigida: correcao.correctedAffiliationCode ?? null,
+        entidade: entidadeFinal,
         filiacaoOriginal: original,
         filiacaoCorrigida: nova,
         motivo: correcao.correctionReason,
@@ -1358,6 +1419,9 @@ async function corrigirFiliacao(itemId, { novaMatricula, motivo }, actor) {
     return {
       alreadyApplied: false,
       itemId: atualizado.id,
+      originalEntity: entidadeOriginal,
+      correctedEntity: correcao.correctedAffiliationCode ?? null,
+      effectiveEntity: entidadeFinal,
       originalAffiliationNumber: original,
       correctedAffiliationNumber: nova,
       athleteId: null,
@@ -1386,7 +1450,10 @@ async function corrigirFiliacao(itemId, { novaMatricula, motivo }, actor) {
   // tela mostra ao operador seguinte.
   const atualizado = await prisma.muscleWarImportItem.update({
     where: { id: item.id },
-    data: { reason: `Filiação corrigida de ${original ?? '—'} para ${nova} e vinculada ao cadastro` }
+    data: {
+      reason: `Filiação corrigida de ${entidadeOriginal ?? '—'}/${original ?? '—'} `
+        + `para ${entidadeFinal}/${nova} e vinculada ao cadastro`
+    }
   });
 
   await audit.record({
@@ -1394,7 +1461,12 @@ async function corrigirFiliacao(itemId, { novaMatricula, motivo }, actor) {
     organizationId: item.import.organizationId,
     metadata: {
       operacao: 'CORRECAO_DE_FILIACAO',
-      entidade: item.affiliationCode,
+      // A ENTIDADE EM TRÊS LEITURAS. `entidadeOriginal: null` é o registro de
+      // que a fonte não declarou nenhuma — e é essa linha da trilha que explica,
+      // meses depois, por que aquele resultado ficou órfão.
+      entidadeOriginal,
+      entidadeCorrigida: correcao.correctedAffiliationCode ?? null,
+      entidade: entidadeFinal,
       filiacaoOriginal: original,
       filiacaoCorrigida: nova,
       motivo: correcao.correctionReason,
@@ -1410,6 +1482,9 @@ async function corrigirFiliacao(itemId, { novaMatricula, motivo }, actor) {
   return {
     alreadyApplied: false,
     itemId: atualizado.id,
+    originalEntity: entidadeOriginal,
+    correctedEntity: correcao.correctedAffiliationCode ?? null,
+    effectiveEntity: entidadeFinal,
     originalAffiliationNumber: original,
     correctedAffiliationNumber: nova,
     athleteId: athlete.id,
@@ -2938,4 +3013,4 @@ async function adotarIdentidadeExterna(athleteId, externalAthleteId, actor) {
 module.exports = {
   vincularPendentesDoAtleta, resolverIdentidadeDoAtleta, createImport, preview, linkItem, apply, reject, deleteImport,
   listImports, analisarLinha, historicoImportadoDoAtleta, adotarIdentidadeExterna,
-  validarCorrecaoDeFiliacao, corrigirFiliacao, filiacaoEfetiva, SOURCE, MAXIMO_DE_LINHAS };
+  validarCorrecaoDeFiliacao, corrigirFiliacao, filiacaoEfetiva, entidadeEfetiva, SOURCE, MAXIMO_DE_LINHAS };

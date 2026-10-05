@@ -549,7 +549,12 @@ describe('o calendário não pede migration nenhuma', () => {
       // `MuscleWarImportItem`, sem índice novo e sem reescrever linha. Entra
       // nesta lista porque a lista é a revisão — e esta migration foi revisada:
       // ela não muda o schema do calendário, que é o que este arquivo protege.
-      '20261005110000_correcao_administrativa_de_filiacao'
+      '20261005110000_correcao_administrativa_de_filiacao',
+      // A entidade também pode faltar na fonte: o caso real do Razor tem
+      // `affiliationCode` NULO, porque o cabeçalho oficial de etapa NPC não tem
+      // essa coluna e a filiação do lote ficou em branco. Uma coluna anulável,
+      // revisada: não toca no schema do calendário.
+      '20261005140000_corrigir_entidade_ausente'
     ]);
   });
 });

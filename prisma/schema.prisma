@@ -2025,6 +2025,16 @@ model MuscleWarImportItem {
   ///
   /// NULO é o estado normal: a imensa maioria das linhas nunca é corrigida.
   correctedMemberNumber String?
+  /// A ENTIDADE CORRIGIDA ADMINISTRATIVAMENTE.
+  ///
+  /// O arquivo oficial de etapa NPC não tem coluna de entidade: ela vem do
+  /// campo "Filiação de toda a etapa" do lote, que é OPCIONAL. Quando os dois
+  /// faltam, `affiliationCode` acima nasce NULO — e esse nulo é informação, não
+  /// lacuna: é a prova de que a entidade nunca foi declarada. Sobrescrevê-lo
+  /// apagaria o diagnóstico da causa raiz.
+  ///
+  /// A efetiva é `correctedAffiliationCode ?? affiliationCode`.
+  correctedAffiliationCode String?
   /// Por que o operador corrigiu. Texto livre, porque o motivo real varia —
   /// "dígito trocado na planilha da etapa" não cabe num enum.
   correctionReason      String?
