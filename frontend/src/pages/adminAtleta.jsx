@@ -87,13 +87,29 @@ export function AdminAtleta({ id, navegar, notificar }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <Avatar name={atleta.fullName} mediaPath={atleta.hasPhoto ? `/media/athletes/${atleta.id}/photo` : null} />
                     <div>
-                      <h2 style={{ margin: 0 }}>{atleta.fullName}</h2>
+                      {/* O NOME DOMINA, A FILIAÇÃO IDENTIFICA.
+                          O nome é o que a pessoa reconhece, e ele muda: casamento,
+                          grafia corrigida, abreviação diferente no arquivo do
+                          campeonato. Por isso ele tem o maior peso visual e NÃO é
+                          a identidade. A identidade é o número de filiação, que
+                          vem logo abaixo, em monoespaçado, para ser conferido
+                          contra o arquivo oficial sem ambiguidade de dígito. */}
+                      <h2 style={{ margin: 0, fontSize: '1.45rem', lineHeight: 1.15 }}>{atleta.fullName}</h2>
+                      {atleta.stageName && (
+                        <div style={{ color: 'var(--cinza-fraco)', fontSize: '0.92rem', marginTop: 1 }}>
+                          {t('atleta.nomeEsportivo')}: {atleta.stageName}
+                        </div>
+                      )}
+                      <div style={{ marginTop: 3 }}>
+                        <strong style={{ fontFamily: 'var(--mono, ui-monospace, monospace)', fontVariantNumeric: 'tabular-nums' }}>
+                          {t('atleta.numeroDeFiliacao')}: {atleta.affiliationNumber || '—'}
+                        </strong>
+                      </div>
                       <small style={{ color: 'var(--cinza-fraco)' }}>
                         {/* O CPF vem do servidor já mascarado. A tela não
                             reconstrói nem revela nada. */}
-                        {atleta.cpfMasked || atleta.cpf || t('atleta.semCpf')}
-                        {' · '}{atleta.affiliation?.name || t('atleta.semFiliacao')}
-                        {atleta.affiliationNumber ? ` · ${t('atleta.numeroDeFiliacao')} ${atleta.affiliationNumber}` : ''}
+                        {atleta.affiliation?.name || t('atleta.semFiliacao')}
+                        {' · '}{atleta.cpfMasked || atleta.cpf || t('atleta.semCpf')}
                       </small>
                     </div>
                   </div>

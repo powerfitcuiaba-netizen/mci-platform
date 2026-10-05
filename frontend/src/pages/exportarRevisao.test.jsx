@@ -69,7 +69,7 @@ describe('o arquivo carrega o que a revisão mostra', () => {
     }]));
 
     expect(csv).toContain('"Atleta"');
-    expect(csv).toContain('"Matrícula"');
+    expect(csv).toContain('"Filiação"');
     expect(csv).toContain('"Situação"');
     expect(csv).toContain('"Atleta Um"');
     expect(csv).toContain('"88281"');
