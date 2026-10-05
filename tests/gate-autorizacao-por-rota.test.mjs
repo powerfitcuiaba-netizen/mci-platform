@@ -426,8 +426,13 @@ describe('a matriz e a superfície são o MESMO conjunto', () => {
 });
 
 describe('401 — sem sessão, nenhuma rota mutante executa', () => {
-  it('as 141 rotas mutantes autenticadas recusam requisição sem token', async () => {
-    expect(entradas.length, 'a matriz cobre as rotas mutantes autenticadas').toBe(141);
+  it('as 143 rotas mutantes autenticadas recusam requisição sem token', async () => {
+    // 141 → 143: as duas portas da correção administrativa de filiação.
+    // Este número é ARAME DE TROPEÇO de propósito — crescer a superfície
+    // mutante tem de exigir que alguém escreva o novo total à mão, olhando o
+    // que entrou. Atualizá-lo sem declarar a rota na matriz não ajudaria: o
+    // teste de conjunto, acima, quebraria primeiro.
+    expect(entradas.length, 'a matriz cobre as rotas mutantes autenticadas').toBe(143);
     const falhas = [];
     for (const entrada of entradas) {
       const r = await disparar(entrada, null);
