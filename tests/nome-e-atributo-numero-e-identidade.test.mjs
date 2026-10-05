@@ -58,7 +58,7 @@ const CABECALHO_OFICIAL = 'Athlete #,Class,First Name,Last Name,Member Number,Pl
 const arquivoOficial = linhas => [CABECALHO_OFICIAL, ...linhas].join('\n');
 
 /** Cria o lote declarando a filiação da etapa, como a tela manda fazer. */
-async function importar(conteudo, { filiacaoDaEtapa = 'NPC', prefixo = null } = {}) {
+async function importar(conteudo, { filiacaoDaEtapa = 'NPC', prefixo = null, eventId = null } = {}) {
   const criado = await api().post('/api/v1/musclewar/imports').set(gerente.auth()).send({
     organizationId,
     seasonId,
@@ -66,10 +66,21 @@ async function importar(conteudo, { filiacaoDaEtapa = 'NPC', prefixo = null } = 
     sourceRef: unico('etapa') + '.csv',
     content: conteudo,
     ...(filiacaoDaEtapa ? { defaultAffiliationCode: filiacaoDaEtapa } : {}),
-    ...(prefixo ? { externalIdPrefix: prefixo } : {})
+    ...(prefixo ? { externalIdPrefix: prefixo } : {}),
+    ...(eventId ? { eventId } : {})
   });
   expect([200, 201], JSON.stringify(criado.body)).toContain(criado.status);
   return criado.body.import?.id ?? criado.body.id;
+}
+
+/** Um campeonato de verdade. Sem ele os dois lotes caem no mesmo `eventId`
+ *  nulo, e "dois eventos distintos" seria uma frase, não uma medição. */
+async function criarCampeonato(nome) {
+  const r = await api().post('/api/v1/events').set(admin.auth()).send({
+    organizationId, name: nome, slug: unico('etapa'), startDate: '2026-04-11T12:00:00.000Z'
+  });
+  expect(r.status, JSON.stringify(r.body)).toBe(201);
+  return r.body.id;
 }
 
 async function aplicar(importId) {
@@ -319,9 +330,10 @@ describe('§19 — o ciclo inteiro: importar, importar, cadastrar, editar', () =
   it('dois campeonatos com nomes diferentes, um cadastro, uma edição, e o histórico de pé', async () => {
     // ---------------------------------------------------------------- ETAPA 1
     // EVENTO A. O arquivo escreve "JOAO SILVA". O atleta ainda não existe.
+    const eventoA = await criarCampeonato('EVENTO A');
     const loteA = await importar(
       arquivoOficial(['701,Men\'s Physique - Open Class A,JOAO,SILVA,999001,1']),
-      { prefixo: 'EVENTOA2026' }
+      { prefixo: 'EVENTOA2026', eventId: eventoA }
     );
     const itensA = await itensDoLote(loteA);
     expect(itensA).toHaveLength(1);
@@ -331,9 +343,10 @@ describe('§19 — o ciclo inteiro: importar, importar, cadastrar, editar', () =
 
     // ---------------------------------------------------------------- ETAPA 2
     // EVENTO B. O MESMO número, com o nome escrito de outro jeito.
+    const eventoB = await criarCampeonato('EVENTO B');
     const loteB = await importar(
       arquivoOficial(['733,Men\'s Classic Physique - Open Class B,JOÃO DA SILVA,NETO,999001,2']),
-      { prefixo: 'EVENTOB2026' }
+      { prefixo: 'EVENTOB2026', eventId: eventoB }
     );
     await aplicar(loteB);
 
@@ -360,7 +373,8 @@ describe('§19 — o ciclo inteiro: importar, importar, cadastrar, editar', () =
     // OS DOIS campeonatos vieram juntos, pelo número, sem ninguém clicar nada.
     expect(depoisDoCadastro.lancamentos, 'os dois eventos foram adotados').toBe(2);
     const eventosDistintos = new Set(depoisDoCadastro.pontos.map(p => p.eventId));
-    expect(eventosDistintos.size, 'dois eventos distintos').toBe(2);
+    expect([...eventosDistintos].sort(), 'EVENTO A e EVENTO B, nomeados')
+      .toEqual([eventoA, eventoB].sort());
     // 1º lugar = 5, 2º lugar = 4, pela tabela homologada.
     expect(depoisDoCadastro.total).toBe(9);
 
