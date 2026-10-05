@@ -317,6 +317,12 @@ module.exports = {
     create: async (req, res) => res.status(201).json(await muscleWar.createImport(req.body, req.user)),
     preview: async (req, res) => res.json(await muscleWar.preview(req.params.id, req.user, req.query)),
     link: async (req, res) => res.json(await muscleWar.linkItem(req.params.itemId, req.body, req.user)),
+    // CORREÇÃO DE FILIAÇÃO, em dois passos de propósito: o operador VÊ o que a
+    // matrícula nova encontra antes de confirmar. Validar não escreve nada.
+    validarFiliacao: async (req, res) =>
+      res.json(await muscleWar.validarCorrecaoDeFiliacao(req.params.itemId, req.body, req.user)),
+    corrigirFiliacao: async (req, res) =>
+      res.json(await muscleWar.corrigirFiliacao(req.params.itemId, req.body, req.user)),
     apply: async (req, res) => res.json(await muscleWar.apply(req.params.id, req.user)),
     reject: async (req, res) => res.json(await muscleWar.reject(req.params.id, req.body, req.user)),
     remove: async (req, res) => res.json(await muscleWar.deleteImport(req.params.id, req.body || {}, req.user)),

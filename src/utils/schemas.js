@@ -676,6 +676,23 @@ const muscleWarImportCreate = z.object({
 
 const muscleWarLink = z.object({ athleteId: id });
 
+// CORREÇÃO ADMINISTRATIVA DE FILIAÇÃO.
+//
+// `texto(1, 40)` é o MESMO tipo de `affiliationNumber` no cadastro do atleta
+// (linha 175 e 789 deste arquivo): a matrícula corrigida tem de caber onde a
+// cadastrada cabe, ou a correção produziria um valor que o par nunca casaria.
+//
+// `texto` apara espaço e NÃO converte para número — zero à esquerda é
+// significativo, e "02932" não é "2932".
+//
+// O `organizationId` NÃO entra aqui, de propósito: ele vem do LOTE, no
+// servidor. Aceitá-lo do cliente seria oferecer a chave do isolamento de
+// tenant a quem está do lado de fora.
+const muscleWarAffiliationFix = z.object({
+  novaMatricula: texto(1, 40),
+  motivo: opcional(texto(1, 500))
+});
+
 // Recorte da revisão. O teto vive no serviço; aqui a guarda é de FORMA — um
 // `limit=abc` ou um `offset` negativo não podem chegar ao Prisma.
 const muscleWarPreviewQuery = z.object({
@@ -1075,7 +1092,7 @@ module.exports = {
   seasonCreate, pointsRuleSet, rankingQuery, rankingCutQuery, overallDeclare,
   overallPreviewQuery, overallRevoke, teamRankingQuery,
   classCatalogUpsert, classCatalogQuery, classesParaFiltroQuery, superOverallQuery,
-  muscleWarImportCreate, muscleWarLink, muscleWarPreviewQuery,
+  muscleWarImportCreate, muscleWarLink, muscleWarAffiliationFix, muscleWarPreviewQuery,
   rankingPointEdit, rankingPointPreviewQuery, rankingPointReason, rankingPointAdjust,
   teamCreate, teamCoachSet, companyCreate, coachCreate, gymCreate, brandCreate, sponsorCreate, sponsorshipCreate,
   coachSelfRegister, coachSelfUpdate, coachTeamCreate, coachTeamUpdate, coachReviewQuery, coachDecision, coachDecisionWithReason,

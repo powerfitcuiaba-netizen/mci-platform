@@ -350,6 +350,17 @@ router.route('/musclewar/imports')
   .post(requireAuth, limiteImportacao, perm('musclewar.import', orgDoCorpo), validate(s.muscleWarImportCreate), wrap(c.muscleWar.create, PRAZO_DA_IMPORTACAO));
 router.get('/musclewar/imports/:id', requireAuth, validate(s.paramsWithId, 'params'), validate(s.muscleWarPreviewQuery, 'query'), wrap(c.muscleWar.preview));
 router.post('/musclewar/items/:itemId/link', requireAuth, validate(s.muscleWarLink), wrap(c.muscleWar.link));
+// CORREÇÃO ADMINISTRATIVA DE FILIAÇÃO — dois passos, a mesma autorização.
+//
+// A permissão NÃO é declarada aqui com `perm(...)`, e isso é deliberado: o
+// `organizationId` que decide a autorização vem do LOTE, lido no serviço, e
+// não de nada que o cliente mande. `validarCorrecaoDeFiliacao` e
+// `corrigirFiliacao` chamam `assertCan(actor, 'musclewar.review', <org do
+// lote>)` — exatamente como `linkItem` logo acima, pela mesma razão.
+router.post('/musclewar/items/:itemId/affiliation/validate', requireAuth,
+  validate(s.muscleWarAffiliationFix), wrap(c.muscleWar.validarFiliacao));
+router.post('/musclewar/items/:itemId/affiliation/fix', requireAuth,
+  validate(s.muscleWarAffiliationFix), wrap(c.muscleWar.corrigirFiliacao));
 router.post('/musclewar/imports/:id/apply', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.muscleWar.apply, PRAZO_DA_IMPORTACAO));
 router.post('/musclewar/imports/:id/reject', requireAuth, validate(s.paramsWithId, 'params'), validate(s.rejectImport), wrap(c.muscleWar.reject));
 // A autorização NÃO fica aqui em `perm(...)`: quem decide é o serviço, porque

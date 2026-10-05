@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, Building2, CalendarDays, Download, Link2, Plus, Search, Trash2, Upload, Users } from 'lucide-react';
+import { AlertTriangle, Building2, CalendarDays, Download, Link2, Pencil, Plus, Search, Trash2, Upload, Users } from 'lucide-react';
 import api, { refreshData } from '../services/api';
 import { useDebounce, useFetch, useListaPaginada } from '../lib/hooks';
 import { useAuth } from '../AuthContext';
@@ -951,6 +951,7 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
     [importId, situacao, categoria, termo, pagina]
   );
   const [vinculando, setVinculando] = useState(null);
+  const [corrigindoFiliacao, setCorrigindoFiliacao] = useState(null);
   const [aplicando, setAplicando] = useState(false);
 
   // Qualquer mudança de recorte volta para a primeira página: manter a página
@@ -1122,7 +1123,23 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                         <td className="num">{item.cpf || '—'}</td>
                         <td>{item.athlete?.fullName || item.athleteName || '—'}</td>
                         <td>{item.affiliationCode || '—'}</td>
-                        <td className="num">{item.memberNumber || '—'}</td>
+                        <td className="num">
+                          {/* §9 — OS DOIS NÚMEROS, quando houve correção. O
+                              efetivo em destaque e a origem em miúdo: quem abre
+                              a tela depois precisa saber que aquele número foi
+                              corrigido administrativamente, e qual era o que a
+                              fonte escreveu. Esconder a origem transformaria a
+                              correção em reescrita da história. */}
+                          {item.correctedMemberNumber ? (
+                            <>
+                              <strong>{item.correctedMemberNumber}</strong>
+                              <br />
+                              <small className="text-muted" style={{ fontSize: '.72rem' }}>
+                                {t('plataforma.fonteInformou', { original: item.memberNumber || '—' })}
+                              </small>
+                            </>
+                          ) : (item.memberNumber || '—')}
+                        </td>
                         <td>{item.categoryCode || '—'}</td>
                         <td>
                           {item.className || '—'}
@@ -1211,6 +1228,30 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                               </button>
                             </div>
                           )}
+                          {/* CORRIGIR FILIAÇÃO — e por que a condição é outra.
+                              O caso real é uma linha JÁ APLICADA: o resultado
+                              entrou no ledger sem dono porque a fonte errou o
+                              número. Reaproveitar a condição do vincular
+                              esconderia o botão exatamente onde ele é
+                              necessário.
+                              Exige filiação declarada: sem entidade o número
+                              sozinho não identifica ninguém. E exige que a
+                              linha ainda não tenha dono — trocar o dono de um
+                              histórico publicado é outra operação. */}
+                          {item.affiliationCode && !item.athleteId
+                            && dados.import.status !== 'REJECTED' && (
+                            <div className="acoes-da-linha">
+                              <button
+                                type="button"
+                                className="icon-button icon-button-sm"
+                                title={t('plataforma.corrigirFiliacao')}
+                                aria-label={`Corrigir a filiação da linha ${item.rowNumber}`}
+                                onClick={() => setCorrigindoFiliacao(item)}
+                              >
+                                <Pencil size={14} />
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1274,9 +1315,170 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                 onSalvo={() => { setVinculando(null); estado.reload(); onMudou(); }}
               />
             )}
+
+            {corrigindoFiliacao && (
+              <CorrigirFiliacao
+                item={corrigindoFiliacao}
+                notificar={notificar}
+                onClose={() => setCorrigindoFiliacao(null)}
+                onSalvo={() => { setCorrigindoFiliacao(null); estado.reload(); onMudou(); }}
+              />
+            )}
           </>
         )}
       </AsyncSection>
+    </Modal>
+  );
+}
+
+// ============================================================================
+// CORRIGIR FILIAÇÃO — dois passos, e o segundo nunca acontece sozinho.
+//
+// POR QUE DOIS PASSOS
+//
+// Validar PRIMEIRO e confirmar DEPOIS não é cerimônia: o operador precisa ver
+// QUEM a matrícula nova encontra antes de amarrar um histórico a uma pessoa.
+// Um passo só transformaria "errei o dígito de novo" em vínculo silencioso ao
+// atleta errado — e esse erro ninguém desfaz depois que os pontos somam.
+//
+// O QUE ESTE MODAL NÃO FAZ
+//
+// Não edita nome. Nenhum campo de nome, em lugar nenhum: o nome da fonte é
+// prova documental, e o do cadastro se edita no perfil do atleta. Aqui só se
+// corrige o IDENTIFICADOR ESPORTIVO.
+// ============================================================================
+function CorrigirFiliacao({ item, notificar, onClose, onSalvo }) {
+  const { t } = useIdioma();
+  const [nova, setNova] = useState('');
+  const [motivo, setMotivo] = useState('');
+  const [avaliacao, setAvaliacao] = useState(null);
+  const [ocupado, setOcupado] = useState(false);
+
+  const original = item.correctedMemberNumber ?? item.memberNumber ?? '—';
+
+  // Mudar o número INVALIDA a validação anterior. Sem isto, o operador validaria
+  // 2932, digitaria 2933 e confirmaria com a tela ainda mostrando o atleta do
+  // 2932 — o pior tipo de erro, porque parece conferido.
+  const digitar = valor => { setNova(valor); setAvaliacao(null); };
+
+  const validar = async evento => {
+    evento.preventDefault();
+    setOcupado(true);
+    try {
+      setAvaliacao(await api.muscleWar.validarFiliacao(item.id, { novaMatricula: nova }));
+    } catch (erro) {
+      notificar(erro.message, 'erro');
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  const confirmar = async () => {
+    setOcupado(true);
+    try {
+      const feito = await api.muscleWar.corrigirFiliacao(item.id, {
+        novaMatricula: nova, ...(motivo.trim() ? { motivo: motivo.trim() } : {})
+      });
+      notificar(feito.athleteId
+        ? t('plataforma.filiacaoCorrigidaEVinculada')
+        : t('plataforma.filiacaoCorrigidaPendente'));
+      onSalvo();
+    } catch (erro) {
+      notificar(erro.message, 'erro');
+      setOcupado(false);
+    }
+  };
+
+  const encontrado = avaliacao?.estado === 'ENCONTRADA' ? avaliacao.candidatos[0] : null;
+
+  return (
+    <Modal title={t('plataforma.corrigirFiliacao')} onClose={onClose} size="sm">
+      <form onSubmit={validar} className="form-grid">
+        {/* O QUE A FONTE DISSE, em leitura. Três fatos que o operador confere
+            antes de mexer em qualquer coisa. */}
+        <dl className="lista-de-fatos">
+          <dt>{t('plataforma.atletaNaFonte')}</dt>
+          <dd><strong>{item.athleteName || '—'}</strong></dd>
+          <dt>{t('evento.filiacao')}</dt>
+          <dd>{item.affiliationCode || '—'}</dd>
+          <dt>{t('plataforma.filiacaoOriginal')}</dt>
+          <dd className="mono">{original}</dd>
+        </dl>
+
+        {/* CHAVE PRÓPRIA, e não `plataforma.novaFiliacao`.
+            Aquela chave já significa "criar uma nova ENTIDADE de filiação" —
+            é o título do modal de federação e o rótulo do botão que o abre.
+            Reaproveitá-la aqui faria o inglês dizer "New affiliation" num campo
+            que pede um NÚMERO. Dois sentidos, duas chaves. */}
+        <Field label={t('plataforma.novoNumeroDeFiliacao')} required>
+          <input
+            value={nova}
+            onChange={evento => digitar(evento.target.value)}
+            maxLength={40}
+            inputMode="numeric"
+            autoFocus
+            aria-label={t('plataforma.novoNumeroDeFiliacao')}
+          />
+        </Field>
+
+        <Field label={t('plataforma.motivoDaCorrecao')} hint={t('plataforma.motivoDaCorrecaoDica')}>
+          <input value={motivo} onChange={evento => setMotivo(evento.target.value)} maxLength={500} />
+        </Field>
+
+        {/* O VEREDITO DA VALIDAÇÃO. Cada estado diz o que acontece se o operador
+            seguir — e o estado NÃO ENCONTRADA deixa salvar, porque registrar a
+            conferência também é trabalho útil. */}
+        {avaliacao?.estado === 'ENCONTRADA' && (
+          <div className="alerta alerta-sucesso" role="status">
+            <strong>{t('plataforma.filiacaoEncontrada')}</strong>
+            <dl className="lista-de-fatos">
+              <dt>{t('atleta.nomeCompleto')}</dt>
+              <dd><strong>{encontrado.fullName}</strong></dd>
+              <dt>{t('evento.filiacao')}</dt>
+              <dd>{avaliacao.entity}</dd>
+              <dt>{t('plataforma.matricula')}</dt>
+              <dd className="mono">{encontrado.affiliationNumber}</dd>
+            </dl>
+          </div>
+        )}
+
+        {avaliacao?.estado === 'NAO_ENCONTRADA' && (
+          <div className="alerta alerta-atencao" role="status">
+            <strong>{t('plataforma.filiacaoNaoEncontrada')}</strong>
+            <p>{t('plataforma.filiacaoNaoEncontradaDica')}</p>
+          </div>
+        )}
+
+        {avaliacao?.estado === 'CONFLITO' && (
+          <div className="alerta alerta-erro" role="alert">
+            <strong>{t('plataforma.conflitoDeIdentidade')}</strong>
+            <p>{t('plataforma.conflitoDeIdentidadeDica')}</p>
+          </div>
+        )}
+
+        <ModalActions>
+          <button type="button" className="button button-secondary" onClick={onClose} disabled={ocupado}>
+            {t('acao.cancelar')}
+          </button>
+          {!avaliacao && (
+            <button type="submit" className="button button-primary" disabled={ocupado || !nova.trim()}>
+              {t('plataforma.validarESalvar')}
+            </button>
+          )}
+          {/* CONFLITO não oferece botão de confirmar: não existe decisão segura
+              a tomar aqui, e oferecer o botão convidaria a tomá-la. */}
+          {avaliacao?.estado === 'ENCONTRADA' && (
+            <button type="button" className="button button-primary" onClick={confirmar} disabled={ocupado}>
+              {t('plataforma.confirmarCorrecaoEVinculo')}
+            </button>
+          )}
+          {avaliacao?.estado === 'NAO_ENCONTRADA' && (
+            <button type="button" className="button button-primary" onClick={confirmar} disabled={ocupado}>
+              {t('plataforma.salvarCorrecaoPendente')}
+            </button>
+          )}
+        </ModalActions>
+      </form>
     </Modal>
   );
 }
