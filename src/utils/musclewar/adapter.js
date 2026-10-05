@@ -33,13 +33,18 @@ const MAPA_PADRAO = Object.freeze({
   // cega justamente nas linhas que mais precisam dela.
   firstName: ['first_name', 'firstname', 'primeiro_nome'],
   lastName: ['last_name', 'lastname', 'surname', 'sobrenome'],
-  affiliationCode: ['affiliation_code', 'filiacao', 'filiacao_codigo', 'affiliation'],
+  // FILIAÇÃO. As grafias que arquivos reais usam, e só nomes de COLUNA: nada
+  // aqui infere valor. "Federação" e "Entidade" entram porque é como a planilha
+  // brasileira costuma chamar a coluna, e perdê-la custa a identidade inteira.
+  affiliationCode: ['affiliation_code', 'filiacao', 'filiacao_codigo', 'affiliation',
+    'affiliate', 'federacao', 'entidade'],
   // Matrícula do atleta DENTRO da entidade de filiação. É o "Member Number"
   // dos arquivos oficiais, e na maioria deles é a única identificação que
   // existe — CPF frequentemente não vem. Sozinha não identifica ninguém: duas
   // federações emitem o mesmo número, então ela só vale com `affiliationCode`.
-  memberNumber: ['member_number', 'membernumber', 'member no', 'matricula', 'matrícula',
-    'numero_filiacao', 'affiliation_number', 'registro'],
+  memberNumber: ['member_number', 'membernumber', 'member_no', 'member_no.', 'member_#',
+    'matricula', 'numero_filiacao', 'numero_de_filiacao', 'num_filiacao',
+    'affiliation_number', 'registro'],
   categoryCode: ['category_code', 'categoria', 'category'],
   divisionName: ['division', 'divisao', 'division_name'],
   className: ['class', 'classe', 'class_name'],
@@ -156,10 +161,37 @@ function parseJson(conteudo) {
 }
 
 // Localiza o valor de um campo canônico dentro de um registro já normalizado.
+// OS APELIDOS PASSAM PELA MESMA NORMALIZAÇÃO DO CABEÇALHO.
+//
+// O DEFEITO que isto fecha, medido: o cabeçalho do arquivo é normalizado por
+// `normalizarChave` — minúsculas, acento removido, espaço e hífen viram `_` —,
+// e a lista de apelidos era comparada CRUA. Qualquer apelido escrito com
+// espaço, acento ou maiúscula nunca casava com nada: era um apelido MORTO,
+// presente na lista e incapaz de reconhecer coluna nenhuma.
+//
+// Dois estavam nesse estado, os dois de `memberNumber`: `'member no'` e
+// `'matrícula'`. O primeiro custava caro — um arquivo com a coluna
+// `Member No` perdia a matrícula de TODAS as linhas. E perder a matrícula não
+// é perder um campo: a linha cai na identidade `EXT:` por resultado, com
+// filiação e matrícula nulas, a tela mostra "—" com fidelidade, e o vínculo
+// tardio — que procura `AFF:{filiação}:{número}` por chave — não tem como
+// alcançar aquele resultado nunca mais. Um atleta cadastrado depois não o
+// reencontra.
+//
+// Normalizar aqui conserta os dois de uma vez E impede que um apelido novo
+// nasça morto: qualquer grafia que alguém escrever na lista passa a valer pela
+// forma normalizada, que é a forma em que as chaves do registro existem.
+//
+// Feito UMA vez, na carga do módulo, e não por linha: o importador chama
+// `extrair` dezenas de milhares de vezes num arquivo grande.
+const APELIDOS = Object.freeze(Object.fromEntries(
+  Object.entries(MAPA_PADRAO).map(([campo, apelidos]) => [campo, apelidos.map(normalizarChave)])
+));
+
 function extrair(registro, campo, fieldMap) {
   const candidatos = [
     ...(fieldMap?.[campo] ? [normalizarChave(fieldMap[campo])] : []),
-    ...MAPA_PADRAO[campo]
+    ...APELIDOS[campo]
   ];
 
   for (const nome of candidatos) {
