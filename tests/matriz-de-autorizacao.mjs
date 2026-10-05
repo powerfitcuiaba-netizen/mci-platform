@@ -253,6 +253,25 @@ export function matriz(f) {
       { reason: 'Exclusão de QA.' }, 'musclewar.apply', { recusasExtras: [404], porQue: 'Mesma RLS de operador do lote.' }),
     permissao('POST', '/musclewar/items/:itemId/link', `/musclewar/items/${f.importItemA}/link`,
       { athleteId: f.athleteA }, 'musclewar.apply', { recusasExtras: [404], porQue: 'O item herda a visibilidade do lote, que é de operador.' }),
+    // CORREÇÃO ADMINISTRATIVA DE FILIAÇÃO — as duas portas, a mesma permissão.
+    //
+    // `validate` é somente leitura e ENTRA NA MATRIZ MESMO ASSIM: é POST, e o
+    // que ele devolve são nomes de atletas cadastrados. Ler quem competiu não é
+    // pergunta para quem não opera o lote.
+    //
+    // `recusasExtras: [404]` pelo mesmo motivo das vizinhas: o item herda a
+    // visibilidade do lote, e a política de linha esconde o registro de quem
+    // `mci_operator_of` não reconhece. Nesse caso a recusa chega como "não
+    // encontrado" ANTES de haver pergunta de autorização — não divulgação, e é
+    // mais forte que 403, não mais fraco.
+    permissao('POST', '/musclewar/items/:itemId/affiliation/validate',
+      `/musclewar/items/${f.importItemA}/affiliation/validate`,
+      { novaMatricula: '2932' }, 'musclewar.review',
+      { recusasExtras: [404], porQue: 'O item herda a visibilidade do lote, que é de operador.' }),
+    permissao('POST', '/musclewar/items/:itemId/affiliation/fix',
+      `/musclewar/items/${f.importItemA}/affiliation/fix`,
+      { novaMatricula: '2932' }, 'musclewar.review',
+      { recusasExtras: [404], porQue: 'O item herda a visibilidade do lote, que é de operador.' }),
 
     // ------------------------------------------ equipes, empresas e parceiros
     permissao('POST', '/companies', '/companies',

@@ -41,6 +41,22 @@ const limiteUpload = rateLimit({ windowMs: 60_000, max: 30, nome: 'upload' });
 const limiteBusca = rateLimit({ windowMs: 60_000, max: 120, nome: 'search' });
 // A importação lê e valida arquivo inteiro: é a rota mais cara da API.
 const limiteImportacao = rateLimit({ windowMs: 60_000, max: 10, nome: 'import' });
+// CORREÇÃO DE FILIAÇÃO — 20 por minuto, por ator.
+//
+// Não é defesa contra invasor: a rota já exige sessão e `musclewar.review`, e
+// quem tem essas duas coisas é operador da federação. É defesa contra LAÇO —
+// script de conferência, clique repetido, aba que recarrega — porque cada
+// correção aplicada recalcula o agregado da temporada, e isso é a parte cara.
+//
+// 20 é folgado para o uso humano real: o operador corrige uma linha de cada
+// vez, lendo o que a validação devolveu. Um lote inteiro de correções é outro
+// trabalho, e não passa por aqui.
+//
+// A rota de VALIDAR entra na MESMA cota de propósito, e não numa própria: ela
+// responde se existe cadastro com um par entidade+matrícula, o que é um oráculo
+// de enumeração dentro da própria entidade do operador. Dar a ela um balde
+// separado daria ao abuso dois baldes em vez de um.
+const limiteCorrecao = rateLimit({ windowMs: 60_000, max: 20, nome: 'correcao-filiacao' });
 
 // Criação de conteúdo. O teto global de 600/min não protege ninguém aqui: com
 // ele, uma conta despeja centenas de comentários na publicação de outra pessoa
@@ -350,6 +366,17 @@ router.route('/musclewar/imports')
   .post(requireAuth, limiteImportacao, perm('musclewar.import', orgDoCorpo), validate(s.muscleWarImportCreate), wrap(c.muscleWar.create, PRAZO_DA_IMPORTACAO));
 router.get('/musclewar/imports/:id', requireAuth, validate(s.paramsWithId, 'params'), validate(s.muscleWarPreviewQuery, 'query'), wrap(c.muscleWar.preview));
 router.post('/musclewar/items/:itemId/link', requireAuth, validate(s.muscleWarLink), wrap(c.muscleWar.link));
+// CORREÇÃO ADMINISTRATIVA DE FILIAÇÃO — dois passos, a mesma autorização.
+//
+// A permissão NÃO é declarada aqui com `perm(...)`, e isso é deliberado: o
+// `organizationId` que decide a autorização vem do LOTE, lido no serviço, e
+// não de nada que o cliente mande. `validarCorrecaoDeFiliacao` e
+// `corrigirFiliacao` chamam `assertCan(actor, 'musclewar.review', <org do
+// lote>)` — exatamente como `linkItem` logo acima, pela mesma razão.
+router.post('/musclewar/items/:itemId/affiliation/validate', requireAuth, limiteCorrecao,
+  validate(s.muscleWarAffiliationFix), wrap(c.muscleWar.validarFiliacao));
+router.post('/musclewar/items/:itemId/affiliation/fix', requireAuth, limiteCorrecao,
+  validate(s.muscleWarAffiliationFix), wrap(c.muscleWar.corrigirFiliacao));
 router.post('/musclewar/imports/:id/apply', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.muscleWar.apply, PRAZO_DA_IMPORTACAO));
 router.post('/musclewar/imports/:id/reject', requireAuth, validate(s.paramsWithId, 'params'), validate(s.rejectImport), wrap(c.muscleWar.reject));
 // A autorização NÃO fica aqui em `perm(...)`: quem decide é o serviço, porque

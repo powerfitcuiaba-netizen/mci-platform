@@ -544,7 +544,17 @@ describe('o calendário não pede migration nenhuma', () => {
       // Anulável de propósito: há treinadores cadastrados antes da decisão, e
       // `NOT NULL` recusaria toda linha deles. A obrigatoriedade vive na rota e no
       // serviço, que recusam o autocadastro sem arquivo.
-      '20260928020000_foto_obrigatoria_do_treinador'
+      '20260928020000_foto_obrigatoria_do_treinador',
+      // Correção administrativa de filiação: quatro colunas anuláveis em
+      // `MuscleWarImportItem`, sem índice novo e sem reescrever linha. Entra
+      // nesta lista porque a lista é a revisão — e esta migration foi revisada:
+      // ela não muda o schema do calendário, que é o que este arquivo protege.
+      '20261005110000_correcao_administrativa_de_filiacao',
+      // A entidade também pode faltar na fonte: o caso real do Razor tem
+      // `affiliationCode` NULO, porque o cabeçalho oficial de etapa NPC não tem
+      // essa coluna e a filiação do lote ficou em branco. Uma coluna anulável,
+      // revisada: não toca no schema do calendário.
+      '20261005140000_corrigir_entidade_ausente'
     ]);
   });
 });

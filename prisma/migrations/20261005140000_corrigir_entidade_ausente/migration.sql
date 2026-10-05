@@ -1,0 +1,37 @@
+-- ===========================================================================
+-- A ENTIDADE TAMBÉM PODE ESTAR AUSENTE NA FONTE
+--
+-- O QUE A MIGRATION ANTERIOR NÃO RESOLVIA
+--
+-- `20261005110000` criou a correção da MATRÍCULA e exigia que a linha já
+-- declarasse a entidade. O caso real do Razor não é assim:
+--
+--     ENTIDADE = —        (nula: o arquivo oficial NPC não tem essa coluna, e
+--                          a filiação do lote não foi preenchida)
+--     FILIAÇÃO = 2952     (dígito trocado na fonte)
+--     STATUS   = APPLIED  (o resultado já está no ledger, sem dono)
+--
+-- Sem entidade não havia identidade para corrigir, e a porta recusava com
+-- `ITEM_WITHOUT_ENTITY`. Era recusa correta para a regra antiga e INÚTIL para
+-- o caso que a funcionalidade existe para atender.
+--
+-- POR QUE UMA COLUNA, E NÃO UM UPDATE EM `affiliationCode`
+--
+-- Pelo mesmo motivo de `correctedMemberNumber`: `affiliationCode` é o que a
+-- FONTE declarou — e, no caso do Razor, o que ela declarou é NADA. Esse nada é
+-- informação: é a prova de que o arquivo oficial não traz a coluna de entidade
+-- e de que a filiação do lote ficou em branco. Sobrescrevê-lo com 'NPC'
+-- apagaria o diagnóstico da causa raiz.
+--
+-- A efetiva passa a ser `correctedAffiliationCode ?? affiliationCode`, espelhando
+-- exatamente `correctedMemberNumber ?? memberNumber`.
+--
+-- NÃO DESTRUTIVA
+--
+-- Uma coluna NOVA, anulável, sem DEFAULT que reescreva linha, sem índice novo e
+-- sem tocar em constraint nenhuma. Nenhum dado existente muda.
+--
+-- RLS: nada a fazer. Coluna nova herda a política da tabela.
+-- ===========================================================================
+
+ALTER TABLE "MuscleWarImportItem" ADD COLUMN "correctedAffiliationCode" TEXT;

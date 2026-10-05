@@ -2014,6 +2014,35 @@ model MuscleWarImportItem {
   /// CONFLICT, para que o operador veja os números e não só a frase.
   pointsMismatch     Json?
   athleteId          String?
+  /// A MATRÍCULA CORRIGIDA ADMINISTRATIVAMENTE — e por que ela é uma coluna
+  /// nova em vez de uma sobrescrita de `memberNumber`.
+  ///
+  /// `memberNumber`, acima, é o que a FONTE escreveu. É prova documental: a
+  /// decisão do operador tem de ser conferível contra o que estava no arquivo,
+  /// e sobrescrever aquele campo apagaria justamente a evidência de que houve
+  /// erro de digitação na origem. As duas leituras coexistem, e a efetiva é
+  /// `correctedMemberNumber ?? memberNumber`.
+  ///
+  /// NULO é o estado normal: a imensa maioria das linhas nunca é corrigida.
+  correctedMemberNumber String?
+  /// A ENTIDADE CORRIGIDA ADMINISTRATIVAMENTE.
+  ///
+  /// O arquivo oficial de etapa NPC não tem coluna de entidade: ela vem do
+  /// campo "Filiação de toda a etapa" do lote, que é OPCIONAL. Quando os dois
+  /// faltam, `affiliationCode` acima nasce NULO — e esse nulo é informação, não
+  /// lacuna: é a prova de que a entidade nunca foi declarada. Sobrescrevê-lo
+  /// apagaria o diagnóstico da causa raiz.
+  ///
+  /// A efetiva é `correctedAffiliationCode ?? affiliationCode`.
+  correctedAffiliationCode String?
+  /// Por que o operador corrigiu. Texto livre, porque o motivo real varia —
+  /// "dígito trocado na planilha da etapa" não cabe num enum.
+  correctionReason      String?
+  /// Quem corrigiu e quando. `String` sem relação, igual a `linkedById` logo
+  /// abaixo: é o padrão desta tabela, e divergir dele só para esta coluna
+  /// criaria uma inconsistência sem ganho.
+  correctedById         String?
+  correctedAt           DateTime?
   /// Pista por semelhança de nome. É SUGESTÃO, nunca vínculo — mora numa
   /// coluna diferente de `athleteId` justamente para que nenhum caminho de
   /// aplicação a confunda com reconhecimento. Semelhança de nome não
