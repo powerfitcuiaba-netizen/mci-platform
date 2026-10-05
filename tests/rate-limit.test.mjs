@@ -334,3 +334,35 @@ describe('as rotas de escrita que faltavam na lista', () => {
     expect(mapa.get(rota)).toContain(nome);
   });
 });
+
+// ============================================================================
+// §3 — AS DUAS ROTAS DA CORREÇÃO ADMINISTRATIVA DE FILIAÇÃO.
+//
+// Por que limitar uma rota que já exige autenticação E `musclewar.review`: a
+// rota de VALIDAR responde se existe cadastro com um par entidade+matrícula.
+// Isso é um oráculo de enumeração — um operador legítimo de uma federação
+// poderia varrer o espaço de matrículas da sua própria entidade e descobrir
+// quais números existem, sem deixar outro rastro além da trilha. O limitador
+// não impede a consulta legítima (20 por minuto é mais do que qualquer pessoa
+// digita) e torna a varredura lenta o bastante para aparecer.
+//
+// A rota de CORRIGIR é limitada pela mesma cota deliberadamente: ela ESCREVE, e
+// cota separada só daria ao atacante dois baldes em vez de um.
+// ============================================================================
+describe('§3 correção administrativa de filiação', () => {
+  const mapa = rotasComLimitador();
+
+  it.each([
+    'POST /musclewar/items/:itemId/affiliation/validate',
+    'POST /musclewar/items/:itemId/affiliation/fix'
+  ])('%s está atrás do limitador "correcao-filiacao"', rota => {
+    expect(mapa.get(rota), `rota ${rota} não encontrada no router`).toBeTruthy();
+    expect(mapa.get(rota)).toContain('correcao-filiacao');
+  });
+
+  it('as duas rotas compartilham a MESMA cota, e não uma cada', () => {
+    const validar = mapa.get('POST /musclewar/items/:itemId/affiliation/validate');
+    const corrigir = mapa.get('POST /musclewar/items/:itemId/affiliation/fix');
+    expect(validar).toEqual(corrigir);
+  });
+});

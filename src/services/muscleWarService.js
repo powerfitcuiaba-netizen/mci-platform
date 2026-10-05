@@ -1190,19 +1190,19 @@ const entidadeEfetiva = item => item.correctedAffiliationCode ?? item.affiliatio
  */
 async function avaliarCorrecaoDeFiliacao(item, novaMatricula, novaEntidade = null) {
   const organizationId = item.import.organizationId;
-  const daFonte = normalizarEntidade(item.affiliationCode);
   const pedida = normalizarEntidade(novaEntidade);
 
-  // A FONTE TEM PRECEDÊNCIA QUANDO ELA FALOU.
+  // A ENTIDADE DECLARADA PELA FONTE TAMBÉM PODE ESTAR ERRADA.
   //
-  // Informar entidade só é permitido onde a fonte NÃO declarou nenhuma. Se o
-  // arquivo disse NPC, trocar para IFBB não é corrigir digitação: é reescrever
-  // de qual federação foi o resultado — outra afirmação, com outro peso, e que
-  // esta porta não tem autorização para fazer.
-  if (daFonte && pedida && pedida !== daFonte) {
-    return { estado: 'ENTIDADE_DIVERGE_DA_FONTE', entidade: daFonte, entidadePedida: pedida, candidatos: [] };
-  }
-
+  // A versão anterior recusava trocá-la, com o argumento de que "dizer que o
+  // resultado foi de outra federação é outra afirmação". O argumento continua
+  // verdadeiro — e é por isso que a troca é REGISTRADA com os dois valores, o
+  // motivo, o operador e a hora, em vez de proibida. Proibir não fazia o erro
+  // da fonte desaparecer: fazia o resultado ficar órfão para sempre.
+  //
+  // O que NÃO mudou, e é o que importa: a identidade continua sendo
+  // ENTIDADE + FILIAÇÃO, o nome continua fora da decisão, e um resultado que já
+  // tem dono não muda de dono por esta porta (ver `corrigirFiliacao`).
   const codigo = pedida ?? entidadeEfetiva(item);
   if (!codigo) {
     return { estado: 'SEM_ENTIDADE', candidatos: [] };
@@ -1303,40 +1303,64 @@ async function corrigirFiliacao(itemId, { novaMatricula, novaEntidade, motivo },
 
   const entidadePedida = normalizarEntidade(novaEntidade);
 
-  // IDEMPOTÊNCIA, PRIMEIRO RAMO: a mesma correção, já aplicada e já vinculada.
-  // Repetir não pode doer, e também não pode mentir dizendo que fez de novo.
-  //
-  // A entidade entra na comparação: repetir a MESMA matrícula com OUTRA
-  // entidade não é repetição, é outra afirmação — e cai nas recusas abaixo.
-  const mesmaEntidade = !entidadePedida || entidadePedida === entidadeEfetiva(item);
-  if (item.correctedMemberNumber === nova && mesmaEntidade && item.athleteId) {
-    return {
-      alreadyApplied: true,
-      itemId: item.id,
-      originalEntity: item.affiliationCode ?? null,
-      correctedEntity: item.correctedAffiliationCode ?? null,
-      originalAffiliationNumber: item.memberNumber ?? null,
-      correctedAffiliationNumber: item.correctedMemberNumber,
-      athleteId: item.athleteId,
-      estado: 'ENCONTRADA',
-      lancamentos: 0
-    };
-  }
-
-  // TROCAR O DONO DE UM RESULTADO JÁ VINCULADO É OUTRA OPERAÇÃO.
-  //
-  // Mesma recusa de `adotarIdentidadeExterna`, pela mesma razão: aquele
-  // resultado já está somando no histórico de alguém, e mudá-lo de pessoa com
-  // a autorização de "revisar importação" seria decidir por quem não foi
-  // consultado. Desfazer o vínculo existente é um ato próprio, com registro
-  // próprio.
-  if (item.athleteId && item.correctedMemberNumber !== nova) {
-    throw new AppError(409, 'ITEM_ALREADY_LINKED',
-      'Este resultado já está vinculado a um atleta. Corrigir a filiação para outro número '
-      + 'trocaria o dono de um histórico já publicado — desfaça o vínculo existente primeiro.');
-  }
-
   const avaliacao = await avaliarCorrecaoDeFiliacao(item, nova, entidadePedida);
+
+  // ==========================================================================
+  // RESULTADO JÁ VINCULADO — os três desfechos, todos explícitos.
+  //
+  // Nada aqui acontece em silêncio, e nada desvincula sozinho. Um resultado com
+  // dono já está somando no histórico de uma pessoa; mexer nisso com a
+  // autorização de "revisar importação" seria decidir por quem não foi
+  // consultado.
+  //
+  //   1. a correção aponta para O MESMO atleta, e já está gravada  -> idempotente
+  //   2. a correção aponta para O MESMO atleta, ainda não gravada  -> registra,
+  //      sem tocar no ledger: o vínculo já é o certo
+  //   3. a correção aponta para OUTRO atleta, ou para ninguém      -> 409
+  //
+  // O caso 3 inclui "ninguém" de propósito: gravar uma correção que contradiz o
+  // vínculo existente deixaria a linha afirmando duas coisas incompatíveis.
+  // Fail-closed.
+  // ==========================================================================
+  // Quando o item JÁ aponta para o atleta certo, o vínculo não se refaz: ele já
+  // está correto. `linkItem` recusaria a linha (ela não está `MATCH_PENDING`,
+  // nem `CONFLICT`, nem aplicada-sem-dono), e recusar aqui seria recusar a
+  // gravação de uma correção legítima de REGISTRO.
+  let vinculoJaCorreto = false;
+
+  if (item.athleteId) {
+    const alvo = avaliacao.estado === 'ENCONTRADA' ? avaliacao.candidatos[0] : null;
+
+    if (!alvo || alvo.id !== item.athleteId) {
+      throw new AppError(409, 'ITEM_ALREADY_LINKED',
+        'Este resultado já está vinculado a um atleta, e a correção pedida aponta para '
+        + `${alvo ? 'outro cadastro' : 'nenhum cadastro'}. Trocar o dono de um histórico já `
+        + 'publicado é outra operação, com outra autorização: desfaça o vínculo existente primeiro. '
+        + 'Nada foi alterado.');
+    }
+
+    // Mesmo atleta: a correção é de REGISTRO, não de vínculo. O ledger não é
+    // tocado porque já aponta para a pessoa certa.
+    const jaGravada = item.correctedMemberNumber === nova
+      && (!entidadePedida || entidadePedida === entidadeEfetiva(item));
+    if (jaGravada) {
+      return {
+        alreadyApplied: true,
+        itemId: item.id,
+        originalEntity: item.affiliationCode ?? null,
+        correctedEntity: item.correctedAffiliationCode ?? null,
+        originalAffiliationNumber: item.memberNumber ?? null,
+        correctedAffiliationNumber: item.correctedMemberNumber,
+        athleteId: item.athleteId,
+        estado: 'ENCONTRADA',
+        lancamentos: 0
+      };
+    }
+
+    // Mesmo atleta, correção AINDA NÃO gravada: grava o registro e não mexe no
+    // vínculo nem no ledger.
+    vinculoJaCorreto = true;
+  }
 
   // SEM ENTIDADE AGORA SIGNIFICA: a fonte não declarou E o operador não
   // informou. A recusa continua, e continua certa — o número sozinho não
@@ -1347,14 +1371,6 @@ async function corrigirFiliacao(itemId, { novaMatricula, novaEntidade, motivo },
       'A fonte não declarou entidade de filiação nesta linha. Informe a entidade correta junto '
       + 'com a matrícula: o número sozinho não identifica ninguém, porque federações diferentes '
       + 'emitem o mesmo número.');
-  }
-
-  if (avaliacao.estado === 'ENTIDADE_DIVERGE_DA_FONTE') {
-    throw new AppError(409, 'ENTITY_DIVERGES_FROM_SOURCE',
-      `A fonte declarou a entidade "${avaliacao.entidade}" nesta linha. Trocá-la por `
-      + `"${avaliacao.entidadePedida}" não é corrigir digitação: é reescrever de qual federação `
-      + 'foi o resultado. Esta porta corrige a matrícula, e informa a entidade apenas onde a fonte '
-      + 'não declarou nenhuma.');
   }
 
   if (avaliacao.estado === 'ENTIDADE_NAO_CADASTRADA') {
@@ -1371,10 +1387,12 @@ async function corrigirFiliacao(itemId, { novaMatricula, novaEntidade, motivo },
 
   const correcao = {
     correctedMemberNumber: nova,
-    // Só grava a entidade corrigida quando ela foi REALMENTE informada e a
-    // fonte não a tinha. Gravar o mesmo valor que a fonte já declarou poluiria
-    // a leitura "houve correção de entidade" com casos em que não houve.
-    ...(entidadePedida && !item.affiliationCode ? { correctedAffiliationCode: entidadePedida } : {}),
+    // Grava a entidade corrigida sempre que ela DIFERIR do que a fonte disse —
+    // inclusive quando a fonte declarou uma entidade errada. Gravar o mesmo
+    // valor que a fonte já trazia poluiria a leitura "houve correção de
+    // entidade" com casos em que não houve.
+    ...(entidadePedida && entidadePedida !== normalizarEntidade(item.affiliationCode)
+      ? { correctedAffiliationCode: entidadePedida } : {}),
     correctionReason: motivo?.trim() || null,
     correctedById: actor?.id ?? null,
     correctedAt: new Date()
@@ -1443,7 +1461,9 @@ async function corrigirFiliacao(itemId, { novaMatricula, novaEntidade, motivo },
   // `adotarLedger` — que preenche ponteiro sem criar lançamento, sem recalcular
   // pontuação por linha e sem duplicar nada, porque todo `where` dele exige
   // `athleteId: null`.
-  await linkItem(item.id, { athleteId: athlete.id }, actor);
+  if (!vinculoJaCorreto) {
+    await linkItem(item.id, { athleteId: athlete.id }, actor);
+  }
 
   // `reason` é reescrito DEPOIS porque `linkItem` grava "Vinculado
   // manualmente", e aqui o motivo real é mais específico. A frase é a que a
@@ -1452,7 +1472,8 @@ async function corrigirFiliacao(itemId, { novaMatricula, novaEntidade, motivo },
     where: { id: item.id },
     data: {
       reason: `Filiação corrigida de ${entidadeOriginal ?? '—'}/${original ?? '—'} `
-        + `para ${entidadeFinal}/${nova} e vinculada ao cadastro`
+        + `para ${entidadeFinal}/${nova}`
+        + (vinculoJaCorreto ? ', confirmando o vínculo que já existia' : ' e vinculada ao cadastro')
     }
   });
 
@@ -1471,6 +1492,7 @@ async function corrigirFiliacao(itemId, { novaMatricula, novaEntidade, motivo },
       filiacaoCorrigida: nova,
       motivo: correcao.correctionReason,
       estado: 'ENCONTRADA',
+      vinculoAlterado: !vinculoJaCorreto,
       athleteIdAntes: item.athleteId ?? null,
       athleteIdDepois: athlete.id,
       matchStatusAntes: item.matchStatus,

@@ -247,6 +247,16 @@ async function principal() {
   conferir(temSelect, 'o modal pede a ENTIDADE (porque a fonte não a declarou)');
   if (!temSelect) { await print('5b-sem-campo-entidade'); throw new Error('o campo de entidade não apareceu'); }
 
+  // DEFEITO 1, MEDIDO NOMEADAMENTE. O seletor existia e vinha VAZIO porque o
+  // componente lia `entidades.dados` e o `useFetch` deste projeto devolve
+  // `data`. Nenhum dos 861 testes de então viu isso: o campo estava no DOM.
+  // Contar as opções é a única pergunta que separa "o campo existe" de "o campo
+  // serve".
+  const opcoes = await campoEntidade.locator('option').allTextContents();
+  const reais = opcoes.filter(t => t.trim() && !/Selecione/i.test(t));
+  conferir(reais.length > 0, `DEFEITO 1 — o seletor de entidade tem opções reais (${reais.length})`);
+  conferir(reais.some(t => /NPC/.test(t)), 'DEFEITO 1 — e a NPC está entre elas');
+
   await campoEntidade.selectOption('NPC');
   await campoMatricula.fill('2932');
   await print('6-preenchido');
@@ -258,7 +268,17 @@ async function principal() {
   conferir(textoValidado.includes('Lucas Gouveia Lima'), 'a validação encontrou o cadastro correto');
   conferir(textoValidado.includes('2932'), 'e mostra a filiação 2932');
 
-  await pagina.getByRole('button', { name: /Confirmar correção e vínculo/i }).click();
+  // DEFEITO 2, MEDIDO NOMEADAMENTE. `ModalActions` IGNORA children: ele monta
+  // o seu próprio par Cancelar + submit a partir de `confirmLabel`. O botão de
+  // confirmar era passado como children e simplesmente não existia — o fluxo de
+  // dois passos terminava sem segundo passo, e o teste de integração nunca
+  // soube, porque teste de integração chama rota.
+  const botaoConfirmar = pagina.getByRole('button', { name: /Confirmar correção e vínculo/i });
+  const temConfirmar = await botaoConfirmar.isVisible({ timeout: 10000 }).catch(() => false);
+  conferir(temConfirmar, 'DEFEITO 2 — o botão "Confirmar correção e vínculo" EXISTE na tela');
+  if (!temConfirmar) { await print('7b-sem-confirmar'); throw new Error('o segundo passo não tem botão'); }
+
+  await botaoConfirmar.click();
   await esperar(2500);
   await print('8-confirmado');
 
@@ -292,6 +312,11 @@ async function principal() {
     process.exit(1);
   }
   console.log('\n  QA VISUAL: todas as conferências passaram.\n');
+  // Os filhos (API e `vite preview`) seguram o event loop com stdio em pipe: sem
+  // sair explicitamente, o arreio fica vivo depois de aprovar tudo, e quem o
+  // chama não distingue "travou" de "passou".
+  encerrar();
+  process.exit(0);
 }
 
 principal().catch(erro => { console.error('\n  ERRO:', erro.message, '\n'); process.exit(1); });

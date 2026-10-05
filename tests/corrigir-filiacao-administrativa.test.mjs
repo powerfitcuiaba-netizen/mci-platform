@@ -480,6 +480,40 @@ describe('§2 validar antes de confirmar — e validar não escreve', () => {
 });
 
 // ======================================== §11 — OS TESTES NEGATIVOS =========
+// ============================================================================
+// §5 — OS DEZ CASOS NEGATIVOS PEDIDOS, E ONDE CADA UM É MEDIDO.
+//
+//   1. entidade inválida ............. 'entidade com forma inválida é recusada
+//                                      pelo schema' (422 VALIDATION_ERROR)
+//   2. filiação inválida ............. 'matrícula vazia ou só espaço é recusada'
+//                                      + 'zero à esquerda NÃO é removido'
+//   3. entidade ausente obrigatória .. 'a fonte não declarou entidade E o
+//                                      operador não informou' (422 ENTITY_REQUIRED)
+//   4. conflito entidade+filiação .... 'C. duas identidades candidatas é
+//                                      impossível: o banco recusa o par repetido'.
+//                                      O ramo CONFLITO do serviço (409
+//                                      AFFILIATION_NUMBER_AMBIGUOUS) é defensivo:
+//                                      o índice UNIQUE parcial
+//                                      Athlete(organizationId, affiliationId,
+//                                      affiliationNumber) torna o estado
+//                                      inalcançável, e o teste prova a recusa NO
+//                                      BANCO em vez de encenar um estado que o
+//                                      banco não admite.
+//   5. operador sem musclewar.review . 'D. papel que o RLS admite mas o RBAC
+//                                      não: 403 limpo, nas duas rotas'
+//                                      (+ D1: papel que o RLS nem enxerga = 404)
+//   6. sem autenticação .............. 'D2. sem token nenhum, as duas rotas
+//                                      recusam antes de dizer se a linha existe'
+//   7. cross-organization ............ 'E. operador de OUTRA organização não
+//                                      alcança a linha'
+//   8. resultado de outro atleta ..... 'B. resultado JÁ vinculado não troca de
+//                                      dono' + §2.2 e §2.3 (409 ITEM_ALREADY_LINKED)
+//   9. repetição ..................... '10. a segunda execução não duplica nada',
+//                                      '10b. repetir SEM reinformar a entidade',
+//                                      §2.1 (idempotente)
+//  10. organizationId vindo do cliente 'E. … nem mandando organizationId' +
+//                                      'G. corrigir não é editar nome'
+// ============================================================================
 describe('§11 o que a correção RECUSA', () => {
   it('A. nova filiação inexistente: registra a correção como pendente e NÃO vincula', async () => {
     const { item } = await cenarioDoRazor();
@@ -674,24 +708,64 @@ describe('§11 o que a correção RECUSA', () => {
     expect(linha.correctedAffiliationCode).toBeNull();
   });
 
-  it('a fonte DECLAROU a entidade: trocá-la por outra é recusado com 409', async () => {
-    // Corrigir digitação de número é uma coisa. Dizer que o resultado foi de
-    // OUTRA federação é outra afirmação, com outro peso — e esta porta não tem
-    // autorização para fazê-la.
-    const { item } = await cenarioDoRazor();
+  it('§1 a fonte DECLAROU a entidade ERRADA: a troca é permitida e registrada', async () => {
+    // ESTE TESTE SUBSTITUI UM ANTERIOR, e a mudança é de REGRA, não de
+    // conveniência. Antes a troca de uma entidade declarada era recusada com
+    // 409, pelo argumento de que "dizer que o resultado foi de outra federação
+    // é outra afirmação". O argumento continua verdadeiro — e é por isso que a
+    // troca agora é REGISTRADA com os dois valores, o motivo, o operador e a
+    // hora, em vez de proibida. Proibir não fazia o erro da fonte desaparecer:
+    // fazia o resultado ficar órfão para sempre.
     const outra = (await api().post('/api/v1/affiliations').set(admin.auth())
       .send({ organizationId, name: 'IFBB Brasil', code: 'IFBB' })).body;
     expect(outra.code).toBe('IFBB');
 
-    const antes = await retratoDoLedger();
-    const resposta = await corrigir(item.id, { novaMatricula: '2932', novaEntidade: 'IFBB' });
-    expect(resposta.status).toBe(409);
-    expect(resposta.body.error.code).toBe('ENTITY_DIVERGES_FROM_SOURCE');
+    const lucas = await cadastrarLucas();
+    const evento = await criarEvento('Razor');
+    // A fonte declarou IFBB e o número 7777 — os dois errados.
+    const importId = await importarEAplicar(csv([
+      `RAZOR-7777-MENS_BODYBUILDING,,Lucas Gouveia,${outra.code},7777,MENS_BODYBUILDING,OPEN,1,,Razor,sim`
+    ]), { eventId: evento.id });
+    const item = await primeiraLinha(importId);
+    expect(item.affiliationCode, 'a fonte declarou IFBB').toBe('IFBB');
+    expect(item.athleteId, 'e não casou com ninguém').toBeFalsy();
 
-    expect(await retratoDoLedger()).toEqual(antes);
+    const antes = await retratoDoLedger();
+
+    const resposta = await corrigir(item.id, {
+      novaMatricula: '2932', novaEntidade: 'NPC', motivo: 'etapa lançada na federação errada'
+    });
+    expect(resposta.status, JSON.stringify(resposta.body).slice(0, 400)).toBe(200);
+    expect(resposta.body.estado).toBe('ENCONTRADA');
+    expect(resposta.body.athleteId).toBe(lucas.id);
+    expect(resposta.body.originalEntity, 'a entidade da fonte é devolvida').toBe('IFBB');
+    expect(resposta.body.correctedEntity).toBe('NPC');
+
     const linha = await noLedger(tx => tx.muscleWarImportItem.findUnique({ where: { id: item.id } }));
-    expect(linha.affiliationCode, 'o que a fonte disse continua lá').toBe('NPC');
-    expect(linha.correctedAffiliationCode).toBeNull();
+    expect(linha.affiliationCode, 'IFBB PRESERVADA como original').toBe('IFBB');
+    expect(linha.memberNumber, '7777 PRESERVADO como original').toBe('7777');
+    expect(linha.correctedAffiliationCode, 'NPC registrada como corrigida').toBe('NPC');
+    expect(linha.correctedMemberNumber, '2932 registrada como corrigida').toBe('2932');
+    expect(linha.correctedById).toBe(gerente.id);
+    expect(linha.correctedAt).toBeTruthy();
+    expect(linha.correctionReason).toBe('etapa lançada na federação errada');
+
+    const depois = await retratoDoLedger();
+    expect(depois.atletas, 'nenhum atleta criado').toBe(antes.atletas);
+    expect(depois.pontos, 'nenhum lançamento criado').toBe(antes.pontos);
+    expect(depois.idsDosPontos, 'os MESMOS ids').toEqual(antes.idsDosPontos);
+    expect(depois.resultados).toBe(antes.resultados);
+    expect(depois.identidades.length).toBe(antes.identidades.length);
+    expect(depois.pontosComDono).toBe(1);
+
+    const registros = await noLedger(tx => tx.auditLog.findMany({
+      where: { organizationId, entityId: item.id }
+    }));
+    const daCorrecao = registros.find(r => r.metadata?.operacao === 'CORRECAO_DE_FILIACAO');
+    expect(daCorrecao.metadata.entidadeOriginal, 'a trilha guarda a entidade da fonte').toBe('IFBB');
+    expect(daCorrecao.metadata.entidadeCorrigida).toBe('NPC');
+    expect(daCorrecao.metadata.filiacaoOriginal).toBe('7777');
+    expect(daCorrecao.metadata.filiacaoCorrigida).toBe('2932');
   });
 
   it('entidade informada que não está cadastrada na organização é recusada', async () => {
@@ -711,6 +785,88 @@ describe('§11 o que a correção RECUSA', () => {
       const resposta = await corrigir(item.id, { novaMatricula: '2932', novaEntidade: valor });
       expect([400, 422], `"${valor}"`).toContain(resposta.status);
     }
+  });
+});
+
+// ============ §2 — APPLIED COM DONO: os três desfechos, nenhum silencioso ===
+describe('§2 resultado APPLIED que JÁ tem dono', () => {
+  // Monta uma linha aplicada e JÁ vinculada: a fonte acertou tudo.
+  async function jaVinculado() {
+    const lucas = await cadastrarLucas();
+    const evento = await criarEvento('Razor');
+    const importId = await importarEAplicar(csv([
+      `RAZOR-2932-MENS_BODYBUILDING,,Lucas Gouveia,${npc.code},2932,MENS_BODYBUILDING,OPEN,1,,Razor,sim`
+    ]), { eventId: evento.id });
+    const item = await primeiraLinha(importId);
+    expect(item.athleteId, 'a linha nasceu vinculada').toBe(lucas.id);
+    expect(item.matchStatus).toBe('APPLIED');
+    return { lucas, item };
+  }
+
+  it('1. a correção aponta para o MESMO atleta e já está gravada: idempotente', async () => {
+    const { lucas, item } = await jaVinculado();
+    // Primeira: grava a correção (mesmo par, nada muda no ledger).
+    const primeira = await corrigir(item.id, { novaMatricula: '2932', novaEntidade: 'NPC' });
+    expect(primeira.status, JSON.stringify(primeira.body).slice(0, 300)).toBe(200);
+    const depoisDaPrimeira = await retratoDoLedger();
+
+    const segunda = await corrigir(item.id, { novaMatricula: '2932', novaEntidade: 'NPC' });
+    expect(segunda.status).toBe(200);
+    expect(segunda.body.alreadyApplied).toBe(true);
+    expect(segunda.body.athleteId).toBe(lucas.id);
+    expect(segunda.body.lancamentos).toBe(0);
+    expect(await retratoDoLedger()).toEqual(depoisDaPrimeira);
+  });
+
+  it('2. a correção aponta para OUTRO atleta: BLOQUEADA, e nada muda', async () => {
+    const { lucas, item } = await jaVinculado();
+    const outro = await criarAtleta(gerente, organizationId, {
+      fullName: 'Outro Atleta Qualquer', cpf: gerarCpf(515151515), sex: 'MALE',
+      affiliationId: npc.id, affiliationNumber: '8888'
+    });
+    const antes = await retratoDoLedger();
+
+    const resposta = await corrigir(item.id, { novaMatricula: '8888', novaEntidade: 'NPC' });
+    expect(resposta.status, 'trocar o dono é outra operação').toBe(409);
+    expect(resposta.body.error.code).toBe('ITEM_ALREADY_LINKED');
+
+    const linha = await noLedger(tx => tx.muscleWarImportItem.findUnique({ where: { id: item.id } }));
+    expect(linha.athleteId, 'o dono continua o mesmo').toBe(lucas.id);
+    expect(linha.correctedMemberNumber, 'NENHUM desvínculo, NENHUMA gravação').toBeNull();
+    expect(linha.correctedAffiliationCode).toBeNull();
+    expect(await retratoDoLedger()).toEqual(antes);
+    expect(outro.id).not.toBe(lucas.id);
+  });
+
+  it('3. a correção aponta para NINGUÉM: BLOQUEADA — não se contradiz um vínculo', async () => {
+    // Gravar uma correção que não casa com ninguém deixaria a linha afirmando
+    // duas coisas incompatíveis: "pertence ao Lucas" e "a identidade é 999999".
+    const { lucas, item } = await jaVinculado();
+    const antes = await retratoDoLedger();
+
+    const resposta = await corrigir(item.id, { novaMatricula: '999999', novaEntidade: 'NPC' });
+    expect(resposta.status).toBe(409);
+    expect(resposta.body.error.code).toBe('ITEM_ALREADY_LINKED');
+
+    const linha = await noLedger(tx => tx.muscleWarImportItem.findUnique({ where: { id: item.id } }));
+    expect(linha.athleteId).toBe(lucas.id);
+    expect(linha.correctedMemberNumber).toBeNull();
+    expect(await retratoDoLedger()).toEqual(antes);
+  });
+
+  it('nenhum desvínculo automático acontece em nenhum dos três caminhos', async () => {
+    const { lucas, item } = await jaVinculado();
+    for (const corpo of [
+      { novaMatricula: '2932', novaEntidade: 'NPC' },
+      { novaMatricula: '8888', novaEntidade: 'NPC' },
+      { novaMatricula: '999999' }
+    ]) {
+      await corrigir(item.id, corpo);
+      const linha = await noLedger(tx => tx.muscleWarImportItem.findUnique({ where: { id: item.id } }));
+      expect(linha.athleteId, `após ${JSON.stringify(corpo)}`).toBe(lucas.id);
+    }
+    const { pontosComDono } = await retratoDoLedger();
+    expect(pontosComDono, 'o ponto nunca ficou órfão').toBe(1);
   });
 });
 
