@@ -1111,7 +1111,14 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                     <th>{t('evento.classe')}</th>
                     <th className="num">{t('overall.colocacaoCurta')}</th>
                     <th className="num">{t('plataforma.ptsArquivo')}</th>
-                    <th>{t('evento.situacao')}</th><th />
+                    <th>{t('evento.situacao')}</th>
+                    {/* A COLUNA DE AÇÕES É FIXA À DIREITA, e deixou de ser
+                        anônima. São onze colunas dentro de `.table-wrap`, que
+                        rola de lado: num notebook estreito e em qualquer
+                        celular a última coluna ficava FORA DA TELA, e a ação
+                        existia sem ninguém conseguir vê-la. Um cabeçalho vazio
+                        ainda piorava: nada dizia que havia o que fazer ali. */}
+                    <th className="coluna-acoes">{t('plataforma.acao')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1222,7 +1229,7 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                             </small>
                           )}
                         </td>
-                        <td>
+                        <td className="coluna-acoes">
                           {/* AÇÃO EM ÍCONE, e não em palavra: com onze colunas
                               disputando a largura, "Vincular" escrito custava
                               97px que saíam do nome do atleta e da classe — as
@@ -1236,12 +1243,11 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                             <div className="acoes-da-linha">
                               <button
                                 type="button"
-                                className="icon-button icon-button-sm"
-                                title={t('plataforma.vincularAoAtleta')}
+                                className="button button-ghost button-sm"
                                 aria-label={`Vincular ao atleta a linha ${item.rowNumber}`}
                                 onClick={() => setVinculando(item)}
                               >
-                                <Link2 size={14} />
+                                <Link2 size={14} />{t('plataforma.vincularAoAtleta')}
                               </button>
                             </div>
                           )}
@@ -1260,17 +1266,23 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
                               A condição exige MATRÍCULA (a corrigir) e AUSÊNCIA
                               DE DONO; a entidade pode faltar, e quando falta é
                               o operador que a informa no modal. */}
+                          {/* RÓTULO VISÍVEL, e não só ícone com `title`.
+                              O lápis de 14px dependia de passar o mouse para se
+                              explicar: em celular não existe passar o mouse, e
+                              em desktop ninguém passa o mouse num ícone que não
+                              sabe que está lá. A ação é administrativa e rara —
+                              ela precisa se anunciar, não se esconder. O ícone
+                              fica, agora acompanhado da palavra. */}
                           {(item.correctedMemberNumber || item.memberNumber) && !item.athleteId
                             && dados.import.status !== 'REJECTED' && (
                             <div className="acoes-da-linha">
                               <button
                                 type="button"
-                                className="icon-button icon-button-sm"
-                                title={t('plataforma.corrigirFiliacao')}
+                                className="button button-ghost button-sm"
                                 aria-label={`Corrigir a filiação da linha ${item.rowNumber}`}
                                 onClick={() => setCorrigindoFiliacao(item)}
                               >
-                                <Pencil size={14} />
+                                <Pencil size={14} />{t('plataforma.corrigirFiliacao')}
                               </button>
                             </div>
                           )}
@@ -1373,7 +1385,11 @@ export function RevisarImportacao({ importId, notificar, onClose, onMudou }) {
 function CorrigirFiliacao({ item, organizationId, notificar, onClose, onSalvo }) {
   const { t } = useIdioma();
   const [nova, setNova] = useState('');
-  const [entidade, setEntidade] = useState(item.correctedAffiliationCode ?? '');
+  // Pré-seleciona a entidade EFETIVA: a corrigida, senão a que a fonte
+  // declarou, senão vazio (o caso real do Razor, em que o operador escolhe).
+  const [entidade, setEntidade] = useState(
+    item.correctedAffiliationCode ?? item.affiliationCode ?? ''
+  );
   const [motivo, setMotivo] = useState('');
   const [avaliacao, setAvaliacao] = useState(null);
   const [ocupado, setOcupado] = useState(false);
@@ -1385,16 +1401,24 @@ function CorrigirFiliacao({ item, organizationId, notificar, onClose, onSalvo })
   // `useFetch` devolve `{ data, loading, error }` — e a resposta da lista vem
   // em `{ items }`. Escrever `.dados` aqui deixava o select VAZIO, e nenhum
   // teste de integração pegava: eles chamam a rota, não abrem a tela.
+  //
+  // A LISTA É BUSCADA SEMPRE, e não só quando a fonte calou. O endurecimento do
+  // serviço passou a ACEITAR a troca de uma entidade declarada errada — ela é
+  // registrada com os dois valores em vez de proibida. A tela tinha ficado
+  // atrás: ela escondia o campo quando a fonte declarara algo, e o operador não
+  // tinha por onde corrigir um arquivo que trouxe a federação errada.
   const entidades = useFetch(
-    () => (item.affiliationCode
-      ? Promise.resolve({ items: [] })
-      : api.affiliations.list({ organizationId, limit: 100 })),
-    [organizationId, item.affiliationCode],
-    { ativo: !item.affiliationCode }
+    () => api.affiliations.list({ organizationId, limit: 100 }),
+    [organizationId]
   );
 
   const original = item.correctedMemberNumber ?? item.memberNumber ?? '—';
-  const entidadeFaltando = !item.affiliationCode;
+
+  // MOTIVO OBRIGATÓRIO. Uma correção administrativa sem motivo escrito é um
+  // número trocado sem explicação: meses depois ninguém sabe se foi digitação
+  // da fonte, troca de federação ou erro de quem corrigiu. A trilha guarda o
+  // campo desde o início; faltava a tela exigi-lo.
+  const motivoOk = motivo.trim().length >= 5;
 
   // Mudar o número INVALIDA a validação anterior. Sem isto, o operador validaria
   // 2932, digitaria 2933 e confirmaria com a tela ainda mostrando o atleta do
@@ -1422,7 +1446,7 @@ function CorrigirFiliacao({ item, organizationId, notificar, onClose, onSalvo })
       const feito = await api.muscleWar.corrigirFiliacao(item.id, {
         novaMatricula: nova,
         ...(entidade ? { novaEntidade: entidade } : {}),
-        ...(motivo.trim() ? { motivo: motivo.trim() } : {})
+        motivo: motivo.trim()
       });
       notificar(feito.athleteId
         ? t('plataforma.filiacaoCorrigidaEVinculada')
@@ -1450,11 +1474,12 @@ function CorrigirFiliacao({ item, organizationId, notificar, onClose, onSalvo })
           <dd className="mono">{original}</dd>
         </dl>
 
-        {/* A ENTIDADE SÓ É PEDIDA ONDE A FONTE NÃO DECLAROU NENHUMA.
-            Quando o arquivo disse NPC, o campo não aparece: trocar a entidade
-            declarada não é corrigir digitação, é reescrever de qual federação
-            foi o resultado — e o servidor recusa isso com 409, não só a tela. */}
-        {!item.affiliationCode && (
+        {/* A ENTIDADE É PEDIDA SEMPRE.
+            Quando a fonte calou, é o operador que a informa — é o caso real do
+            Razor. Quando a fonte declarou, o campo vem PRÉ-SELECIONADO com o
+            que ela disse: trocar continua sendo uma afirmação séria, e por isso
+            é registrada com os dois valores, o motivo, o operador e a hora. */}
+        {(
           <Field
             label={t('plataforma.entidadeCorreta')}
             hint={t('plataforma.entidadeCorretaDica')}
@@ -1489,8 +1514,15 @@ function CorrigirFiliacao({ item, organizationId, notificar, onClose, onSalvo })
           />
         </Field>
 
-        <Field label={t('plataforma.motivoDaCorrecao')} hint={t('plataforma.motivoDaCorrecaoDica')}>
-          <input value={motivo} onChange={evento => setMotivo(evento.target.value)} maxLength={500} />
+        <Field label={t('plataforma.motivoDaCorrecao')} hint={t('plataforma.motivoDaCorrecaoDica')} required>
+          <input
+            value={motivo}
+            onChange={evento => setMotivo(evento.target.value)}
+            minLength={5}
+            maxLength={500}
+            required
+            aria-label={t('plataforma.motivoDaCorrecao')}
+          />
         </Field>
 
         {/* O VEREDITO DA VALIDAÇÃO. Cada estado diz o que acontece se o operador
@@ -1538,7 +1570,7 @@ function CorrigirFiliacao({ item, organizationId, notificar, onClose, onSalvo })
           {!avaliacao && (
             <button
               type="submit" className="button button-primary"
-              disabled={ocupado || !nova.trim() || (entidadeFaltando && !entidade)}
+              disabled={ocupado || !nova.trim() || !entidade || !motivoOk}
             >
               {t('plataforma.validarESalvar')}
             </button>
@@ -1546,12 +1578,12 @@ function CorrigirFiliacao({ item, organizationId, notificar, onClose, onSalvo })
           {/* CONFLITO não oferece botão de confirmar: não existe decisão segura
               a tomar aqui, e oferecer o botão convidaria a tomá-la. */}
           {avaliacao?.estado === 'ENCONTRADA' && (
-            <button type="button" className="button button-primary" onClick={confirmar} disabled={ocupado}>
+            <button type="button" className="button button-primary" onClick={confirmar} disabled={ocupado || !motivoOk}>
               {t('plataforma.confirmarCorrecaoEVinculo')}
             </button>
           )}
           {avaliacao?.estado === 'NAO_ENCONTRADA' && (
-            <button type="button" className="button button-primary" onClick={confirmar} disabled={ocupado}>
+            <button type="button" className="button button-primary" onClick={confirmar} disabled={ocupado || !motivoOk}>
               {t('plataforma.salvarCorrecaoPendente')}
             </button>
           )}

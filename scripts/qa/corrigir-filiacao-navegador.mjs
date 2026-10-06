@@ -229,8 +229,36 @@ async function principal() {
   // oferecia, porque a linha não tem entidade.
   const lapis = pagina.getByRole('button', { name: /Corrigir a filiação da linha/i }).first();
   const temLapis = await lapis.isVisible({ timeout: 8000 }).catch(() => false);
-  conferir(temLapis, 'O LÁPIS APARECE na linha SEM entidade');
-  if (!temLapis) { await print('4b-sem-lapis'); throw new Error('o lápis não apareceu — o caso real continua sem porta'); }
+  conferir(temLapis, 'A AÇÃO APARECE na linha SEM entidade');
+  if (!temLapis) { await print('4b-sem-acao'); throw new Error('a ação não apareceu — o caso real continua sem porta'); }
+
+  // DEFEITO 3 — RÓTULO VISÍVEL, SEM DEPENDER DE PASSAR O MOUSE.
+  //
+  // Antes a ação era um lápis de 14px cuja única explicação era o `title`: em
+  // celular não existe passar o mouse, e em desktop ninguém passa o mouse num
+  // ícone que não sabe que está lá. Foi assim que a funcionalidade ficou
+  // invisível em produção, com API, RBAC e testes todos funcionando.
+  const textoDaAcao = (await lapis.innerText()).trim();
+  conferir(/Corrigir filia/i.test(textoDaAcao),
+    `DEFEITO 3 — a ação tem RÓTULO VISÍVEL: "${textoDaAcao}"`);
+
+  // DEFEITO 4 — A AÇÃO DENTRO DA TELA, inclusive em largura de celular.
+  //
+  // São onze colunas dentro de um contêiner que rola de lado: a coluna de ações
+  // é a última e ficava fora do campo de visão. A coluna agora é fixa à
+  // direita. A medida é a caixa do botão contra a largura da janela.
+  for (const largura of [1280, 390]) {
+    await pagina.setViewportSize({ width: largura, height: 900 });
+    await esperar(400);
+    const caixa = await lapis.boundingBox();
+    const dentro = Boolean(caixa) && caixa.x >= 0 && caixa.x + caixa.width <= largura + 1;
+    conferir(dentro,
+      `DEFEITO 4 — a ação fica DENTRO da tela em ${largura}px `
+      + `(x=${caixa ? Math.round(caixa.x) : '?'}, w=${caixa ? Math.round(caixa.width) : '?'})`);
+    await print(`4-acao-visivel-${largura}`);
+  }
+  await pagina.setViewportSize({ width: 1280, height: 900 });
+  await esperar(300);
 
   await lapis.click();
   await esperar(800);
@@ -259,9 +287,20 @@ async function principal() {
 
   await campoEntidade.selectOption('NPC');
   await campoMatricula.fill('2932');
+
+  // DEFEITO 5 — MOTIVO OBRIGATÓRIO. Uma correção administrativa sem motivo
+  // escrito é um número trocado sem explicação: meses depois ninguém sabe se
+  // foi digitação da fonte, troca de federação ou erro de quem corrigiu.
+  const botaoValidar = pagina.getByRole('button', { name: /Validar e salvar/i });
+  const travadoSemMotivo = await botaoValidar.isDisabled();
+  conferir(travadoSemMotivo, 'DEFEITO 5 — sem MOTIVO, o botão de validar fica bloqueado');
+
+  await pagina.getByLabel(/Motivo da correção/i).fill('Arquivo oficial trouxe 2952; matrícula real é 2932.');
+  const liberadoComMotivo = await botaoValidar.isEnabled();
+  conferir(liberadoComMotivo, 'DEFEITO 5 — com MOTIVO preenchido, o botão libera');
   await print('6-preenchido');
 
-  await pagina.getByRole('button', { name: /Validar e salvar/i }).click();
+  await botaoValidar.click();
   await esperar(2000);
   await print('7-validado');
   const textoValidado = await pagina.content();
