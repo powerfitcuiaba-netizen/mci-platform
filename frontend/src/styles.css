@@ -2852,3 +2852,40 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
 .auth-recuperar b { color: var(--branco); }
 .auth-recuperar p { margin: 0 0 var(--e2); }
 .auth-recuperar p:last-child { margin: 0; }
+
+/* ===========================================================================
+   A COLUNA DE AÇÕES NÃO PODE SAIR DA TELA.
+
+   A revisão de importação tem ONZE colunas dentro de `.table-wrap`, que rola
+   na horizontal. A ação fica na última, e num notebook estreito — ou em
+   qualquer celular — ela ficava FORA DO CAMPO DE VISÃO: a funcionalidade
+   existia, respondia, estava testada, e quem abria a tela concluía que ela
+   não existia. Foi exatamente o que aconteceu com "Corrigir filiação".
+
+   Fixar a coluna à direita resolve sem redesenhar a tabela.
+
+   A ESPECIFICIDADE AQUI É DELIBERADA. O fundo precisa ser OPACO, senão o
+   conteúdo que rola aparece por baixo. Mas `.table tbody tr:nth-child(even) td`
+   (0,2,2) e `.table tbody tr:hover td` (0,2,1) já pintam a célula; um seletor
+   mais curto perderia para eles e a coluna fixa ficaria translúcida nas linhas
+   pares. Por isso `.table tbody tr td.coluna-acoes` (0,2,3) — vence sem
+   precisar de `!important`.
+   =========================================================================== */
+.table thead th.coluna-acoes,
+.table tbody tr td.coluna-acoes,
+.table tbody tr:hover td.coluna-acoes,
+.table tbody tr:nth-child(even) td.coluna-acoes {
+  position: sticky; right: 0;
+  background: var(--superficie-2);
+  box-shadow: -8px 0 10px -8px rgb(0 0 0 / .5);
+  text-align: right; white-space: nowrap;
+}
+.table tbody tr td.coluna-acoes { z-index: 2; }
+/* O cabeçalho é fixo nos DOIS eixos: ele já era `sticky top: 0`. */
+.table thead th.coluna-acoes { top: 0; z-index: 3; }
+.table tbody tr:hover td.coluna-acoes { background: #101c27; }
+
+/* O botão da ação em linha usa `.button-sm`, que JÁ EXISTE e que o breakpoint
+   de telas pequenas eleva a 44px de altura — o alvo de toque mínimo. Não
+   redefini-lo aqui é deliberado: uma segunda regra, mais abaixo no arquivo,
+   venceria a do breakpoint e encolheria o botão justamente no toque. */
