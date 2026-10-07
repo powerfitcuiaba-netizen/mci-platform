@@ -21,6 +21,7 @@
 import { spawn, execSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { setTimeout as esperar } from 'node:timers/promises';
+import { entrar } from './entrar-na-plataforma.mjs';
 
 const { argv, env } = process;
 const arg = (nome, padrao = null) => {
@@ -239,15 +240,10 @@ async function principal() {
   });
   const print = async nome => pagina.screenshot({ path: `${SAIDA}/${nome}.png`, fullPage: false });
 
-  // O casco exige sessão — achado já registrado no arreio do histórico. Entra
-  // pela porta, como uma pessoa.
-  await pagina.goto(BASE_WEB, { waitUntil: 'networkidle' });
-  const abertura = pagina.getByRole('button', { name: /Entrar agora/i });
-  if (await abertura.count()) { await abertura.first().click(); await esperar(900); }
-  await pagina.locator('input[type="email"]').fill(EMAIL);
-  await pagina.locator('input[type="password"]').first().fill(SENHA);
-  await pagina.locator('form button[type="submit"]').first().click();
-  await esperar(2500);
+  // Entra pela porta, como uma pessoa. O ranking é tela PÚBLICA e abriria sem
+  // sessão; o que este arreio mede é a foto com sessão, e a sessão vem do
+  // formulário — não de token escrito no armazenamento.
+  await entrar(pagina, BASE_WEB, { email: EMAIL, senha: SENHA });
 
   for (const [rotulo, largura] of [['desktop', 1280], ['celular', 390]]) {
     await pagina.setViewportSize({ width: largura, height: largura === 390 ? 844 : 900 });

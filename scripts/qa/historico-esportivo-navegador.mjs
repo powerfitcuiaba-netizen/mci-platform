@@ -26,6 +26,7 @@
 import { spawn, execSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { setTimeout as esperar } from 'node:timers/promises';
+import { entrar, dispensarAbertura } from './entrar-na-plataforma.mjs';
 
 const { argv, env } = process;
 const arg = (nome, padrao = null) => {
@@ -217,32 +218,31 @@ async function principal() {
 
   const print = async nome => pagina.screenshot({ path: `${SAIDA}/${nome}.png`, fullPage: false });
 
-  // ANÔNIMO PRIMEIRO — e o que se mede aqui é um ACHADO, não o sucesso.
+  // ANÔNIMO PRIMEIRO — e aqui o ACHADO virou REGRA.
   //
-  // A API da ficha é anônima: a suíte de backend prova que `GET
-  // /public/athletes/:id` responde 200 sem token. O CASCO do frontend, porém,
-  // devolve a tela de entrada para quem não está autenticado — `App.jsx`:
-  // `if (!authenticated) return <Auth />`, antes de qualquer rota, inclusive
-  // das marcadas `publico: true`. Então o visitante anônimo NÃO alcança a
-  // vitrine hoje, e isso é anterior a esta correção.
+  // Este bloco registrava um defeito: a API da ficha era anônima (`GET
+  // /public/athletes/:id` responde 200 sem token, e há suíte provando), mas o
+  // CASCO devolvia a tela de entrada para QUALQUER rota — `if (!authenticated)
+  // return <Auth />`, antes de olhar qual tela a pessoa pediu, inclusive as
+  // marcadas `publico: true`. O visitante não alcançava a vitrine.
+  //
+  // Isso foi corrigido, então o que era observação passou a ser CONFERÊNCIA: se
+  // a ficha voltar a pedir sessão, este arreio reprova. A abertura da marca sai
+  // da frente primeiro — ela roda uma vez por sessão do navegador e não é o que
+  // se está medindo.
   await pagina.goto(`${BASE_WEB}/#/atletas/${atleta.id}`, { waitUntil: 'networkidle' });
-  await esperar(1200);
+  await esperar(1500);
+  await dispensarAbertura(pagina);
+  await esperar(900);
   await print('0-anonimo');
   const anonimo = await pagina.content();
-  const vitrineAbertaAoAnonimo = anonimo.includes('Lucas Gouveia Lima');
-  console.log(`  · ACHADO: a vitrine ${vitrineAbertaAoAnonimo ? 'ABRE' : 'NÃO abre'} para anônimo `
-    + '(casco do frontend exige sessão; a API não exige)');
+  conferir(anonimo.includes('Lucas Gouveia Lima'), 'a vitrine ABRE para o visitante ANÔNIMO');
+  conferir(!/type="password"/i.test(anonimo), 'e a tela de entrada não tomou o lugar dela');
 
-  // ENTRA PELA PORTA, como uma pessoa: abertura, formulário, senha. Injetar
-  // token no armazenamento não serve — o casco decide a sessão por outro
-  // caminho, e um atalho aqui mediria o atalho, não a tela.
-  await pagina.goto(BASE_WEB, { waitUntil: 'networkidle' });
-  const abertura = pagina.getByRole('button', { name: /Entrar agora/i });
-  if (await abertura.count()) { await abertura.first().click(); await esperar(900); }
-  await pagina.locator('input[type="email"]').fill(EMAIL);
-  await pagina.locator('input[type="password"]').first().fill(SENHA);
-  await pagina.locator('form button[type="submit"]').first().click();
-  await esperar(2500);
+  // ENTRA PELA PORTA, como uma pessoa: abertura, vitrine, convite, formulário,
+  // senha. Injetar token no armazenamento não serve — o casco decide a sessão
+  // por outro caminho, e um atalho aqui mediria o atalho, não a tela.
+  await entrar(pagina, BASE_WEB, { email: EMAIL, senha: SENHA });
 
   await pagina.goto(`${BASE_WEB}/#/atletas/${atleta.id}`, { waitUntil: 'networkidle' });
   await esperar(1800);
