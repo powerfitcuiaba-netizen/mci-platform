@@ -294,7 +294,11 @@ export function CampeonatoDetalhe({ slug, navegar }) {
                       {resultado.entries.map(entrada => (
                         <div className="list-row" key={entrada.id}>
                           <span className={`placing placing-${entrada.placing}`}>{entrada.placing ?? '—'}</span>
-                          <Avatar name={entrada.athlete.fullName} />
+                          <Avatar
+                            name={entrada.athlete.fullName}
+                            mediaPath={entrada.athlete.hasPhoto
+                              ? `/media/athletes/${entrada.athlete.id}/photo` : null}
+                          />
                           <span className="info">
                             <strong>{entrada.athlete.stageName || entrada.athlete.fullName}</strong>
                             <small>
@@ -396,7 +400,10 @@ export function CampeonatoDetalhe({ slug, navegar }) {
                         style={{ width: '100%', background: 'transparent', border: 0, borderBottom: '1px solid var(--linha)', textAlign: 'left' }}
                         onClick={() => navegar(`atletas/${atleta.id}`)}
                       >
-                        <Avatar name={atleta.fullName} />
+                        <Avatar
+                          name={atleta.fullName}
+                          mediaPath={atleta.hasPhoto ? `/media/athletes/${atleta.id}/photo` : null}
+                        />
                         <span className="info">
                           <strong>{atleta.stageName || atleta.fullName}</strong>
                           <small>
@@ -534,7 +541,11 @@ export function AtletaDetalhe({ id, navegar }) {
           return (
             <>
               <Revelacao as="section" indice={0} className="hero" style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
-                <Avatar name={athlete.fullName} size="avatar-lg" />
+                <Avatar
+                  name={athlete.fullName}
+                  mediaPath={athlete.hasPhoto ? `/media/athletes/${athlete.id}/photo` : null}
+                  size="avatar-lg"
+                />
                 <div>
                   <span className="eyebrow">{athlete.affiliation?.name || t('publico.semFiliacao')}</span>
                   <h1 style={{ marginTop: 6 }}>{athlete.stageName || athlete.fullName}</h1>
@@ -812,7 +823,18 @@ export function Ranking() {
                       <td data-rotulo="#"><span className={`placing placing-${linha.position}`}>{linha.position}</span></td>
                       <td data-rotulo={t('overall.atleta')}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                          <Avatar name={linha.athlete.fullName} size="avatar-sm" />
+                          {/* A FOTO OFICIAL DO CADASTRO, quando existe.
+                              `hasPhoto` vem do servidor e a chave do objeto
+                              nunca sai de lá: a rota recebe o id do atleta e
+                              resolve o caminho sozinha. Competidor ainda sem
+                              cadastro tem `id` nulo — e aí não há foto a
+                              pedir, nem perfil para onde ir. */}
+                          <Avatar
+                            name={linha.athlete.fullName}
+                            mediaPath={linha.athlete.id && linha.athlete.hasPhoto
+                              ? `/media/athletes/${linha.athlete.id}/photo` : null}
+                            size="avatar-sm"
+                          />
                           <div>
                             <strong style={{ display: 'block', fontSize: 13 }}>{linha.athlete.stageName || linha.athlete.fullName}</strong>
                             <small style={{ color: 'var(--cinza-fraco)', fontSize: 11 }}>

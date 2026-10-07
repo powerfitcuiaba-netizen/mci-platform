@@ -161,6 +161,20 @@ describe('auditoria de rotas', () => {
       // pública. O que a rota recebe é o id; a chave do objeto é resolvida no
       // servidor, então não há como pedir arquivo alheio por ela.
       /^GET \/api\/v1\/media\/coaches\/:id\/photo$/,
+      // A FOTO DO ATLETA entrou nesta lista por DECISÃO DE PRODUTO explícita,
+      // e o comentário do roteador já antecipava este dia: "se a decisão de
+      // produto for publicá-la, troca-se por `optionalAuth` e acrescenta-se a
+      // rota à lista de públicas — de propósito, não por descuido".
+      //
+      // A razão é a mesma da foto do treinador: o ranking e a vitrine são
+      // superfícies públicas, e já exibem nome, equipe, cidade e colocação do
+      // mesmo atleta. Servir a foto com regra mais apertada do que a tela que
+      // a anuncia daria retrato quebrado em página pública.
+      //
+      // O que continua fechado: `/media/athlete-requests/:id/photo`, que é o
+      // documento enviado para a federação CONFERIR identidade — e que esta
+      // lista deliberadamente NÃO contém.
+      /^GET \/api\/v1\/media\/athletes\/:id\/photo$/,
       /^GET \/api\/v1\/documents\/event\//
     ];
 

@@ -42,7 +42,13 @@ import {
 const CAMPOS_PROIBIDOS_NA_PROJECAO = [
   'awardedById', 'voidedById', 'voidReason', 'resultId', 'externalResultId',
   'affiliationId', 'affiliationNumber', 'placingOriginal', 'resultVersion',
-  'cpf', 'phone', 'email', 'birthDate', 'passwordHash'
+  'cpf', 'phone', 'email', 'birthDate', 'passwordHash',
+  // `photoKey` entrou nesta lista quando a foto do atleta passou a aparecer no
+  // ranking público. O ranking SELECIONA a chave para derivar `hasPhoto`, e a
+  // chave é caminho interno do armazenamento: ela tem de morrer no servidor.
+  // Sem esta linha, um `select` distraído devolveria a estrutura do bucket a
+  // quem abre a vitrine.
+  'photoKey', 'avatarKey'
 ];
 
 let admin;

@@ -263,7 +263,10 @@ async function eventPage(slug) {
       competitionClass: { include: { division: { include: { eventCategory: { include: { category: true } } } } } },
       entries: {
         where: { status: 'RANKED' },
-        include: { athlete: { select: { id: true, fullName: true, stageName: true, state: true, city: true, team: { select: { id: true, name: true } } } } },
+        // `photoKey` entra para virar `hasPhoto` logo abaixo; a chave não sai
+        // daqui. É caminho interno do armazenamento, e a foto é servida por
+        // `/media/athletes/:id/photo`, que a resolve no servidor.
+        include: { athlete: { select: { id: true, fullName: true, stageName: true, state: true, city: true, photoKey: true, team: { select: { id: true, name: true } } } } },
         orderBy: { placing: 'asc' }
       }
     },
@@ -272,7 +275,7 @@ async function eventPage(slug) {
 
   const atletas = await prisma.registration.findMany({
     where: { eventId: event.id, status: 'CONFIRMED' },
-    select: { athlete: { select: { id: true, fullName: true, stageName: true, state: true, city: true, proStatus: true, team: { select: { id: true, name: true } } } } },
+    select: { athlete: { select: { id: true, fullName: true, stageName: true, state: true, city: true, proStatus: true, photoKey: true, team: { select: { id: true, name: true } } } } },
     orderBy: { athlete: { fullName: 'asc' } },
     take: 500
   });
@@ -288,6 +291,15 @@ async function eventPage(slug) {
     take: 20
   });
 
+  // A CHAVE DA FOTO MORRE AQUI. Os dois SELECTs acima a trouxeram para derivar
+  // `hasPhoto`; o que sai no corpo é só o booleano. Uma função, usada nos dois
+  // lugares, para que não haja um caminho que esqueça de limpar.
+  const semChave = atleta => {
+    if (!atleta) return atleta;
+    const { photoKey, ...resto } = atleta;
+    return { ...resto, hasPhoto: Boolean(photoKey) };
+  };
+
   return {
     event: {
       id: event.id, name: event.name, slug: event.slug, description: event.description,
@@ -297,8 +309,11 @@ async function eventPage(slug) {
     },
     categories: event.eventCategories,
     schedule: event.batches,
-    athletes: atletas.map(item => item.athlete),
-    results: resultados,
+    athletes: atletas.map(item => semChave(item.athlete)),
+    results: resultados.map(resultado => ({
+      ...resultado,
+      entries: resultado.entries.map(entrada => ({ ...entrada, athlete: semChave(entrada.athlete) }))
+    })),
     // Resultados homologados que entraram por importação, agrupados por
     // categoria e classe oficial. Lista vazia quando o evento não tem nenhum.
     importedResults: importados,
