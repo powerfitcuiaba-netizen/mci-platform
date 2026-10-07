@@ -57,6 +57,30 @@ export const CAIXAS = Object.freeze({
 export const RECHEIO_DA_PASTILHA = Object.freeze([4, 7]);
 
 /**
+ * AS CAIXAS DO RODAPÉ — a mesma hierarquia, num terço do espaço.
+ *
+ * A parede da entrada tem a página inteira; o rodapé da vitrine divide a tela
+ * com ranking, tabela e ficha de atleta. Reusar as caixas da parede ali faria
+ * a faixa comer 90px de altura útil em toda tela pública.
+ *
+ * O QUE NÃO MUDA É A ORDEM. Os números são menores e mais próximos entre si —
+ * numa faixa única, lado a lado, uma razão de 10:1 entre a primeira e a última
+ * cota pareceria defeito —, mas a sequência continua ESTRITAMENTE decrescente,
+ * com a pastilha da Silver dentro da conta. Há teste que reprova a inversão,
+ * nas duas telas, exatamente como já havia para a parede.
+ *
+ * A Silver é o caso que obriga a medir em vez de chutar: com 80x30 o retângulo
+ * VISÍVEL dela (94x38, com a pastilha) ficaria MAIOR que o da Gold (96x35).
+ * Por isso ela é 72x26.
+ */
+export const CAIXAS_DO_RODAPE = Object.freeze({
+  global: { desktop: [132, 48], telefone: [104, 38] },
+  diamante: { desktop: [112, 41], telefone: [88, 32] },
+  gold: { desktop: [96, 35], telefone: [76, 28] },
+  silver: { desktop: [72, 26], telefone: [56, 20] }
+});
+
+/**
  * A CHAVE do rótulo de cada faixa, não o texto.
  *
  * O rótulo é texto de interface e passa pelo dicionário como qualquer outro.
@@ -132,14 +156,28 @@ export function medidaNaCaixa(proporcao, [largura, altura]) {
 /**
  * A área da caixa de cada categoria. Serve ao teste de hierarquia: a sequência
  * tem de ser ESTRITAMENTE decrescente, no desktop e no telefone.
+ *
+ * `conjunto` escolhe a parede (padrão) ou o rodapé. A conta é a MESMA para os
+ * dois — inclusive a pastilha —, porque a regra de hierarquia é uma só.
  */
-export const areaDaCaixa = (categoria, tela = 'desktop') => {
-  const [l, a] = CAIXAS[categoria][tela];
+export const areaDaCaixa = (categoria, tela = 'desktop', conjunto = CAIXAS) => {
+  const [l, a] = conjunto[categoria][tela];
   // A pastilha faz parte do que se vê: comparar sem ela compara a coisa errada.
   if (!CATEGORIAS_COM_PASTILHA.includes(categoria)) return l * a;
   const [v, hz] = RECHEIO_DA_PASTILHA;
   return (l + hz * 2) * (a + v * 2);
 };
+
+/**
+ * TODAS as marcas, na ordem da hierarquia comercial.
+ *
+ * É o que o rodapé consome: uma esteira única, Global primeiro, Silver por
+ * último. `MARCAS` já está declarado nessa ordem; esta função não confia nisso
+ * — ela reordena por categoria, para que inserir uma marca fora de ordem na
+ * lista não mude a ordem na tela.
+ */
+export const marcasNaOrdemDaHierarquia = () =>
+  CATEGORIAS.flatMap(categoria => marcasDaCategoria(categoria));
 
 /**
  * Quantas cópias do grupo a esteira precisa para cobrir a janela sem buraco.

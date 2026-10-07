@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   CAIXAS,
+  CAIXAS_DO_RODAPE,
   CATEGORIAS,
   CATEGORIAS_COM_PASTILHA,
   MARCAS,
@@ -15,6 +16,7 @@ import {
   copiasNecessarias,
   duracaoDoCiclo,
   marcasDaCategoria,
+  marcasNaOrdemDaHierarquia,
   medidaNaCaixa,
   PIXELS_POR_SEGUNDO,
   sentidoDaFaixa
@@ -257,5 +259,109 @@ describe('caminhos servidos', () => {
 
   it('categoria sem marca não vira faixa vazia', () => {
     expect(categoriasComMarcas().every(c => marcasDaCategoria(c).length > 0)).toBe(true);
+  });
+});
+
+
+// ==========================================================================
+// AS CAIXAS DO RODAPÉ DA VITRINE.
+//
+// O rodapé é uma faixa só, com todas as cotas lado a lado — e é exatamente aí
+// que a hierarquia fica mais fácil de quebrar: na parede cada cota tem a sua
+// linha, e a comparação é entre linhas; aqui as quatro se tocam. A Silver é o
+// caso que obriga a medir, porque a pastilha acrescenta 14x8px ao retângulo
+// VISÍVEL e já inverteu a ordem uma vez na parede.
+// ==========================================================================
+describe('hierarquia no rodapé da vitrine', () => {
+  const area = (c, tela) => areaDaCaixa(c, tela, CAIXAS_DO_RODAPE);
+
+  it('toda categoria tem caixa de rodapé declarada, nas duas telas', () => {
+    for (const categoria of CATEGORIAS) {
+      expect(CAIXAS_DO_RODAPE[categoria], categoria).toBeTruthy();
+      for (const tela of ['desktop', 'telefone']) {
+        const [l, a] = CAIXAS_DO_RODAPE[categoria][tela];
+        expect(l, `${categoria}/${tela} largura`).toBeGreaterThan(0);
+        expect(a, `${categoria}/${tela} altura`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('a área é ESTRITAMENTE decrescente, no desktop e no telefone', () => {
+    for (const tela of ['desktop', 'telefone']) {
+      const areas = CATEGORIAS.map(c => area(c, tela));
+      for (let i = 1; i < areas.length; i += 1) {
+        expect(areas[i], `${CATEGORIAS[i]} não é menor que ${CATEGORIAS[i - 1]} em ${tela}`)
+          .toBeLessThan(areas[i - 1]);
+      }
+    }
+  });
+
+  it('a pastilha da Silver entra na conta — é o retângulo visível que o olho compara', () => {
+    const [l, a] = CAIXAS_DO_RODAPE.silver.desktop;
+    const [v, hz] = RECHEIO_DA_PASTILHA;
+    expect(area('silver', 'desktop')).toBe((l + hz * 2) * (a + v * 2));
+    // E com ela dentro a Silver continua menor que a Gold. Sem a pastilha na
+    // conta, 80x30 teria passado — e na tela a Silver ficaria MAIOR.
+    expect(area('silver', 'desktop')).toBeLessThan(area('gold', 'desktop'));
+  });
+
+  it('a caixa do rodapé é menor que a da parede em TODA cota', () => {
+    for (const categoria of CATEGORIAS) {
+      for (const tela of ['desktop', 'telefone']) {
+        expect(areaDaCaixa(categoria, tela, CAIXAS_DO_RODAPE),
+          `${categoria}/${tela} não encolheu no rodapé`)
+          .toBeLessThan(areaDaCaixa(categoria, tela, CAIXAS));
+      }
+    }
+  });
+
+  it('a ordem relativa entre as cotas é a MESMA da parede', () => {
+    const porArea = conjunto => [...CATEGORIAS]
+      .sort((a, b) => areaDaCaixa(b, 'desktop', conjunto) - areaDaCaixa(a, 'desktop', conjunto));
+    expect(porArea(CAIXAS_DO_RODAPE)).toEqual(porArea(CAIXAS));
+  });
+
+  it('nenhuma arte estoura a caixa do rodapé da própria cota', () => {
+    for (const marca of MARCAS) {
+      for (const tela of ['desktop', 'telefone']) {
+        const caixa = CAIXAS_DO_RODAPE[marca.categoria][tela];
+        const { largura, altura } = medidaNaCaixa(marca.proporcao, caixa);
+        expect(largura, `${marca.nome} estourou a largura em ${tela}`).toBeLessThanOrEqual(caixa[0] + 0.001);
+        expect(altura, `${marca.nome} estourou a altura em ${tela}`).toBeLessThanOrEqual(caixa[1] + 0.001);
+      }
+    }
+  });
+
+  it('o CSS do rodapé declara os MESMOS números do catálogo', () => {
+    const css = readFileSync(CSS, 'utf8');
+    for (const categoria of CATEGORIAS) {
+      const [l, a] = CAIXAS_DO_RODAPE[categoria].desktop;
+      const regra = new RegExp(
+        `\\.rodape-patro\\s+\\.t-${categoria}\\s*\\{[^}]*--caixa-l:\\s*${l}px[^}]*--caixa-a:\\s*${a}px`
+      );
+      expect(regra.test(css), `o CSS do rodapé não declara ${categoria} como ${l}x${a}`).toBe(true);
+    }
+  });
+});
+
+describe('a ordem que o rodapé consome', () => {
+  it('traz TODAS as marcas, sem perder nem repetir nenhuma', () => {
+    const ordenadas = marcasNaOrdemDaHierarquia();
+    expect(ordenadas).toHaveLength(MARCAS.length);
+    expect(new Set(ordenadas.map(m => m.arquivo)).size).toBe(MARCAS.length);
+    for (const marca of MARCAS) expect(ordenadas).toContain(marca);
+  });
+
+  it('agrupa por cota, na ordem da hierarquia', () => {
+    const cotas = marcasNaOrdemDaHierarquia().map(m => CATEGORIAS.indexOf(m.categoria));
+    expect(cotas).toEqual([...cotas].sort((a, b) => a - b));
+    expect(cotas[0]).toBe(0);
+  });
+
+  it('NÃO depende da ordem em que as marcas foram escritas no catálogo', () => {
+    // Inserir uma Global no fim da lista não pode mandá-la para o fim da
+    // faixa: quem ordena é a cota, não a linha do arquivo.
+    const primeira = marcasNaOrdemDaHierarquia()[0];
+    expect(primeira.categoria).toBe(CATEGORIAS[0]);
   });
 });

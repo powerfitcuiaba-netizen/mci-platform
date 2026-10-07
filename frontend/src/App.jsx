@@ -27,6 +27,7 @@ import { MeuHistorico, MinhaFiliacao } from './pages/minhaCarreira';
 import MinhaSolicitacao from './pages/minhaSolicitacao';
 import MeuCadastro from './pages/meuCadastro';
 import MensagemDaFederacao from './components/mensagemDaFederacao';
+import FaixaDePatrocinio from './components/faixaDePatrocinio';
 
 // ============================================================================
 // AS TELAS DE OPERAÇÃO ENTRAM SOB DEMANDA.
@@ -609,6 +610,22 @@ function Shell() {
             <Suspense fallback={<Skeleton linhas={6} />}>{conteudo()}</Suspense>
           </LimiteDeErro>
         </main>
+
+        {/* A FAIXA DE PATROCÍNIO, no rodapé da VITRINE.
+            Ela acompanha as telas públicas — início, campeonatos, atletas e
+            ranking —, que são a superfície de transmissão do campeonato e onde
+            a exposição de patrocínio tem lugar. `ehRotaPublica` é a MESMA
+            bandeira `publico: true` de `NAVEGACAO_PRINCIPAL` usada na guarda
+            de sessão acima: uma fonte só decide o que é vitrine.
+
+            FORA DELA, NÃO. Messenger é conversa de altura cheia; `admin/*` são
+            tabelas de operação com coluna de ações grudada — uma faixa ali
+            comeria altura de trabalho e atrapalharia quem opera sob pressão.
+
+            É um irmão do `main`, EM FLUXO: a altura entra no layout, nada é
+            sobreposto, nenhum clique é bloqueado e não há `z-index` disputando
+            com modal, menu, dropdown ou toast. */}
+        {ehRotaPublica && <FaixaDePatrocinio />}
       </div>
 
       {/* Um único palco de experiência no aplicativo inteiro. Ele NÃO substitui
