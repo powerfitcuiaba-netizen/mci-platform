@@ -325,4 +325,71 @@ describe('o caso real: Lucas Gouveia Lima, NPC 2932', () => {
     const eventos = corpo.results.map(r => r.event?.id);
     expect(new Set(eventos).size, 'eventos distintos').toBe(2);
   });
+
+  // ------------------------------------------------------------------------
+  // OS NÚMEROS QUE A PESSOA VÊ NA PRODUÇÃO: 15 + 15 = 30.
+  //
+  // O caso acima usa a tabela desta suíte (5 pontos para o 1º) e prova a
+  // MECÂNICA. Este reproduz os NÚMEROS — e a diferença entre os dois é
+  // justamente o que se quer demonstrar: o 15 não está escrito em lugar nenhum
+  // do código. Ele sai da TABELA DE PONTOS DA TEMPORADA, que é dado da
+  // federação; trocar a tabela troca o número, e nada mais muda.
+  //
+  // A CONFERÊNCIA É LOCAL. Esta máquina não alcança a produção (o túnel sai
+  // 403), então o que está medido aqui é a REPRODUÇÃO do caso com os mesmos
+  // dados de entrada, não a leitura do banco de produção. O relatório diz isso
+  // com todas as letras, e não troca uma coisa pela outra.
+  //
+  // E É LEITURA E PROJEÇÃO, não correção: nenhum ponto é lançado à mão, nenhum
+  // resultado é publicado à mão, nenhum registro de atleta é alterado. O
+  // histórico aparece porque a consulta passou a enxergar o acervo inteiro.
+  // ------------------------------------------------------------------------
+  it('com a tabela de 15 pontos para o 1º lugar, a ficha mostra 15 + 15 = 30', async () => {
+    await api().put(`/api/v1/seasons/${seasonId}/points-rules`).set(admin.auth()).send({
+      rules: [{ placing: 1, points: 15 }, { placing: 2, points: 12 }, { placing: 3, points: 10 },
+        { placing: 4, points: 8 }, { placing: 5, points: 6 }]
+    });
+
+    const lucas = await cadastrarAtleta({ fullName: 'Lucas Gouveia Lima', matricula: '2932' });
+    const ipiranga = await eventoVisivel('Ipiranga');
+    const razor = await eventoVisivel('Razor');
+    await importarEtapa({ matricula: '2932', prefixo: 'IPIRANGA', colocacao: 1, eventId: ipiranga.id });
+    await importarEtapa({ matricula: '2932', prefixo: 'RAZOR', colocacao: 1, eventId: razor.id });
+
+    const { corpo } = await fichaPublica(lucas.id);
+
+    expect(corpo.results.length, 'RESULTADOS PUBLICADOS').toBe(2);
+
+    // LINHA A LINHA, pelo ID da etapa — e não pela ordem, que é por data e
+    // poderia inverter sem ninguém notar, nem pelo nome, que o helper de
+    // montagem repete entre eventos.
+    const porEtapa = Object.fromEntries(corpo.results.map(r => [r.event?.id, r]));
+    expect(Object.keys(porEtapa).sort(), 'as duas etapas, distintas')
+      .toEqual([ipiranga.id, razor.id].sort());
+    expect(porEtapa[ipiranga.id].placing, 'Ipiranga: colocação').toBe(1);
+    expect(porEtapa[ipiranga.id].points, 'Ipiranga: pontos').toBe(15);
+    expect(porEtapa[razor.id].placing, 'Razor: colocação').toBe(1);
+    expect(porEtapa[razor.id].points, 'Razor: pontos').toBe(15);
+
+    expect(corpo.rankings[0].totalPoints, 'PONTOS SOMADOS').toBe(30);
+    expect(corpo.rankings[0].eventCount, 'PARTICIPAÇÕES').toBe(2);
+    expect(corpo.titles, 'TÍTULOS').toBe(2);
+
+    // E A SOMA FECHA: o total do ranking é a soma das duas linhas do histórico.
+    // Era esta a contradição original — dois números certos para fontes
+    // diferentes, somando coisas diferentes na mesma tela.
+    const somaDoHistorico = corpo.results.reduce((t, r) => t + (r.points ?? 0), 0);
+    expect(somaDoHistorico, 'a soma do histórico bate com o total do ranking')
+      .toBe(corpo.rankings[0].totalPoints);
+
+    // NADA FOI ESCRITO PARA ISSO APARECER: um atleta, dois lançamentos, uma
+    // identidade externa. Os mesmos números de antes da correção.
+    expect(await contar(gerente, 'athlete', { affiliationNumber: '2932' }), 'atletas').toBe(1);
+    expect(await contar(gerente, 'rankingPoint'), 'lançamentos').toBe(2);
+    expect(await contar(gerente, 'externalAthlete'), 'identidades externas').toBe(1);
+    // E ZERO resultado RECEBIDO: o MCI não apurou nada neste caso. A ficha
+    // mostra 2 porque passou a enxergar a origem IMPORTADA, não porque alguém
+    // publicou um resultado à mão.
+    expect(await contar(gerente, 'resultEntry'), 'apurações recebidas pelo MCI').toBe(0);
+  });
 });

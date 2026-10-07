@@ -355,22 +355,39 @@ model Athlete {
   city              String?
   phone             String?
   email             String?
-  /// CAMPO SEM CAMINHO DE ESCRITA — hoje é sempre nulo.
+  /// A FOTO DE COMPETIÇÃO do atleta — a que o operador usa para conferir quem
+  /// está no check-in, e a que aparece na vitrine pública.
   ///
-  /// É LIDO em nove lugares (check-in, chamada de palco, ranking, superfície
-  /// pública, resultados) e sai na resposta por utils/visibility.js. Mas nada
-  /// o grava: não há rota, não há serviço, e a validação de entrada de atleta
-  /// nem sequer aceita o campo. Conferido no banco: zero atletas com valor.
+  /// GRAVADA PELO AUTOCADASTRO. São dois pontos de escrita, os dois em
+  /// `athleteRequestService`, e nenhum outro:
   ///
-  /// NÃO é o mesmo que a foto de perfil social (SocialProfile.avatarKey), que
-  /// funciona ponta a ponta. Este seria a foto de COMPETIÇÃO — a que o
-  /// operador usa para conferir quem está no check-in.
+  ///   1. `aprovacaoAtomica` — o `Athlete` nasce com a MESMA chave do pedido.
+  ///      O objeto não é copiado nem movido: copiar criaria dois arquivos
+  ///      idênticos e uma janela em que só um existe. O pedido continua
+  ///      apontando para ele, porque é o histórico da análise.
+  ///   2. `propagarFotoParaOAtleta` — quando a foto sobe DEPOIS de o atleta já
+  ///      existir (é a ordem normal na conclusão automática: o `Athlete` nasce
+  ///      antes do upload e copiaria um nulo). Quem escreve é a conta de
+  ///      serviço da federação, porque `Athlete` só aceita escrita de operador
+  ///      e o atleta não é um.
   ///
-  /// Implementar exige decisão de produto, não só código: quem pode enviar
-  /// (o atleta? o operador da federação?), se é pública, e o que acontece
-  /// quando o atleta compete por outra federação. Por isso está documentado
-  /// em vez de meio-implementado. `scripts/backup-storage.js` já o inclui
-  /// genericamente, então o backup acompanha no dia em que passar a existir.
+  /// LIDA em check-in, chamada de palco, pesagem, ranking, superfície pública e
+  /// resultados, e SERVIDA por `GET /media/athletes/:id/photo`
+  /// (`documentService.downloadAthletePhoto`).
+  ///
+  /// A CHAVE NUNCA SAI NA RESPOSTA: `utils/visibility.js`, `publicService` e
+  /// `rankingService` a trocam pelo booleano `hasPhoto`, e
+  /// `tests/vazamento-de-storage.test.mjs` reprova se ela escapar. A rota
+  /// recebe id de atleta, não caminho de armazenamento — trocar o id na URL só
+  /// alcança a foto que aquele id autoriza, que é pública de propósito.
+  ///
+  /// NÃO é o mesmo que a foto de perfil social (`SocialProfile.avatarKey`), que
+  /// é a rede social da plataforma. ANULÁVEL porque o cadastro feito pelo
+  /// operador não exige foto, e porque há atleta cadastrado antes do
+  /// autocadastro existir: a vitrine cai no monograma de iniciais.
+  ///
+  /// `scripts/backup-storage.js` o inclui pela varredura de campos de chave,
+  /// então o arquivo acompanha o dump.
   photoKey          String?
   athleteNumber     String?
   affiliationId     String?
