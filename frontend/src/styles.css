@@ -2889,3 +2889,27 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
    de telas pequenas eleva a 44px de altura — o alvo de toque mínimo. Não
    redefini-lo aqui é deliberado: uma segunda regra, mais abaixo no arquivo,
    venceria a do breakpoint e encolheria o botão justamente no toque. */
+
+/* ===========================================================================
+   HISTÓRICO ESPORTIVO — os pontos e a ausência de link.
+
+   A linha serve às duas origens. A importada tem pontos; a recebida não os
+   carrega nesta leitura. Em vez de inventar um zero — que seria afirmar algo
+   falso sobre uma participação —, a coluna simplesmente não aparece quando o
+   número não existe.
+
+   Quando a etapa não tem página pública, o lugar do botão recebe um texto
+   apagado em vez de ficar vazio: a linha mantém o alinhamento das outras e
+   quem lê entende que não é falha, é ausência de página.
+   =========================================================================== */
+.historico-pontos {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  color: var(--vermelho-claro);
+  white-space: nowrap;
+}
+.historico-sem-link {
+  font-size: 11.5px;
+  color: var(--cinza-fraco);
+  white-space: nowrap;
+}

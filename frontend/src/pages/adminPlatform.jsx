@@ -1628,7 +1628,15 @@ function VincularAtleta({ item, organizationId, notificar, onClose, onSalvo }) {
           {(resultados.data?.items || []).map(atleta => (
             <label key={atleta.id} className="list-row" style={{ padding: '10px 12px', margin: 0, cursor: 'pointer' }}>
               <input type="radio" name="atleta" value={atleta.id} checked={athleteId === atleta.id} onChange={() => setAthleteId(atleta.id)} style={{ width: 'auto' }} />
-              <Avatar name={atleta.fullName} size="avatar-sm" />
+              {/* A MESMA FOTO OFICIAL, pelo mesmo caminho das outras telas
+                  administrativas: `hasPhoto` diz se existe, e a chave é
+                  resolvida no servidor. Sem foto, o `Avatar` já cai nas
+                  iniciais sozinho — não há estado quebrado. */}
+              <Avatar
+                name={atleta.fullName}
+                mediaPath={atleta.hasPhoto ? `/media/athletes/${atleta.id}/photo` : null}
+                size="avatar-sm"
+              />
               <span className="info">
                 <strong>{atleta.fullName}</strong>
                 <small>{atleta.cpfMasked || '—'} · {atleta.affiliation?.code || 'sem filiação'}</small>

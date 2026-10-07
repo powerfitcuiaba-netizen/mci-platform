@@ -566,19 +566,48 @@ export function AtletaDetalhe({ id, navegar }) {
               <Revelacao as="div" indice={2} className="grid grid-main" style={{ marginTop: 18 }}>
                 <section className="panel">
                   <div className="panel-head"><h2>{t('publico.historicoEsportivo')}</h2></div>
+                  {/* A LINHA DO HISTÓRICO SERVE ÀS DUAS ORIGENS.
+                      O recebido traz categoria e classe pelo vínculo da
+                      inscrição; o importado traz pelo catálogo. Nenhum dos dois
+                      é garantido — arquivo histórico vem com o que vem —, então
+                      cada pedaço só aparece quando existe, e a linha nunca
+                      desenha "undefined · undefined".
+
+                      O evento só vira LINK quando ele é publicamente visível.
+                      Resultado de evento ainda não visível continua CONTANDO,
+                      porque ele é um resultado publicado do atleta; o que ele
+                      não ganha é um link para uma página que o visitante não
+                      poderia abrir. */}
                   {results.length
-                    ? results.map((entrada, indice) => (
-                      <div className="list-row" key={`${entrada.event.id}-${indice}`}>
-                        <span className={`placing placing-${entrada.placing}`}>{entrada.placing ?? '—'}</span>
-                        <span className="info">
-                          <strong>{entrada.event.name}</strong>
-                          <small>
-                            {entrada.competitionClass.division.eventCategory.category.name} · {entrada.competitionClass.name} · {formatarData(entrada.publishedAt)}
-                          </small>
-                        </span>
-                        <button type="button" className="button button-ghost button-sm" onClick={() => navegar(`campeonatos/${entrada.event.slug}`)}>{t('publico.verEtapa')}</button>
-                      </div>
-                    ))
+                    ? results.map(entrada => {
+                      const detalhe = [entrada.categoryName, entrada.className,
+                        entrada.publishedAt ? formatarData(entrada.publishedAt) : null]
+                        .filter(Boolean).join(' · ');
+                      return (
+                        <div className="list-row" key={entrada.key}>
+                          <span className={`placing placing-${entrada.placing}`}>{entrada.placing ?? '—'}</span>
+                          <span className="info">
+                            <strong>{entrada.event?.name || t('publico.etapaNaoInformada')}</strong>
+                            {detalhe && <small>{detalhe}</small>}
+                          </span>
+                          {entrada.points != null && (
+                            <strong className="historico-pontos">{entrada.points}</strong>
+                          )}
+                          {entrada.event?.slug && entrada.eventNavigable
+                            ? (
+                              <button
+                                type="button"
+                                className="button button-ghost button-sm"
+                                aria-label={t('publico.verEtapaDe', { etapa: entrada.event.name })}
+                                onClick={() => navegar(`campeonatos/${entrada.event.slug}`)}
+                              >
+                                {t('publico.verEtapa')}
+                              </button>
+                            )
+                            : <span className="historico-sem-link">{t('publico.etapaSemPagina')}</span>}
+                        </div>
+                      );
+                    })
                     : <EmptyState title={t('publico.semResultadosDoAtleta')} />}
                 </section>
 

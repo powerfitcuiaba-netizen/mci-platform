@@ -384,14 +384,21 @@ async function athletePage(id) {
   });
   if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
 
-  const resultados = await prisma.resultEntry.findMany({
-    where: { athleteId: id, result: { status: 'PUBLISHED' } },
-    include: {
-      result: { select: { publishedAt: true, event: { select: { id: true, name: true, slug: true, startDate: true } } } },
-      registrationItem: { include: { competitionClass: { include: { division: { include: { eventCategory: { include: { category: true } } } } } } } }
-    },
-    orderBy: { result: { publishedAt: 'desc' } },
-    take: 100
+  // AS DUAS ORIGENS, PELA MESMA REGRA.
+  //
+  // Esta consulta lia só `ResultEntry` — a apuração RECEBIDA pelo MCI. O
+  // histórico IMPORTADO não passa por ali: ele grava `ExternalResult` +
+  // `RankingPoint`, e o importador nunca toca em `Result`. O efeito era a tela
+  // se contradizendo no mesmo bloco de métricas: "30 pontos somados" (que vem
+  // de `Ranking`, alimentado pelo ledger) ao lado de "0 resultados publicados"
+  // e "ainda sem resultados publicados".
+  //
+  // A regra de "publicado" já existia num lugar só, por causa do mesmo defeito
+  // nos cartões da organização. O que faltava era o perfil do atleta usá-la.
+  // Nada foi afrouxado: rascunho, resultado em revisão e lote invalidado
+  // continuam fora.
+  const participacoes = await publishedResults.participacoesDoAtleta(id, {
+    eventosVisiveis: EVENTOS_VISIVEIS
   });
 
   const rankings = await prisma.ranking.findMany({
@@ -402,14 +409,23 @@ async function athletePage(id) {
 
   return {
     athlete: { ...athletePublic(athlete), socialProfile: athlete.socialProfile },
-    results: resultados.map(entry => ({
-      placing: entry.placing,
-      status: entry.status,
-      event: entry.result.event,
-      publishedAt: entry.result.publishedAt,
-      competitionClass: entry.registrationItem.competitionClass
+    // A forma é PLANA e igual para as duas origens: a tela não precisa saber
+    // de onde veio cada linha para desenhá-la, e `origem` fica disponível para
+    // quem quiser distinguir.
+    results: participacoes.map(p => ({
+      key: p.chave,
+      origin: p.origem,
+      placing: p.placing,
+      status: p.status,
+      points: p.points,
+      isOverallChampion: p.isOverallChampion,
+      event: p.event,
+      eventNavigable: p.eventoNavegavel,
+      categoryName: p.categoryName,
+      className: p.className,
+      publishedAt: p.date
     })),
-    titles: resultados.filter(entry => entry.placing === 1).length,
+    titles: participacoes.filter(p => p.placing === 1).length,
     rankings
   };
 }
