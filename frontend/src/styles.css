@@ -238,6 +238,14 @@ h1, h2, h3 { margin: 0; }
 
 /* --- cabeçalho ---------------------------------------------------------- */
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+/* O CONTEÚDO EMPURRA O RODAPÉ ATÉ O FIM DA TELA.
+   Sem isto o `main` tem a altura do que cabe nele, e numa tela curta — um
+   ranking vazio, uma lista de três atletas — a faixa de patrocínio parava no
+   meio da página, com um vão escuro embaixo. Medido no Chromium: a faixa
+   ficava a 580px do topo numa janela de 900px.
+   `flex: 1` sem `min-height: 0`, de propósito: o `min-height: auto` padrão do
+   item flex é o que impede a tela alta de ser espremida abaixo do conteúdo. */
+.main > main { flex: 1 1 auto; }
 .topbar {
   height: 60px; display: flex; align-items: center; gap: var(--e4);
   padding: 0 var(--e6);
@@ -2801,6 +2809,61 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
   .auth-arena .arena-titulo .linha2::after { animation: none; }
   .patro { transition: none; }
   .patro:hover { transform: none; }
+}
+
+/* ------------------------------- faixa de patrocínio do rodapé da vitrine */
+/* A MESMA ESTEIRA DA ENTRADA, na escala do rodapé.
+   Ela é um `footer` EM FLUXO, irmão do `main` dentro de `.main`: a altura é
+   reservada pelo layout, e não há `position: fixed`, `absolute` nem `z-index`
+   a disputar com modal, menu, dropdown ou toast. Nada é coberto porque nada
+   está por cima de nada. */
+.rodape-patro {
+  border-top: 1px solid var(--linha);
+  background: linear-gradient(180deg, rgba(6,8,11,.35) 0, rgba(6,8,11,.78) 100%);
+  padding: var(--e5) 0 var(--e5);
+  /* `min-width: 0` para o trilho de `width: max-content` não empurrar a
+     largura do flex pai. Sem isto o documento inteiro ganha rolagem
+     horizontal — o `overflow: hidden` da janela da esteira não basta, porque
+     o item flex adota a largura do conteúdo como base. */
+  min-width: 0;
+}
+.rodape-patro-cab {
+  display: flex; align-items: center; gap: var(--e3);
+  margin: 0 auto var(--e4); padding-inline: var(--e6); max-width: 1240px;
+}
+.rodape-patro-cab span {
+  font: 700 9.5px/1 var(--fonte-corpo); letter-spacing: .3em; text-transform: uppercase;
+  color: var(--cinza-fraco); white-space: nowrap;
+}
+.rodape-patro-cab i {
+  height: 1px; flex: 1; display: block;
+  background: linear-gradient(90deg, var(--linha), transparent);
+}
+.esteira-grupo-rodape { gap: 40px; padding-right: 40px; }
+
+/* AS CAIXAS DO RODAPÉ. Os mesmos números estão em `CAIXAS_DO_RODAPE`, em
+   lib/patrocinadores.js, que é o que o teste de hierarquia lê — inclusive a
+   pastilha da Silver, que entra na conta do retângulo visível. A ordem de
+   tamanho entre as cotas NÃO inverte, e há teste que reprova se inverter. */
+.rodape-patro .t-global   { --caixa-l: 132px; --caixa-a: 48px; }
+.rodape-patro .t-diamante { --caixa-l: 112px; --caixa-a: 41px; }
+.rodape-patro .t-gold     { --caixa-l: 96px;  --caixa-a: 35px; }
+.rodape-patro .t-silver   { --caixa-l: 72px;  --caixa-a: 26px; }
+
+/* O realce do rodapé é MENOR que o da entrada: ali a parede é o assunto da
+   tela, aqui ela acompanha o conteúdo. 2px, e não 3. */
+.rodape-patro .patro:hover { transform: translate3d(0, -2px, 0); }
+
+@media (max-width: 480px) {
+  .rodape-patro { padding: var(--e4) 0; }
+  .rodape-patro-cab { padding-inline: var(--e4); margin-bottom: var(--e3); }
+  .esteira-grupo-rodape { gap: 28px; padding-right: 28px; }
+  /* Encolhem JUNTAS, pela mesma razão da parede: a ordem entre as cotas é a
+     mesma nas duas larguras. */
+  .rodape-patro .t-global   { --caixa-l: 104px; --caixa-a: 38px; }
+  .rodape-patro .t-diamante { --caixa-l: 88px;  --caixa-a: 32px; }
+  .rodape-patro .t-gold     { --caixa-l: 76px;  --caixa-a: 28px; }
+  .rodape-patro .t-silver   { --caixa-l: 56px;  --caixa-a: 20px; }
 }
 
 /* ------------------------------------------------- uma coluna no telefone */
