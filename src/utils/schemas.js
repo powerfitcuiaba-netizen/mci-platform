@@ -166,14 +166,31 @@ const organizationSelfRegistration = z.object({ open: z.boolean() });
 const athleteStatusReason = z.object({ reason: texto(3, 500) });
 const athleteStatusOptionalReason = z.object({ reason: opcional(texto(3, 500)) });
 
+// `photoKey` NÃO ENTRA AQUI, e a ausência é a regra.
+//
+// O campo era aceito e gravado direto no pedido. Medido: um pedido criado com
+// `photoKey: 'athletes/documento-de-outra-pessoa.pdf'` guardava essa string, a
+// conclusão automática a copiava para `Athlete.photoKey`, e
+// `GET /media/athletes/:id/photo` — hoje ANÔNIMA — passava a servir aquele
+// objeto. Quem escolhia o caminho dentro do bucket era o cliente.
+//
+// A travessia de diretório já era barrada no provedor de armazenamento, então
+// não se alcançava nada fora da raiz. O que se alcançava era QUALQUER objeto
+// DENTRO dela cuja chave se conhecesse — documento de identidade, foto de
+// treinador, anexo de evento — publicado por uma rota aberta.
+//
+// A foto sobe por `POST /athlete-requests/:id/photo`: arquivo multipart,
+// conferido por MIME e por assinatura de bytes, normalizado pelo sharp, e com
+// a chave montada por `storage.buildKey` — servidor, prefixo fixo e UUID. É o
+// único caminho de escrita, e `tests/privacidade-da-vitrine-publica.test.mjs`
+// reprova se o campo voltar a ser aceito pela entrada.
 const athleteRequestCreate = z.object({
   fullName: texto(2, 160),
   cpf: z.string().trim().min(11).max(14),
   sex: z.enum(['MALE', 'FEMALE']),
   birthDate: opcional(dataIso),
   affiliationId: id,
-  affiliationNumber: texto(1, 40),
-  photoKey: opcional(texto(1, 300))
+  affiliationNumber: texto(1, 40)
 });
 
 const athleteRequestReject = z.object({
