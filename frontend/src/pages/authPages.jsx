@@ -22,7 +22,11 @@ import { useIdioma } from '../lib/idioma';
 // e quem decide se a credencial vale continua sendo o servidor. "Lembrar de
 // mim" NÃO vai para o servidor: é só o destino do token no navegador.
 
-export default function Auth({ entradaContinua = false }) {
+// `aoVoltarParaVitrine` é a SAÍDA desta tela, e só existe quando há para onde
+// voltar: o visitante que chegou pela vitrine e pediu para entrar. Sem ela o
+// botão "Entrar agora" da barra lateral era um beco — levava ao formulário e
+// não havia caminho de volta para a ficha que a pessoa estava lendo.
+export default function Auth({ entradaContinua = false, aoVoltarParaVitrine = null }) {
   const { t } = useIdioma();
   const { login } = useAuth();
   const [modo, setModo] = useState('login');
@@ -144,6 +148,18 @@ export default function Auth({ entradaContinua = false }) {
               {t('login.criarConta')}
             </button>
           </div>
+
+          {aoVoltarParaVitrine && (
+            <div className="auth-foot">
+              <button
+                type="button"
+                className="button button-ghost button-sm link-inline"
+                onClick={aoVoltarParaVitrine}
+              >
+                {t('login.voltarParaVitrine')}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

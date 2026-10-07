@@ -314,6 +314,9 @@ function Shell() {
   // `aberturaJaFoiVista` é lido na inicialização do estado — não num efeito —
   // para a abertura não piscar em quem já a viu.
   const [abertura, setAbertura] = useState(() => !aberturaJaFoiVista());
+  // O visitante anônimo pediu para entrar. Fica aqui, e não na rota, porque a
+  // rota é o que ele estava LENDO — e é para ela que ele volta se desistir.
+  const [querEntrar, setQuerEntrar] = useState(false);
 
   // CONTINUIDADE DA ABERTURA.
   //
@@ -378,13 +381,43 @@ function Shell() {
     return <div className="auth-shell"><div className="auth-card"><p>{t('estado.carregando')}</p></div></div>;
   }
 
-  // A primeira tela depois da abertura costuma ser a de ENTRADA, e não o
-  // casco: quem chega precisa fazer login. Marcar só o casco fazia a
-  // continuidade nunca acontecer para a maioria das pessoas — a marca expirava
-  // enquanto elas digitavam a senha.
-  if (!authenticated) return <Auth entradaContinua={entradaContinua} />;
+  // O VISITANTE ANÔNIMO ALCANÇA A VITRINE — E SÓ ELA.
+  //
+  // Esta linha devolvia a tela de entrada para QUALQUER rota, inclusive as
+  // marcadas `publico: true` logo acima. A API nunca exigiu sessão nelas:
+  // `GET /api/v1/public/...`, `/ranking`, `/events` respondem 200 ao anônimo,
+  // e há suíte provando isso. Quem barrava era só o casco — e o efeito era
+  // uma vitrine que não se podia visitar e um resultado "público" que pedia
+  // senha.
+  //
+  // A LISTA NÃO É NOVA E NÃO É SEGUNDA FONTE DE VERDADE: ela sai de
+  // `NAVEGACAO_PRINCIPAL`, onde `publico: true` já estava declarado item a
+  // item. Acrescentar uma tela pública é marcar a bandeira lá, num lugar só.
+  //
+  // O QUE CONTINUA FECHADO é tudo o mais: social, messenger, comunidades, meu
+  // painel, meu cadastro, minha conta, treinador e TODO o `admin/*`. Rota não
+  // declarada pública cai na tela de entrada, que é o padrão seguro — e a
+  // autoridade continua no servidor: esconder é conveniência, nunca a defesa.
+  // `querEntrar` é o PEDIDO EXPLÍCITO do visitante: ele clicou "Entrar agora"
+  // na barra lateral. Sem este estado o botão era um beco — a rota continuava
+  // pública, a condição abaixo continuava falsa, e o clique devolvia a mesma
+  // vitrine. Medido no Chromium anônimo antes de existir.
+  const [rotaRaiz] = partes;
+  const ehRotaPublica = NAVEGACAO_PRINCIPAL.some(item => item.publico && item.rota === rotaRaiz);
+  if (!authenticated && (querEntrar || !ehRotaPublica)) {
+    return (
+      <Auth
+        entradaContinua={entradaContinua}
+        // A saída só é oferecida a quem TEM para onde voltar. Quem caiu aqui
+        // por tentar uma rota fechada não tem vitrine atrás de si.
+        aoVoltarParaVitrine={querEntrar && ehRotaPublica ? () => setQuerEntrar(false) : null}
+      />
+    );
+  }
 
-  const itensAdmin = NAVEGACAO_ADMIN.filter(item => pode(item.permissao));
+  // Sem sessão não há permissão nenhuma, e o grupo administrativo nem é
+  // montado. `pode()` já recusaria; a guarda explícita evita depender disso.
+  const itensAdmin = authenticated ? NAVEGACAO_ADMIN.filter(item => pode(item.permissao)) : [];
   const ativoPrincipal = rotaAtiva(NAVEGACAO_PRINCIPAL, rota);
   const ativoAdmin = rotaAtiva(itensAdmin, rota);
 
@@ -462,7 +495,10 @@ function Shell() {
 
         <div className="nav-group">
           <span className="nav-label">{t('grupo.plataforma')}</span>
-          {NAVEGACAO_PRINCIPAL.map((item, indice) => {
+          {/* O menu do visitante mostra só o que ele pode abrir. Oferecer um
+              item que leva à tela de entrada seria convidar para uma porta
+              fechada. */}
+          {NAVEGACAO_PRINCIPAL.filter(item => authenticated || item.publico).map((item, indice) => {
             const Icone = item.icone;
             const ativo = item.rota === ativoPrincipal;
             const contador = item.contador === 'mensagens' ? mensagensNaoLidas : 0;
@@ -491,14 +527,29 @@ function Shell() {
         )}
 
         <div className="sidebar-foot">
-          <button type="button" className="session-card" style={{ width: '100%', border: 0, background: 'transparent', textAlign: 'left' }} onClick={() => navegar('minha-conta')}>
-            <Avatar name={user?.name} mediaPath={caminhoDoAvatar(perfilSocial.data)} size="avatar-sm" />
-            <span className="info">
-              <strong>{user?.name}</strong>
-              <small>{papel(user?.role).rotulo}</small>
-            </span>
-          </button>
-          <button type="button" className="nav-item" onClick={logout}><LogOut size={16} /> {t('topo.sair')}</button>
+          {authenticated
+            ? (
+              <>
+                <button type="button" className="session-card" style={{ width: '100%', border: 0, background: 'transparent', textAlign: 'left' }} onClick={() => navegar('minha-conta')}>
+                  <Avatar name={user?.name} mediaPath={caminhoDoAvatar(perfilSocial.data)} size="avatar-sm" />
+                  <span className="info">
+                    <strong>{user?.name}</strong>
+                    <small>{papel(user?.role).rotulo}</small>
+                  </span>
+                </button>
+                <button type="button" className="nav-item" onClick={logout}><LogOut size={16} /> {t('topo.sair')}</button>
+              </>
+            )
+            : (
+              // O visitante precisa de uma porta de entrada visível. Sem ela,
+              // quem chega pela vitrine não encontra como entrar.
+              // VAI PARA O LOGIN, e não para a abertura da marca: `setAbertura(true)`
+              // reexibia o vídeo de marca e terminava devolvendo a mesma vitrine,
+              // sem nunca mostrar o formulário.
+              <button type="button" className="button button-primary" style={{ width: '100%' }} onClick={() => setQuerEntrar(true)}>
+                {t('abertura.entrarAgora')}
+              </button>
+            )}
         </div>
       </nav>
 
@@ -527,11 +578,19 @@ function Shell() {
           >
             {somLigado ? <Volume2 size={16} /> : <VolumeX size={16} />}
           </button>
-            <button type="button" className="icon-button" onClick={() => navegar('notificacoes')} aria-label={`${t('topo.notificacoes')}${naoLidas ? `: ${t('topo.naoLidas', { n: naoLidas })}` : ''}`}>
-              <Bell size={16} />
-              {naoLidas > 0 && <span className="dot">{naoLidas > 9 ? '9+' : naoLidas}</span>}
-            </button>
-            <button type="button" className="icon-button" onClick={() => navegar('perfil')} aria-label={t('topo.meuPerfil')}><UserCircle size={16} /></button>
+            {/* Notificações e perfil são DE QUEM TEM SESSÃO. Para o visitante
+                anônimo os dois levariam à tela de entrada — um botão que só
+                serve para frustrar. O idioma e o som ficam: são preferências
+                de quem está lendo, com ou sem conta. */}
+            {authenticated && (
+              <>
+                <button type="button" className="icon-button" onClick={() => navegar('notificacoes')} aria-label={`${t('topo.notificacoes')}${naoLidas ? `: ${t('topo.naoLidas', { n: naoLidas })}` : ''}`}>
+                  <Bell size={16} />
+                  {naoLidas > 0 && <span className="dot">{naoLidas > 9 ? '9+' : naoLidas}</span>}
+                </button>
+                <button type="button" className="icon-button" onClick={() => navegar('perfil')} aria-label={t('topo.meuPerfil')}><UserCircle size={16} /></button>
+              </>
+            )}
           </div>
         </header>
 

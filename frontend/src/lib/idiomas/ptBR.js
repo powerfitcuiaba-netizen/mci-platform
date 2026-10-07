@@ -130,6 +130,7 @@ export default {
   'login.entrar': 'Entrar',
   'login.semConta': 'Não tem conta?',
   'login.criarConta': 'Criar conta',
+  'login.voltarParaVitrine': 'Voltar à vitrine',
   'login.lembrarDeMim': 'Lembrar de mim',
   'login.esqueciSenha': 'Esqueci a senha',
   'login.recuperarTitulo': 'Recuperação de senha',

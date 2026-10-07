@@ -130,6 +130,7 @@ export default {
   'login.entrar': 'Sign in',
   'login.semConta': 'No account yet?',
   'login.criarConta': 'Create account',
+  'login.voltarParaVitrine': 'Back to the showcase',
   'login.lembrarDeMim': 'Remember me',
   'login.esqueciSenha': 'Forgot password',
   'login.recuperarTitulo': 'Password recovery',
