@@ -125,8 +125,10 @@ async function criar(data, actor) {
       // `dataIso` já entrega um Date; quando vier string, o meio-dia UTC evita
       // que a data ande um dia para trás no fuso do Brasil.
       birthDate: aoMeioDia(data.birthDate),
-      cpf,
-      photoKey: data.photoKey || null
+      cpf
+      // O pedido NASCE SEM FOTO, sempre. A chave do armazenamento não vem do
+      // cliente: ela é montada pelo servidor em `definirFoto`, que é a única
+      // escrita de `photoKey` aqui. Ver a nota em `schemas.js`.
     },
     // `cpfDoPedido` porque a conclusão automática, logo abaixo, precisa do
     // documento para criar a identidade. Ele NÃO sai na resposta: `semChaves`

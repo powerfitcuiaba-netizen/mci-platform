@@ -148,14 +148,58 @@ describe('estrutura da aplicação', () => {
   });
 });
 
+// A ASSERÇÃO TROCOU DE LADO, E A TROCA É A REGRA NOVA.
+//
+// Este bloco dizia: "sem usuário, a tela de acesso". Valia quando o casco
+// devolvia `<Auth />` para QUALQUER rota. A vitrine pública mudou isso: as
+// quatro telas marcadas `publico: true` em `NAVEGACAO_PRINCIPAL` abrem sem
+// sessão, porque a API nunca as fechou.
+//
+// Então a regra passou a ter dois lados, e os dois estão medidos abaixo: rota
+// PÚBLICA abre a vitrine; rota FECHADA cai na entrada. O caso não foi apagado
+// — ele foi partido em dois, e o segundo é literalmente o antigo, apontado
+// para uma rota que de fato é fechada.
 describe('sem sessão', () => {
-  it('apresenta a tela de acesso quando não há usuário', async () => {
+  it('rota PÚBLICA abre a vitrine sem pedir senha', async () => {
     respostas.user = null;
+    window.location.hash = '#/ranking';
+    const { api } = await import('./services/api');
+    api.auth.me.mockRejectedValueOnce(new Error('sem sessão'));
+
+    render(<App />);
+    expect(await screen.findByRole('heading', { level: 1, name: /^Ranking$/i })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /^Entrar$/i })).not.toBeInTheDocument();
+  });
+
+  it('rota FECHADA apresenta a tela de acesso quando não há usuário', async () => {
+    respostas.user = null;
+    window.location.hash = '#/meu-painel';
     const { api } = await import('./services/api');
     api.auth.me.mockRejectedValueOnce(new Error('sem sessão'));
 
     render(<App />);
     expect(await screen.findByRole('heading', { name: /Entrar/i })).toBeInTheDocument();
+  });
+
+  it('"Entrar agora" na barra lateral leva ao FORMULÁRIO, e dá caminho de volta', async () => {
+    // O botão chamava `setAbertura(true)` — reexibia a abertura da marca e
+    // terminava devolvendo a mesma vitrine, sem nunca mostrar o formulário.
+    // Medido no Chromium anônimo: o visitante não tinha como entrar.
+    const usuario = userEvent.setup();
+    respostas.user = null;
+    window.location.hash = '#/ranking';
+    const { api } = await import('./services/api');
+    api.auth.me.mockRejectedValueOnce(new Error('sem sessão'));
+
+    render(<App />);
+    const navegacao = await screen.findByRole('navigation');
+    await usuario.click(within(navegacao).getByRole('button', { name: /Entrar agora/i }));
+
+    expect(await screen.findByRole('heading', { name: /^Entrar$/i })).toBeInTheDocument();
+
+    // E a saída existe: quem desiste volta para a tela que estava lendo.
+    await usuario.click(screen.getByRole('button', { name: /Voltar à vitrine/i }));
+    expect(await screen.findByRole('heading', { level: 1, name: /^Ranking$/i })).toBeInTheDocument();
   });
 });
 

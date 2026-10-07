@@ -614,20 +614,35 @@ router.post('/social/stories/:id/view', requireAuth, validate(s.paramsWithId, 'p
 router.get('/media/posts/:id', optionalAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.postMedia));
 router.get('/media/stories/:id', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.storyMedia));
 router.get('/media/profiles/:id/avatar', optionalAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.profileAvatar));
-// As duas exigem sessão.
+// A DO PEDIDO exige sessão, e isso não mudou: o serviço decide entre o dono e
+// o operador que analisa. Pedido em análise é documento de identificação em
+// trânsito, não retrato de competidor.
 //
-// A do PEDIDO é evidente: o serviço decide entre o dono e o operador.
+// A DO ATLETA passou a ser `optionalAuth` — e isto foi uma DECISÃO DE PRODUTO,
+// tomada explicitamente, não um afrouxamento por conveniência.
 //
-// A do ATLETA foi deliberada. A foto chega aqui por um caminho específico —
-// a pessoa a enviou para a federação CONFERIR sua identidade —, e abri-la a
-// visitante anônimo seria eu decidir publicar retrato de atleta por conta
-// própria. Hoje nada se perde com isso: a vitrine pública nunca exibiu foto,
-// porque até agora não existia rota nenhuma que a servisse. Se a decisão de
-// produto for publicá-la, troca-se por `optionalAuth` e acrescenta-se a rota
-// à lista de públicas em tests/rotas.test.mjs — de propósito, não por
-// descuido.
+// O comentário anterior aqui dizia que abrir a foto ao anônimo seria publicar
+// retrato de atleta por conta própria, e que a troca exigiria decisão do
+// produto mais o registro da rota na lista de públicas. A decisão foi tomada:
+// a foto do atleta APROVADO passa a ser pública, para aparecer no ranking e na
+// vitrine — superfícies que já publicam nome, equipe, cidade e colocação da
+// mesma pessoa.
+//
+// O que NÃO mudou, e sustenta a decisão:
+//
+//   * a rota recebe o ID DO ATLETA e nada mais; a chave do objeto é resolvida
+//     no servidor, então não há caminho de armazenamento manipulável;
+//   * `Athlete` continua sob RLS, e o id do atleta já era público — a vitrine
+//     lista atletas por id desde sempre;
+//   * a foto do PEDIDO, que é o documento de conferência, continua privada;
+//   * nenhuma permissão de armazenamento foi alterada: o bucket segue interno
+//     e o arquivo continua sendo servido POR ESTA ROTA, nunca por URL direta.
+//
+// É o mesmo desenho que `/media/profiles/:id/avatar` já tinha, e que
+// `/media/coaches/:id/photo` já usa pela mesma razão: foto que aparece em
+// superfície pública é servida com `optionalAuth`.
 router.get('/media/athlete-requests/:id/photo', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.athleteRequestPhoto));
-router.get('/media/athletes/:id/photo', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.athletePhoto));
+router.get('/media/athletes/:id/photo', optionalAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.athletePhoto));
 // `optionalAuth`: a foto do treinador aparece no ranking de treinadores, que é
 // superfície pública — mesma razão da foto do atleta na vitrine. O id é tudo o
 // que a rota recebe; a chave do objeto é resolvida no servidor.

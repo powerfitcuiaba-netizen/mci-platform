@@ -2622,7 +2622,11 @@ async function list(filtros, actor = null) {
   const brutos = await publico.ranking.findMany({
     where,
     include: {
-      athlete: { select: { id: true, fullName: true, stageName: true, state: true, city: true, proStatus: true, team: { select: { id: true, name: true } } } },
+      // `photoKey` é SELECIONADO e NÃO SAI: ele vira o booleano `hasPhoto` no
+      // mapeamento abaixo. A chave é caminho interno do armazenamento, e
+      // devolvê-la entregaria a estrutura do bucket a quem abre a vitrine —
+      // é a mesma regra de `utils/visibility.js`.
+      athlete: { select: { id: true, fullName: true, stageName: true, state: true, city: true, proStatus: true, photoKey: true, team: { select: { id: true, name: true } } } },
       category: { select: { id: true, code: true, name: true } },
       season: { select: { id: true, name: true, year: true } }
     },
@@ -2645,9 +2649,19 @@ async function list(filtros, actor = null) {
   // A relação obrigatória virou opcional no banco; aqui ela vira o retrato que
   // a tela sabe desenhar, com o nome CONFORME A FONTE e `id` nulo — nada pode
   // montar link para um perfil que não existe.
+  // A FOTO VIRA BOOLEANO AQUI, numa passagem só. O ranking lista muita gente:
+  // uma consulta por atleta para saber se há foto seria N+1 na página mais
+  // aberta da plataforma. `photoKey` já veio no mesmo SELECT, e o que sai é
+  // `hasPhoto` — a chave morre nesta função.
+  const semChave = atleta => {
+    if (!atleta) return atleta;
+    const { photoKey, ...resto } = atleta;
+    return { ...resto, hasPhoto: Boolean(photoKey) };
+  };
+
   const items = brutos.map(linha => (linha.athlete
-    ? linha
-    : { ...linha, athlete: competidorExterno(linha) }));
+    ? { ...linha, athlete: semChave(linha.athlete) }
+    : { ...linha, athlete: { ...competidorExterno(linha), hasPhoto: false } }));
 
   return {
     items,

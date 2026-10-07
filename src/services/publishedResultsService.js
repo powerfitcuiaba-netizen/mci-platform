@@ -134,4 +134,163 @@ async function paraOPublico() {
   return { total: recebidos + importados, received: recebidos, imported: importados };
 }
 
-module.exports = { paraOOperador, paraOPublico };
+/**
+ * AS PARTICIPAÇÕES PUBLICADAS DE UM ATLETA, pelas DUAS origens.
+ *
+ * POR QUE ISTO EXISTE
+ *
+ * O cartão da organização já somava as duas origens — foi para isso que este
+ * arquivo nasceu. O PERFIL DO ATLETA ficou para trás: ele lia só
+ * `ResultEntry`, e por isso um atleta com campeonato inteiro importado
+ * mostrava "Resultados publicados: 0" e "Histórico esportivo: vazio" ao lado
+ * de "30 pontos somados" no mesmo bloco de métricas. Os dois números estavam
+ * certos para as suas próprias fontes, e a tela ficava se contradizendo.
+ *
+ * A REGRA É A MESMA, E É UMA SÓ
+ *
+ * Publicado = participação recebida com resultado PUBLISHED
+ *           + participação importada cujo lançamento ainda vale.
+ *
+ * Nada aqui afrouxa o filtro de publicação. Rascunho e resultado em revisão
+ * continuam de fora; lote invalidado continua de fora, porque a projeção
+ * carrega `voided`.
+ *
+ * POR QUE A PROJEÇÃO, E NÃO O LEDGER
+ *
+ * Esta leitura serve a rota ANÔNIMA. `RankingPoint` tem política de operador:
+ * o visitante contaria zero. `PublicRankingEntry` é a projeção pública, e é o
+ * que o visitante de fato enxerga — a mesma escolha de `paraOPublico`.
+ *
+ * `classId: null` é o discriminador de origem já documentado neste arquivo:
+ * o caminho importado nunca grava `classId`, e o recebido sempre grava.
+ *
+ * O EVENTO ENTRA PELA VISIBILIDADE PÚBLICA, NÃO PELO VÍNCULO
+ *
+ * Uma participação importada cujo evento não está publicamente visível não
+ * ganha link — e continua contando, porque ela É um resultado publicado do
+ * atleta. Esconder a linha faria o histórico discordar do ranking de novo;
+ * dar link para uma página que o visitante não pode abrir seria mentira de
+ * navegação. Então: linha presente, link ausente.
+ */
+async function participacoesDoAtleta(athleteId, { eventosVisiveis = [] } = {}) {
+  const [recebidas_, importadas] = await Promise.all([
+    prisma.resultEntry.findMany({
+      where: { athleteId, ...recebidas({}) },
+      select: {
+        id: true, placing: true, status: true,
+        result: {
+          select: {
+            publishedAt: true,
+            event: { select: { id: true, name: true, slug: true, startDate: true, status: true } }
+          }
+        },
+        registrationItem: {
+          select: {
+            competitionClass: {
+              select: {
+                id: true, name: true,
+                division: {
+                  select: {
+                    eventCategory: { select: { category: { select: { id: true, name: true } } } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: { result: { publishedAt: 'desc' } },
+      take: 200
+    }),
+    prisma.publicRankingEntry.findMany({
+      where: { athleteId, classId: null, voided: false },
+      select: {
+        id: true, eventId: true, placing: true, points: true,
+        isOverallChampion: true, didNotShow: true,
+        categoryId: true, catalogClassId: true, seasonId: true
+      },
+      take: 200
+    })
+  ]);
+
+  // Os nomes vêm em DUAS consultas em lote, e não uma por linha: o histórico
+  // de um atleta veterano pode ter dezenas de participações, e uma consulta
+  // por linha seria N+1 numa rota pública e anônima.
+  const idsDeEvento = [...new Set(importadas.map(e => e.eventId).filter(Boolean))];
+  const idsDeCategoria = [...new Set(importadas.map(e => e.categoryId).filter(Boolean))];
+  const idsDeClasse = [...new Set(importadas.map(e => e.catalogClassId).filter(Boolean))];
+
+  const [eventos, categorias, classes] = await Promise.all([
+    idsDeEvento.length
+      ? prisma.event.findMany({
+        where: { id: { in: idsDeEvento } },
+        select: { id: true, name: true, slug: true, startDate: true, status: true }
+      })
+      : [],
+    idsDeCategoria.length
+      ? prisma.category.findMany({ where: { id: { in: idsDeCategoria } }, select: { id: true, name: true } })
+      : [],
+    idsDeClasse.length
+      ? prisma.classCatalog.findMany({
+        where: { id: { in: idsDeClasse } },
+        select: { id: true, name: true, displayName: true }
+      })
+      : []
+  ]);
+
+  const porEvento = new Map(eventos.map(e => [e.id, e]));
+  const porCategoria = new Map(categorias.map(c => [c.id, c]));
+  const porClasse = new Map(classes.map(c => [c.id, c]));
+  const visivel = evento => Boolean(evento) && eventosVisiveis.includes(evento.status);
+
+  const deRecebida = entrada => {
+    const evento = entrada.result?.event ?? null;
+    const classe = entrada.registrationItem?.competitionClass ?? null;
+    const categoria = classe?.division?.eventCategory?.category ?? null;
+    return {
+      chave: `recebido:${entrada.id}`,
+      origem: 'RECEBIDO',
+      placing: entrada.placing,
+      status: entrada.status,
+      points: null,
+      isOverallChampion: false,
+      event: evento ? { id: evento.id, name: evento.name, slug: evento.slug, startDate: evento.startDate } : null,
+      eventoNavegavel: visivel(evento),
+      categoryName: categoria?.name ?? null,
+      className: classe?.name ?? null,
+      date: entrada.result?.publishedAt ?? evento?.startDate ?? null
+    };
+  };
+
+  const deImportada = entrada => {
+    const evento = entrada.eventId ? porEvento.get(entrada.eventId) ?? null : null;
+    const classe = entrada.catalogClassId ? porClasse.get(entrada.catalogClassId) ?? null : null;
+    return {
+      chave: `importado:${entrada.id}`,
+      origem: 'IMPORTADO',
+      placing: entrada.placing,
+      status: entrada.didNotShow ? 'NO_SHOW' : null,
+      points: entrada.points,
+      isOverallChampion: entrada.isOverallChampion,
+      event: evento ? { id: evento.id, name: evento.name, slug: evento.slug, startDate: evento.startDate } : null,
+      eventoNavegavel: visivel(evento),
+      categoryName: entrada.categoryId ? porCategoria.get(entrada.categoryId)?.name ?? null : null,
+      className: classe ? classe.displayName ?? classe.name : null,
+      date: evento?.startDate ?? null
+    };
+  };
+
+  // Mais recente primeiro. Participação sem data vai para o fim: ela existe,
+  // conta, e não tem como disputar ordem com quem tem data.
+  const tudo = [...recebidas_.map(deRecebida), ...importadas.map(deImportada)];
+  tudo.sort((a, b) => {
+    if (!a.date && !b.date) return 0;
+    if (!a.date) return 1;
+    if (!b.date) return -1;
+    return new Date(b.date) - new Date(a.date);
+  });
+
+  return tudo;
+}
+
+module.exports = { paraOOperador, paraOPublico, participacoesDoAtleta };

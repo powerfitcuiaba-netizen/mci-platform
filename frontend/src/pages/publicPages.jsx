@@ -294,7 +294,11 @@ export function CampeonatoDetalhe({ slug, navegar }) {
                       {resultado.entries.map(entrada => (
                         <div className="list-row" key={entrada.id}>
                           <span className={`placing placing-${entrada.placing}`}>{entrada.placing ?? '—'}</span>
-                          <Avatar name={entrada.athlete.fullName} />
+                          <Avatar
+                            name={entrada.athlete.fullName}
+                            mediaPath={entrada.athlete.hasPhoto
+                              ? `/media/athletes/${entrada.athlete.id}/photo` : null}
+                          />
                           <span className="info">
                             <strong>{entrada.athlete.stageName || entrada.athlete.fullName}</strong>
                             <small>
@@ -396,7 +400,10 @@ export function CampeonatoDetalhe({ slug, navegar }) {
                         style={{ width: '100%', background: 'transparent', border: 0, borderBottom: '1px solid var(--linha)', textAlign: 'left' }}
                         onClick={() => navegar(`atletas/${atleta.id}`)}
                       >
-                        <Avatar name={atleta.fullName} />
+                        <Avatar
+                          name={atleta.fullName}
+                          mediaPath={atleta.hasPhoto ? `/media/athletes/${atleta.id}/photo` : null}
+                        />
                         <span className="info">
                           <strong>{atleta.stageName || atleta.fullName}</strong>
                           <small>
@@ -534,7 +541,11 @@ export function AtletaDetalhe({ id, navegar }) {
           return (
             <>
               <Revelacao as="section" indice={0} className="hero" style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
-                <Avatar name={athlete.fullName} size="avatar-lg" />
+                <Avatar
+                  name={athlete.fullName}
+                  mediaPath={athlete.hasPhoto ? `/media/athletes/${athlete.id}/photo` : null}
+                  size="avatar-lg"
+                />
                 <div>
                   <span className="eyebrow">{athlete.affiliation?.name || t('publico.semFiliacao')}</span>
                   <h1 style={{ marginTop: 6 }}>{athlete.stageName || athlete.fullName}</h1>
@@ -566,19 +577,48 @@ export function AtletaDetalhe({ id, navegar }) {
               <Revelacao as="div" indice={2} className="grid grid-main" style={{ marginTop: 18 }}>
                 <section className="panel">
                   <div className="panel-head"><h2>{t('publico.historicoEsportivo')}</h2></div>
+                  {/* A LINHA DO HISTÓRICO SERVE ÀS DUAS ORIGENS.
+                      O recebido traz categoria e classe pelo vínculo da
+                      inscrição; o importado traz pelo catálogo. Nenhum dos dois
+                      é garantido — arquivo histórico vem com o que vem —, então
+                      cada pedaço só aparece quando existe, e a linha nunca
+                      desenha "undefined · undefined".
+
+                      O evento só vira LINK quando ele é publicamente visível.
+                      Resultado de evento ainda não visível continua CONTANDO,
+                      porque ele é um resultado publicado do atleta; o que ele
+                      não ganha é um link para uma página que o visitante não
+                      poderia abrir. */}
                   {results.length
-                    ? results.map((entrada, indice) => (
-                      <div className="list-row" key={`${entrada.event.id}-${indice}`}>
-                        <span className={`placing placing-${entrada.placing}`}>{entrada.placing ?? '—'}</span>
-                        <span className="info">
-                          <strong>{entrada.event.name}</strong>
-                          <small>
-                            {entrada.competitionClass.division.eventCategory.category.name} · {entrada.competitionClass.name} · {formatarData(entrada.publishedAt)}
-                          </small>
-                        </span>
-                        <button type="button" className="button button-ghost button-sm" onClick={() => navegar(`campeonatos/${entrada.event.slug}`)}>{t('publico.verEtapa')}</button>
-                      </div>
-                    ))
+                    ? results.map(entrada => {
+                      const detalhe = [entrada.categoryName, entrada.className,
+                        entrada.publishedAt ? formatarData(entrada.publishedAt) : null]
+                        .filter(Boolean).join(' · ');
+                      return (
+                        <div className="list-row" key={entrada.key}>
+                          <span className={`placing placing-${entrada.placing}`}>{entrada.placing ?? '—'}</span>
+                          <span className="info">
+                            <strong>{entrada.event?.name || t('publico.etapaNaoInformada')}</strong>
+                            {detalhe && <small>{detalhe}</small>}
+                          </span>
+                          {entrada.points != null && (
+                            <strong className="historico-pontos">{entrada.points}</strong>
+                          )}
+                          {entrada.event?.slug && entrada.eventNavigable
+                            ? (
+                              <button
+                                type="button"
+                                className="button button-ghost button-sm"
+                                aria-label={t('publico.verEtapaDe', { etapa: entrada.event.name })}
+                                onClick={() => navegar(`campeonatos/${entrada.event.slug}`)}
+                              >
+                                {t('publico.verEtapa')}
+                              </button>
+                            )
+                            : <span className="historico-sem-link">{t('publico.etapaSemPagina')}</span>}
+                        </div>
+                      );
+                    })
                     : <EmptyState title={t('publico.semResultadosDoAtleta')} />}
                 </section>
 
@@ -783,7 +823,18 @@ export function Ranking() {
                       <td data-rotulo="#"><span className={`placing placing-${linha.position}`}>{linha.position}</span></td>
                       <td data-rotulo={t('overall.atleta')}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                          <Avatar name={linha.athlete.fullName} size="avatar-sm" />
+                          {/* A FOTO OFICIAL DO CADASTRO, quando existe.
+                              `hasPhoto` vem do servidor e a chave do objeto
+                              nunca sai de lá: a rota recebe o id do atleta e
+                              resolve o caminho sozinha. Competidor ainda sem
+                              cadastro tem `id` nulo — e aí não há foto a
+                              pedir, nem perfil para onde ir. */}
+                          <Avatar
+                            name={linha.athlete.fullName}
+                            mediaPath={linha.athlete.id && linha.athlete.hasPhoto
+                              ? `/media/athletes/${linha.athlete.id}/photo` : null}
+                            size="avatar-sm"
+                          />
                           <div>
                             <strong style={{ display: 'block', fontSize: 13 }}>{linha.athlete.stageName || linha.athlete.fullName}</strong>
                             <small style={{ color: 'var(--cinza-fraco)', fontSize: 11 }}>

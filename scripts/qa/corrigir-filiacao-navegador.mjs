@@ -29,6 +29,7 @@
 import { spawn, execSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { setTimeout as esperar } from 'node:timers/promises';
+import { entrar } from './entrar-na-plataforma.mjs';
 
 const { argv, env } = process;
 const arg = (nome, padrao = null) => {
@@ -202,10 +203,11 @@ async function principal() {
 
   const print = async nome => pagina.screenshot({ path: `${SAIDA}/${nome}.png`, fullPage: false });
 
-  await pagina.goto(BASE_WEB, { waitUntil: 'networkidle' });
-  await pagina.fill('input[type=email]', EMAIL);
-  await pagina.fill('input[type=password]', SENHA);
-  await pagina.click('button[type=submit]');
+  // A ENTRADA MUDOU DE LUGAR: o hash vazio cai em `inicio`, que é tela pública,
+  // então o formulário já não aparece sozinho. `entrar` dispensa a abertura da
+  // marca e pede a entrada pelo convite da barra lateral — pela tela, sem
+  // atalho de armazenamento.
+  await entrar(pagina, BASE_WEB, { email: EMAIL, senha: SENHA });
   await pagina.waitForLoadState('networkidle');
   conferir(!(await pagina.content()).includes('Não foi possível conectar'), 'o login passou');
   await print('1-entrou');

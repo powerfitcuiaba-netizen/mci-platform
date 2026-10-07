@@ -263,7 +263,10 @@ async function eventPage(slug) {
       competitionClass: { include: { division: { include: { eventCategory: { include: { category: true } } } } } },
       entries: {
         where: { status: 'RANKED' },
-        include: { athlete: { select: { id: true, fullName: true, stageName: true, state: true, city: true, team: { select: { id: true, name: true } } } } },
+        // `photoKey` entra para virar `hasPhoto` logo abaixo; a chave não sai
+        // daqui. É caminho interno do armazenamento, e a foto é servida por
+        // `/media/athletes/:id/photo`, que a resolve no servidor.
+        include: { athlete: { select: { id: true, fullName: true, stageName: true, state: true, city: true, photoKey: true, team: { select: { id: true, name: true } } } } },
         orderBy: { placing: 'asc' }
       }
     },
@@ -272,7 +275,7 @@ async function eventPage(slug) {
 
   const atletas = await prisma.registration.findMany({
     where: { eventId: event.id, status: 'CONFIRMED' },
-    select: { athlete: { select: { id: true, fullName: true, stageName: true, state: true, city: true, proStatus: true, team: { select: { id: true, name: true } } } } },
+    select: { athlete: { select: { id: true, fullName: true, stageName: true, state: true, city: true, proStatus: true, photoKey: true, team: { select: { id: true, name: true } } } } },
     orderBy: { athlete: { fullName: 'asc' } },
     take: 500
   });
@@ -288,6 +291,15 @@ async function eventPage(slug) {
     take: 20
   });
 
+  // A CHAVE DA FOTO MORRE AQUI. Os dois SELECTs acima a trouxeram para derivar
+  // `hasPhoto`; o que sai no corpo é só o booleano. Uma função, usada nos dois
+  // lugares, para que não haja um caminho que esqueça de limpar.
+  const semChave = atleta => {
+    if (!atleta) return atleta;
+    const { photoKey, ...resto } = atleta;
+    return { ...resto, hasPhoto: Boolean(photoKey) };
+  };
+
   return {
     event: {
       id: event.id, name: event.name, slug: event.slug, description: event.description,
@@ -297,8 +309,11 @@ async function eventPage(slug) {
     },
     categories: event.eventCategories,
     schedule: event.batches,
-    athletes: atletas.map(item => item.athlete),
-    results: resultados,
+    athletes: atletas.map(item => semChave(item.athlete)),
+    results: resultados.map(resultado => ({
+      ...resultado,
+      entries: resultado.entries.map(entrada => ({ ...entrada, athlete: semChave(entrada.athlete) }))
+    })),
     // Resultados homologados que entraram por importação, agrupados por
     // categoria e classe oficial. Lista vazia quando o evento não tem nenhum.
     importedResults: importados,
@@ -384,14 +399,21 @@ async function athletePage(id) {
   });
   if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
 
-  const resultados = await prisma.resultEntry.findMany({
-    where: { athleteId: id, result: { status: 'PUBLISHED' } },
-    include: {
-      result: { select: { publishedAt: true, event: { select: { id: true, name: true, slug: true, startDate: true } } } },
-      registrationItem: { include: { competitionClass: { include: { division: { include: { eventCategory: { include: { category: true } } } } } } } }
-    },
-    orderBy: { result: { publishedAt: 'desc' } },
-    take: 100
+  // AS DUAS ORIGENS, PELA MESMA REGRA.
+  //
+  // Esta consulta lia só `ResultEntry` — a apuração RECEBIDA pelo MCI. O
+  // histórico IMPORTADO não passa por ali: ele grava `ExternalResult` +
+  // `RankingPoint`, e o importador nunca toca em `Result`. O efeito era a tela
+  // se contradizendo no mesmo bloco de métricas: "30 pontos somados" (que vem
+  // de `Ranking`, alimentado pelo ledger) ao lado de "0 resultados publicados"
+  // e "ainda sem resultados publicados".
+  //
+  // A regra de "publicado" já existia num lugar só, por causa do mesmo defeito
+  // nos cartões da organização. O que faltava era o perfil do atleta usá-la.
+  // Nada foi afrouxado: rascunho, resultado em revisão e lote invalidado
+  // continuam fora.
+  const participacoes = await publishedResults.participacoesDoAtleta(id, {
+    eventosVisiveis: EVENTOS_VISIVEIS
   });
 
   const rankings = await prisma.ranking.findMany({
@@ -402,14 +424,23 @@ async function athletePage(id) {
 
   return {
     athlete: { ...athletePublic(athlete), socialProfile: athlete.socialProfile },
-    results: resultados.map(entry => ({
-      placing: entry.placing,
-      status: entry.status,
-      event: entry.result.event,
-      publishedAt: entry.result.publishedAt,
-      competitionClass: entry.registrationItem.competitionClass
+    // A forma é PLANA e igual para as duas origens: a tela não precisa saber
+    // de onde veio cada linha para desenhá-la, e `origem` fica disponível para
+    // quem quiser distinguir.
+    results: participacoes.map(p => ({
+      key: p.chave,
+      origin: p.origem,
+      placing: p.placing,
+      status: p.status,
+      points: p.points,
+      isOverallChampion: p.isOverallChampion,
+      event: p.event,
+      eventNavigable: p.eventoNavegavel,
+      categoryName: p.categoryName,
+      className: p.className,
+      publishedAt: p.date
     })),
-    titles: resultados.filter(entry => entry.placing === 1).length,
+    titles: participacoes.filter(p => p.placing === 1).length,
     rankings
   };
 }

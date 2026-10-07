@@ -648,11 +648,22 @@ describe('de conta nova a atleta aprovado', () => {
     expect(fotoOficial.status, JSON.stringify(fotoOficial.body)).toBe(200);
     expect(fotoOficial.headers['content-type']).toContain('image/webp');
 
-    // E exige sessão. A foto foi enviada para a federação CONFERIR identidade;
-    // servi-la a visitante anônimo seria publicar retrato de atleta por
-    // decisão de quem escreveu a rota. Se a decisão de produto for publicar,
-    // muda-se aqui e na lista de rotas públicas — de propósito.
-    expect([401, 403]).toContain((await api().get(`/api/v1/media/athletes/${athleteId}/photo`)).status);
+    // E AGORA É PÚBLICA — a decisão de produto que esta linha esperava foi
+    // tomada. O que estava escrito aqui era: "se a decisão de produto for
+    // publicar, muda-se aqui e na lista de rotas públicas, de propósito". Foi
+    // o que aconteceu: a foto do atleta APROVADO aparece no ranking e na
+    // vitrine, superfícies que já publicam nome, equipe, cidade e colocação da
+    // mesma pessoa.
+    //
+    // A asserção não foi apagada: ela TROCOU DE LADO, e continua medindo a
+    // mesma porta. O que não mudou está logo abaixo — a foto do PEDIDO, que é
+    // o documento de conferência de identidade, continua exigindo sessão.
+    const anonimo = await api().get(`/api/v1/media/athletes/${athleteId}/photo`);
+    expect(anonimo.status, 'a foto do atleta aprovado é pública').toBe(200);
+    expect(anonimo.headers['content-type']).toContain('image/webp');
+
+    // O DOCUMENTO DE CONFERÊNCIA, esse sim, continua fechado ao anônimo.
+    expect([401, 403]).toContain((await api().get(`/api/v1/media/athlete-requests/${pedidoId}/photo`)).status);
   });
 
   it('recusa: o pedido guarda o motivo, e a foto NÃO fica órfã', async () => {
