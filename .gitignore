@@ -77,6 +77,11 @@ backups/
 # num repositório público ainda menos.
 uploads-preview/
 uploads-gate/
+# Os arreios de QA em navegador sobem a API com `STORAGE_DRIVER=local` e um
+# diretório próprio. O arquivo que eles gravam é um PNG 1×1 de teste — não é
+# retrato de ninguém — e não tem por que entrar no repositório. O padrão com
+# curinga cobre os arreios futuros sem exigir uma linha nova a cada um.
+uploads-qa*/
 uploads-homolog/
 uploads-dr*/
 uploads-recuperado/
