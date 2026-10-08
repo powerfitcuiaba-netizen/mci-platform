@@ -41,6 +41,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import zlib from 'node:zlib';
 import { setTimeout as esperar } from 'node:timers/promises';
+import { createRequire } from 'node:module';
 import { dispensarAbertura, entrar } from './entrar-na-plataforma.mjs';
 
 const { argv, env } = process;
@@ -138,10 +139,46 @@ async function principal() {
 
   // ------------------------------------------------- cenário: as 15 marcas
   console.log('provisionando as 15 marcas, como o deploy faz…');
+  // A CONTA DE QA PRECISA DE SENHA CONHECIDA — E A PRIMEIRA VERSÃO DISTO
+  // ENGOLIA A FALHA.
+  //
+  // `criar-admin.js` cria o PRIMEIRO administrador e recusa rodar quando já
+  // existe um. Ele deve recusar: conceder o papel é operação de administração,
+  // com registro de quem concedeu, e não script de terminal. O efeito aqui era
+  // outro — na SEGUNDA execução deste roteiro contra o mesmo banco a senha que
+  // valia era a da primeira, e o login respondia 401. O `catch` imprimia
+  // "administrador já existia" e seguia adiante, então a falha só aparecia 30
+  // segundos depois, como uma aba que "não existe" em Configurações.
+  //
+  // Quando o bootstrap recusa, a senha é redefinida por aqui. É banco de
+  // verificação, a conta é deste roteiro, e só o hash da senha é escrito: o
+  // papel e a situação são CONFERIDOS, não concedidos.
   try {
     execSync(`node scripts/criar-admin.js "QA Patrocinio" ${EMAIL}`,
       { stdio: 'pipe', env: { ...env, DATABASE_URL: BANCO, ADMIN_PASSWORD: SENHA } });
-  } catch { console.log('  (administrador já existia)'); }
+  } catch {
+    const requerer = createRequire(import.meta.url);
+    const bcrypt = requerer('bcryptjs');
+    const prisma = requerer('../../src/config/prisma');
+    const { withUserContext } = requerer('../../src/config/rlsSession');
+
+    const conta = await prisma.user.findUnique({
+      where: { email: EMAIL }, select: { id: true, role: true, status: true }
+    });
+    if (!conta) {
+      await prisma.$disconnect();
+      throw new Error(`o bootstrap recusou criar e a conta ${EMAIL} não existe neste banco`);
+    }
+    if (conta.role !== 'SUPER_ADMIN' || conta.status !== 'ACTIVE') {
+      await prisma.$disconnect();
+      throw new Error(`a conta ${EMAIL} está ${conta.role}/${conta.status} — este roteiro precisa de SUPER_ADMIN ativo`);
+    }
+
+    const passwordHash = await bcrypt.hash(SENHA, 10);
+    await withUserContext(conta.id, tx => tx.user.update({ where: { id: conta.id }, data: { passwordHash } }));
+    await prisma.$disconnect();
+    console.log('  (a conta de QA já existia — senha redefinida para esta execução)');
+  }
 
   execSync('node scripts/provisionar-patrocinadores-oficiais.js', {
     stdio: 'pipe',
@@ -185,8 +222,17 @@ async function principal() {
   await esperar(1800);
   await dispensarAbertura(pagina);
 
+  // DIAGNÓSTICO ANTES DA PRIMEIRA CONFERÊNCIA DE TELA. Sem isto, "a aba não
+  // apareceu" chega como um timeout de 30s e nada mais — e a causa (tela que
+  // nem montou, requisição em 500, erro de runtime) fica invisível.
+  await print('0-configuracoes');
+  const abas = await pagina.evaluate(() =>
+    [...document.querySelectorAll('.chip')].map(c => c.textContent.trim()));
+  if (erros.length) console.log(`  erros de página até aqui:\n   ${erros.join('\n   ')}`);
+
   const aba = pagina.getByRole('button', { name: /^Patrocinadores$/ });
-  conferir(await aba.count() === 1, 'a aba "Patrocinadores" existe em Configurações');
+  conferir(await aba.count() === 1,
+    `a aba "Patrocinadores" existe em Configurações (abas na tela: ${abas.join(' | ') || '(nenhuma)'})`);
   await aba.first().click();
   await esperar(2000);
   await print('1-catalogo');
