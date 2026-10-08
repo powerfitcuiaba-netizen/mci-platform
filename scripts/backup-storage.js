@@ -88,7 +88,11 @@ function mapearCampos() {
       if (campo.type !== 'String' || !/Key$/.test(campo.name)) continue;
       const nome = `${modelo.name}.${campo.name}`;
       if (NAO_SAO_ARQUIVO.has(nome)) continue;
-      if (/^(storageKey|photoKey|avatarKey|coverKey)$/.test(campo.name)) arquivos.push({ modelo: modelo.name, campo: campo.name, opcional: !campo.isRequired });
+      // `logoKey` entrou com o catálogo de patrocinadores oficiais, e é
+      // caminho de objeto como os outros quatro: a arte da marca vive no
+      // armazenamento, e um backup que a deixasse de fora restauraria um
+      // catálogo de quinze patrocinadores sem nenhuma logo.
+      if (/^(storageKey|photoKey|avatarKey|coverKey|logoKey)$/.test(campo.name)) arquivos.push({ modelo: modelo.name, campo: campo.name, opcional: !campo.isRequired });
       else desconhecidos.push(nome);
     }
   }

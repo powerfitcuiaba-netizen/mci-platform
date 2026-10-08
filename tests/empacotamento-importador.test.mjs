@@ -554,7 +554,12 @@ describe('o calendário não pede migration nenhuma', () => {
       // `affiliationCode` NULO, porque o cabeçalho oficial de etapa NPC não tem
       // essa coluna e a filiação do lote ficou em branco. Uma coluna anulável,
       // revisada: não toca no schema do calendário.
-      '20261005140000_corrigir_entidade_ausente'
+      '20261005140000_corrigir_entidade_ausente',
+      // O CATÁLOGO DE PATROCINADORES OFICIAIS. Não tem relação com o
+      // importador nem com o calendário — entra nesta lista porque ela é o
+      // inventário do que existe, e migration que aparece sem revisão é
+      // exatamente o que ela impede.
+      '20261008000000_patrocinadores_oficiais'
     ]);
   });
 });
