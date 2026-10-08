@@ -116,7 +116,23 @@ async function principal() {
   writeFileSync(arteB, png(24, [40, 160, 220]));
 
   console.log('subindo a API…');
-  const pastaDeArquivos = `./uploads-qa-patrocinio-${Date.now()}`;
+  // A PASTA DE ARQUIVOS ACOMPANHA O BANCO, e por isso não leva a hora na
+  // frente.
+  //
+  // Ela levava: `uploads-qa-patrocinio-<timestamp>`, pasta nova a cada
+  // execução. Contra banco virgem isso funciona, porque o provisionamento
+  // grava as quinze artes ali mesmo. Contra banco JÁ USADO não funcionava — o
+  // provisionamento é idempotente e dizia "nada a fazer", então as quinze
+  // linhas continuavam apontando para objetos da pasta da execução anterior, e
+  // a tela mostrava quinze logos quebradas.
+  //
+  // O sintoma media exatamente isto: 0 de 15 prévias decodificando no painel e
+  // 2 de 32 na esteira — as duas cópias do único patrocinador que ESTA
+  // execução havia subido. Nenhuma resposta de erro, porque a rota devolve a
+  // imagem de quem tem objeto e 404 de quem não tem, e nenhum dos dois é
+  // defeito do produto: era o roteiro trocando o armazenamento debaixo do
+  // próprio banco.
+  const pastaDeArquivos = arg('arquivos', './uploads-qa-patrocinio');
   const api = spawn('node', ['server.js'], {
     env: {
       ...env, NODE_ENV: 'development', DATABASE_URL: BANCO,
