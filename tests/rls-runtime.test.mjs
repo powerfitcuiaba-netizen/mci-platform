@@ -43,7 +43,7 @@ beforeEach(async () => {
 });
 
 describe('FORCE ROW LEVEL SECURITY — o dono da tabela também é filtrado', () => {
-  it('as 30 tabelas protegidas estão com FORCE ligado', async () => {
+  it('as 35 tabelas protegidas estão com FORCE ligado', async () => {
     const linhas = await prisma.$queryRaw`
       SELECT c.relname::text AS tabela, c.relforcerowsecurity AS forcado
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -120,7 +120,28 @@ describe('FORCE ROW LEVEL SECURITY — o dono da tabela também é filtrado', ()
     //   plataforma; ler é da plataforma e do próprio delegado, porque saber que
     //   poder se tem é legítimo. Não há política de DELETE — concessão se
     //   revoga, não se apaga.
-    expect(linhas.length).toBe(34);
+    // E de 34 para 35 com `OfficialSponsor`, o catálogo de patrocinadores
+    // oficiais do campeonato.
+    //
+    // ELA É A PRIMEIRA TABELA GLOBAL DESTA LISTA, e é por isso que a entrada
+    // merece explicação. As outras 34 são de tenant: têm `organizationId`, e a
+    // política responde "de quem é esta linha". Esta não tem dono — o catálogo
+    // é do campeonato inteiro, como `Category`, que vive sem RLS nenhuma e com
+    // razão: catálogo global lido por todo mundo não ganha nada com filtro de
+    // leitura.
+    //
+    // A RLS aqui não protege LEITURA, protege ESCRITA. Quem entra na parede de
+    // patrocínio, em que nível e em que ordem é contrato comercial do
+    // campeonato, e a política existe para que a mesa central seja a única
+    // mão que escreve, mesmo que uma rota futura esqueça de conferir
+    // permissão. Daí o predicado ser `mci_is_super_admin()` — novo, e não o
+    // `mci_is_platform_admin()` que o resto do arquivo usa, porque aquele
+    // aceita ADMIN e esta mesa é só do SUPER_ADMIN.
+    //
+    // A leitura tem o ramo que a vitrine precisa: `active = true` sai para
+    // qualquer um, inclusive sem sessão, porque a parede aparece na tela de
+    // entrada. Patrocinador desativado só é visível para quem administra.
+    expect(linhas.length).toBe(35);
     const semForce = linhas.filter(linha => !linha.forcado).map(linha => linha.tabela);
     expect(semForce, 'tabela com RLS mas sem FORCE volta a isentar o dono').toEqual([]);
   });
