@@ -52,9 +52,35 @@ export const PERMISSAO = 'PERMISSAO';
 export const AUTOSSERVICO = 'AUTOSSERVICO';
 export const SOCIAL = 'SOCIAL';
 
-/** PNG de 1×1, o menor arquivo de imagem válido — para as rotas de upload. */
+/**
+ * PNG de 1×1 — o anexo mínimo, para as rotas de upload.
+ *
+ * Ele serve ao que este arquivo mede: a RECUSA. O gate dispara cada rota sem
+ * sessão e sem permissão, e o anexo existe só para que a requisição chegue
+ * completa — se faltasse, a rota multipart responderia 400 e o gate estaria
+ * medindo o multer em vez da autorização.
+ *
+ * ELE NÃO DECODIFICA. Medido: o libvips recusa estes bytes ("libpng read
+ * error"). Para o caminho de recusa isso não importa, porque a autorização
+ * barra antes de qualquer processamento de imagem — mas para CRIAR uma
+ * fixture, importa, e é por isso que existe o `PNG_VALIDO` abaixo.
+ */
 export const PNG_MINIMO = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/AF+g2pFAAAAAElFTkSuQmCC',
+  'base64'
+);
+
+/**
+ * PNG de 8×8 que o sharp DECODIFICA de verdade — cabeçalho, IHDR, IDAT
+ * deflatado e IEND com CRC correto.
+ *
+ * Usado onde a fixture precisa ser CRIADA com sucesso pelo ator autorizado: a
+ * criação do patrocinador oficial é multipart e o serviço exige que a arte
+ * passe pelo sharp, porque uma logo que o servidor não consegue processar não
+ * tem o que mostrar numa vitrine.
+ */
+export const PNG_VALIDO = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAD0lEQVR4nGPIwwEYhpYEADyoUoHgdvKUAAAAAElFTkSuQmCC',
   'base64'
 );
 
@@ -294,6 +320,51 @@ export function matriz(f) {
     permissao('POST', '/brands', '/brands',
       { organizationId: f.orgA, name: 'Marca QA', slug: `marca-qa-${f.sufixo}` }, 'brands.manage'),
     permissao('POST', '/sponsors', '/sponsors', { organizationId: f.orgA, name: 'Patrocinador QA' }, 'sponsors.manage'),
+
+    // ===================================== CATÁLOGO DE PATROCINADORES OFICIAIS
+    //
+    // ESCOPO DE PLATAFORMA, e aqui a globalidade é o PONTO, não um detalhe:
+    // este catálogo é quem patrocina o CAMPEONATO, aparece na tela de entrada —
+    // onde não existe organização nenhuma — e não pertence a federação alguma.
+    // Por isso não há tenant a cruzar, e por isso a permissão não é
+    // `sponsors.manage`: aquela é do patrocinador DE UMA FEDERAÇÃO, e o diretor
+    // de evento a tem. Com ela sozinha, o diretor de qualquer federação
+    // escreveria na vitrine nacional.
+    //
+    // `sponsors.official` é de SUPER_ADMIN e de mais ninguém — nem ADMIN a
+    // recebe (ver a exclusão em utils/permissions.js), e a política do banco
+    // repete a regra em `mci_is_super_admin()`.
+    //
+    // `arquivo: 'file'` nas duas rotas de upload: elas são MULTIPART, e a arte é
+    // obrigatória. Sem o anexo o gate mediria a recusa da logo (400) em vez da
+    // autorização, que é o que ele existe para medir.
+    permissao('POST', '/official-sponsors', '/official-sponsors',
+      { code: `QA-${f.sufixo}`.toUpperCase().slice(0, 40), name: 'Patrocinador Oficial QA', level: 'GOLD' },
+      'sponsors.official',
+      {
+        arquivo: 'file',
+        escopoDePlataforma: true,
+        porQue: 'O catálogo oficial é do CAMPEONATO, não de uma federação: `OfficialSponsor` não tem `organizationId`, e a vitrine que ele alimenta aparece na tela de entrada, antes de qualquer sessão ou organização. Não há tenant a cruzar.'
+      }),
+    permissao('PATCH', '/official-sponsors/:id', `/official-sponsors/${f.patrocinadorOficial}`,
+      { sortOrder: 7 }, 'sponsors.official',
+      {
+        escopoDePlataforma: true,
+        porQue: 'Mesma razão da criação: catálogo global, sem organização dona.'
+      }),
+    permissao('POST', '/official-sponsors/:id/logo', `/official-sponsors/${f.patrocinadorOficial}/logo`,
+      null, 'sponsors.official',
+      {
+        arquivo: 'file',
+        escopoDePlataforma: true,
+        porQue: 'Mesma razão da criação: catálogo global, sem organização dona.'
+      }),
+    permissao('DELETE', '/official-sponsors/:id', `/official-sponsors/${f.patrocinadorOficial}`,
+      { motivo: 'remoção de verificação do gate de autorização' }, 'sponsors.official',
+      {
+        escopoDePlataforma: true,
+        porQue: 'Mesma razão da criação: catálogo global, sem organização dona.'
+      }),
     permissao('POST', '/sponsorships', '/sponsorships', { sponsorId: f.sponsorA, eventId: f.eventA }, 'sponsors.manage'),
     permissao('POST', '/partnerships', '/partnerships', { athleteId: f.athleteA, brandId: f.brandA }, 'brands.manage'),
     permissao('POST', '/partnerships/:id/status', `/partnerships/${f.partnershipA}/status`,

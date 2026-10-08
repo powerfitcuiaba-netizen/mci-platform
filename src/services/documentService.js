@@ -5,6 +5,7 @@ const { can } = require('../utils/permissions');
 const storage = require('./storageService');
 const audit = require('./auditService');
 const athleteRequests = require('./athleteRequestService');
+const officialSponsors = require('./officialSponsorService');
 
 // Documentos de atleta (privados) e de evento (privados por padrão, públicos
 // só quando marcados). A chave de armazenamento nunca vem do cliente e o
@@ -189,6 +190,20 @@ async function downloadAthletePhoto(athleteId) {
   return entregarImagem(athlete.photoKey);
 }
 
+// A LOGO DO PATROCINADOR OFICIAL.
+//
+// Pública para quem está ATIVO — é uma parede de patrocínio, e esconder a arte
+// esvaziaria o propósito. Quem decide é o serviço do catálogo, que também
+// recusa a logo de patrocinador desativado para quem não administra: a marca
+// sai da vitrine inteira, inclusive da imagem.
+//
+// A rota recebe o ID do patrocinador, nunca um caminho: trocar o id na URL só
+// alcança a logo que aquele id autoriza.
+async function downloadSponsorLogo(sponsorId, actor) {
+  const chave = await officialSponsors.arteParaEntrega(sponsorId, actor);
+  return entregarImagem(chave);
+}
+
 async function downloadProfileAvatar(profileId) {
   const profile = await prisma.socialProfile.findUnique({
     where: { id: profileId },
@@ -233,6 +248,7 @@ async function downloadStoryMedia(storyId, actor) {
 const entregarPorChave = chave => entregarImagem(chave);
 
 module.exports = {
+  downloadSponsorLogo,
   entregarPorChave,
   uploadAthleteDocument, listAthleteDocuments, downloadAthleteDocument, deleteAthleteDocument,
   uploadEventDocument, listEventDocuments, downloadEventDocument,

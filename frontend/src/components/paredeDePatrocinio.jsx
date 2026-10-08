@@ -1,68 +1,64 @@
+import { useEffect, useState } from 'react';
 import { useIdioma } from '../lib/idioma';
 import Esteira from './esteira';
 import Marca from './marcaDePatrocinio';
-import {
-  CATEGORIAS_COM_PASTILHA,
-  CHAVE_DO_ROTULO,
-  categoriasComMarcas,
-  marcasDaCategoria,
-  sentidoDaFaixa
-} from '../lib/patrocinadores';
+import { carregarPatrocinadores } from '../lib/catalogoDePatrocinio';
+import { CATEGORIAS, CHAVE_DO_ROTULO, sentidoDaFaixa } from '../lib/patrocinadores';
 
 // A parede de patrocínio da tela de entrada.
 //
-// Uma faixa por categoria, cada uma correndo em esteira, em sentidos
-// alternados. Tudo aqui é apresentação: nenhuma decisão de autorização ou de
-// regra de negócio mora neste arquivo.
+// Uma faixa por nível, cada uma correndo em esteira, em sentidos alternados.
+// Tudo aqui é apresentação: nenhuma decisão de autorização ou de regra de
+// negócio mora neste arquivo.
 //
-// A MECÂNICA DO MOVIMENTO NÃO MORA MAIS AQUI. Medição de largura, contagem de
-// cópias e duração do ciclo vivem em `components/esteira.jsx`, porque o rodapé
-// da vitrine passou a usar a mesma coisa. Duas cópias dessa conta divergiriam
-// no primeiro ajuste — e ela já saiu errada uma vez.
+// AS MARCAS VÊM DO BANCO. Antes era uma lista versionada; agora é
+// `/public/sponsors`, que devolve só quem está ATIVO. Desativar um
+// patrocinador pela tela de administração o tira daqui sem deploy — que era o
+// ponto de levar o catálogo para o banco.
+//
+// A MECÂNICA DO MOVIMENTO não mora aqui: medição de largura, contagem de
+// cópias e duração do ciclo vivem em `components/esteira.jsx`, compartilhadas
+// com o rodapé da vitrine.
 
-function Faixa({ categoria, indice }) {
-  const { t } = useIdioma();
-  const marcas = marcasDaCategoria(categoria);
-  const pastilha = CATEGORIAS_COM_PASTILHA.includes(categoria);
-
-  if (!marcas.length) return null;
-
-  return (
-    <div className={`faixa-patro t-${categoria}`}>
-      <div className="faixa-patro-cab">
-        <span>{t(CHAVE_DO_ROTULO[categoria])}</span>
-        <i />
-      </div>
-      <Esteira
-        itens={marcas}
-        chave={marca => marca.arquivo}
-        classeDoGrupo={`esteira-grupo-${categoria}`}
-        sentido={sentidoDaFaixa(indice)}
-        desenhar={(marca, ehClone) => (
-          <Marca marca={marca} pastilha={pastilha} oculta={ehClone} />
-        )}
-      />
-    </div>
-  );
-}
-
-/**
- * A parede inteira.
- *
- * Com `prefers-reduced-motion` nenhuma faixa anda: viram listas estáticas com
- * TODAS as marcas visíveis. Uma parede de patrocínio não pode depender de
- * animação para ser vista — quem liga a preferência precisa enxergar todo mundo,
- * não um trecho. O CSS cuida disso; aqui o componente só não atrapalha.
- */
 export default function ParedeDePatrocinio() {
   const { t } = useIdioma();
-  const categorias = categoriasComMarcas();
-  if (!categorias.length) return null;
+  const [marcas, setMarcas] = useState(null);
+
+  useEffect(() => {
+    let vivo = true;
+    carregarPatrocinadores().then(lista => { if (vivo) setMarcas(lista); });
+    return () => { vivo = false; };
+  }, []);
+
+  // ENQUANTO CARREGA, NADA — e sem esqueleto. A parede é contexto, não é o que
+  // a pessoa veio fazer na tela de entrada: um bloco cinza pulsando atrás do
+  // formulário disputaria atenção com ele e empurraria o campo de e-mail para
+  // baixo quando as artes chegassem. Catálogo vazio cai no mesmo caminho.
+  if (!marcas?.length) return null;
+
+  // Os níveis que de fato têm marca. Nível vazio não vira linha vazia.
+  const porNivel = CATEGORIAS
+    .map(nivel => ({ nivel, marcas: marcas.filter(m => m.level === nivel.toUpperCase()) }))
+    .filter(faixa => faixa.marcas.length > 0);
+
+  if (!porNivel.length) return null;
 
   return (
     <section className="parede-patro" aria-label={t('patrocinio.parede')}>
-      {categorias.map((categoria, indice) => (
-        <Faixa key={categoria} categoria={categoria} indice={indice} />
+      {porNivel.map(({ nivel, marcas: doNivel }, indice) => (
+        <div key={nivel} className={`faixa-patro t-${nivel}`}>
+          <div className="faixa-patro-cab">
+            <span>{t(CHAVE_DO_ROTULO[nivel])}</span>
+            <i />
+          </div>
+          <Esteira
+            itens={doNivel}
+            chave={marca => marca.id}
+            classeDoGrupo={`esteira-grupo-${nivel}`}
+            sentido={sentidoDaFaixa(indice)}
+            desenhar={(marca, ehClone) => <Marca patrocinador={marca} oculta={ehClone} />}
+          />
+        </div>
       ))}
     </section>
   );

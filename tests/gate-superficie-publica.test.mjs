@@ -48,7 +48,10 @@ const CAMPOS_PROIBIDOS_NA_PROJECAO = [
   // chave é caminho interno do armazenamento: ela tem de morrer no servidor.
   // Sem esta linha, um `select` distraído devolveria a estrutura do bucket a
   // quem abre a vitrine.
-  'photoKey', 'avatarKey'
+  // `logoKey` pela mesma razão, desde que o catálogo de patrocinadores
+  // oficiais foi para o banco: a vitrine o publica, e a chave é caminho
+  // interno do bucket.
+  'photoKey', 'avatarKey', 'logoKey'
 ];
 
 let admin;

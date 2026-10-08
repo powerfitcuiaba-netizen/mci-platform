@@ -16,6 +16,7 @@ const meService = require('../services/meService');
 const muscleWar = require('../services/muscleWarService');
 const athleteNotices = require('../services/athleteNoticeService');
 const partners = require('../services/partnerService');
+const officialSponsors = require('../services/officialSponsorService');
 const social = require('../services/socialService');
 const messenger = require('../services/messengerService');
 const communities = require('../services/communityService');
@@ -57,10 +58,37 @@ const nomeParaCabecalho = fileName => String(fileName || 'arquivo')
   .slice(0, LIMITE_DO_NOME_NO_CABECALHO)
   || 'arquivo';
 
-function enviarArquivo(res, stream, { mimeType, fileName, inline = false }) {
+/**
+ * `publico: true` libera o EMBUTIMENTO da mídia por outra origem.
+ *
+ * O `helmet()` põe `Cross-Origin-Resource-Policy: same-origin` em tudo, e isso
+ * está certo para o resto: documento, foto de conferência, mídia de conversa —
+ * nada disso deve poder ser embutido por um site qualquer.
+ *
+ * MAS A LOGO DE PATROCINADOR É OUTRA COISA, e a diferença é de origem, não de
+ * segredo: o site e a API são HOSTS DIFERENTES em produção
+ * (`mci-platform-web` e `mci-platform-api`), então uma `<img src>` do site
+ * apontando para a API é cross-origin — e o navegador a descarta em silêncio,
+ * com a requisição respondendo 200.
+ *
+ * Medido num Chromium real: a logo vinha `200 image/webp` por `fetch` e
+ * NENHUMA das 32 imagens decodificava na tela. Nenhum erro de rede, nenhum
+ * 4xx — só o quadro vazio.
+ *
+ * A alternativa seria buscar cada logo por JavaScript e virar `blob:`, como a
+ * foto de atleta faz. Custaria uma requisição por imagem fora do cache de
+ * imagem do navegador, e a tela de entrada carrega 15 delas de uma vez.
+ *
+ * Isto NÃO afrouxa nada: o cabeçalho só diz que o recurso pode ser EMBUTIDO. O
+ * que decide quem o alcança continua sendo a rota e o serviço — a logo de
+ * patrocinador desativado, por exemplo, segue respondendo 404 a quem não
+ * administra o catálogo.
+ */
+function enviarArquivo(res, stream, { mimeType, fileName, inline = false, publico = false }) {
   res.setHeader('Content-Type', mimeType || 'application/octet-stream');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${nomeParaCabecalho(fileName)}"`);
+  if (publico) res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   stream.on('error', () => res.destroy());
   stream.pipe(res);
 }
@@ -399,6 +427,28 @@ module.exports = {
     minhas: async (req, res) => res.json({ items: await centralAuthorizations.minhasDelegacoes(req.user) })
   },
 
+  // ============================ PATROCINADOR OFICIAL =======================
+  // O catálogo institucional do campeonato. NÃO é `partners.sponsors`, logo
+  // abaixo, que é o patrocinador de uma federação.
+  officialSponsors: {
+    // A VITRINE. Sem ator, sem organização, sem token.
+    vitrine: async (req, res) => res.json({ items: await officialSponsors.paraAVitrine() }),
+    // O catálogo administrativo: inclui os desativados.
+    listar: async (req, res) => res.json({ items: await officialSponsors.paraOPainel(req.user) }),
+    criar: async (req, res) => res.status(201).json(
+      await officialSponsors.criar(req.body, req.file, req.user)
+    ),
+    atualizar: async (req, res) => res.json(
+      await officialSponsors.atualizar(req.params.id, req.body, req.user)
+    ),
+    trocarLogo: async (req, res) => res.json(
+      await officialSponsors.trocarArte(req.params.id, req.file, req.user)
+    ),
+    remover: async (req, res) => res.json(
+      await officialSponsors.remover(req.params.id, req.body.motivo, req.user)
+    )
+  },
+
   partners: {
     listTeams: async (req, res) => res.json({ items: await partners.listTeams(req.query, req.user) }),
     createTeam: async (req, res) => res.status(201).json(await partners.createTeam(req.body, req.user)),
@@ -528,6 +578,15 @@ module.exports = {
     athletePhoto: async (req, res) => {
       const { stream, mimeType } = await documents.downloadAthletePhoto(req.params.id);
       enviarArquivo(res, stream, { mimeType, fileName: req.params.id, inline: true });
+    },
+    // `req.user` é opcional aqui (`optionalAuth`): a logo de patrocinador
+    // ATIVO sai para qualquer um, e o ator só muda o resultado para quem
+    // administra, que também alcança a de quem está desativado.
+    sponsorLogo: async (req, res) => {
+      const { stream, mimeType } = await documents.downloadSponsorLogo(req.params.id, req.user);
+      // `publico`: a vitrine é servida por um host e a API por outro, e a
+      // `<img>` da parede precisa poder embutir isto. Ver `enviarArquivo`.
+      enviarArquivo(res, stream, { mimeType, fileName: req.params.id, inline: true, publico: true });
     },
     postMedia: async (req, res) => {
       const { stream, mimeType } = await documents.downloadPostMedia(req.params.id, req.user);

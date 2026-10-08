@@ -2,8 +2,21 @@ import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Auth from './authPages';
-import { AUTH_STORAGE_KEY, clearAuthToken, getAuthToken, setAuthToken } from '../services/api';
-import { MARCAS, categoriasComMarcas } from '../lib/patrocinadores';
+import { api, AUTH_STORAGE_KEY, clearAuthToken, getAuthToken, setAuthToken } from '../services/api';
+import { invalidar } from '../lib/catalogoDePatrocinio';
+
+// O CATÁLOGO VEM DO BANCO desde a migração para `OfficialSponsor`. Esta
+// fixture imita `/public/sponsors`: já ordenada pelo servidor — nível
+// primeiro, ordem dentro dele —, só com quem está ativo, e sem a chave de
+// armazenamento, que não sai da API.
+const CATALOGO = [
+  { id: 'p1', code: 'ADAPTOGEN', name: 'Adaptogen Science', level: 'GLOBAL', sortOrder: 0, active: true, siteUrl: null, hasLogo: true },
+  { id: 'p2', code: 'MAX', name: 'Max Titanium', level: 'GLOBAL', sortOrder: 1, active: true, siteUrl: null, hasLogo: true },
+  { id: 'p3', code: 'SOLDIERS', name: 'Soldiers Nutrition', level: 'DIAMANTE', sortOrder: 0, active: true, siteUrl: null, hasLogo: true },
+  { id: 'p4', code: 'BLACK', name: 'Black Skull', level: 'GOLD', sortOrder: 0, active: true, siteUrl: null, hasLogo: true },
+  { id: 'p5', code: 'TAN', name: 'Tan Masters', level: 'SILVER', sortOrder: 0, active: true, siteUrl: null, hasLogo: true }
+];
+const NIVEIS_COM_MARCA = ['GLOBAL', 'DIAMANTE', 'GOLD', 'SILVER'];
 
 // A tela de entrada mudou de aparência, e ganhou dois controles que MUDAM
 // comportamento. O que este arquivo protege é o comportamento — não o desenho.
@@ -169,27 +182,46 @@ describe('esqueci a senha', () => {
 });
 
 describe('parede de patrocínio na entrada', () => {
-  beforeEach(telaLimpa);
+  // A PAREDE PASSOU A LER O BANCO. Antes ela desenhava uma lista versionada;
+  // hoje chama `/public/sponsors`, que devolve só quem está ATIVO. As
+  // asserções mudaram de lado junto com a fonte, e nenhuma garantia foi
+  // abandonada: o que era "mostra as marcas do arquivo" virou "mostra
+  // exatamente o que o servidor devolveu".
+  //
+  // `spyOn` e não mock do módulo inteiro: este arquivo usa o `api` de verdade
+  // para `setAuthToken` e companhia, e trocá-lo por um duplo tiraria do teste
+  // justamente o cofre de token que ele mede logo acima.
+  beforeEach(() => {
+    telaLimpa();
+    invalidar();
+    vi.spyOn(api.publicApi, 'sponsors').mockResolvedValue({ items: CATALOGO });
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
 
-  it('anuncia cada patrocinador UMA vez, apesar das cópias da esteira', () => {
+  /** A parede só existe depois que a resposta chega. */
+  const comParede = async () => {
+    const { container } = render(<Auth />);
+    await screen.findByLabelText(/patrocinadores/i);
+    return container.querySelector('.parede-patro');
+  };
+
+  it('anuncia cada patrocinador UMA vez, apesar das cópias da esteira', async () => {
     // As cópias existem para cobrir a janela. Anunciar o mesmo patrocinador
     // quatro vezes é ruído para quem usa leitor de tela.
     //
     // A busca é DENTRO da parede de propósito: a marca da federação no topo da
-    // tela e o patrocinador Silver "Muscle Contest International" são a mesma
-    // marca em papéis diferentes, e têm o mesmo texto alternativo. Procurar no
-    // documento inteiro acusaria duplicata onde não há.
-    const { container } = render(<Auth />);
-    const parede = within(container.querySelector('.parede-patro'));
-    for (const marca of MARCAS) {
-      expect(parede.getAllByAltText(marca.nome), `${marca.nome} aparece mais de uma vez`).toHaveLength(1);
+    // tela e um patrocinador de nome igual seriam a mesma marca em papéis
+    // diferentes. Procurar no documento inteiro acusaria duplicata onde não há.
+    const parede = within(await comParede());
+    for (const p of CATALOGO) {
+      expect(parede.getAllByAltText(`Logo ${p.name}`), `${p.name} aparece mais de uma vez`).toHaveLength(1);
     }
   });
 
-  it('as cópias ficam fora da árvore de acessibilidade', () => {
-    const { container } = render(<Auth />);
-    const grupos = container.querySelectorAll('.esteira-grupo');
-    expect(grupos.length).toBeGreaterThan(categoriasComMarcas().length);
+  it('as cópias ficam fora da árvore de acessibilidade', async () => {
+    const parede = await comParede();
+    const grupos = parede.querySelectorAll('.esteira-grupo');
+    expect(grupos.length).toBeGreaterThan(NIVEIS_COM_MARCA.length);
     const clones = [...grupos].filter(g => g.getAttribute('aria-hidden') === 'true');
     expect(clones.length).toBeGreaterThan(0);
     for (const clone of clones) {
@@ -197,43 +229,64 @@ describe('parede de patrocínio na entrada', () => {
     }
   });
 
-  it('mostra as quatro faixas, na ordem da hierarquia', () => {
-    const { container } = render(<Auth />);
-    const rotulos = [...container.querySelectorAll('.faixa-patro-cab span')].map(e => e.textContent);
-    expect(rotulos).toHaveLength(categoriasComMarcas().length);
+  it('mostra uma faixa por nível COM marca, na ordem da hierarquia', async () => {
+    const parede = await comParede();
+    const rotulos = [...parede.querySelectorAll('.faixa-patro-cab span')].map(e => e.textContent);
+    expect(rotulos).toHaveLength(NIVEIS_COM_MARCA.length);
     // O rótulo passa pelo dicionário: o que aparece na tela NÃO pode ser a
     // chave crua. Se `t` não achasse a entrada, devolveria 'patrocinio.gold'.
     for (const rotulo of rotulos) expect(rotulo).not.toMatch(/^patrocinio\./);
-    // E o nome da cota vendida em contrato continua lá.
-    expect(rotulos.join(' | ')).toMatch(/Global/);
-    expect(rotulos.join(' | ')).toMatch(/Diamante/);
-    expect(rotulos.join(' | ')).toMatch(/Gold/);
-    expect(rotulos.join(' | ')).toMatch(/Silver/);
+    // E o nome da cota vendida em contrato continua lá, na ordem do contrato.
+    expect(rotulos.join(' | ')).toMatch(/Global.*Diamante.*Gold.*Silver/s);
   });
 
-  it('as faixas vizinhas correm em sentidos opostos', () => {
-    const { container } = render(<Auth />);
-    const sentidos = [...container.querySelectorAll('.esteira')].map(e => e.dataset.sentido);
-    expect(sentidos.length).toBe(categoriasComMarcas().length);
+  it('nível SEM marca não vira faixa vazia', async () => {
+    api.publicApi.sponsors.mockResolvedValue({
+      items: CATALOGO.filter(p => p.level === 'GLOBAL' || p.level === 'SILVER')
+    });
+    invalidar();
+    const parede = await comParede();
+    const rotulos = [...parede.querySelectorAll('.faixa-patro-cab span')].map(e => e.textContent);
+    expect(rotulos).toHaveLength(2);
+    expect(rotulos.join(' | ')).not.toMatch(/Diamante/);
+  });
+
+  it('as faixas vizinhas correm em sentidos opostos', async () => {
+    const parede = await comParede();
+    const sentidos = [...parede.querySelectorAll('.esteira')].map(e => e.dataset.sentido);
+    expect(sentidos.length).toBe(NIVEIS_COM_MARCA.length);
     for (let i = 1; i < sentidos.length; i += 1) {
       expect(sentidos[i], `faixa ${i} repete o sentido da anterior`).not.toBe(sentidos[i - 1]);
     }
   });
 
-  it('a parede fica DEPOIS do formulário no documento', () => {
+  it('a parede fica DEPOIS do formulário no documento', async () => {
     // É contexto, não é o que a pessoa veio fazer. Na ordem de leitura e na de
     // tabulação, o formulário vem primeiro.
     const { container } = render(<Auth />);
+    await screen.findByLabelText(/patrocinadores/i);
     const formulario = container.querySelector('form');
     const parede = container.querySelector('.parede-patro');
     expect(formulario.compareDocumentPosition(parede) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('cada arte aponta para um arquivo em /patrocinadores/', () => {
-    const { container } = render(<Auth />);
-    const parede = within(container.querySelector('.parede-patro'));
-    for (const marca of MARCAS) {
-      expect(parede.getByAltText(marca.nome).getAttribute('src')).toBe(`/patrocinadores/${marca.arquivo}`);
+  it('cada arte é servida pela rota de logo, por ID — nunca por caminho de arquivo', async () => {
+    const parede = within(await comParede());
+    for (const p of CATALOGO) {
+      expect(parede.getByAltText(`Logo ${p.name}`).getAttribute('src'))
+        .toMatch(new RegExp(`/media/sponsors/${p.id}/logo$`));
     }
   });
+
+  it('catálogo vazio não derruba a tela de entrada — o formulário continua lá', async () => {
+    // A parede é contexto. Se o catálogo estiver vazio, ou a rede falhar, quem
+    // chegou para entrar no sistema não pode ficar sem o formulário.
+    api.publicApi.sponsors.mockRejectedValue(new Error('rede fora'));
+    invalidar();
+    const { container } = render(<Auth />);
+    expect(await screen.findByRole('heading', { name: /^Entrar$/i })).toBeTruthy();
+    expect(container.querySelector('input[type="password"]')).toBeTruthy();
+    expect(container.querySelector('.parede-patro')).toBeNull();
+  });
 });
+

@@ -41,6 +41,10 @@ vi.mock('./services/api', () => {
         },
         results: [], titles: 0, rankings: []
       }))
+    ,
+      // A vitrine de patrocínio. O casco a chama nas telas públicas; sem o
+      // duplo, a chamada lança e leva a tela junto.
+      sponsors: vi.fn(() => Promise.resolve({ items: [] }))
     },
     ranking: {
       list: vi.fn(() => Promise.resolve({ items: [], season: null, nextCursor: null, publicView: true, publicLimit: 5 })),
@@ -63,7 +67,8 @@ vi.mock('./services/api', () => {
     setAuthToken: vi.fn(), clearAuthToken: vi.fn(), refreshData: vi.fn(),
     SESSAO_EXPIRADA: 'mci-sessao-expirada',
     fetchMediaObjectUrl: vi.fn(() => Promise.reject(new Error('sem mídia'))),
-    releaseMediaObjectUrl: vi.fn()
+    releaseMediaObjectUrl: vi.fn(),
+    urlDeMidiaPublica: caminho => `http://api.test${caminho}`
   };
 });
 

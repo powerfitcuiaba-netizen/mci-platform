@@ -175,6 +175,20 @@ describe('auditoria de rotas', () => {
       // documento enviado para a federação CONFERIR identidade — e que esta
       // lista deliberadamente NÃO contém.
       /^GET \/api\/v1\/media\/athletes\/:id\/photo$/,
+
+      // A LOGO DO PATROCINADOR OFICIAL — aberta pela razão mais direta desta
+      // lista inteira: ela aparece na TELA DE ENTRADA, onde por definição não
+      // existe sessão. Exigir token para servir a arte de uma parede de
+      // patrocínio seria pedir senha para ver um painel de patrocinador num
+      // ginásio.
+      //
+      // O que a sessão ainda muda, e por isso a abertura não é total: a logo
+      // de patrocinador DESATIVADO só sai para quem administra o catálogo. Para
+      // o resto do mundo ela responde 404 — e 404, não 403, para não confirmar
+      // a existência do id. `tests/patrocinadores-oficiais.test.mjs` mede os
+      // dois lados.
+      /^GET \/api\/v1\/media\/sponsors\/:id\/logo$/,
+
       /^GET \/api\/v1\/documents\/event\//
     ];
 

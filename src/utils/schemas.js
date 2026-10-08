@@ -900,6 +900,80 @@ const sponsorCreate = z.object({
   contactEmail: opcional(z.string().trim().toLowerCase().email().max(180))
 });
 
+// ============================ PATROCINADOR OFICIAL ==========================
+//
+// O catálogo INSTITUCIONAL do campeonato, que não é o `sponsorCreate` logo
+// acima: aquele tem `organizationId` porque é patrocinador de uma federação.
+//
+// `code` é o identificador ESTÁVEL, e é o que torna o provisionamento
+// idempotente. A forma é a mesma de `affiliationCreate.code` — maiúsculas,
+// dígitos e hífen — copiada de propósito em vez de afrouxada: aceitar
+// 'npc!' aqui só adiaria a recusa para uma consulta que nunca acharia nada.
+const sponsorCode = z.string().trim().toUpperCase().regex(/^[A-Z0-9-]{2,40}$/);
+
+// O NÍVEL É ENUM, nunca texto livre. São as quatro cotas vendidas em contrato,
+// e a ordem desta lista é a hierarquia. "Silver — apoio e parceiros" é a
+// APRESENTAÇÃO do Silver, não um quinto nível.
+const sponsorLevel = z.enum(['GLOBAL', 'DIAMANTE', 'GOLD', 'SILVER']);
+
+// O SITE É OPCIONAL E EXIGE HTTPS.
+//
+// Opcional porque as 15 marcas que já estavam no ar não têm site cadastrado, e
+// inventar endereço para elas seria fabricar dado. HTTPS porque a logo vira um
+// link que abre em aba nova a partir de uma página segura; `http://` ali é
+// conteúdo misto e aviso do navegador em cima da marca do patrocinador.
+//
+// String vazia vira ausência: o formulário manda '' quando o campo é limpo, e
+// gravar '' faria a logo virar link para lugar nenhum.
+const sponsorSiteUrl = z.preprocess(
+  valor => (typeof valor === 'string' && valor.trim() === '' ? undefined : valor),
+  z.string().trim().url().max(300).refine(
+    valor => valor.toLowerCase().startsWith('https://'),
+    { message: 'O site oficial precisa começar com https://' }
+  ).optional()
+);
+
+// A ordem é inteira e NÃO negativa: número negativo ordenaria antes de tudo
+// sem que ninguém tivesse pedido isso, e o teto evita o 99999 que vira
+// convenção acidental de "por último".
+const sponsorOrder = z.coerce.number().int().min(0).max(9999);
+
+const officialSponsorCreate = z.object({
+  code: sponsorCode,
+  name: texto(2, 120),
+  level: sponsorLevel,
+  sortOrder: sponsorOrder.optional(),
+  active: z.coerce.boolean().optional(),
+  siteUrl: sponsorSiteUrl
+});
+
+// NA EDIÇÃO TUDO É OPCIONAL, MENOS A IMPOSSIBILIDADE DE TROCAR `code`.
+//
+// `code` fica de fora porque é a chave estável que amarra a linha ao
+// provisionamento: trocá-lo faria o script criar uma segunda. O id também não
+// entra — ele vem do caminho, nunca do corpo.
+//
+// `updatedAt` é a versão de onde o cliente partiu, e serve à guarda de
+// concorrência: dois administradores com a tela aberta, o segundo a salvar
+// recebe 409 em vez de sobrescrever o primeiro em silêncio.
+const officialSponsorUpdate = z.object({
+  name: texto(2, 120).optional(),
+  level: sponsorLevel.optional(),
+  sortOrder: sponsorOrder.optional(),
+  active: z.coerce.boolean().optional(),
+  // `nullable` porque limpar o site é uma edição legítima.
+  siteUrl: sponsorSiteUrl.nullable(),
+  updatedAt: opcional(z.string().trim().min(1))
+}).refine(
+  corpo => Object.keys(corpo).some(campo => campo !== 'updatedAt' && corpo[campo] !== undefined),
+  { message: 'Informe ao menos um campo para alterar' }
+);
+
+// Remover de vez exige MOTIVO, e com piso de tamanho: o caminho normal é
+// desativar, que preserva o histórico. Quem apaga está desfazendo um engano, e
+// seis meses depois a diferença entre engano e arbítrio está exatamente aqui.
+const officialSponsorDelete = z.object({ motivo: texto(5, 500) });
+
 const sponsorshipCreate = z.object({
   sponsorId: id,
   eventId: opcional(id),
@@ -1129,6 +1203,7 @@ module.exports = {
   muscleWarImportCreate, muscleWarLink, muscleWarAffiliationFix, muscleWarPreviewQuery,
   rankingPointEdit, rankingPointPreviewQuery, rankingPointReason, rankingPointAdjust,
   teamCreate, teamCoachSet, companyCreate, coachCreate, gymCreate, brandCreate, sponsorCreate, sponsorshipCreate,
+  officialSponsorCreate, officialSponsorUpdate, officialSponsorDelete,
   coachSelfRegister, coachSelfUpdate, coachTeamCreate, coachTeamUpdate, coachReviewQuery, coachDecision, coachDecisionWithReason,
   coachOrgAuthorize, coachOrgRevoke, coachDocumentUpload, coachTeamQuery, coachAuthorizableQuery,
   athleteAffiliationLookup, membershipRequestCreate, membershipRequestReason,

@@ -9,6 +9,7 @@ import { AsyncSection, AtualizadoEm, Avatar, Badge, ConfirmDialog, EmptyState, F
 // em JS. Importar o que não se usa é ruído que o lint acusa e o leitor não.
 import { criterioDeMatch, dicaDeResultadosPublicados, estadoDeMatch, formatarDataHora, ocultarCpf, papel, estadoDoUsuario, tipoDeFiliacao, estadoDaImportacao } from '../lib/format';
 import { useIdioma } from '../lib/idioma';
+import PatrocinadoresOficiais from './patrocinadoresOficiais';
 
 // Painel administrativo, ranking, importação MuscleWar, auditoria e
 // configurações da plataforma.
@@ -1744,7 +1745,7 @@ export function AdminConfiguracoes({ notificar }) {
       <PageHead eyebrow="Administração" title={t('plataforma.configuracoes')} description={t('plataforma.configuracoesDescricao')} />
 
       <div className="chips" style={{ marginBottom: 18 }}>
-        {[['organizacoes', t('plataforma.organizacoes')], ['filiacoes', t('plataforma.filiacoes')], ['categorias', t('plataforma.categorias')], ['parceiros', t('plataforma.parceiros')], ['vinculos', t('plataforma.vinculoDeEquipe')], ['usuarios', t('plataforma.usuarios')]].map(([chave, rotulo]) => (
+        {[['organizacoes', t('plataforma.organizacoes')], ['filiacoes', t('plataforma.filiacoes')], ['categorias', t('plataforma.categorias')], ['parceiros', t('plataforma.parceiros')], ['patrocinadores', 'Patrocinadores'], ['vinculos', t('plataforma.vinculoDeEquipe')], ['usuarios', t('plataforma.usuarios')]].map(([chave, rotulo]) => (
           <button key={chave} type="button" className={`chip${aba === chave ? ' is-on' : ''}`} onClick={() => setAba(chave)}>{rotulo}</button>
         ))}
       </div>
@@ -1753,6 +1754,12 @@ export function AdminConfiguracoes({ notificar }) {
       {aba === 'filiacoes' && <Filiacoes notificar={notificar} />}
       {aba === 'categorias' && <Categorias notificar={notificar} />}
       {aba === 'parceiros' && <Parceiros notificar={notificar} />}
+      {/* O CATÁLOGO OFICIAL é aba própria, e não uma seção dentro de
+          "Parceiros": aquela lista é por FEDERAÇÃO — empresas, equipes,
+          academias, marcas e patrocinadores de uma organização. Esta é do
+          CAMPEONATO, não tem organização, e só SUPER_ADMIN a altera. Juntá-las
+          faria o seletor de organização do topo parecer valer para ela. */}
+      {aba === 'patrocinadores' && <PatrocinadoresOficiais notificar={notificar} />}
       {aba === 'vinculos' && <VinculoDeEquipe notificar={notificar} />}
       {aba === 'usuarios' && <Usuarios notificar={notificar} />}
     </div>
