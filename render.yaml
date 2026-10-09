@@ -106,6 +106,13 @@ services:
       #
       # Só é lido quando há federação sem conta. Numa instalação nova, ou num
       # deploy em que tudo já foi provisionado, o script nem chega a consultá-lo.
+      #
+      # ATENÇÃO AO NÍVEL: o provisionamento das contas de serviço aceita ADMIN
+      # ou SUPER_ADMIN; o do CATÁLOGO DE PATROCINADORES exige SUPER_ADMIN ATIVO,
+      # porque a política do banco é `mci_is_super_admin()` e um ADMIN teria a
+      # escrita recusada pelo PostgreSQL. Um e-mail de ADMIN aqui faz o terceiro
+      # passo sair com 1 e o deploy não ser promovido. Use um SUPER_ADMIN e os
+      # três passos passam.
       - key: PROVISIONAR_ADMIN_EMAIL
         sync: false
 

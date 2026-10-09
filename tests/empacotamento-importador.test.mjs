@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -91,6 +91,102 @@ describe('empacotamento do importador de campeonatos', () => {
   it('o script que lê o arquivo também é copiado — os dois viajam juntos ou nenhum serve', () => {
     expect(origensCopiadas).toContain('scripts');
     expect(excluidoDoContexto('scripts/importar-campeonatos.js')).toBe(false);
+  });
+});
+
+// ==========================================================================
+// A MESMA LIÇÃO, COBRADA DE NOVO — E DESTA VEZ PORQUE ELA SE REPETIU.
+//
+// O provisionamento dos patrocinadores oficiais nasceu lendo a lista e as
+// artes de `frontend/`. No repositório funciona, e foi assim que a suíte
+// inteira e o roteiro de QA em Chromium passaram. NA IMAGEM NÃO: o
+// `.dockerignore` exclui `frontend` e o `Dockerfile` não o copia.
+//
+// O deploy subiu verde, o `preDeployCommand` não conseguiu provisionar nada e
+// o catálogo ficou VAZIO em produção — a vitrine sem um patrocinador sequer.
+// É palavra por palavra o que o cabeçalho deste arquivo já descrevia sobre o
+// importador de campeonatos: "o script que existe na imagem e o dado que ele
+// lê precisam viajar juntos".
+//
+// A trava acima era específica de um script. Estas são do segundo, e o que
+// elas medem é o que falhou: a semente entra na imagem, o script a encontra, e
+// as duas cópias das artes não divergem.
+// ==========================================================================
+
+const SEMENTE = 'data/patrocinadores';
+const catalogoDaSemente = JSON.parse(readFileSync(`${SEMENTE}/catalogo.json`, 'utf8'));
+
+describe('empacotamento do provisionamento de patrocinadores', () => {
+  it('a semente existe e traz as 15 marcas', () => {
+    expect(catalogoDaSemente).toHaveLength(15);
+    for (const marca of catalogoDaSemente) {
+      expect(marca.code, 'code').toMatch(/^[A-Z0-9-]{2,40}$/);
+      expect(marca.name.length, `nome de ${marca.code}`).toBeGreaterThan(1);
+      expect(['GLOBAL', 'DIAMANTE', 'GOLD', 'SILVER'], `nível de ${marca.code}`).toContain(marca.level);
+      expect(Number.isInteger(marca.sortOrder), `ordem de ${marca.code}`).toBe(true);
+    }
+    expect(new Set(catalogoDaSemente.map(m => m.code)).size, 'códigos repetidos').toBe(15);
+  });
+
+  it('o `code` continua saindo do NOME DO ARQUIVO, e não do nome de exibição', () => {
+    // Esta derivação é a identidade estável da migração: corrigir o nome
+    // comercial de uma marca não pode criar uma segunda linha no catálogo.
+    for (const marca of catalogoDaSemente) {
+      const doArquivo = marca.arquivo
+        .replace(/\.[a-z0-9]+$/i, '').toUpperCase().replace(/[^A-Z0-9-]/g, '-').slice(0, 40);
+      expect(marca.code, `${marca.arquivo} deveria dar o code ${doArquivo}`).toBe(doArquivo);
+    }
+  });
+
+  it('a arte de cada marca está na semente', () => {
+    for (const marca of catalogoDaSemente) {
+      expect(existsSync(`${SEMENTE}/${marca.arquivo}`), `arte ausente: ${marca.arquivo}`).toBe(true);
+    }
+  });
+
+  it('a semente é copiada para a imagem e não é tirada do contexto', () => {
+    expect(origensCopiadas, 'o Dockerfile não copia "data": o script iria para a imagem sem a semente')
+      .toContain('data');
+    expect(excluidoDoContexto(`${SEMENTE}/catalogo.json`), 'a semente está excluída do contexto de build').toBe(false);
+    for (const marca of catalogoDaSemente) {
+      expect(excluidoDoContexto(`${SEMENTE}/${marca.arquivo}`), `${marca.arquivo} fora do contexto`).toBe(false);
+    }
+  });
+
+  it('o script lê a semente, e não o frontend — que NÃO entra na imagem', () => {
+    const fonte = readFileSync('scripts/provisionar-patrocinadores-oficiais.js', 'utf8');
+    // O `frontend/` continua excluído de propósito: a imagem é só da API. O que
+    // mudou é de onde o script lê.
+    expect(excluidoDoContexto('frontend/src/lib/patrocinadores.js'),
+      'se o frontend passou a entrar na imagem, este teste precisa ser revisto junto').toBe(true);
+    // O que se procura é CARREGAMENTO de caminho do frontend — `require(...)`
+    // ou `import(...)`. O texto "frontend/" aparece de propósito nos
+    // comentários do script, que explicam justamente por que ele não lê de lá.
+    expect(fonte, 'o script voltou a carregar algo do frontend, que não existe na imagem')
+      .not.toMatch(/(?:require|import)\s*\(\s*['"`][^'"`]*frontend\//);
+    expect(fonte).toContain("'data', 'patrocinadores'");
+  });
+
+  it('as duas cópias da lista não divergem', async () => {
+    const { marcasNaOrdemDaHierarquia } = await import('../frontend/src/lib/patrocinadores.js');
+    const porNivel = new Map();
+    const doFrontend = marcasNaOrdemDaHierarquia().map(marca => {
+      const level = marca.categoria.toUpperCase();
+      const posicao = porNivel.get(level) ?? 0;
+      porNivel.set(level, posicao + 1);
+      return { name: marca.nome, level, sortOrder: posicao, arquivo: marca.arquivo };
+    });
+
+    expect(catalogoDaSemente.map(({ name, level, sortOrder, arquivo }) => ({ name, level, sortOrder, arquivo })))
+      .toEqual(doFrontend);
+  });
+
+  it('as artes das duas cópias são byte a byte iguais', () => {
+    for (const marca of catalogoDaSemente) {
+      const naSemente = readFileSync(`${SEMENTE}/${marca.arquivo}`);
+      const noFrontend = readFileSync(`frontend/public/patrocinadores/${marca.arquivo}`);
+      expect(naSemente.equals(noFrontend), `${marca.arquivo} difere entre a semente e o frontend`).toBe(true);
+    }
   });
 });
 

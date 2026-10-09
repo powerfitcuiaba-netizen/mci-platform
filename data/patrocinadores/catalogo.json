@@ -1,0 +1,107 @@
+[
+  {
+    "code": "ADAPTOGEN-SCIENCE",
+    "name": "Adaptogen Science",
+    "level": "GLOBAL",
+    "sortOrder": 0,
+    "arquivo": "adaptogen-science.png"
+  },
+  {
+    "code": "MAX-TITANIUM",
+    "name": "Max Titanium",
+    "level": "GLOBAL",
+    "sortOrder": 1,
+    "arquivo": "max-titanium.png"
+  },
+  {
+    "code": "INTEGRALMEDICA",
+    "name": "Integralmedica",
+    "level": "GLOBAL",
+    "sortOrder": 2,
+    "arquivo": "integralmedica.png"
+  },
+  {
+    "code": "CIMERIAN",
+    "name": "Cimerian",
+    "level": "GLOBAL",
+    "sortOrder": 3,
+    "arquivo": "cimerian.png"
+  },
+  {
+    "code": "NEW-MILLEN",
+    "name": "New Millen",
+    "level": "GLOBAL",
+    "sortOrder": 4,
+    "arquivo": "new-millen.png"
+  },
+  {
+    "code": "SOLDIERS-NUTRITION",
+    "name": "Soldiers Nutrition",
+    "level": "DIAMANTE",
+    "sortOrder": 0,
+    "arquivo": "soldiers-nutrition.png"
+  },
+  {
+    "code": "IMPERIOUS-FITNESS",
+    "name": "Imperious Fitness",
+    "level": "DIAMANTE",
+    "sortOrder": 1,
+    "arquivo": "imperious-fitness.png"
+  },
+  {
+    "code": "MUSCLE-WORLD-GYM",
+    "name": "Muscle World Gym",
+    "level": "GOLD",
+    "sortOrder": 0,
+    "arquivo": "muscle-world-gym.png"
+  },
+  {
+    "code": "BLACK-SKULL",
+    "name": "Black Skull",
+    "level": "GOLD",
+    "sortOrder": 1,
+    "arquivo": "black-skull.png"
+  },
+  {
+    "code": "MUSCLEFIT-ACADEMIAS",
+    "name": "MuscleFit Academias",
+    "level": "GOLD",
+    "sortOrder": 2,
+    "arquivo": "musclefit-academias.png"
+  },
+  {
+    "code": "INSTITUTO-LAPIDARE",
+    "name": "Instituto Lapidare",
+    "level": "GOLD",
+    "sortOrder": 3,
+    "arquivo": "instituto-lapidare.png"
+  },
+  {
+    "code": "OFICIAL",
+    "name": "oficial",
+    "level": "GOLD",
+    "sortOrder": 4,
+    "arquivo": "oficial.png"
+  },
+  {
+    "code": "MUSCLE-CONTEST-INTERNATIONAL",
+    "name": "Muscle Contest International",
+    "level": "SILVER",
+    "sortOrder": 0,
+    "arquivo": "muscle-contest-international.png"
+  },
+  {
+    "code": "LIPOXYDERM",
+    "name": "Lipoxyderm",
+    "level": "SILVER",
+    "sortOrder": 1,
+    "arquivo": "lipoxyderm.png"
+  },
+  {
+    "code": "TAN-MASTERS",
+    "name": "Tan Masters",
+    "level": "SILVER",
+    "sortOrder": 2,
+    "arquivo": "tan-masters.png"
+  }
+]
