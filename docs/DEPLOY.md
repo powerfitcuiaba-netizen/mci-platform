@@ -204,7 +204,9 @@ a evolução do domínio esportivo desde então.
 receber tráfego:
 
 ```
-preDeployCommand: npx prisma migrate deploy && node scripts/provisionar-contas-de-servico.js
+preDeployCommand: npx prisma migrate deploy
+  && node scripts/provisionar-contas-de-servico.js
+  && node scripts/provisionar-patrocinadores-oficiais.js
 ```
 
 A ordem é obrigatória: primeiro a ESTRUTURA, depois o DADO que a estrutura não
@@ -216,6 +218,12 @@ autocadastro quebrado.
 Configure uma vez, no painel do Render, a variável `PROVISIONAR_ADMIN_EMAIL`
 (declarada com `sync: false`) com o e-mail de um ADMIN ou SUPER_ADMIN
 existente. A auditoria registra `SERVICE_ACCOUNT_PROVISIONED` em nome dele.
+
+> **Use um SUPER_ADMIN.** As contas de serviço aceitam ADMIN ou SUPER_ADMIN; o
+> catálogo de patrocinadores (terceiro passo) exige **SUPER_ADMIN ativo**,
+> porque a política do banco é `mci_is_super_admin()` e um ADMIN teria a
+> escrita recusada pelo PostgreSQL. Um e-mail de ADMIN aqui faz o terceiro
+> passo sair com 1 e o deploy não ser promovido.
 
 Para rodar à mão — plano sem `preDeployCommand`, ou conferência avulsa:
 
@@ -232,6 +240,39 @@ da federação nasce junto com a organização (`organizationService.create`). A
 federações que já existiam foram criadas antes desta fase, e a migration que
 acrescentou as colunas não cria linha nenhuma — migration altera ESTRUTURA, e a
 conta de serviço é DADO.
+
+### 3.4 Provisionar o catálogo de patrocinadores oficiais — AUTOMÁTICO NO DEPLOY
+
+Mesmo raciocínio, terceiro passo do `preDeployCommand`. As 15 marcas que já
+estavam no ar eram uma lista versionada no frontend; agora são linhas de
+`OfficialSponsor` — mais ARQUIVO, que SQL não sobe. Sem este passo a vitrine
+sobe **vazia** e a tela de entrada perde a parede de patrocínio.
+
+```bash
+# Confere, sem escrever nada:
+node scripts/provisionar-patrocinadores-oficiais.js --conferir
+
+# Aplica (exige SUPER_ADMIN ativo):
+PROVISIONAR_ADMIN_EMAIL='superadmin@dominio' node scripts/provisionar-patrocinadores-oficiais.js
+```
+
+**A semente viaja na imagem, em `data/patrocinadores/`** — e isto é a correção
+de um erro que já custou um deploy. A primeira versão lia a lista e as artes de
+`frontend/`, que o `.dockerignore` exclui e o `Dockerfile` não copia: o script
+foi para produção sem o dado que lê, o catálogo ficou vazio e nada acusou,
+porque no repositório `frontend/` está lá e todo o QA passava. É a mesma lição
+que `data/campeonatos-2026.json` já tinha ensinado, e agora
+`tests/empacotamento-importador.test.mjs` cobra as duas.
+
+Se o catálogo estiver vazio em produção, o diagnóstico é um comando só:
+
+```bash
+node scripts/provisionar-patrocinadores-oficiais.js --conferir
+```
+
+- `na lista do frontend 15 / já no banco 0` → o passo não rodou: rode-o à mão.
+- `A semente do catálogo não está nesta instalação` → falha de EMPACOTAMENTO:
+  a imagem subiu sem `data/`.
 
 ### 3.4 A entidade de filiação oficial — `MCI_NPC_ORGANIZATION_ID`
 

@@ -19,12 +19,25 @@
  * caminhos que criam a mesma coisa — que é como as duas versões divergem sem
  * ninguém notar. Aqui roda o MESMO `storage.saveBuffer` da aplicação.
  *
- * A FONTE É A LISTA DO FRONTEND, LIDA EM TEMPO DE EXECUÇÃO
+ * A FONTE É `data/patrocinadores/`, E O MOTIVO É O EMPACOTAMENTO
  *
- * O script IMPORTA `frontend/src/lib/patrocinadores.js` em vez de repetir as 15
- * entradas aqui. Copiá-las criaria a segunda lista que este trabalho inteiro
- * existe para eliminar: bastaria alguém corrigir um nome num lado e não no
- * outro para o provisionamento gravar o nome errado.
+ * A primeira versão importava `frontend/src/lib/patrocinadores.js` e lia as
+ * artes de `frontend/public/patrocinadores/`. No repositório isso funciona — e
+ * foi assim que o roteiro de QA passou. NA IMAGEM NÃO: o `.dockerignore`
+ * exclui `frontend` e o `Dockerfile` copia `prisma`, `src`, `scripts`, `data` e
+ * `server.js`. O script subiu para produção sem o dado que ele lê, o catálogo
+ * ficou VAZIO e a vitrine ficou sem patrocinador nenhum.
+ *
+ * É a mesma falha que `tests/empacotamento-importador.test.mjs` já existia para
+ * impedir, registrada lá com todas as letras: "o script que existe na imagem e
+ * o dado que ele lê precisam viajar juntos". Aquele teste cobria o importador
+ * de campeonatos; agora cobre este também.
+ *
+ * `data/` é o diretório que este repositório usa para dado que o script precisa
+ * em produção, e é o único que entra na imagem. A cópia em `frontend/` continua
+ * existindo e é cobrada por teste: `catalogo.json` tem de bater com
+ * `marcasNaOrdemDaHierarquia()`, e cada PNG daqui tem de ser byte a byte igual
+ * ao de lá. Divergir reprova.
  *
  * IDEMPOTENTE, pela chave estável `code`. Rodar de novo encontra as linhas e
  * não cria nenhuma. Rodar num banco já provisionado imprime "nada a fazer" e
@@ -49,7 +62,7 @@
  * porque foi ele quem mandou rodar. Mesma escolha de
  * `provisionar-contas-de-servico.js`.
  *
- * Uso:
+ * Uso (no deploy, pelo `preDeployCommand`, ou à mão no shell do serviço):
  *   PROVISIONAR_ADMIN_EMAIL='admin@dominio' \
  *     node scripts/provisionar-patrocinadores-oficiais.js
  *
@@ -69,47 +82,49 @@ const audit = require('../src/services/auditService');
 const { withUserContext } = require('../src/config/rlsSession');
 
 const SO_CONFERIR = process.argv.includes('--conferir');
-const RAIZ_DAS_ARTES = join(__dirname, '..', 'frontend', 'public', 'patrocinadores');
+const RAIZ_DA_SEMENTE = join(__dirname, '..', 'data', 'patrocinadores');
+const ARQUIVO_DO_CATALOGO = join(RAIZ_DA_SEMENTE, 'catalogo.json');
+
+// O `code` de cada marca vem pronto do `catalogo.json`, derivado do NOME DO
+// ARQUIVO e não do nome de exibição: o arquivo é o que não muda. O nome
+// comercial pode ser corrigido ("Integral Medica" → "Integralmedica") sem que a
+// marca deixe de ser a mesma, e um `code` que seguisse o nome criaria uma
+// segunda linha no provisionamento seguinte. Quem cobra essa derivação é
+// `tests/empacotamento-importador.test.mjs`.
 
 /**
- * O `code` sai do NOME DO ARQUIVO, e não do nome de exibição.
+ * Lê a semente de `data/patrocinadores/catalogo.json`.
  *
- * O arquivo é o que não muda: o nome comercial pode ser corrigido ("Integral
- * Medica" → "Integralmedica") sem que a marca deixe de ser a mesma, e se o
- * `code` seguisse o nome a correção criaria uma segunda linha no provisionamento
- * seguinte. O arquivo é a identidade estável desta migração.
+ * A AUSÊNCIA DO ARQUIVO É DITA COM TODAS AS LETRAS. Antes, a fonte era um
+ * `import` do frontend, e numa imagem sem ele o script morria com um
+ * `ERR_MODULE_NOT_FOUND` que não explica nada a quem lê o log do deploy às
+ * duas da manhã. Falha de empacotamento tem de se apresentar como falha de
+ * empacotamento.
  */
-const codigoDe = marca => marca.arquivo
-  .replace(/\.[a-z0-9]+$/i, '')
-  .toUpperCase()
-  .replace(/[^A-Z0-9-]/g, '-')
-  .slice(0, 40);
+function catalogoDaSemente() {
+  if (!existsSync(ARQUIVO_DO_CATALOGO)) {
+    console.error(
+      `\n  A semente do catálogo não está nesta instalação: ${ARQUIVO_DO_CATALOGO}\n`
+      + '  Isto é falha de EMPACOTAMENTO, não de banco. A imagem precisa trazer\n'
+      + '  `data/` inteiro — confira o COPY do Dockerfile e o .dockerignore.\n'
+      + '  Nada foi escrito.\n'
+    );
+    process.exit(1);
+  }
 
-/** Lê a lista do frontend. É um módulo ESM de dados puros, sem DOM. */
-async function catalogoDoCodigo() {
-  const modulo = await import('../frontend/src/lib/patrocinadores.js');
-  const marcas = modulo.marcasNaOrdemDaHierarquia();
-
-  // `sortOrder` é a posição DENTRO do nível, preservando a ordem em que a
-  // lista as declara — que é a ordem que esteve no ar até hoje.
-  const porNivel = new Map();
-  return marcas.map(marca => {
-    const level = marca.categoria.toUpperCase();
-    const posicao = porNivel.get(level) ?? 0;
-    porNivel.set(level, posicao + 1);
-    return {
-      code: codigoDe(marca),
-      name: marca.nome,
-      level,
-      sortOrder: posicao,
-      arquivo: marca.arquivo,
-      caminho: join(RAIZ_DAS_ARTES, marca.arquivo)
-    };
-  });
+  const marcas = JSON.parse(readFileSync(ARQUIVO_DO_CATALOGO, 'utf8'));
+  return marcas.map(marca => ({
+    code: marca.code,
+    name: marca.name,
+    level: marca.level,
+    sortOrder: marca.sortOrder,
+    arquivo: marca.arquivo,
+    caminho: join(RAIZ_DA_SEMENTE, marca.arquivo)
+  }));
 }
 
 async function principal() {
-  const catalogo = await catalogoDoCodigo();
+  const catalogo = catalogoDaSemente();
 
   // ---------------------------------------------------------- diagnóstico
   const existentes = await prisma.officialSponsor.findMany({
