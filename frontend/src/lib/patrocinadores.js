@@ -1,8 +1,28 @@
-// A parede de patrocínio da tela de entrada.
+// A APRESENTAÇÃO da parede de patrocínio — e, desde a migração para o banco,
+// SÓ a apresentação.
 //
-// Este arquivo é a ÚNICA lista. A ordem das categorias aqui é a ordem na tela,
-// e a hierarquia comercial é a razão entre as caixas — não um apelido, não uma
-// classe de CSS solta.
+// O QUE MUDOU, E O QUE FICOU
+//
+// `MARCAS`, abaixo, FOI a única lista de patrocinadores do produto. Hoje a
+// fonte é o catálogo `OfficialSponsor`, servido por `/public/sponsors`: a
+// parede da entrada e a esteira do rodapé leem de lá, por
+// `lib/catalogoDePatrocinio.js`. Trocar um patrocinador deixou de exigir
+// deploy, que era o ponto.
+//
+// A LISTA CONTINUA AQUI POR UM MOTIVO SÓ: ela é a ORIGEM da migração. O script
+// `scripts/provisionar-patrocinadores-oficiais.js` a importa para criar as 15
+// linhas e subir as 15 artes de `public/patrocinadores/` no primeiro deploy
+// desta versão. Nenhuma tela a consome — há teste que reprova se voltar a
+// consumir —, e apagá-la agora tiraria a rede de segurança da migração antes
+// de ela ter rodado em produção.
+//
+// O QUE ESTE ARQUIVO AINDA DECIDE é layout, não dado: o tamanho da caixa de
+// cada nível, a pastilha da Silver, o rótulo, a velocidade da esteira. Isso
+// NÃO vai para o banco — é desenho, muda com o CSS, e um campo de tamanho por
+// linha deixaria a hierarquia comercial à mercê de um número digitado errado.
+//
+// A ordem das categorias aqui é a ordem na tela, e a hierarquia comercial é a
+// razão entre as caixas — não um apelido, não uma classe de CSS solta.
 //
 // POR QUE CAIXA IGUAL, E NÃO LARGURA IGUAL NEM ALTURA IGUAL
 //

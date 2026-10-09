@@ -16,6 +16,10 @@ vi.mock('./services/api', () => {
       event: vi.fn(),
       athletes: vi.fn(() => Promise.resolve(vazio)),
       athlete: vi.fn()
+    ,
+      // A vitrine de patrocínio. O casco a chama nas telas públicas; sem o
+      // duplo, a chamada lança e leva a tela junto.
+      sponsors: vi.fn(() => Promise.resolve({ items: [] }))
     },
     ranking: { list: vi.fn(() => Promise.resolve({ items: [], season: null, nextCursor: null })), seasons: vi.fn(() => Promise.resolve(vazio)) },
     categories: { list: vi.fn(() => Promise.resolve(vazio)) },
@@ -40,7 +44,8 @@ vi.mock('./services/api', () => {
     // aplicação de volta à entrada quando o servidor recusa a sessão.
     SESSAO_EXPIRADA: 'mci-sessao-expirada',
     fetchMediaObjectUrl: vi.fn(() => Promise.reject(new Error('sem mídia'))),
-    releaseMediaObjectUrl: vi.fn()
+    releaseMediaObjectUrl: vi.fn(),
+    urlDeMidiaPublica: caminho => `http://api.test${caminho}`
   };
 });
 

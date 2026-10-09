@@ -48,7 +48,21 @@ const PERFIS = Object.freeze({
   avatar: { largura: 512, altura: 512, ajuste: 'cover', qualidade: 82 },
   // Mídia de publicação, story e mensagem: cabe em tela cheia de monitor
   // grande sem virar arquivo de megabytes.
-  midia: { largura: 2048, altura: 2048, ajuste: 'inside', qualidade: 80 }
+  midia: { largura: 2048, altura: 2048, ajuste: 'inside', qualidade: 80 },
+  // LOGO DE PATROCINADOR. `inside`, e NUNCA `cover`.
+  //
+  // O perfil de avatar recorta em quadrado — é o que se quer num retrato, e é
+  // destruição numa logo: a Cimerian tem proporção 10,6:1, e `cover` cortaria
+  // as pontas dela para caber num quadrado. Arte de patrocinador é compromisso
+  // comercial; cortar é pior que não mostrar.
+  //
+  // O teto é generoso porque a maior caixa da vitrine é 244x90 e a tela de
+  // retina pede o dobro. `withoutEnlargement` garante que arte pequena não é
+  // ampliada — ampliar não cria detalhe, só peso e borrão.
+  //
+  // Qualidade mais alta que a da mídia: logo é desenho de borda dura, e o
+  // artefato de compressão aparece no contorno, não na textura.
+  logo: { largura: 1024, altura: 512, ajuste: 'inside', qualidade: 92 }
 });
 
 // Formatos que atravessam sem processamento.

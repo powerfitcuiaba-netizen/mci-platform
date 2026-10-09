@@ -72,6 +72,22 @@ const PERMISSIONS = Object.freeze([
   // `Coach` é global por desenho, esse bloqueio atravessaria federações.
   'coaches.link_account',
   'brands.manage', 'sponsors.manage',
+  // O CATÁLOGO OFICIAL DE PATROCINADORES DO CAMPEONATO, que é outra coisa.
+  //
+  // `sponsors.manage` é o patrocinador DE UMA FEDERAÇÃO: a empresa que apoia um
+  // evento, uma equipe ou um atleta dela. Diretor de evento tem, e deve ter.
+  //
+  // `sponsors.official` é o catálogo INSTITUCIONAL — quem patrocina o
+  // campeonato brasileiro, e aparece na tela de entrada, onde não existe
+  // organização nenhuma. Quem tem uma NÃO ganha a outra, e a separação é o
+  // ponto: com `sponsors.manage` sozinho, o diretor de qualquer federação
+  // escreveria na vitrine nacional. É o mesmo raciocínio de `categories.manage`
+  // na fase F2, pelo mesmo motivo — o que é oficial e divulgado pertence à
+  // plataforma, não a quem conduz a etapa.
+  //
+  // Ela NÃO é delegável e nem ADMIN a recebe: ver a lista de exclusão de ADMIN,
+  // logo abaixo, onde ela entra junto de `organizations.manage`.
+  'sponsors.official',
   'social.read', 'social.write', 'social.moderate', 'social.delete',
   'messenger.use', 'messenger.moderate',
   'communities.read', 'communities.write', 'communities.manage',
@@ -132,10 +148,19 @@ const ROLE_PERMISSIONS = Object.freeze({
   // permissões acrescentadas depois desta linha.
   SUPER_ADMIN: Object.freeze([...PERMISSIONS]),
 
-  // ADMIN recebe tudo menos `organizations.manage` E menos as centrais
-  // delegadas (R-02). Ele continua sendo papel de plataforma; o que ele perdeu é
-  // o poder de mexer na atribuição de pontos SEM concessão registrada.
-  ADMIN: Object.freeze(PERMISSIONS.filter(p => p !== 'organizations.manage' && !DELEGADAS.has(p))),
+  // ADMIN recebe tudo menos `organizations.manage`, menos `sponsors.official` E
+  // menos as centrais delegadas (R-02). Ele continua sendo papel de plataforma;
+  // o que ele perdeu é o poder de mexer na atribuição de pontos SEM concessão
+  // registrada — e, agora, o de mexer no patrocínio institucional.
+  //
+  // `sponsors.official` fica FORA DE ADMIN por decisão de produto: a vitrine de
+  // patrocínio é contrato comercial do campeonato, e a lista de quem aparece
+  // nela termina em SUPER_ADMIN, como a cadeia de `central.grant`. A política
+  // do banco repete a mesma regra em `mci_is_super_admin()`, para que uma rota
+  // nova esquecida não abra o catálogo por omissão.
+  ADMIN: Object.freeze(PERMISSIONS.filter(p => (
+    p !== 'organizations.manage' && p !== 'sponsors.official' && !DELEGADAS.has(p)
+  ))),
 
   EVENT_DIRECTOR: operacional(
     'organizations.read',

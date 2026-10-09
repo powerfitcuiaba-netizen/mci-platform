@@ -175,6 +175,21 @@ const upload = (path, arquivo, campos = {}, campo = 'file') => {
 // Mídia protegida. A rota exige Authorization, e <img src> não manda
 // cabeçalho — então o arquivo é buscado com o token e exposto como object URL.
 // Token em query string acabaria em log de servidor, histórico e Referer.
+/**
+ * A URL PÚBLICA de uma mídia aberta, para usar direto no `src` de um `<img>`.
+ *
+ * `fetchMediaObjectUrl`, logo abaixo, existe para mídia que exige token: ela
+ * busca por JS, carrega o cabeçalho de autorização e devolve um `blob:`. Para
+ * mídia ABERTA isso é custo puro — uma requisição por imagem feita pelo
+ * JavaScript, fora do cache de imagem do navegador, sem `fetchpriority` e sem
+ * carregamento preguiçoso.
+ *
+ * A logo de patrocinador é aberta de propósito (ela aparece na tela de entrada,
+ * onde não há sessão), então ela vai pelo caminho barato: o navegador busca,
+ * cacheia e reaproveita entre a parede da entrada e a esteira do rodapé.
+ */
+export const urlDeMidiaPublica = caminho => `${API_URL}${caminho}`;
+
 export async function fetchMediaObjectUrl(caminho) {
   const token = getAuthToken();
   // Mesmo teto de espera das demais chamadas. Sem ele, uma conexão que abre e
@@ -587,7 +602,25 @@ export const api = {
     // Filiações que aceitam autocadastro. Existe porque `/affiliations` é
     // escopado ao vínculo do ator, e quem acabou de criar conta não tem
     // nenhum — a lista voltava vazia e a solicitação era impossível.
-    affiliations: params => get('/public/affiliations', params)
+    affiliations: params => get('/public/affiliations', params),
+    // A VITRINE DE PATROCÍNIO. Anônima, uma consulta só, já na ordem da
+    // hierarquia comercial — a tela não reordena nada.
+    sponsors: () => get('/public/sponsors')
+  },
+
+  // O CATÁLOGO OFICIAL DE PATROCINADORES — administração.
+  //
+  // Separado de `partners.sponsors`, que é o patrocinador de uma federação:
+  // são conceitos diferentes, com permissões diferentes. Este exige
+  // `sponsors.official`, que só SUPER_ADMIN tem.
+  officialSponsors: {
+    list: () => get('/official-sponsors'),
+    // A arte vai no MESMO pedido que cria a linha: patrocinador sem logo não
+    // tem o que mostrar numa vitrine.
+    create: (arquivo, campos) => upload('/official-sponsors', arquivo, campos),
+    update: (id, corpo) => patch(`/official-sponsors/${id}`, corpo),
+    changeLogo: (id, arquivo) => upload(`/official-sponsors/${id}/logo`, arquivo),
+    remove: (id, motivo) => remove(`/official-sponsors/${id}`, { motivo })
   },
 
   notifications: {

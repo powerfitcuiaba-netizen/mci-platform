@@ -76,6 +76,12 @@ const uploadMidia = singleFileUpload('file', { maxBytes: storage.MAX_MEDIA_BYTES
 // Um avatar aparece dezenas de vezes por tela; não há motivo para aceitar os
 // mesmos megabytes de um vídeo de publicação.
 const uploadAvatar = singleFileUpload('file', { maxBytes: storage.MAX_AVATAR_BYTES, tipo: 'avatar' });
+// A LOGO usa a mesma lista de tipos e o mesmo teto do avatar — PNG, JPEG e
+// WebP, que é o que o sharp decodifica com segurança. SVG fica DE FORA de
+// propósito: é documento executável, com script e referência externa, e
+// servi-lo da nossa origem seria XSS armazenado. Quem precisa de SVG exporta
+// em PNG, que é o que as 15 artes já são.
+const uploadLogo = singleFileUpload('file', { maxBytes: storage.MAX_AVATAR_BYTES, tipo: 'avatar' });
 // A FOTO DO TREINADOR. Mesmo teto e mesma lista de tipos do avatar — é foto de
 // perfil, com o mesmo uso. O campo do formulário é `photo`, e não `file`, porque
 // o autocadastro manda foto E campos de texto na mesma requisição: um nome que
@@ -643,6 +649,15 @@ router.get('/media/profiles/:id/avatar', optionalAuth, validate(s.paramsWithId, 
 // superfície pública é servida com `optionalAuth`.
 router.get('/media/athlete-requests/:id/photo', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.athleteRequestPhoto));
 router.get('/media/athletes/:id/photo', optionalAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.athletePhoto));
+// A LOGO DO PATROCINADOR OFICIAL — pública, pela mesma razão da foto do
+// atleta: é uma parede de patrocínio, e uma marca que ninguém vê não cumpre o
+// contrato. `optionalAuth` e não `requireAuth` porque a vitrine aparece na
+// tela de ENTRADA, onde por definição não há sessão.
+//
+// O que a sessão muda: só quem administra o catálogo alcança a logo de
+// patrocinador DESATIVADO. Para o resto do mundo ela responde 404, e não 403 —
+// um 403 confirmaria a existência do id a quem não deveria sabê-la.
+router.get('/media/sponsors/:id/logo', optionalAuth, validate(s.paramsWithId, 'params'), wrap(c.documents.sponsorLogo));
 // `optionalAuth`: a foto do treinador aparece no ranking de treinadores, que é
 // superfície pública — mesma razão da foto do atleta na vitrine. O id é tudo o
 // que a rota recebe; a chave do objeto é resolvida no servidor.
@@ -704,8 +719,45 @@ router.get('/admin/users', requireAuth, perm('users.read'), validate(s.adminUser
 router.get('/admin/users/:id', requireAuth, perm('users.read'), validate(s.paramsWithId, 'params'), wrap(c.admin.findUser));
 router.patch('/admin/users/:id', requireAuth, perm('users.manage'), validate(s.paramsWithId, 'params'), validate(s.adminUserUpdate), wrap(c.admin.updateUser));
 
+// =============================================== PATROCINADORES OFICIAIS
+//
+// O CATÁLOGO INSTITUCIONAL DO CAMPEONATO, que não é `/sponsors` acima: aquele
+// é o patrocinador de uma federação, tem organização e permissão própria.
+//
+// A ESCRITA É SÓ DE SUPER ADMIN. `perm('sponsors.official')` — sem organização,
+// porque não existe uma: é permissão de plataforma. ADMIN NÃO a recebe (ver a
+// lista de exclusão em utils/permissions.js), e a política do banco repete a
+// regra em `mci_is_super_admin()`. Três barreiras para a mesma decisão, de
+// propósito: se esta linha for esquecida numa rota futura, o serviço recusa; se
+// o serviço for chamado sem ator, o banco recusa.
+router.route('/official-sponsors')
+  .get(requireAuth, perm('sponsors.official'), wrap(c.officialSponsors.listar))
+  // O upload vem no MESMO pedido da criação: um patrocinador sem arte não tem
+  // o que mostrar numa vitrine, e criar primeiro para subir depois deixaria
+  // linha meia-feita se o segundo passo falhasse.
+  //
+  // `uploadLogo` ANTES de `validate`: é o multer que preenche `req.body` a
+  // partir do corpo multipart. Invertido, o schema leria um corpo vazio.
+  .post(requireAuth, perm('sponsors.official'), limiteUpload, uploadLogo,
+    validate(s.officialSponsorCreate), wrap(c.officialSponsors.criar));
+
+router.route('/official-sponsors/:id')
+  .patch(requireAuth, perm('sponsors.official'), validate(s.paramsWithId, 'params'),
+    validate(s.officialSponsorUpdate), wrap(c.officialSponsors.atualizar))
+  // Apagar de vez é o caminho do ENGANO, não o normal — o normal é desativar,
+  // que preserva o histórico. Por isso exige motivo escrito.
+  .delete(requireAuth, perm('sponsors.official'), validate(s.paramsWithId, 'params'),
+    validate(s.officialSponsorDelete), wrap(c.officialSponsors.remover));
+
+router.post('/official-sponsors/:id/logo', requireAuth, perm('sponsors.official'), limiteUpload,
+  validate(s.paramsWithId, 'params'), uploadLogo, wrap(c.officialSponsors.trocarLogo));
+
 // =================================================================== VITRINE
 router.get('/public/summary', limitePublico, wrap(c.publicApi.summary));
+// A VITRINE DE PATROCÍNIO. Anônima e somente leitura, como o resto de
+// `/public`: devolve só quem está ATIVO, já na ordem da hierarquia comercial.
+// Uma consulta basta para montar a faixa inteira — sem N+1, sem polling.
+router.get('/public/sponsors', limitePublico, wrap(c.officialSponsors.vitrine));
 router.get('/public/events', limitePublico, validate(s.buscaPublica, 'query'), wrap(c.publicApi.listEvents));
 router.get('/public/events/:slug', limitePublico, wrap(c.publicApi.eventPage));
 // Descoberta de filiações para quem ainda não tem vínculo com organização

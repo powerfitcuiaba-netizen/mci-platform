@@ -81,7 +81,17 @@ services:
     #
     # Se o seu plano não oferecer preDeployCommand, remova esta linha e rode os
     # DOIS comandos, nesta ordem, pelo shell do serviço, ANTES de promover.
-    preDeployCommand: npx prisma migrate deploy && node scripts/provisionar-contas-de-servico.js
+    # O TERCEIRO PASSO é o catálogo de patrocinadores oficiais. Mesma razão dos
+    # outros dois: migration altera ESTRUTURA, e as 15 marcas que já estavam no
+    # ar são DADO — mais ARQUIVO, que SQL não sobe. Sem ele a vitrine subiria
+    # vazia e a tela de entrada perderia a parede de patrocínio no primeiro
+    # deploy desta versão.
+    #
+    # IDEMPOTENTE e só INSERT: no deploy seguinte encontra tudo provisionado,
+    # imprime "nada a fazer" e sai com 0. Ele NÃO sobrescreve marca existente —
+    # depois do provisionamento quem manda é o banco, e o script não desfaz
+    # edição feita pela tela.
+    preDeployCommand: npx prisma migrate deploy && node scripts/provisionar-contas-de-servico.js && node scripts/provisionar-patrocinadores-oficiais.js
 
     envVars:
       - key: NODE_ENV

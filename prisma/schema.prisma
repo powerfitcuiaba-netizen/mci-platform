@@ -237,6 +237,12 @@ model User {
   centralGrantsGiven        CentralAuthorization[]  @relation("CentralGrantor")
   centralGrantsRevoked      CentralAuthorization[]  @relation("CentralRevoker")
 
+  // O catálogo de patrocinadores oficiais guarda quem criou e quem alterou por
+  // último — a auditoria completa vive em `AuditLog`, estes dois campos são o
+  // atalho que a tela de administração mostra sem abrir a trilha.
+  officialSponsorsCreated OfficialSponsor[] @relation("OfficialSponsorCreator")
+  officialSponsorsEdited  OfficialSponsor[] @relation("OfficialSponsorEditor")
+
   @@index([role])
   @@index([status])
 }
@@ -2348,6 +2354,90 @@ model Brand {
   partnerships  AthleteBrandPartnership[]
 
   @@index([organizationId, active])
+}
+
+/// O NÍVEL DE PATROCÍNIO, como ele é vendido em contrato.
+///
+/// Os nomes NÃO se traduzem: Global, Diamante, Gold e Silver são as cotas dos
+/// contratos (SITEGLOBAL, SITEDIAMANTE, SITEGOLD, SITESILVER). Traduzir "Gold"
+/// para "Ouro" renomearia uma cota vendida.
+///
+/// SÃO EXATAMENTE QUATRO, e não há texto livre: o nível é enum no banco e no
+/// schema de entrada. "Silver — apoio e parceiros" é a APRESENTAÇÃO do Silver,
+/// não um quinto nível.
+///
+/// A ORDEM DO ENUM É A HIERARQUIA, e é o que ordena a vitrine. Acrescentar um
+/// nível exige também a caixa dele em `frontend/src/lib/patrocinadores.js` e no
+/// CSS: o tamanho de cada nível é parte do contrato, não detalhe de layout.
+enum SponsorLevel {
+  GLOBAL
+  DIAMANTE
+  GOLD
+  SILVER
+}
+
+/// PATROCINADOR OFICIAL DO CAMPEONATO — o catálogo da vitrine.
+///
+/// NÃO É O MESMO QUE `Sponsor`, logo abaixo, e a distinção é de domínio:
+/// `Sponsor` é uma empresa que patrocina um evento, uma equipe ou um atleta DE
+/// UMA FEDERAÇÃO, tem `organizationId` obrigatório, vive sob RLS e se liga por
+/// `Sponsorship`. Este aqui é institucional: é quem patrocina o CAMPEONATO, e
+/// aparece na tela de entrada — onde não existe organização nenhuma — e no
+/// rodapé da vitrine pública.
+///
+/// POR ISSO ELE É GLOBAL, sem `organizationId`. É o mesmo desenho de
+/// `Category`: catálogo oficial e nacional, que não pertence a federação
+/// alguma, e por isso também não entra em RLS — a barreira dele é a permissão
+/// `sponsors.official`, que só `SUPER_ADMIN` tem. Uma federação não escolhe
+/// quem patrocina o campeonato brasileiro.
+///
+/// A LOGO É A CHAVE do objeto no armazenamento, nunca uma URL: quem a resolve é
+/// o servidor, ao servir `GET /media/sponsors/:id/logo`. Mesmo desenho de
+/// `Athlete.photoKey` e `Coach.photoKey`, e pela mesma razão — não existe
+/// parâmetro por onde o cliente passar uma chave, então trocar o id na URL só
+/// alcança o que aquele id autoriza. A chave NUNCA sai em resposta: o que sai é
+/// o booleano `hasLogo`.
+model OfficialSponsor {
+  id   String @id @default(cuid())
+  /// Identificador ESTÁVEL, usado pelo provisionamento para ser idempotente.
+  /// É ele que permite rodar o script de novo sem criar marca duplicada — e é
+  /// o que amarra a linha ao arquivo que veio de `public/patrocinadores/`.
+  code String @unique
+  name String
+
+  level SponsorLevel
+
+  /// A ordem DENTRO do nível. Entre níveis quem ordena é o `level`, e isso não
+  /// é negociável pela tela: a hierarquia comercial não se reordena arrastando.
+  /// `sortOrder` e não `displayOrder` pela convenção do projeto — é o nome que
+  /// `Category`, o outro catálogo global, já usa.
+  sortOrder Int @default(0)
+
+  /// Fora do ar sem perder o cadastro. Remover de vez também é possível, mas
+  /// desativar é o caminho normal: o contrato acabou, a marca sai da vitrine, e
+  /// o registro continua para quando ela voltar.
+  active Boolean @default(true)
+
+  /// A chave no armazenamento. Obrigatória: patrocinador sem arte não tem o que
+  /// mostrar numa vitrine, e deixá-la anulável criaria linha que ocupa espaço
+  /// na esteira sem desenhar nada.
+  logoKey String
+
+  /// O site oficial, quando houver. ANULÁVEL de propósito: o catálogo anterior
+  /// não guardava site nenhum, e inventar endereço para as 15 marcas que já
+  /// existem seria fabricar dado. Sem ele, a logo não vira link.
+  siteUrl String?
+
+  createdById String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy User? @relation("OfficialSponsorCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy User? @relation("OfficialSponsorEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  /// A vitrine lê sempre o mesmo recorte: ativos, por nível e ordem.
+  @@index([active, level, sortOrder])
 }
 
 model Sponsor {

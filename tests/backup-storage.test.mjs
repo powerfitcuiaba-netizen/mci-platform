@@ -202,7 +202,7 @@ describe.skipIf(!URL_BACKUP)('backup e restauração do storage', () => {
 // script. Se um campo `*Key` novo entrar sem classificação, reprova aqui.
 // ============================================================================
 describe('todo campo `*Key` do schema está classificado', () => {
-  const CAMPOS_DE_ARQUIVO = /^(storageKey|photoKey|avatarKey|coverKey)$/;
+  const CAMPOS_DE_ARQUIVO = /^(storageKey|photoKey|avatarKey|coverKey|logoKey)$/;
 
   const listaDoScript = () => {
     const fonte = fs.readFileSync('scripts/backup-storage.js', 'utf8');

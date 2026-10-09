@@ -3,7 +3,7 @@ import {
   app, api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
   vincular, comoAtor, criarAtleta, criarEventoCompleto, inscrever, transicionar, unico, gerarCpf
 } from './helpers.mjs';
-import { matriz, PERMISSAO, AUTOSSERVICO, SOCIAL, PNG_MINIMO } from './matriz-de-autorizacao.mjs';
+import { matriz, PERMISSAO, AUTOSSERVICO, SOCIAL, PNG_MINIMO, PNG_VALIDO } from './matriz-de-autorizacao.mjs';
 
 // ============================================================================
 // GATE EXAUSTIVO DE AUTORIZAÇÃO POR ROTA (T1)
@@ -169,6 +169,17 @@ beforeAll(async () => {
   const parceria = await api().post('/api/v1/partnerships').set(admin.auth())
     .send({ athleteId: athleteA, brandId: marca.body.id });
   expect(parceria.status, 'positivo: admin cria parceria').toBeLessThan(300);
+
+  // O PATROCINADOR OFICIAL É MULTIPART: a arte é obrigatória e vem no mesmo
+  // pedido que cria a linha. Criá-lo aqui é também a prova POSITIVA de que
+  // quem tem `sponsors.official` consegue operar — a matriz abaixo mede a
+  // recusa de quem não tem.
+  const patrocinadorOficial = await api().post('/api/v1/official-sponsors').set(admin.auth())
+    .field('code', `QA-BASE-${sufixo}`.toUpperCase().slice(0, 40))
+    .field('name', 'Patrocinador Oficial Base')
+    .field('level', 'SILVER')
+    .attach('file', PNG_VALIDO, { filename: 'logo.png', contentType: 'image/png' });
+  expect(patrocinadorOficial.status, `positivo: admin cria patrocinador oficial — ${JSON.stringify(patrocinadorOficial.body).slice(0, 200)}`).toBeLessThan(300);
 
   // O atleta precisa estar em equipe para que `team/unlink` e `transfer` tenham alvo.
   expect((await api().post(`/api/v1/athletes/${athleteA}/team`).set(admin.auth())
@@ -362,6 +373,7 @@ beforeAll(async () => {
     athleteA, athleteSemEquipe, cpfDoAtletaA, cpfLivre: gerarCpf(510021), cpfLivre2: gerarCpf(510022),
     matriculaLivre: '9099',
     teamA: equipe.body.id, brandA: marca.body.id, sponsorA: patrocinador.body.id, partnershipA: parceria.body.id,
+    patrocinadorOficial: patrocinadorOficial.body.id,
     registrationA, registrationItemA,
     credencialA: credencial.body.id, credencialCodigo: credencial.body.code ?? 'QA-CODIGO',
     batchA: bateria.body.id,
@@ -426,13 +438,18 @@ describe('a matriz e a superfície são o MESMO conjunto', () => {
 });
 
 describe('401 — sem sessão, nenhuma rota mutante executa', () => {
-  it('as 143 rotas mutantes autenticadas recusam requisição sem token', async () => {
+  it('as 147 rotas mutantes autenticadas recusam requisição sem token', async () => {
     // 141 → 143: as duas portas da correção administrativa de filiação.
+    // 143 → 147: o catálogo de patrocinadores oficiais — criar, editar, trocar
+    // a logo e remover. As quatro exigem `sponsors.official`, que só
+    // SUPER_ADMIN tem, e as quatro são de escopo de plataforma: o catálogo é do
+    // CAMPEONATO, não de uma federação.
+    //
     // Este número é ARAME DE TROPEÇO de propósito — crescer a superfície
     // mutante tem de exigir que alguém escreva o novo total à mão, olhando o
     // que entrou. Atualizá-lo sem declarar a rota na matriz não ajudaria: o
     // teste de conjunto, acima, quebraria primeiro.
-    expect(entradas.length, 'a matriz cobre as rotas mutantes autenticadas').toBe(143);
+    expect(entradas.length, 'a matriz cobre as rotas mutantes autenticadas').toBe(147);
     const falhas = [];
     for (const entrada of entradas) {
       const r = await disparar(entrada, null);
@@ -493,8 +510,21 @@ describe('autosserviço e social — o limite é o dono, não a permissão', () 
         'POST /coaches/:id/reactivate',
         'POST /coaches/:id/reject',
         'POST /coaches/:id/suspend',
-        'POST /coaches/me/teams'
-      ]);
+        'POST /coaches/me/teams',
+
+        // O CATÁLOGO DE PATROCINADORES OFICIAIS, e aqui a globalidade é o
+        // próprio requisito: a vitrine que ele alimenta aparece na TELA DE
+        // ENTRADA, antes de qualquer sessão ou organização. `OfficialSponsor`
+        // não tem `organizationId` — é o mesmo desenho de `Category`, catálogo
+        // oficial e nacional que não pertence a federação alguma.
+        //
+        // A ordem aqui é por assinatura: `DELETE` e `PATCH` vêm antes de `POST`,
+        // e os três de `/official-sponsors` ficam separados na lista por isso.
+        'DELETE /official-sponsors/:id',
+        'PATCH /official-sponsors/:id',
+        'POST /official-sponsors',
+        'POST /official-sponsors/:id/logo'
+      ].sort());
   });
 
   // A exclusão do cross-tenant não pode ser barata: ela desliga a única

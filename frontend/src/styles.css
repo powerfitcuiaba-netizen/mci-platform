@@ -2759,6 +2759,18 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
 }
 .patro:hover { transform: translate3d(0, -3px, 0); }
 
+/* A LOGO VIRA LINK quando o patrocinador tem site cadastrado. Sem site ela
+   continua sendo uma `div` — uma âncora sem destino prometeria um site ao
+   teclado e ao leitor de tela. */
+a.patro-link { text-decoration: none; cursor: pointer; }
+/* O FOCO PRECISA APARECER, e por cima da máscara de esmaecimento da esteira:
+   quem navega por teclado para o movimento com `:focus-within` e precisa ver
+   onde está. */
+a.patro-link:focus-visible {
+  outline: 2px solid var(--ciano); outline-offset: 3px; border-radius: 6px;
+  position: relative; z-index: 1;
+}
+
 /* A SILVER VAI SOBRE PASTILHA CLARA, e não é enfeite: duas das três marcas têm
    tinta PRETA (o texto da Lipoxyderm, o contorno da Muscle Contest
    International) e sumiriam no fundo escuro. A pastilha devolve o fundo que a
@@ -2809,6 +2821,48 @@ tr.linha-afetada > td:first-child { box-shadow: inset 2px 0 0 0 var(--ciano-puro
   .auth-arena .arena-titulo .linha2::after { animation: none; }
   .patro { transition: none; }
   .patro:hover { transform: none; }
+}
+
+/* ------------------- configurações → patrocinadores oficiais (admin) */
+.patro-cabecalho { margin: 0 0 var(--e5); }
+.patro-cabecalho h2 {
+  font-family: var(--fonte-titulo, inherit); font-size: 22px; margin: 0 0 6px; letter-spacing: .01em;
+}
+.patro-cabecalho p { margin: 0; color: var(--cinza); font-size: 13px; line-height: 1.6; max-width: 70ch; }
+/* A PRÉVIA DA LOGO tem caixa de tamanho DECLARADO e a arte encaixa dentro na
+   própria proporção. `contain`, nunca `cover`: cortar a arte de um
+   patrocinador é pior que não mostrá-la, e a caixa fixa reserva o espaço antes
+   de a imagem chegar — sem deslocamento quando ela carrega. */
+.patro-previa {
+  display: grid; place-items: center; flex: 0 0 auto;
+  width: 96px; border-radius: 8px; background: #0a1016; border: 1px solid var(--linha);
+  overflow: hidden;
+}
+.patro-previa img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; display: block; }
+.patro-previa-vazia { background: repeating-linear-gradient(45deg, #0a1016, #0a1016 6px, #0d141c 6px, #0d141c 12px); }
+
+.patro-escolher { display: flex; align-items: center; gap: var(--e4); flex-wrap: wrap; }
+.patro-escolher input[type="file"] { flex: 1 1 220px; min-width: 0; }
+.patro-dica { display: block; margin-top: 6px; color: var(--cinza-fraco); font-size: 11.5px; line-height: 1.5; }
+.patro-ativo { display: flex; align-items: center; gap: var(--e2); cursor: pointer; }
+
+.patro-linha { gap: var(--e4); }
+/* O INATIVO CONTINUA LEGÍVEL. Esmaecer até sumir esconderia justamente a linha
+   que alguém veio reativar; o que ele perde é destaque, não leitura. */
+.patro-inativo .patro-previa, .patro-inativo .info { opacity: .55; }
+.patro-acoes { display: flex; gap: var(--e2); flex-wrap: wrap; margin-left: auto; }
+.patro-previa-publica { padding-bottom: 0; overflow: hidden; }
+/* Dentro da prévia a faixa não precisa da borda de topo que a separa do
+   conteúdo na vitrine: aqui o painel já a delimita. */
+.patro-previa-publica .rodape-patro { border-top: 0; }
+
+@media (max-width: 720px) {
+  /* NO CELULAR A LINHA VIRA CARTÃO. Uma linha de tabela com prévia, nome,
+     selo e três ações estouraria a largura — e a regra da casa é que a página
+     nunca rola na horizontal. */
+  .patro-linha { flex-wrap: wrap; }
+  .patro-acoes { margin-left: 0; width: 100%; }
+  .patro-acoes .button { flex: 1 1 auto; justify-content: center; }
 }
 
 /* ------------------------------- faixa de patrocínio do rodapé da vitrine */

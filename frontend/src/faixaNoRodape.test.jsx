@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
-import { MARCAS } from './lib/patrocinadores';
+
+
 
 // ==========================================================================
 // A FAIXA DE PATROCÍNIO NO CASCO — onde ela aparece, e onde NÃO aparece.
@@ -20,6 +21,16 @@ import { MARCAS } from './lib/patrocinadores';
 // ==========================================================================
 
 const respostas = vi.hoisted(() => ({ user: null }));
+// O CATÁLOGO VEM DO BANCO. Esta fixture imita `/public/sponsors`: já ordenada
+// pelo servidor, só com quem está ativo, e SEM `logoKey` — a chave de
+// armazenamento não sai da API, o que sai é `hasLogo`.
+const CATALOGO_MOCK = vi.hoisted(() => ([
+  { id: 's1', code: 'MAX-TITANIUM', name: 'Max Titanium', level: 'GLOBAL', sortOrder: 0, active: true, siteUrl: null, hasLogo: true },
+  { id: 's2', code: 'CIMERIAN', name: 'Cimerian', level: 'GLOBAL', sortOrder: 1, active: true, siteUrl: null, hasLogo: true },
+  { id: 's3', code: 'SOLDIERS', name: 'Soldiers Nutrition', level: 'DIAMANTE', sortOrder: 0, active: true, siteUrl: null, hasLogo: true },
+  { id: 's4', code: 'BLACK-SKULL', name: 'Black Skull', level: 'GOLD', sortOrder: 0, active: true, siteUrl: null, hasLogo: true },
+  { id: 's5', code: 'TAN-MASTERS', name: 'Tan Masters', level: 'SILVER', sortOrder: 0, active: true, siteUrl: null, hasLogo: true }
+]));
 
 vi.mock('./services/api', () => {
   const vazio = { items: [], nextCursor: null };
@@ -35,7 +46,8 @@ vi.mock('./services/api', () => {
       events: vi.fn(() => Promise.resolve(vazio)),
       event: vi.fn(() => Promise.resolve(null)),
       athletes: vi.fn(() => Promise.resolve(vazio)),
-      athlete: vi.fn(() => Promise.resolve({ athlete: null, results: [], titles: 0, rankings: [] }))
+      athlete: vi.fn(() => Promise.resolve({ athlete: null, results: [], titles: 0, rankings: [] })),
+      sponsors: vi.fn(() => Promise.resolve({ items: CATALOGO_MOCK }))
     },
     ranking: {
       list: vi.fn(() => Promise.resolve({ items: [], season: null, nextCursor: null, publicView: true, publicLimit: 5 })),
@@ -68,7 +80,8 @@ vi.mock('./services/api', () => {
     setAuthToken: vi.fn(), clearAuthToken: vi.fn(), refreshData: vi.fn(),
     SESSAO_EXPIRADA: 'mci-sessao-expirada',
     fetchMediaObjectUrl: vi.fn(() => Promise.reject(new Error('sem mídia'))),
-    releaseMediaObjectUrl: vi.fn()
+    releaseMediaObjectUrl: vi.fn(),
+    urlDeMidiaPublica: caminho => `http://api.test${caminho}`
   };
 });
 
@@ -176,10 +189,16 @@ describe('o layout da vitrine não é invadido', () => {
   it('e as marcas que ela mostra são as do catálogo, nenhuma a mais', async () => {
     const container = await abrir('ranking');
     await waitFor(() => expect(container.querySelector('.rodape-patro')).toBeTruthy());
-    const arquivos = new Set(MARCAS.map(m => `/patrocinadores/${m.arquivo}`));
-    for (const img of container.querySelectorAll('.rodape-patro img')) {
-      expect(arquivos.has(img.getAttribute('src')),
-        `${img.getAttribute('src')} não é arte do catálogo`).toBe(true);
+    // Toda arte é servida pela rota de mídia, por ID de patrocinador — nunca
+    // por caminho de arquivo, e nunca por um id que não esteja no catálogo.
+    const ids = new Set(CATALOGO_MOCK.map(p => p.id));
+    const imagens = [...container.querySelectorAll('.rodape-patro img')];
+    expect(imagens.length, 'a faixa não desenhou nenhuma arte').toBeGreaterThan(0);
+    for (const img of imagens) {
+      const src = img.getAttribute('src');
+      const achado = /\/media\/sponsors\/([^/]+)\/logo$/.exec(src);
+      expect(achado, `${src} não é a rota de logo do catálogo`).toBeTruthy();
+      expect(ids.has(achado[1]), `${achado[1]} não está no catálogo`).toBe(true);
     }
   });
 });

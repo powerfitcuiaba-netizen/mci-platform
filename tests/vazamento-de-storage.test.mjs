@@ -19,6 +19,11 @@ import {
 // ==========================================================================
 
 const CAMPOS_PROIBIDOS = [
+  // `logoKey` entrou quando o catálogo de patrocinadores oficiais foi para o
+  // banco. A vitrine é a superfície MAIS pública do produto — ela aparece na
+  // tela de entrada, antes de qualquer sessão —, e a chave é caminho dentro do
+  // bucket. O que sai é o booleano `hasLogo`.
+  'logoKey',
   'photoKey', 'avatarKey', 'coverKey', 'storageKey', 'objectKey', 'storagePath',
   'bucket', 'r2Key', 's3Key', 'signedUrl', 'presignedUrl', 'endpoint',
   'accessKey', 'accessKeyId', 'secretAccessKey', 'secret'
