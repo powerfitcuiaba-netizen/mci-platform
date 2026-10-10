@@ -5,11 +5,12 @@ import { useAuth } from '../AuthContext';
 import { useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Field, Metric, Modal, ModalActions, PageHead } from '../components/ui';
 import { useIdioma } from '../lib/idioma';
+import FotoDoAtleta from '../components/fotoDoAtleta';
 import { ESTADO_PRO, caminhoDaFotoDoAtleta, formatarData, formatarDataHora, pesoEmKg, seloDoEvento, estadoDaBateria, estadoDaInscricao, papel, estadoDoUsuario } from '../lib/format';
 
 // Painel do atleta e conta do usuário.
 
-export function MeuPainel({ navegar }) {
+export function MeuPainel({ navegar, notificar }) {
   const { t } = useIdioma();
   const estado = useFetch(() => api.dashboard.athlete(), []);
 
@@ -64,6 +65,24 @@ export function MeuPainel({ navegar }) {
                   </div>
                 </div>
               </section>
+
+              {/* A COBRANÇA DA FOTO, logo abaixo do cabeçalho e só para quem
+                  está sem. Ela não bloqueia nada: o atleta continua se
+                  inscrevendo, competindo e pontuando — o que falta é a
+                  imagem que a vitrine mostra. O cartão some sozinho assim
+                  que a foto entra. */}
+              {!athlete.hasPhoto && (
+                <div style={{ marginTop: 18 }}>
+                  <FotoDoAtleta
+                    athleteId={athlete.id}
+                    temFoto={false}
+                    titulo={t('atletaFoto.minhaFoto')}
+                    enviar={arquivo => api.athletes.setMyPhoto(arquivo)}
+                    notificar={notificar}
+                    aoTrocar={estado.reload}
+                  />
+                </div>
+              )}
 
               <div className="grid grid-4" style={{ marginTop: 18 }}>
                 <Metric label={t('painel.titulos')} value={titles} destaque />

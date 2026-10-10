@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
   api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, comoAtor, unico, gerarCpf
-} from './helpers.mjs';
+  vincular, comoAtor, unico, gerarCpf, pedirPerfilDeAtleta } from './helpers.mjs';
 import meService from '../src/services/meService.js';
 import { withUserContext } from '../src/config/rlsSession.js';
 
@@ -192,7 +191,7 @@ beforeEach(async () => {
   // O CADASTRO PELO AUTOCADASTRO, feito pela conta do ADMIN — que é exatamente
   // o acidente que ocorreu em produção. `userId` do atleta nasce sendo a conta
   // que abriu o pedido.
-  const pedido = await api().post('/api/v1/athlete-requests').set(admin.auth()).send({
+  const pedido = await pedirPerfilDeAtleta(admin, {
     fullName: NOME, cpf: gerarCpf(880001), sex: 'FEMALE', birthDate: '1998-07-15',
     affiliationId: npc.id, affiliationNumber: MATRICULA
   });

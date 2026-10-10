@@ -4,6 +4,7 @@ import api from '../services/api';
 import { useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Field, Modal, ModalActions, PageHead } from '../components/ui';
 import { caminhoDaFotoDoAtleta, formatarData, formatarDataHora } from '../lib/format';
+import FotoDoAtleta from '../components/fotoDoAtleta';
 import { useIdioma } from '../lib/idioma';
 
 // ==========================================================================
@@ -135,7 +136,24 @@ export function AdminAtleta({ id, navegar, notificar }) {
               </div>
 
               {aba === 'resumo' && <Resumo atleta={atleta} dados={dados} />}
-              {aba === 'cadastro' && <Cadastro atleta={atleta} />}
+              {aba === 'cadastro' && (
+                <>
+                  <Cadastro atleta={atleta} />
+                  {/* A FOTO FICA NA ABA CADASTRO, e não no resumo: é dado de
+                      cadastro, e é aqui que o operador já vem para corrigir
+                      nome, cidade e filiação. O envio pela federação existe
+                      para o atleta que não acessa a plataforma — e a trilha
+                      registra que foi a federação quem enviou. */}
+                  <FotoDoAtleta
+                    athleteId={atleta.id}
+                    temFoto={Boolean(atleta.hasPhoto)}
+                    dica={t('atletaFoto.dicaDoOperador')}
+                    enviar={arquivo => api.athletes.setPhoto(atleta.id, arquivo)}
+                    notificar={notificar}
+                    aoTrocar={recarregar}
+                  />
+                </>
+              )}
               {aba === 'historico' && <HistoricoEsportivo dados={dados} />}
               {aba === 'importado' && <HistoricoImportado atleta={atleta} notificar={notificar} aoVincular={recarregar} />}
               {aba === 'pontuacao' && <Pontuacao dados={dados} />}

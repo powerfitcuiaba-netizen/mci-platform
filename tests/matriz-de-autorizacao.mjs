@@ -163,6 +163,25 @@ export function matriz(f) {
       { reason: 'Arquivamento de QA.' }, 'athletes.manage'),
     permissao('POST', '/athletes/:id/reactivate', `/athletes/${f.athleteA}/reactivate`, {}, 'athletes.manage'),
     permissao('POST', '/athletes/:id/cpf', `/athletes/${f.athleteA}/cpf`, null, 'athletes.read_sensitive'),
+
+    // A FOTO DO ATLETA, pelas duas mãos.
+    //
+    // `/athletes/me/photo` é `auto`, e não `permissao`: não há permissão a
+    // conferir, porque não há id de terceiro no caminho. O serviço resolve o
+    // atleta por `userId` e conta sem cadastro de atleta é recusada antes de
+    // qualquer escrita — mesmo desenho de `/coaches/me/photo`.
+    //
+    // `/athletes/:id/photo` é do operador, sob `athletes.update`: quem já pode
+    // corrigir o nome do atleta pode enviar a foto dele. Uma permissão nova
+    // para uma coluna faria a matriz crescer sem separar poder nenhum.
+    //
+    // `arquivo: 'photo'` nas duas porque a rota é MULTIPART. Sem o anexo o
+    // gate mediria a recusa da foto ausente (422) em vez da autorização.
+    auto('POST', '/athletes/me/photo', '/athletes/me/photo', null,
+      'O atleta troca a PRÓPRIA foto. O serviço acha o cadastro por `actor.id` e escreve uma coluna só; não há id de terceiro no caminho, e conta sem cadastro de atleta responde 404 antes de qualquer escrita.',
+      { arquivo: 'photo' }),
+    permissao('POST', '/athletes/:id/photo', `/athletes/${f.athleteA}/photo`, null, 'athletes.update',
+      { arquivo: 'photo' }),
     permissao('POST', '/athletes/:id/documents', `/athletes/${f.athleteA}/documents`,
       null, 'documents.upload', { arquivo: 'file' }),
     permissao('DELETE', '/documents/athlete/:id', `/documents/athlete/${f.documentoDoAtletaA}`, null, 'documents.delete',

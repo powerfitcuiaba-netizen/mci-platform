@@ -391,6 +391,13 @@ function Formulario({ nomeDaConta, ultimaRecusa, aoEnviar, notificar }) {
     if (enviando) return;
 
     const encontrados = errosDaSolicitacao(form);
+    // A FOTO É OBRIGATÓRIA, e a recusa acontece AQUI antes de qualquer
+    // requisição: deixar o servidor recusar faria a pessoa esperar o envio
+    // inteiro para descobrir que faltava escolher o arquivo que está na tela.
+    // O servidor recusa do mesmo jeito — esta conferência é conveniência, não
+    // é a regra.
+    if (!foto?.arquivo) encontrados.foto = 'solicitacao.fotoObrigatoria';
+
     if (Object.keys(encontrados).length) {
       setErros(encontrados);
       return;
@@ -399,25 +406,13 @@ function Formulario({ nomeDaConta, ultimaRecusa, aoEnviar, notificar }) {
     setEnviando(true);
     setErroGeral(null);
     try {
-      // Dois pedidos por trás de um botão: a solicitação nasce e só então a
-      // foto tem um id a que se ligar.
-      const pedido = await api.athleteRequests.criar(corpoDaSolicitacao(form));
-
-      if (foto) {
-        try {
-          await api.athleteRequests.enviarFoto(pedido.id, foto.arquivo);
-        } catch (problemaDaFoto) {
-          // A SOLICITAÇÃO JÁ EXISTE. Dizer "falhou" agora faria a pessoa tentar
-          // de novo e bater em 409. O que ela precisa saber é que o pedido
-          // entrou e que só a foto ficou faltando — e a tela de acompanhamento
-          // deixa reenviá-la.
-          notificar?.(t('solicitacao.enviadaSemFoto', { erro: problemaDaFoto.message }), 'erro');
-          setForm({ ...VAZIO, name: nomeDaConta });
-          setFoto(null);
-          aoEnviar();
-          return;
-        }
-      }
+      // UM PEDIDO SÓ, com a foto dentro. Eram dois: a solicitação nascia e a
+      // foto subia depois, e entre as duas chamadas existia um pedido sem
+      // foto. Era assim que o autocadastro acabava sem nenhuma — bastava a
+      // segunda falhar, ou nem acontecer. Agora, se a foto não for aceita,
+      // pedido nenhum é criado, e a pessoa corrige e reenvia o mesmo
+      // formulário.
+      const pedido = await api.athleteRequests.criar(corpoDaSolicitacao(form), foto.arquivo);
 
       // O formulário é limpo NO SUCESSO: deixar o CPF na tela depois do envio
       // o mantém visível para quem passar pelo computador.
@@ -552,7 +547,8 @@ function Formulario({ nomeDaConta, ultimaRecusa, aoEnviar, notificar }) {
         </Field>
         {erros.affiliationNumber && <small className="campo-erro" role="alert">{t(erros.affiliationNumber)}</small>}
 
-        <EscolhaDaFoto foto={foto} aoEscolher={setFoto} desabilitado={enviando} />
+        <EscolhaDaFoto foto={foto} aoEscolher={escolha => { setFoto(escolha); setErros(atuais => (atuais.foto ? { ...atuais, foto: undefined } : atuais)); }} desabilitado={enviando} />
+        {erros.foto && <small className="campo-erro" role="alert">{t(erros.foto)}</small>}
 
         {erroGeral && (
           <div className="alert alert-erro" role="alert"><div><strong>{erroGeral}</strong></div></div>

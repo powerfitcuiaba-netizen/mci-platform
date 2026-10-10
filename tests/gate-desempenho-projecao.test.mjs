@@ -6,8 +6,7 @@ import { comecarAMedir, pararDeMedir } from './instrumentacao-consultas.mjs';
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
   api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, unico, comoAtor, gerarCpf
-} from './helpers.mjs';
+  vincular, unico, comoAtor, gerarCpf, pedirPerfilDeAtleta } from './helpers.mjs';
 
 // ============================================================================
 // §14 — O RANKING PÚBLICO NÃO FAZ UMA IDA AO BANCO POR COMPETIDOR.
@@ -327,7 +326,7 @@ describe('§16 o histórico do atleta lê em lote', () => {
     await api().post(`/api/v1/musclewar/imports/${lote.body.import.id}/apply`).set(gerente.auth());
 
     const pessoa = await criarUsuario({ name: `Historico ${quantasCategorias}` });
-    const pedido = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+    const pedido = await pedirPerfilDeAtleta(pessoa, {
       fullName: 'HIST ORICO', cpf, sex: 'MALE', birthDate: '1995-03-10',
       affiliationId: npcId, affiliationNumber: matricula
     });

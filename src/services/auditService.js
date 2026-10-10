@@ -130,6 +130,12 @@ const ACTIONS = Object.freeze({
   // na trilha porque é requisito de ranking: quem conferir por que um treinador
   // passou a aparecer (ou parou) precisa achar o momento aqui.
   COACH_PHOTO_SET: 'COACH_PHOTO_SET',
+  // A FOTO DO ATLETA, enviada DEPOIS de o cadastro existir — pelo próprio
+  // atleta ou pelo operador da federação dele. Ela entra na trilha pela mesma
+  // razão da foto do treinador, e por uma a mais: a foto do atleta é pública,
+  // aparece na vitrine e no ranking, e trocá-la muda o que o campeonato
+  // mostra. `porOperador` no metadado diz qual das duas mãos foi.
+  ATHLETE_PHOTO_SET: 'ATHLETE_PHOTO_SET',
   TEAM_COACH_SET: 'TEAM_COACH_SET',
   // A equipe criada e renomeada PELO PRÓPRIO TREINADOR, na federação em que ele
   // está autorizado a atuar. Ações próprias porque o ator é outro: quando o

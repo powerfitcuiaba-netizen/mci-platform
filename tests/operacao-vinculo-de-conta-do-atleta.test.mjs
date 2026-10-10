@@ -5,8 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, comoAtor, unico, gerarCpf
-} from './helpers.mjs';
+  vincular, comoAtor, unico, gerarCpf, pedirPerfilDeAtleta } from './helpers.mjs';
 
 // ============================================================================
 // OS DOIS COMANDOS OPERACIONAIS DE VÍNCULO DE CONTA DO ATLETA.
@@ -150,7 +149,7 @@ beforeEach(async () => {
   expect(lote.status, JSON.stringify(lote.body).slice(0, 300)).toBe(201);
   expect((await api().post(`/api/v1/musclewar/imports/${lote.body.import.id}/apply`).set(gerente.auth())).status).toBe(200);
 
-  const pedido = await api().post('/api/v1/athlete-requests').set(admin.auth()).send({
+  const pedido = await pedirPerfilDeAtleta(admin, {
     fullName: NOME, cpf: gerarCpf(880001), sex: 'FEMALE', birthDate: '1998-07-15',
     affiliationId: npc.id, affiliationNumber: MATRICULA
   });

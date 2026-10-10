@@ -436,7 +436,7 @@ function Shell() {
       case 'messenger': return <Messenger notificar={notificar} />;
       case 'comunidades': return segundo ? <ComunidadeDetalhe slug={segundo} notificar={notificar} navegar={navegar} /> : <Comunidades navegar={navegar} notificar={notificar} />;
       case 'notificacoes': return <Notificacoes />;
-      case 'meu-painel': return <MeuPainel navegar={navegar} />;
+      case 'meu-painel': return <MeuPainel navegar={navegar} notificar={notificar} />;
       case 'minha-conta': return <MinhaConta notificar={notificar} />;
       case 'meu-cadastro': return <MeuCadastro notificar={notificar} navegar={navegar} />;
       case 'minha-filiacao': return <MinhaFiliacao />;

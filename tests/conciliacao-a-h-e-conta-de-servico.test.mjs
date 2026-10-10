@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
   api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, unico, comoAtor, gerarCpf
-} from './helpers.mjs';
+  vincular, unico, comoAtor, gerarCpf, pedirPerfilDeAtleta } from './helpers.mjs';
 // Os dois módulos REAIS, e não dublês: a idempotência é medida chamando a
 // mesma função que a requisição chama, e a matriz de permissões é lida de
 // onde a aplicação a lê.
@@ -82,7 +81,7 @@ const semear = async (linhas) => {
 // é o que a tela mostra e o que estes testes cobram.
 const autocadastrar = async ({ nome, cpf, matricula = null, filiacao = null }) => {
   const pessoa = await criarUsuario({ name: nome });
-  const r = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+  const r = await pedirPerfilDeAtleta(pessoa, {
     fullName: nome, cpf, sex: 'FEMALE', birthDate: '1995-03-10',
     affiliationId: (filiacao ?? npc).id,
     affiliationNumber: matricula ?? `LIVRE-${unico('m')}`
@@ -494,7 +493,7 @@ describe('H — duas ao mesmo tempo', () => {
       criarUsuario({ name: 'GABRIELA SOUZA' })
     ]);
 
-    const enviar = pessoa => api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+    const enviar = pessoa => pedirPerfilDeAtleta(pessoa, {
       fullName: 'GABRIELA SOUZA', cpf, sex: 'FEMALE', birthDate: '1995-03-10',
       affiliationId: npc.id, affiliationNumber: `LIVRE-${unico('m')}`
     });
@@ -529,7 +528,7 @@ describe('H — duas ao mesmo tempo', () => {
     const pessoa = await criarUsuario({ name: 'HELENA PRADO' });
     const matricula = `NPC-${unico('m')}`;
 
-    const enviar = () => api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+    const enviar = () => pedirPerfilDeAtleta(pessoa, {
       fullName: 'HELENA PRADO', cpf, sex: 'FEMALE', birthDate: '1990-01-20',
       affiliationId: npc.id, affiliationNumber: matricula
     });
@@ -588,7 +587,7 @@ describe('Conta de serviço — quem escreveu podia escrever', () => {
     // dela, tentando alcançar o atleta da outra.
     const cpf = gerarCpf(500016);
     const pessoa = await criarUsuario({ name: 'ISABEL DUARTE' });
-    const nascido = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+    const nascido = await pedirPerfilDeAtleta(pessoa, {
       fullName: 'ISABEL DUARTE', cpf, sex: 'FEMALE', birthDate: '1992-07-07',
       affiliationId: outraNpc.id, affiliationNumber: `OUT-${unico('m')}`
     });
@@ -687,7 +686,7 @@ describe('Conta de serviço — quem escreveu podia escrever', () => {
     // o operador, a organização e a federação. Se qualquer uma fosse lida, o
     // cadastro sairia endereçado à federação errada — com escrita válida, o
     // que é a pior forma de falhar, porque os dados ficariam plausíveis.
-    const resposta = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+    const resposta = await pedirPerfilDeAtleta(pessoa, {
       fullName: 'JULIA ANDRADE', cpf, sex: 'FEMALE', birthDate: '1993-05-05',
       affiliationId: npc.id, affiliationNumber: `LIVRE-${unico('m')}`,
       serviceAccountId: contaDaOutra.id,
@@ -793,7 +792,7 @@ describe('Conta de serviço — quem escreveu podia escrever', () => {
       .send({ organizationId: fechadaId, name: 'NPC Fechada', code: 'NPCFEC' })).body;
 
     const pessoa = await criarUsuario({ name: 'KARINA VIEIRA' });
-    const resposta = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+    const resposta = await pedirPerfilDeAtleta(pessoa, {
       fullName: 'KARINA VIEIRA', cpf: gerarCpf(500018), sex: 'FEMALE', birthDate: '1994-02-02',
       affiliationId: filiacaoFechada.id, affiliationNumber: 'FEC-1'
     });

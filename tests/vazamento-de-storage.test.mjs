@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import zlib from 'node:zlib';
 import {
   api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, comoAtor, unico, gerarCpf, criarAtleta, criarEventoCompleto
+  vincular, comoAtor, unico, gerarCpf, criarAtleta, criarEventoCompleto,
+  pedirPerfilDeAtleta
 } from './helpers.mjs';
 
 // ==========================================================================
@@ -145,11 +146,12 @@ describe('vitrine pública', () => {
 
 describe('rotas autenticadas', () => {
   it('a solicitação de atleta não devolve a chave, e diz que há foto', async () => {
-    const criado = await api().post('/api/v1/athlete-requests').set(pessoa.auth())
-      .send({ fullName: 'Solicitante', cpf: gerarCpf(77), sex: 'FEMALE', affiliationId: filiacao.id, affiliationNumber: 'NPC-1' });
+    const criado = await pedirPerfilDeAtleta(pessoa,
+      { fullName: 'Solicitante', cpf: gerarCpf(77), sex: 'FEMALE', affiliationId: filiacao.id, affiliationNumber: 'NPC-1' });
     expect(criado.status).toBe(201);
     semVazamento(criado, 'POST /athlete-requests');
-    expect(criado.body.hasPhoto).toBe(false);
+    // Nasce COM foto: ela é obrigatória e vem na mesma requisição.
+    expect(criado.body.hasPhoto).toBe(true);
 
     const comFoto = await api().post(`/api/v1/athlete-requests/${criado.body.id}/photo`).set(pessoa.auth())
       .attach('file', png(), { filename: 'f.png', contentType: 'image/png' });
@@ -177,8 +179,8 @@ describe('rotas autenticadas', () => {
   // completa, em `revelar-cpf.test.mjs`: lá ela passa pela rota própria, com
   // as duas permissões e a auditoria.
   it('a análise do operador mostra "tem foto", e nunca a chave', async () => {
-    const criado = await api().post('/api/v1/athlete-requests').set(pessoa.auth())
-      .send({ fullName: 'Solicitante', cpf: gerarCpf(88), sex: 'MALE', affiliationId: filiacao.id, affiliationNumber: 'NPC-2' });
+    const criado = await pedirPerfilDeAtleta(pessoa,
+      { fullName: 'Solicitante', cpf: gerarCpf(88), sex: 'MALE', affiliationId: filiacao.id, affiliationNumber: 'NPC-2' });
     await api().post(`/api/v1/athlete-requests/${criado.body.id}/photo`).set(pessoa.auth())
       .attach('file', png(), { filename: 'f.png', contentType: 'image/png' });
 

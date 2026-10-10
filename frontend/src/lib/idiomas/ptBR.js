@@ -421,6 +421,7 @@ export default {
   'solicitacao.cpfGuardado': 'Guardado com a federação até a análise',
   'solicitacao.fotoEnviada': 'Foto enviada',
   'solicitacao.fotoEnviadaAlt': 'Foto enviada na solicitação',
+  'solicitacao.fotoObrigatoria': 'Escolha uma foto. Ela é obrigatória: é com ela que você aparece na vitrine pública e no ranking.',
   'solicitacao.semFoto': 'Sem foto',
   'solicitacao.removerFoto': 'Remover foto',
   'solicitacao.fotoEnviadaAviso': 'Foto enviada.',
@@ -1689,6 +1690,22 @@ export default {
   'treinador.semAutorizacaoComoResolver': 'Procure a administração da Muscle Contest: a autorização na NPC é automática no cadastro, e a ausência dela aqui indica cadastro anterior a essa regra ou autorização revogada.',
   'treinador.autorizacaoAutomatica': 'Autorização automática',
   'treinador.federacaoOficial': 'Federação oficial',
+  // A FOTO DO ATLETA — enviada depois de o cadastro existir, pelo próprio
+  // atleta ou pela federação dele. Chaves próprias, e não as do treinador: o
+  // texto fala de VITRINE e de ranking de atleta, e reaproveitar as frases do
+  // treinador poria "ranking oficial de treinadores" na tela do atleta.
+  'atletaFoto.titulo': 'Foto do atleta',
+  'atletaFoto.naVitrine': 'Aparece na vitrine',
+  'atletaFoto.foraDaVitrine': 'Sem foto',
+  'atletaFoto.semFotoTitulo': 'Este cadastro ainda não tem foto',
+  'atletaFoto.semFotoComoResolver': 'Sem foto, a vitrine pública e o ranking mostram apenas as iniciais. Envie uma foto para aparecer. Inscrições, resultados, pontuação e títulos continuam exatamente como estão — não ter foto não impede ninguém de competir.',
+  'atletaFoto.enviar': 'Enviar foto',
+  'atletaFoto.trocar': 'Trocar foto',
+  'atletaFoto.dica': 'Qualquer foto do celular ou do computador. Ela é preparada aqui mesmo antes de subir, e aparece na vitrine pública, na busca e no ranking.',
+  'atletaFoto.dicaDoOperador': 'Envio pela federação, para o atleta que não acessa a plataforma. A trilha de auditoria registra que foi a federação quem enviou.',
+  'atletaFoto.atualAlt': 'Foto atual do atleta',
+  'atletaFoto.atualizada': 'Foto atualizada.',
+  'atletaFoto.minhaFoto': 'Minha foto',
   'treinador.campoFoto': 'Foto de perfil',
   'treinador.campoFotoDica': 'Qualquer foto do celular ou do computador. A foto é preparada aqui mesmo antes de subir. Aparece no seu perfil e no ranking oficial de treinadores.',
   'foto.preparando': 'Preparando a foto…',

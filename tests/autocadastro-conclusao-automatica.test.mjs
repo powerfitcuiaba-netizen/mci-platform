@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
   api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, comoAtor, unico, gerarCpf
-} from './helpers.mjs';
+  vincular, comoAtor, unico, gerarCpf, pedirPerfilDeAtleta } from './helpers.mjs';
 
 // ==========================================================================
 // AUTOCADASTRO DE ATLETA — CONCLUSÃO AUTOMÁTICA.
@@ -73,7 +72,7 @@ const criarFiliacao = async (operador, organizationId, nome = 'NPC Brasil') => {
 const abrirAutocadastro = (organizationId, aberto = true) =>
   api().post(`/api/v1/organizations/${organizationId}/self-registration`).set(admin.auth()).send({ open: aberto });
 
-const pedir = (pessoa, corpo) => api().post('/api/v1/athlete-requests').set(pessoa.auth()).send(corpo);
+const pedir = (pessoa, corpo) => pedirPerfilDeAtleta(pessoa, corpo);
 
 const pedidoValido = (filiacao, semente) => ({
   fullName: 'Atleta Solicitante',

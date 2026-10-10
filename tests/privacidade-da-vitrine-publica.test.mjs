@@ -3,8 +3,7 @@ import zlib from 'node:zlib';
 import {
   api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
   vincular, criarAtleta, criarEventoCompleto, transicionar,
-  gerarCpf, unico, comoAtor
-} from './helpers.mjs';
+  gerarCpf, unico, comoAtor, pedirPerfilDeAtleta } from './helpers.mjs';
 import storage from '../src/services/storageService.js';
 
 // ============================================================================
@@ -356,7 +355,7 @@ describe('IDOR nas rotas de mídia que a rodada abriu', () => {
     const dona = await cadastrarPessoa('Dona Do Pedido');
     const outra = await cadastrarPessoa('Terceira Curiosa');
 
-    const pedido = await api().post('/api/v1/athlete-requests').set(dona.auth()).send({
+    const pedido = await pedirPerfilDeAtleta(dona, {
       fullName: 'Solicitante Com Foto', cpf: gerarCpf(760000002), sex: 'FEMALE',
       birthDate: '1998-07-15', affiliationId: filiacaoA.id, affiliationNumber: 'NPC-00777'
     });
@@ -382,7 +381,7 @@ describe('IDOR nas rotas de mídia que a rodada abriu', () => {
     const pessoa = await cadastrarPessoa('Tentativa De Plantio');
     const plantada = 'athletes/documento-de-outra-pessoa.pdf';
 
-    const pedido = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+    const pedido = await pedirPerfilDeAtleta(pessoa, {
       fullName: 'Plantio', cpf: gerarCpf(760000003), sex: 'FEMALE', birthDate: '1998-07-15',
       affiliationId: filiacaoA.id, affiliationNumber: 'NPC-00888',
       photoKey: plantada
@@ -413,7 +412,7 @@ describe('IDOR nas rotas de mídia que a rodada abriu', () => {
   it('12. a chave que o fluxo legítimo grava é montada pelo SERVIDOR', async () => {
     await abrirAutocadastro(orgA.id);
     const dona = await cadastrarPessoa('Dona Legítima');
-    const pedido = await api().post('/api/v1/athlete-requests').set(dona.auth()).send({
+    const pedido = await pedirPerfilDeAtleta(dona, {
       fullName: 'Legítima', cpf: gerarCpf(760000004), sex: 'FEMALE', birthDate: '1998-07-15',
       affiliationId: filiacaoA.id, affiliationNumber: 'NPC-00999'
     });
@@ -451,7 +450,7 @@ describe('IDOR nas rotas de mídia que a rodada abriu', () => {
   it('14. trocar o id na foto do atleta só alcança foto de atleta', async () => {
     await abrirAutocadastro(orgA.id);
     const dona = await cadastrarPessoa('Dona Do Documento');
-    const pedido = await api().post('/api/v1/athlete-requests').set(dona.auth()).send({
+    const pedido = await pedirPerfilDeAtleta(dona, {
       fullName: 'Documento', cpf: gerarCpf(760000005), sex: 'FEMALE', birthDate: '1998-07-15',
       affiliationId: filiacaoA.id, affiliationNumber: 'NPC-01111'
     });

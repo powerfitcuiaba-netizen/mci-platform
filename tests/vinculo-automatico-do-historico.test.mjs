@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
   api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, unico, comoAtor, gerarCpf
-} from './helpers.mjs';
+  vincular, unico, comoAtor, gerarCpf, pedirPerfilDeAtleta } from './helpers.mjs';
 
 // ============================================================================
 // O VÍNCULO AUTOMÁTICO, PROVADO CAMPO A CAMPO.
@@ -72,7 +71,7 @@ const contagens = () => comoAtor(gerente, async tx => ({
 // ausência do passo de aprovação é parte do que estes testes provam.
 async function cadastrarPelaPortaDaFrente({ nome, cpf, matricula = null }) {
   const pessoa = await criarUsuario({ name: nome });
-  const pedido = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+  const pedido = await pedirPerfilDeAtleta(pessoa, {
     fullName: nome, cpf, sex: 'FEMALE', birthDate: '1994-03-08',
     affiliationId: npc.id, affiliationNumber: matricula ?? `LIVRE-${unico('m')}`
   });
@@ -276,7 +275,7 @@ describe('ambiguidade vai para revisão, e não para o atleta errado', () => {
     expect(primeira.athleteId).toBeTruthy();
 
     const segunda = await criarUsuario({ name: 'CARLA DIAS (a outra)' });
-    const pedidoDaSegunda = await api().post('/api/v1/athlete-requests').set(segunda.auth()).send({
+    const pedidoDaSegunda = await pedirPerfilDeAtleta(segunda, {
       fullName: 'CARLA DIAS', cpf: gerarCpf(910123), sex: 'FEMALE',
       affiliationId: npc.id, affiliationNumber: 'NPC-777'
     });

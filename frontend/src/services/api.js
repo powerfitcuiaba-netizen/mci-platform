@@ -226,7 +226,11 @@ export const api = {
   // Fila de perfil de atleta. Os caminhos são exatamente os que o backend
   // publicou — nada inventado aqui.
   athleteRequests: {
-    criar: dados => post('/athlete-requests', dados),
+    // A SOLICITAÇÃO É MULTIPART: a foto é obrigatória e vai na MESMA
+    // requisição que cria o pedido. Antes eram duas chamadas, e entre uma e
+    // outra existia um pedido sem foto — que era exatamente como o autocadastro
+    // acabava sem nenhuma.
+    criar: (dados, foto) => upload('/athlete-requests', foto, dados, 'photo'),
     meus: () => get('/athlete-requests/me'),
     cancelar: id => post(`/athlete-requests/${id}/cancel`, {}),
     listar: parametros => get('/athlete-requests', parametros),
@@ -277,6 +281,14 @@ export const api = {
     // e a resposta carrega documento, que não tem por que passar por URL,
     // cache ou Referer. O id vai no caminho; o número volta no corpo.
     revealCpf: id => post(`/athletes/${id}/cpf`),
+    // A FOTO, pelas duas mãos. `setMyPhoto` é do próprio atleta e não leva id
+    // no caminho — o servidor acha o cadastro pela sessão. `setPhoto` é do
+    // operador da federação, sob a mesma permissão que edita o cadastro.
+    //
+    // O campo do formulário é `photo`, e não `file`: o mesmo nome que a foto
+    // do treinador usa, para que as duas rotas se leiam igual no servidor.
+    setMyPhoto: foto => upload('/athletes/me/photo', foto, {}, 'photo'),
+    setPhoto: (id, foto) => upload(`/athletes/${id}/photo`, foto, {}, 'photo'),
     // O HISTÓRICO IMPORTADO visto do lado do atleta: o que já é dele e o que
     // pode ser. A leitura não vincula nada — vincular é a chamada seguinte.
     importedHistory: id => get(`/athletes/${id}/imported-history`),

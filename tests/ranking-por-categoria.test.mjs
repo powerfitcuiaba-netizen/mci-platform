@@ -2,8 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { createRequire } from 'node:module';
 import {
   api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, criarAtleta, gerarCpf, unico, comoAtor
-} from './helpers.mjs';
+  vincular, criarAtleta, gerarCpf, unico, comoAtor, pedirPerfilDeAtleta } from './helpers.mjs';
 
 const require = createRequire(import.meta.url);
 const { vincularPendentesDoAtleta } = require('../src/services/muscleWarService.js');
@@ -295,7 +294,7 @@ describe('§6 a área do atleta mostra o desempenho SEGMENTADO', () => {
     // A pessoa se cadastra pela porta do interessado, e o vínculo acontece na
     // aprovação — é assim que ela chega à própria área.
     const pessoa = await criarUsuario({ name: 'ATLETA A' });
-    const pedido = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+    const pedido = await pedirPerfilDeAtleta(pessoa, {
       fullName: 'ATLETA A', cpf, sex: 'MALE', birthDate: '1995-03-10',
       affiliationId: npc.id, affiliationNumber: 'NPC-2727'
     });
@@ -344,7 +343,7 @@ describe('§6 a área do atleta mostra o desempenho SEGMENTADO', () => {
     await api().post(`/api/v1/musclewar/imports/${lote.body.import.id}/apply`).set(gerente.auth());
 
     const pessoa = await criarUsuario({ name: 'ATLETA ORDENADA' });
-    const pedido = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+    const pedido = await pedirPerfilDeAtleta(pessoa, {
       fullName: 'ATLETA A', cpf, sex: 'MALE', birthDate: '1995-03-10',
       affiliationId: npc.id, affiliationNumber: 'NPC-3838'
     });
@@ -361,7 +360,7 @@ describe('§6 a área do atleta mostra o desempenho SEGMENTADO', () => {
 
   it('atleta sem histórico recebe lista vazia, e não erro', async () => {
     const pessoa = await criarUsuario({ name: 'SEM HISTORICO' });
-    const pedido = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+    const pedido = await pedirPerfilDeAtleta(pessoa, {
       fullName: 'SEM HISTORICO', cpf: gerarCpf(987654321), sex: 'MALE',
       birthDate: '1995-03-10', affiliationId: npc.id, affiliationNumber: 'NPC-0001'
     });

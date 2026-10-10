@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import {
   app, api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, comoAtor, criarAtleta, criarEventoCompleto, inscrever, transicionar, unico, gerarCpf
+  vincular, comoAtor, criarAtleta, criarEventoCompleto, inscrever, transicionar, unico, gerarCpf,
+  pedirPerfilDeAtleta
 } from './helpers.mjs';
 import { matriz, PERMISSAO, AUTOSSERVICO, SOCIAL, PNG_MINIMO, PNG_VALIDO } from './matriz-de-autorizacao.mjs';
 
@@ -305,10 +306,10 @@ beforeAll(async () => {
   expect(pedidoAlheio.status, 'positivo: admin abre o segundo pedido de vínculo').toBeLessThan(300);
 
   // ------------------------------------------------- pedidos de autocadastro
-  const pedidoA = await api().post('/api/v1/athlete-requests').set(atletaA.auth())
-    .send({ fullName: 'Atleta Da Casa', cpf: gerarCpf(510011), sex: 'MALE', affiliationId: afiliacao.body.id, affiliationNumber: '9011' });
-  const pedidoB = await api().post('/api/v1/athlete-requests').set(atletaB.auth())
-    .send({ fullName: 'Atleta De Fora', cpf: gerarCpf(510012), sex: 'MALE', affiliationId: afiliacao.body.id, affiliationNumber: '9012' });
+  const pedidoA = await pedirPerfilDeAtleta(atletaA,
+    { fullName: 'Atleta Da Casa', cpf: gerarCpf(510011), sex: 'MALE', affiliationId: afiliacao.body.id, affiliationNumber: '9011' });
+  const pedidoB = await pedirPerfilDeAtleta(atletaB,
+    { fullName: 'Atleta De Fora', cpf: gerarCpf(510012), sex: 'MALE', affiliationId: afiliacao.body.id, affiliationNumber: '9012' });
 
   // --------------------------------------------------- social e mensageria
   const perfil = async usuario => {
@@ -449,7 +450,7 @@ describe('401 — sem sessão, nenhuma rota mutante executa', () => {
     // mutante tem de exigir que alguém escreva o novo total à mão, olhando o
     // que entrou. Atualizá-lo sem declarar a rota na matriz não ajudaria: o
     // teste de conjunto, acima, quebraria primeiro.
-    expect(entradas.length, 'a matriz cobre as rotas mutantes autenticadas').toBe(147);
+    expect(entradas.length, 'a matriz cobre as rotas mutantes autenticadas').toBe(149);
     const falhas = [];
     for (const entrada of entradas) {
       const r = await disparar(entrada, null);

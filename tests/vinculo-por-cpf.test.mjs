@@ -2,8 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { createRequire } from 'node:module';
 import {
   api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, criarAtleta, gerarCpf, unico, comoAtor
-} from './helpers.mjs';
+  vincular, criarAtleta, gerarCpf, unico, comoAtor, pedirPerfilDeAtleta } from './helpers.mjs';
 
 const require = createRequire(import.meta.url);
 const muscleWar = require('../src/services/muscleWarService.js');
@@ -959,7 +958,7 @@ describe('por onde o vínculo automático é disparado', () => {
     ]);
 
     const pessoa = await criarUsuario({ name: 'PEDIU E FOI APROVADO' });
-    const pedido = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+    const pedido = await pedirPerfilDeAtleta(pessoa, {
       fullName: 'PEDIU E FOI APROVADO', cpf, sex: 'MALE', birthDate: '1995-03-10',
       affiliationId: npc.id, affiliationNumber: 'NPC-70002'
     });

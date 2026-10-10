@@ -4,6 +4,8 @@ const { normalizeCpf, somenteDigitos, formatCpf } = require('../utils/cpf');
 const { assertCan, organizationFilter, assertPermission } = require('../utils/tenant');
 const { can } = require('../utils/permissions');
 const { athleteFor, athletePublic } = require('../utils/visibility');
+const storage = require('./storageService');
+const imagem = require('./imagemService');
 const audit = require('./auditService');
 const notifications = require('./notificationService');
 const muscleWar = require('./muscleWarService');
@@ -663,7 +665,130 @@ async function remove(id, actor) {
   return { deleted: true, id };
 }
 
+// ============================================================================
+// A FOTO DO ATLETA, DEPOIS DE O CADASTRO EXISTIR.
+//
+// POR QUE ISTO PRECISOU NASCER
+//
+// A foto entrava por um caminho só: a SOLICITAÇÃO de perfil. Enviada ali, ela
+// era promovida para o `Athlete` quando o pedido concluía. Depois disso, nada
+// — não havia rota nenhuma para trocá-la nem para acrescentá-la.
+//
+// A consequência estava no ar: todo atleta cadastrado antes de a foto existir,
+// e todo atleta criado pelo operador (que nunca pediu foto), ficava com
+// monograma para sempre. A vitrine pública mostrava iniciais, e o próprio dono
+// da conta não tinha como resolver. O treinador já tinha `POST
+// /coaches/me/photo`; o atleta não tinha equivalente.
+//
+// DUAS MÃOS, E A RAZÃO DE SEREM DUAS
+//
+// `trocarMinhaFoto` é do DONO DA CONTA. `trocarFotoDoAtleta` é do OPERADOR da
+// federação daquele atleta — porque há atleta que não acessa a plataforma, e
+// sem a segunda mão a regularização dependeria de cada um deles aparecer.
+//
+// As duas gravam a MESMA coluna pelo MESMO caminho, e as duas auditam. O que
+// as distingue na trilha é `porOperador`: quem conferir depois precisa saber
+// se a foto que está no ar foi escolhida pelo atleta ou pela federação.
+// ============================================================================
+
+const FOTO_OBRIGATORIA = 'O envio de uma foto é obrigatório para o atleta aparecer '
+  + 'na vitrine pública e no ranking oficial.';
+
+async function normalizarFoto(arquivo) {
+  if (!arquivo) throw new AppError(422, 'ATHLETE_PHOTO_REQUIRED', FOTO_OBRIGATORIA);
+
+  if (!storage.isAllowedAvatarMime(arquivo.mimeType)) {
+    throw new AppError(415, 'UNSUPPORTED_MEDIA_TYPE',
+      `A foto aceita apenas ${Object.keys(storage.ALLOWED_AVATAR).join(', ')}`);
+  }
+
+  // Recorte quadrado em WebP, o mesmo da foto do treinador e do avatar social:
+  // a foto do atleta aparece em lista, em cartão e em ranking, e guardar o
+  // original de 8 MP para exibir em 44px é desperdício em toda leitura.
+  return imagem.normalizar(arquivo, 'avatar');
+}
+
+// A CHAVE É DERIVADA DO ATLETA, e construída pelo servidor. Nada que venha do
+// cliente entra no caminho: `buildKey` higieniza o escopo e sorteia o nome.
+const chaveDaFoto = (athleteId, mimeType) => storage.buildKey(`athlete-photos/${athleteId}`, mimeType);
+
+/**
+ * Grava a foto e troca a coluna. Usada pelas duas mãos.
+ *
+ * O arquivo antigo só é descartado DEPOIS de o banco apontar para o novo. Se a
+ * ordem fosse inversa e a gravação falhasse, o cadastro ficaria apontando para
+ * um arquivo que não existe mais — órfão é muito melhor que foto quebrada.
+ */
+async function gravarFoto(athlete, arquivo, actor, { porOperador }) {
+  const normalizada = await normalizarFoto(arquivo);
+  const chave = chaveDaFoto(athlete.id, normalizada.mimeType);
+  await storage.saveBuffer(chave, normalizada.buffer);
+
+  // CONFERE QUE O OBJETO EXISTE antes de o banco apontar para ele. Gravação
+  // que não pode ser lida de volta é falha, e não sucesso silencioso.
+  if (!(await storage.exists(chave))) {
+    throw new AppError(502, 'STORAGE_WRITE_FAILED', 'A foto não ficou no armazenamento. Tente de novo.');
+  }
+
+  const anterior = athlete.photoKey;
+  const atualizado = await prisma.athlete.update({
+    where: { id: athlete.id },
+    data: { photoKey: chave },
+    include: INCLUDE_PERFIL
+  });
+
+  if (anterior && anterior !== chave) {
+    await storage.descartar(anterior, { motivo: 'foto de atleta substituida', athleteId: athlete.id });
+  }
+
+  await audit.record({
+    actor,
+    action: audit.ACTIONS.ATHLETE_PHOTO_SET,
+    entity: 'Athlete',
+    entityId: athlete.id,
+    organizationId: athlete.organizationId,
+    metadata: { substituiu: Boolean(anterior), porOperador, bytes: normalizada.buffer.length }
+  });
+
+  return athleteFor(atualizado, actor, athlete.organizationId);
+}
+
+/** O PRÓPRIO ATLETA envia ou troca a sua foto. */
+async function trocarMinhaFoto(arquivo, actor) {
+  const athlete = await prisma.athlete.findFirst({
+    where: { userId: actor.id },
+    select: { id: true, status: true, photoKey: true, organizationId: true }
+  });
+  if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Esta conta não possui cadastro de atleta');
+
+  return gravarFoto(athlete, arquivo, actor, { porOperador: false });
+}
+
+/**
+ * O OPERADOR DA FEDERAÇÃO envia a foto de um atleta dela.
+ *
+ * A permissão é `athletes.update`, a mesma que já governa a edição do cadastro:
+ * quem pode corrigir o nome do atleta pode enviar a foto dele. Criar uma
+ * permissão nova para uma coluna faria a matriz crescer sem separar poder
+ * nenhum.
+ *
+ * 404 e não 403 para atleta de outra federação: confirmar que o id existe já é
+ * informação sobre gente que não é daquela mesa.
+ */
+async function trocarFotoDoAtleta(id, arquivo, actor) {
+  const athlete = await prisma.athlete.findFirst({
+    where: { id, ...organizationFilter(actor) },
+    select: { id: true, status: true, photoKey: true, organizationId: true }
+  });
+  if (!athlete) throw new AppError(404, 'ATHLETE_NOT_FOUND', 'Atleta não encontrado');
+
+  assertCan(actor, 'athletes.update', athlete.organizationId);
+
+  return gravarFoto(athlete, arquivo, actor, { porOperador: true });
+}
+
 module.exports = {
   findByCpf, lookup, create, update, list, findById, setProStatus, listPro,
-  setStatus, remove, revealCpf, INCLUDE_PERFIL
+  setStatus, remove, revealCpf, INCLUDE_PERFIL,
+  FOTO_OBRIGATORIA, trocarMinhaFoto, trocarFotoDoAtleta
 };

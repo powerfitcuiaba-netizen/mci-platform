@@ -5,8 +5,7 @@ import storage from '../src/services/storageService.js';
 import imagem from '../src/services/imagemService.js';
 import {
   api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, comoAtor, unico, gerarCpf
-} from './helpers.mjs';
+  vincular, comoAtor, unico, gerarCpf, pedirPerfilDeAtleta } from './helpers.mjs';
 
 // ==========================================================================
 // AUTOCADASTRO DE ATLETA — os dois bloqueios que a FASE 1 deixou abertos.
@@ -62,7 +61,7 @@ const criarFiliacao = async (operador, organizationId, nome = 'NPC Brasil') => {
 const abrirAutocadastro = (organizationId, aberto = true) =>
   api().post(`/api/v1/organizations/${organizationId}/self-registration`).set(admin.auth()).send({ open: aberto });
 
-const pedir = (pessoa, corpo) => api().post('/api/v1/athlete-requests').set(pessoa.auth()).send(corpo);
+const pedir = (pessoa, corpo) => pedirPerfilDeAtleta(pessoa, corpo);
 
 // UM PEDIDO PENDENTE, FEITO NA MÃO.
 //
@@ -380,10 +379,18 @@ describe('foto do pedido', () => {
 
   it('outra pessoa não envia foto no pedido alheio — e recebe 404, não 403', async () => {
     const intruso = await cadastrarPessoa('Intruso');
+    const antes = (await comoAtor(pessoa, () => prisma.athleteProfileRequest.findUnique({ where: { id: pedido.id } }))).photoKey;
+
     const r = await enviarFoto(intruso, pedido.id, pngValido());
     // 404 porque confirmar que o id existe já é informação.
     expect(r.status).toBe(404);
-    expect((await comoAtor(pessoa, () => prisma.athleteProfileRequest.findUnique({ where: { id: pedido.id } }))).photoKey).toBeNull();
+
+    // A FOTO DO DONO CONTINUA LÁ, intacta. Antes este teste media `photoKey`
+    // nulo, porque o pedido nascia sem foto; agora ele nasce COM, e o que a
+    // recusa precisa provar é que a chave NÃO MUDOU — ninguém de fora
+    // sobrescreveu a foto de quem pediu.
+    const depois = (await comoAtor(pessoa, () => prisma.athleteProfileRequest.findUnique({ where: { id: pedido.id } }))).photoKey;
+    expect(depois).toBe(antes);
   });
 
   it('requestId inexistente ou de outro formato não alcança nada', async () => {
@@ -400,9 +407,16 @@ describe('foto do pedido', () => {
   // barra. As duas camadas têm teste próprio logo abaixo.
   it('MIME mentiroso é recusado — e nada é gravado', async () => {
     const html = Buffer.from('<html><script>alert(1)</script></html>', 'utf8');
+    const antes = (await comoAtor(pessoa, () => prisma.athleteProfileRequest.findUnique({ where: { id: pedido.id } }))).photoKey;
+
     const r = await enviarFoto(pessoa, pedido.id, html, 'foto.png', 'image/png');
     expect(r.status).toBe(415);
-    expect((await comoAtor(pessoa, () => prisma.athleteProfileRequest.findUnique({ where: { id: pedido.id } }))).photoKey).toBeNull();
+
+    // NADA FOI GRAVADO: a chave é a mesma de antes da tentativa. A medida
+    // mudou de "é nula" para "não mudou" porque o pedido passou a nascer com
+    // foto obrigatória — o que se prova continua sendo o mesmo.
+    const depois = (await comoAtor(pessoa, () => prisma.athleteProfileRequest.findUnique({ where: { id: pedido.id } }))).photoKey;
+    expect(depois).toBe(antes);
   });
 
   it('executável renomeado é recusado', async () => {

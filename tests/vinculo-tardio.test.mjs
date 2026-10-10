@@ -2,8 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { createRequire } from 'node:module';
 import {
   api, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, unico, comoAtor, gerarCpf
-} from './helpers.mjs';
+  vincular, unico, comoAtor, gerarCpf, pedirPerfilDeAtleta } from './helpers.mjs';
 
 const require = createRequire(import.meta.url);
 const { vincularPendentesDoAtleta } = require('../src/services/muscleWarService.js');
@@ -52,7 +51,7 @@ const aplicar = importId => api().post(`/api/v1/musclewar/imports/${importId}/ap
 // ato, que é justamente a regra nova.
 async function pedirECadastrar({ matricula, nome, affiliationId = null, semente = 700 }) {
   const pessoa = await criarUsuario({ name: nome });
-  const pedido = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+  const pedido = await pedirPerfilDeAtleta(pessoa, {
     fullName: nome, cpf: gerarCpf(semente), sex: 'MALE', birthDate: '1995-03-10',
     affiliationId: affiliationId ?? npc.id, affiliationNumber: matricula
   });
@@ -380,7 +379,7 @@ describe('a fronteira da organização', () => {
       .send({ organizationId: outraOrg.id, name: 'NPC', code: 'NPC' })).body;
 
     const pessoa = await criarUsuario({ name: 'Yuri Santinelli' });
-    const pedido = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+    const pedido = await pedirPerfilDeAtleta(pessoa, {
       fullName: 'Yuri Santinelli', cpf: gerarCpf(716), sex: 'MALE', birthDate: '1995-03-10',
       affiliationId: filiacaoVizinha.id, affiliationNumber: '88281'
     });

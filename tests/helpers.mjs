@@ -324,3 +324,47 @@ export async function comMatriculaDuplicadaPermitida(callback) {
     await criarIndiceDeMatricula();
   }
 }
+
+// ============================================================================
+// O AUTOCADASTRO DE ATLETA É MULTIPART, E POR ISSO EXISTE ESTE HELPER.
+//
+// A foto passou a ser obrigatória e a vir na MESMA requisição que cria o
+// pedido — não existe mais janela entre "pedido criado" e "foto enviada", que
+// era por onde o autocadastro acabava sem foto nenhuma.
+//
+// A consequência para a suíte foi imediata e grande: 134 testes em 15 arquivos
+// criavam a solicitação com `.send(corpo)`, em JSON. Em vez de 15 correções
+// parecidas (que divergiriam na primeira mudança seguinte), a chamada mora
+// aqui, num lugar só — e o dia em que a rota mudar de novo é um arquivo que se
+// edita, não quinze.
+//
+// `PNG_VALIDO` é um PNG de 8×8 que o sharp DECODIFICA de verdade. O mínimo
+// absoluto de 1×1 não serve: o libvips o recusa ("libpng read error"), e o
+// serviço normaliza a imagem antes de gravar.
+export const PNG_VALIDO = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAD0lEQVR4nGPIwwEYhpYEADyoUoHgdvKUAAAAAElFTkSuQmCC',
+  'base64'
+);
+
+/**
+ * Cria a solicitação de perfil de atleta pelo caminho real — multipart, com a
+ * foto anexada.
+ *
+ * Cada campo vira `field`, e não um JSON: é assim que o corpo chega quando o
+ * navegador envia o formulário, e testar por outro caminho mediria algo que
+ * não acontece em produção. `undefined` e `null` são omitidos, para que o
+ * teste que PRECISA de um campo ausente continue conseguindo omiti-lo.
+ *
+ * `comFoto: false` existe para o teste que mede justamente a recusa da foto
+ * ausente — e só para ele.
+ */
+export function pedirPerfilDeAtleta(pessoa, corpo = {}, { comFoto = true } = {}) {
+  const requisicao = api().post('/api/v1/athlete-requests').set(pessoa.auth());
+
+  for (const [chave, valor] of Object.entries(corpo)) {
+    if (valor === undefined || valor === null) continue;
+    requisicao.field(chave, valor instanceof Date ? valor.toISOString() : String(valor));
+  }
+
+  return comFoto ? requisicao.attach('photo', PNG_VALIDO, 'foto.png') : requisicao;
+}

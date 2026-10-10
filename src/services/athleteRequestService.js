@@ -64,7 +64,47 @@ const semChaves = pedido => {
   return { ...resto, hasPhoto: Boolean(photoKey) };
 };
 
-async function criar(data, actor) {
+// ============================================================================
+// A FOTO É OBRIGATÓRIA, E VEM NA MESMA REQUISIÇÃO.
+//
+// Antes, o pedido nascia sem foto e o arquivo subia DEPOIS, por uma segunda
+// chamada. Duas consequências, as duas medidas no ar: a foto era opcional na
+// prática — bastava não fazer a segunda chamada —, e todo atleta cadastrado
+// pelo operador nascia sem nenhuma, porque aquele caminho nem passa por aqui.
+// O resultado é a vitrine pública mostrando monograma para quase todo mundo.
+//
+// Agora a rota é MULTIPART e a foto chega junto: não existe janela entre
+// "pedido criado" e "foto enviada", logo não existe autocadastro novo sem
+// foto. É o mesmo desenho de `POST /coaches/self-register`, pela mesma razão.
+//
+// A CHAVE CONTINUA SENDO DO SERVIDOR. Ela é derivada de `actor.id` porque o
+// pedido ainda não tem id quando o arquivo é gravado — e `buildKey` higieniza
+// o escopo e sorteia o nome, então nada que venha do cliente entra no caminho.
+//
+// QUEM JÁ ESTÁ CADASTRADO NÃO É ATINGIDO. Esta regra vale para o pedido NOVO.
+// Atleta que já existe sem foto continua competindo, se inscrevendo e
+// pontuando; o que ele ganha é um caminho para enviar a foto, em
+// `POST /athletes/me/photo` e na ficha, pela federação.
+// ============================================================================
+const FOTO_OBRIGATORIA = 'O envio de uma foto é obrigatório para concluir o seu cadastro '
+  + 'e aparecer na vitrine pública e no ranking oficial.';
+
+async function normalizarFoto(arquivo) {
+  if (!arquivo) throw new AppError(422, 'ATHLETE_PHOTO_REQUIRED', FOTO_OBRIGATORIA);
+
+  if (!storage.isAllowedAvatarMime(arquivo.mimeType)) {
+    throw new AppError(415, 'UNSUPPORTED_MEDIA_TYPE',
+      `A foto aceita apenas ${Object.keys(storage.ALLOWED_AVATAR).join(', ')}`);
+  }
+  return imagem.normalizar(arquivo, 'avatar');
+}
+
+async function criar(data, arquivo, actor) {
+  // A FOTO É CONFERIDA ANTES DE QUALQUER COISA. Recusar depois de resolver a
+  // filiação e abrir a transação deixaria trabalho feito à toa, e a pessoa
+  // esperaria mais para receber a mesma recusa.
+  const foto = await normalizarFoto(arquivo);
+
   // A organização vem da FILIAÇÃO, resolvida no servidor. Aceitá-la do corpo
   // deixaria qualquer pessoa endereçar o pedido à federação que quisesse.
   const filiacao = await prisma.affiliation.findUnique({
@@ -114,6 +154,16 @@ async function criar(data, actor) {
   // outro atleta já tiver aquele CPF, a aprovação inteira volta atrás e o
   // pedido continua PENDING. Há teste provando exatamente esse caminho.
 
+  // O OBJETO VAI PARA O ARMAZENAMENTO ANTES DA LINHA, e é conferido: uma linha
+  // apontando para arquivo que não ficou gravado é foto quebrada na vitrine.
+  // Na ordem inversa, a falha da gravação deixaria o pedido sem foto depois de
+  // a regra ter dito que ela é obrigatória.
+  const chaveDaFoto = storage.buildKey(`athlete-requests/${actor.id}`, foto.mimeType);
+  await storage.saveBuffer(chaveDaFoto, foto.buffer);
+  if (!(await storage.exists(chaveDaFoto))) {
+    throw new AppError(502, 'STORAGE_WRITE_FAILED', 'A foto não ficou no armazenamento. Tente de novo.');
+  }
+
   const pedido = await prisma.athleteProfileRequest.create({
     data: {
       userId: actor.id,
@@ -125,10 +175,13 @@ async function criar(data, actor) {
       // `dataIso` já entrega um Date; quando vier string, o meio-dia UTC evita
       // que a data ande um dia para trás no fuso do Brasil.
       birthDate: aoMeioDia(data.birthDate),
-      cpf
-      // O pedido NASCE SEM FOTO, sempre. A chave do armazenamento não vem do
-      // cliente: ela é montada pelo servidor em `definirFoto`, que é a única
-      // escrita de `photoKey` aqui. Ver a nota em `schemas.js`.
+      cpf,
+      // A CHAVE NÃO VEM DO CLIENTE em nenhum dos dois caminhos: aqui ela é
+      // montada logo acima por `storage.buildKey`, e na troca posterior por
+      // `definirFoto`. O schema continua sem `photoKey`, e é por isso que não
+      // há como endereçar a linha a um objeto alheio. Ver a nota em
+      // `schemas.js`.
+      photoKey: chaveDaFoto
     },
     // `cpfDoPedido` porque a conclusão automática, logo abaixo, precisa do
     // documento para criar a identidade. Ele NÃO sai na resposta: `semChaves`

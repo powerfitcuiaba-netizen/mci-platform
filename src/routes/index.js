@@ -96,6 +96,14 @@ const uploadFotoTreinador = singleFileUpload('photo', {
   maxBytes: storage.MAX_AVATAR_BYTES, tipo: 'avatar', arquivoObrigatorio: false
 });
 
+// A FOTO DO ATLETA — mesmo middleware, mesmas razões, e por isso o mesmo
+// desenho. Um só para os dois serviria; estão separados porque o nome diz de
+// quem é a foto na linha da rota, e porque o dia em que um dos dois mudar de
+// teto ou de tipo não deve arrastar o outro junto.
+const uploadFotoAtleta = singleFileUpload('photo', {
+  maxBytes: storage.MAX_AVATAR_BYTES, tipo: 'avatar', arquivoObrigatorio: false
+});
+
 // ============================================================ AUTENTICAÇÃO
 router.post('/auth/register', limiteAutenticacao, validate(s.cadastroCompleto), wrap(c.auth.register));
 router.post('/auth/login', limiteAutenticacao, validate(s.authLogin), wrap(c.auth.login));
@@ -127,7 +135,17 @@ router.post('/affiliations/:id/deactivate', requireAuth, validate(s.paramsWithId
 // `criar` NÃO exige permissão de operador: é exatamente o ponto da fila. O que
 // protege aqui é a política de RLS (`userId = mci_current_user_id()`) e o
 // serviço, que deriva a organização da FILIAÇÃO e não do corpo.
-router.post('/athlete-requests', requireAuth, validate(s.athleteRequestCreate), wrap(c.athleteRequests.criar));
+// O AUTOCADASTRO DE ATLETA É MULTIPART, e é por isso que a foto não tem como
+// ser contornada: ela vem na MESMA requisição que cria o pedido, e o serviço
+// recusa antes de qualquer escrita quando ela falta. Não existe janela entre
+// "pedido criado" e "foto enviada" — logo não existe autocadastro novo sem
+// foto. Mesmo desenho de `/coaches/self-register`, pela mesma razão.
+//
+// A ORDEM DOS MIDDLEWARES IMPORTA: o upload vem ANTES do `validate`, porque é
+// o multer que preenche `req.body` a partir do corpo multipart. Invertido, o
+// schema leria um corpo vazio e recusaria todo cadastro por campo ausente.
+router.post('/athlete-requests', requireAuth, limiteConteudo, limiteUpload, uploadFotoAtleta,
+  validate(s.athleteRequestCreate), wrap(c.athleteRequests.criar));
 router.get('/athlete-requests/me', requireAuth, wrap(c.athleteRequests.meus));
 
 // ===================================================== MINHA FILIAÇÃO / MEU HISTÓRICO
@@ -197,6 +215,23 @@ router.post('/athletes/:id/reactivate', requireAuth, validate(s.paramsWithId, 'p
 // parâmetro de consulta. A permissão é conferida no serviço, contra a
 // organização DO ATLETA, e não contra nada que o cliente tenha mandado.
 router.post('/athletes/:id/cpf', requireAuth, validate(s.paramsWithId, 'params'), wrap(c.athletes.revealCpf));
+
+// ============================================================================
+// A FOTO DO ATLETA, DEPOIS DE O CADASTRO EXISTIR.
+//
+// Duas rotas porque são dois atores, e a autorização de cada uma é diferente.
+//
+// `/athletes/me/photo` é do DONO DA CONTA: nenhum id no caminho, nada a
+// escolher — o serviço acha o atleta por `userId`. Ela vem ANTES de
+// `/athletes/:id/photo` de propósito: no Express, `:id` casaria com a palavra
+// "me" e engoliria a rota do dono.
+//
+// `/athletes/:id/photo` é do OPERADOR da federação do atleta, sob
+// `athletes.update` — a mesma permissão que já governa a edição do cadastro.
+// A conferência é feita NO SERVIÇO, contra a organização DO ATLETA, e não
+// contra nada que o cliente tenha mandado.
+router.post('/athletes/me/photo', requireAuth, limiteUpload, uploadFotoAtleta, wrap(c.athletes.trocarMinhaFoto));
+router.post('/athletes/:id/photo', requireAuth, limiteUpload, validate(s.paramsWithId, 'params'), uploadFotoAtleta, wrap(c.athletes.trocarFoto));
 
 // O HISTÓRICO IMPORTADO, DO LADO DO ATLETA.
 //

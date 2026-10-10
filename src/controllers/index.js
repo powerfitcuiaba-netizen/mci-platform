@@ -176,7 +176,7 @@ module.exports = {
     // recusa junto. Quando para, o pedido FICA pendente — é assim que a
     // federação recebe o caso para resolver.
     criar: async (req, res) => {
-      const pedido = await athleteRequests.criar(req.body, req.user);
+      const pedido = await athleteRequests.criar(req.body, req.file, req.user);
       if (pedido.conciliacao?.estado !== 'PRECISA_REVISAO') return res.status(201).json(pedido);
 
       // A RECUSA SAI NO ENVELOPE DE ERRO, e não no formato de sucesso.
@@ -228,7 +228,11 @@ module.exports = {
     archive: async (req, res) => res.json(await athletes.setStatus(req.params.id, { status: 'ARCHIVED', reason: req.body.reason }, req.user)),
     reactivate: async (req, res) => res.json(await athletes.setStatus(req.params.id, { status: 'ACTIVE', reason: req.body.reason ?? null }, req.user)),
     remove: async (req, res) => res.json(await athletes.remove(req.params.id, req.user)),
-    revealCpf: async (req, res) => res.json(await athletes.revealCpf(req.params.id, req.user))
+    revealCpf: async (req, res) => res.json(await athletes.revealCpf(req.params.id, req.user)),
+    // A FOTO, pelas duas mãos. `req.file` pode vir indefinido de propósito: a
+    // recusa por ausência é do serviço, que tem a frase combinada.
+    trocarMinhaFoto: async (req, res) => res.json(await athletes.trocarMinhaFoto(req.file, req.user)),
+    trocarFoto: async (req, res) => res.json(await athletes.trocarFotoDoAtleta(req.params.id, req.file, req.user))
   },
 
   events: {

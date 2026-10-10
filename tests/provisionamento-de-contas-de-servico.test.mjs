@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
-  limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao, comoAtor, unico, api, gerarCpf, vincular
-} from './helpers.mjs';
+  limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao, comoAtor, unico, api, gerarCpf, vincular, pedirPerfilDeAtleta } from './helpers.mjs';
 import contasDeServico from '../src/services/serviceAccountService.js';
 import { withUserContext } from '../src/config/rlsSession.js';
 
@@ -52,7 +51,7 @@ describe('a federação legada, sem conta de serviço', () => {
     await tornarLegada(organizationId);
 
     const pessoa = await criarUsuario({ name: 'Atleta Legado' });
-    const r = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+    const r = await pedirPerfilDeAtleta(pessoa, {
       fullName: 'Atleta Legado', cpf: gerarCpf(770001), sex: 'FEMALE', birthDate: '1995-03-10',
       affiliationId: npc.id, affiliationNumber: `LEG-${unico('m')}`
     });
@@ -100,7 +99,7 @@ describe('a federação legada, sem conta de serviço', () => {
 
     // E O QUE IMPORTA: o autocadastro conclui de novo, sozinho.
     const pessoa = await criarUsuario({ name: 'Atleta Depois' });
-    const r = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+    const r = await pedirPerfilDeAtleta(pessoa, {
       fullName: 'Atleta Depois', cpf: gerarCpf(770002), sex: 'FEMALE', birthDate: '1995-03-10',
       affiliationId: npc.id, affiliationNumber: `LEG-${unico('m')}`
     });
@@ -303,7 +302,7 @@ describe('federação existente depois do deploy: a sequência inteira', () => {
       fullName: 'ROBERTA LEGADA', cpf, sex: 'FEMALE', birthDate: '1995-03-10',
       affiliationId: npc.id, affiliationNumber: 'LEG-42'
     };
-    const antes = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send(corpo);
+    const antes = await pedirPerfilDeAtleta(pessoa, corpo);
     expect(antes.status, 'o 503 não aconteceu: o teste não mede o buraco').toBe(503);
 
     // 4. O PROVISIONAMENTO — o passo obrigatório do deploy.
@@ -311,7 +310,7 @@ describe('federação existente depois do deploy: a sequência inteira', () => {
 
     // 5. O MESMO PEDIDO, agora: conclui sozinho.
     const outraPessoa = await criarUsuario({ name: 'ROBERTA LEGADA' });
-    const depois = await api().post('/api/v1/athlete-requests').set(outraPessoa.auth()).send(corpo);
+    const depois = await pedirPerfilDeAtleta(outraPessoa, corpo);
     expect(depois.status, JSON.stringify(depois.body).slice(0, 300)).toBe(201);
     expect(depois.body.status).toBe('APPROVED');
     expect(depois.body.reviewedById, 'alguém aprovou').toBeNull();

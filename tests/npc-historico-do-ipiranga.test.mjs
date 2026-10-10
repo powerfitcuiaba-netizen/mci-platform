@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
   api, prisma, limparBanco, garantirCatalogo, criarUsuario, criarOrganizacao,
-  vincular, comoAtor, unico, gerarCpf
-} from './helpers.mjs';
+  vincular, comoAtor, unico, gerarCpf, pedirPerfilDeAtleta } from './helpers.mjs';
 import filiacaoOficial from '../src/services/officialAffiliationService.js';
 import { withUserContext } from '../src/config/rlsSession.js';
 
@@ -183,7 +182,7 @@ describe('conciliação por FILIAÇÃO: só athleteId muda', () => {
     expect(antes.every(l => l.athleteId === null), 'todas sem dono, como o Ipiranga').toBe(true);
 
     const pessoa = await cadastrarPessoa(NOME_ALVO);
-    const pedido = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+    const pedido = await pedirPerfilDeAtleta(pessoa, {
       fullName: NOME_ALVO,
       cpf: gerarCpf(910001),
       sex: 'FEMALE',
@@ -230,7 +229,7 @@ describe('conciliação por FILIAÇÃO: só athleteId muda', () => {
     expect(somaAntes, 'a etapa pontuou de verdade').toBeGreaterThan(0);
 
     const pessoa = await cadastrarPessoa(NOME_ALVO);
-    const pedido = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+    const pedido = await pedirPerfilDeAtleta(pessoa, {
       fullName: NOME_ALVO, cpf: gerarCpf(910002), sex: 'FEMALE', birthDate: '1998-07-15',
       affiliationId: npc.id, affiliationNumber: MATRICULA_ALVO
     });
@@ -295,7 +294,7 @@ describe('colisão de identidade: recusa NEUTRA e ledger imóvel', () => {
     const antes = await retrato();
 
     const outra = await cadastrarPessoa('OUTRA PESSOA');
-    const pedido = await api().post('/api/v1/athlete-requests').set(outra.auth()).send({
+    const pedido = await pedirPerfilDeAtleta(outra, {
       fullName: 'OUTRA PESSOA',
       cpf: gerarCpf(930999),
       sex: 'FEMALE', birthDate: '1998-07-15',
@@ -322,7 +321,7 @@ describe('colisão de identidade: recusa NEUTRA e ledger imóvel', () => {
     // qualquer motivo — foi assim que um teste desta base já passou pelo motivo
     // errado. Aqui a única diferença é a matrícula.
     const outra = await cadastrarPessoa('OUTRA PESSOA');
-    const pedido = await api().post('/api/v1/athlete-requests').set(outra.auth()).send({
+    const pedido = await pedirPerfilDeAtleta(outra, {
       fullName: 'OUTRA PESSOA',
       cpf: gerarCpf(930999),
       sex: 'FEMALE', birthDate: '1998-07-15',
@@ -339,7 +338,7 @@ describe('nome sozinho NUNCA vincula', () => {
     const antes = await retrato();
 
     const pessoa = await cadastrarPessoa(NOME_ALVO);
-    const pedido = await api().post('/api/v1/athlete-requests').set(pessoa.auth()).send({
+    const pedido = await pedirPerfilDeAtleta(pessoa, {
       fullName: NOME_ALVO,
       cpf: gerarCpf(940001),
       sex: 'FEMALE', birthDate: '1998-07-15',
