@@ -99,7 +99,26 @@ beforeEach(() => {
   espioes.aprovar = vi.fn(async () => ({ ...PEDIDO, status: 'APPROVED' }));
   espioes.rejeitar = vi.fn(async () => ({ ...PEDIDO, status: 'REJECTED' }));
 });
+// jsdom não implementa object URLs, e a pré-visualização da foto depende
+// deles. O mock subiu da seção da foto para cá quando a foto passou a fazer
+// parte de TODO envio.
+beforeEach(() => {
+  globalThis.URL.createObjectURL = vi.fn(() => 'blob:previa');
+  globalThis.URL.revokeObjectURL = vi.fn();
+});
 afterEach(cleanup);
+
+// A IMAGEM DE TESTE e a escolha dela vivem aqui em cima porque a foto deixou
+// de ser um extra: ela é OBRIGATÓRIA, vai na mesma requisição que cria o
+// pedido, e sem ela nenhum envio acontece. Todo caso que mede o envio precisa
+// dela.
+const imagemDeTeste = (nome = 'foto.png', tipo = 'image/png', bytes = 2048) =>
+  new File([new Uint8Array(bytes)], nome, { type: tipo });
+
+const escolherFotoNoFormulario = async (usuario, arquivo = imagemDeTeste()) => {
+  const entrada = document.getElementById('entrada-da-foto');
+  await usuario.upload(entrada, arquivo);
+};
 
 const preencherPedido = async usuario => {
   await usuario.type(screen.getByLabelText(/^CPF/i), '11144477735');
@@ -107,6 +126,7 @@ const preencherPedido = async usuario => {
   await waitFor(() => expect(screen.getByLabelText(/^Entidade de filiação/i)).toBeEnabled());
   await usuario.selectOptions(screen.getByLabelText(/^Entidade de filiação/i), 'fil-1');
   await usuario.type(screen.getByLabelText(/^Número de registro/i), 'NPC-123');
+  await escolherFotoNoFormulario(usuario);
 };
 
 // =========================== MINHA SOLICITAÇÃO =============================
@@ -519,19 +539,8 @@ describe('fila do operador', () => {
 // ============================== A FOTO ====================================
 
 describe('foto da solicitação', () => {
-  const imagem = (nome = 'foto.png', tipo = 'image/png', bytes = 2048) =>
-    new File([new Uint8Array(bytes)], nome, { type: tipo });
-
-  beforeEach(() => {
-    // jsdom não implementa object URLs; a pré-visualização depende deles.
-    globalThis.URL.createObjectURL = vi.fn(() => 'blob:previa');
-    globalThis.URL.revokeObjectURL = vi.fn();
-  });
-
-  const escolherFoto = async (usuario, arquivo) => {
-    const entrada = document.getElementById('entrada-da-foto');
-    await usuario.upload(entrada, arquivo);
-  };
+  const imagem = imagemDeTeste;
+  const escolherFoto = escolherFotoNoFormulario;
 
   it('a foto escolhida aparece em pré-visualização, e nada sobe ainda', async () => {
     const usuario = userEvent.setup();
@@ -602,10 +611,11 @@ describe('foto da solicitação', () => {
       expect(await screen.findByAltText(/Pré-visualização da foto/i)).toBeInTheDocument();
 
       await usuario.click(screen.getByRole('button', { name: /concluir cadastro/i }));
-      await waitFor(() => expect(espioes.enviarFoto).toHaveBeenCalled());
+      await waitFor(() => expect(espioes.criar).toHaveBeenCalled());
 
-      // O que subiu é JPEG, renomeado e MENOR que o teto do servidor.
-      const enviado = espioes.enviarFoto.mock.calls[0][1];
+      // O que subiu é JPEG, renomeado e MENOR que o teto do servidor. Ele vai
+      // no SEGUNDO argumento de `criar`: a foto viaja junto com o pedido.
+      const enviado = espioes.criar.mock.calls[0][1];
       expect(enviado.type).toBe('image/jpeg');
       expect(enviado.name).toBe('grande.jpg');
       expect(enviado.size).toBeLessThan(5 * 1024 * 1024);
@@ -618,24 +628,11 @@ describe('foto da solicitação', () => {
     }
   });
 
-  // A ordem importa: a rota da foto é `/athlete-requests/:id/photo`, e o id só
-  // existe depois de a solicitação nascer.
-  it('a solicitação nasce PRIMEIRO, e a foto sobe com o id dela', async () => {
-    const usuario = userEvent.setup();
-    render(<MinhaSolicitacao notificar={() => {}} />);
-    await screen.findByLabelText(/^CPF/i);
-
-    await preencherPedido(usuario);
-    await escolherFoto(usuario, imagem());
-    await usuario.click(screen.getByRole('button', { name: /concluir cadastro/i }));
-
-    await waitFor(() => expect(espioes.enviarFoto).toHaveBeenCalled());
-    expect(espioes.criar).toHaveBeenCalledTimes(1);
-    expect(espioes.enviarFoto.mock.calls[0][0]).toBe('ped-1');
-    expect(espioes.enviarFoto.mock.calls[0][1]).toBeInstanceOf(File);
-  });
-
-  it('sem foto escolhida, o envio não chama a rota de foto', async () => {
+  // UMA REQUISIÇÃO SÓ. Eram duas — a solicitação nascia e a foto subia depois,
+  // com o id dela — e entre as duas existia um pedido SEM foto. Era por ali
+  // que o autocadastro acabava sem nenhuma: bastava a segunda falhar, ou nem
+  // acontecer.
+  it('a foto viaja JUNTO com a solicitação, numa requisição só', async () => {
     const usuario = userEvent.setup();
     render(<MinhaSolicitacao notificar={() => {}} />);
     await screen.findByLabelText(/^CPF/i);
@@ -643,34 +640,52 @@ describe('foto da solicitação', () => {
     await preencherPedido(usuario);
     await usuario.click(screen.getByRole('button', { name: /concluir cadastro/i }));
 
-    await waitFor(() => expect(espioes.criar).toHaveBeenCalled());
+    await waitFor(() => expect(espioes.criar).toHaveBeenCalledTimes(1));
+    expect(espioes.criar.mock.calls[0][1]).toBeInstanceOf(File);
+    // E não há segunda chamada: a janela entre "pedido criado" e "foto
+    // enviada" deixou de existir.
     expect(espioes.enviarFoto).not.toHaveBeenCalled();
   });
 
-  // O caso que mais confunde quem está preenchendo: a solicitação ENTROU e só
-  // a foto falhou. Dizer "falhou" sem qualificar faria a pessoa tentar de novo
-  // e bater num 409 de pedido duplicado.
-  it('foto que falha depois da solicitação criada não faz a pessoa reenviar tudo', async () => {
-    espioes.enviarFoto = vi.fn(async () => { throw new Error('Arquivo inválido.'); });
-    const avisos = [];
+  it('SEM foto escolhida, nada é enviado e a tela diz o que falta', async () => {
     const usuario = userEvent.setup();
-    render(<MinhaSolicitacao notificar={(texto, tom) => avisos.push({ texto, tom })} />);
+    render(<MinhaSolicitacao notificar={() => {}} />);
+    await screen.findByLabelText(/^CPF/i);
+
+    // O mesmo preenchimento, menos a foto.
+    await usuario.type(screen.getByLabelText(/^CPF/i), '11144477735');
+    await usuario.selectOptions(screen.getByLabelText(/^Categoria de competição/i), 'FEMALE');
+    await waitFor(() => expect(screen.getByLabelText(/^Entidade de filiação/i)).toBeEnabled());
+    await usuario.selectOptions(screen.getByLabelText(/^Entidade de filiação/i), 'fil-1');
+    await usuario.type(screen.getByLabelText(/^Número de registro/i), 'NPC-123');
+
+    await usuario.click(screen.getByRole('button', { name: /concluir cadastro/i }));
+
+    // A recusa acontece na tela, ANTES da rede: deixar o servidor recusar
+    // faria a pessoa esperar o envio inteiro para descobrir que faltava
+    // escolher o arquivo que está ali na frente dela.
+    expect(await screen.findByText(/Escolha uma foto/i)).toBeInTheDocument();
+    expect(espioes.criar).not.toHaveBeenCalled();
+  });
+
+  // O caso que sumiu, e por que sumiu: antes, a solicitação ENTRAVA e só a
+  // foto falhava, e a tela tinha de explicar isso sem fazer a pessoa tentar
+  // de novo e bater num 409 de pedido duplicado. Agora não há desfecho
+  // parcial — se a foto não é aceita, pedido nenhum nasce, e o mesmo
+  // formulário pode ser reenviado.
+  it('se o envio falha, pedido nenhum nasce e o formulário continua preenchido', async () => {
+    espioes.criar = vi.fn(async () => { throw new Error('Arquivo inválido.'); });
+    const usuario = userEvent.setup();
+    render(<MinhaSolicitacao notificar={() => {}} />);
     await screen.findByLabelText(/^CPF/i);
 
     await preencherPedido(usuario);
-    await escolherFoto(usuario, imagem());
     await usuario.click(screen.getByRole('button', { name: /concluir cadastro/i }));
 
-    await waitFor(() => expect(avisos.length).toBeGreaterThan(0));
-    const aviso = avisos.at(-1);
-    // "Cadastro realizado", e não "solicitação enviada": o cadastro CONCLUI
-    // agora, e dizer "enviada" faria a pessoa ficar esperando uma análise que
-    // não vai acontecer.
-    expect(aviso.texto).toMatch(/Cadastro realizado/i);
-    expect(aviso.texto).toMatch(/foto não subiu/i);
-    expect(aviso.texto).toMatch(/reenviá-la/i);
-    // A solicitação foi criada uma única vez — nada de tentar de novo.
-    expect(espioes.criar).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(espioes.criar).toHaveBeenCalledTimes(1));
+    // O CPF continua na tela: não houve sucesso, e limpar o formulário faria
+    // a pessoa digitar tudo de novo por causa de um arquivo recusado.
+    expect(screen.getByLabelText(/^CPF/i)).toHaveValue('111.444.777-35');
   });
 
   it('com pedido em análise, a foto pode ser trocada sem cancelar o pedido', async () => {
