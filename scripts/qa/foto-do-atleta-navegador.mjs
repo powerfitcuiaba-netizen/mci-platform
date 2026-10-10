@@ -202,13 +202,19 @@ async function principal() {
   // O atleta é criado pela API, com a sessão do navegador — é o mesmo caminho
   // do operador, e nasce SEM foto, que é o estado que origina o problema.
   const criado = await pagina.evaluate(async ({ base, nome }) => {
-    const chave = Object.keys(localStorage).find(k => /token/i.test(k));
-    const token = chave ? localStorage.getItem(chave)?.replace(/^"|"$/g, '') : null;
+    // O TOKEN PODE ESTAR NOS DOIS COFRES. Sem "lembrar de mim" marcado ele vai
+    // para `sessionStorage`, e procurar só no `localStorage` devolvia
+    // requisição anônima — que responde 401 e parece "banco sem organização".
+    const CHAVE = 'mci-auth-token';
+    const token = (localStorage.getItem(CHAVE) || sessionStorage.getItem(CHAVE) || '').replace(/^"|"$/g, '');
     const cabecalho = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
 
-    const orgs = await (await fetch(`${base}/organizations`, { headers: cabecalho })).json();
-    const organizationId = orgs.items?.[0]?.id;
-    if (!organizationId) return { erro: 'nenhuma organização neste banco' };
+    const respostaDasOrgs = await fetch(`${base}/organizations`, { headers: cabecalho });
+    const orgs = await respostaDasOrgs.json();
+    const organizationId = orgs.items?.[0]?.id ?? orgs?.[0]?.id;
+    if (!organizationId) {
+      return { erro: `nenhuma organização (HTTP ${respostaDasOrgs.status}, token ${token ? 'presente' : 'AUSENTE'})` };
+    }
 
     const sufixo = String(Date.now()).slice(-9);
     const resposta = await fetch(`${base}/athletes`, {
@@ -302,8 +308,8 @@ async function principal() {
   // ================================================ 5. a limpeza do que criei
   console.log('5. removendo o atleta de verificação…');
   const removido = await pagina.evaluate(async ({ base, id }) => {
-    const chave = Object.keys(localStorage).find(k => /token/i.test(k));
-    const token = chave ? localStorage.getItem(chave)?.replace(/^"|"$/g, '') : null;
+    const CHAVE = 'mci-auth-token';
+    const token = (localStorage.getItem(CHAVE) || sessionStorage.getItem(CHAVE) || '').replace(/^"|"$/g, '');
     const r = await fetch(`${base}/athletes/${id}`, {
       method: 'DELETE', headers: { Authorization: `Bearer ${token}` }
     });
