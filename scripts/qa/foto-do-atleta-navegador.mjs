@@ -234,14 +234,29 @@ async function principal() {
       }
     }
 
-    const sufixo = String(Date.now()).slice(-9);
+    // UM CPF VÁLIDO DE VERDADE. Os nove primeiros dígitos vêm do relógio, para
+    // não colidir entre execuções; os dois últimos são CALCULADOS. Antes eu
+    // preenchia com `padStart` e o servidor recusava com INVALID_CPF — com
+    // razão: o dígito verificador existe justamente para barrar número
+    // inventado.
+    const base9 = String(Date.now()).slice(-9).split('').map(Number);
+    const digito = numeros => {
+      const peso = numeros.length + 1;
+      const soma = numeros.reduce((total, n, i) => total + n * (peso - i), 0);
+      const resto = (soma * 10) % 11;
+      return resto === 10 ? 0 : resto;
+    };
+    const d1 = digito(base9);
+    const d2 = digito([...base9, d1]);
+    const cpf = [...base9, d1, d2].join('');
+
     const resposta = await fetch(`${base}/athletes`, {
       method: 'POST',
       headers: cabecalho,
       body: JSON.stringify({
         organizationId, fullName: nome, sex: 'MALE',
         birthDate: '1995-02-10', state: 'MT', city: 'Cuiabá',
-        cpf: sufixo.padStart(11, '1')
+        cpf
       })
     });
     return { status: resposta.status, corpo: await resposta.json() };
