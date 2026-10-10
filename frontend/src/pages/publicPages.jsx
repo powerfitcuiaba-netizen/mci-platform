@@ -3,7 +3,7 @@ import { CalendarDays, ChevronRight, MapPin, Search, Trophy, Users } from 'lucid
 import api from '../services/api';
 import { useDebounce, useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Metric, PageHead, Paginacao } from '../components/ui';
-import { dicaDeResultadosPublicados, formatarData, formatarDataHora, seloDoEvento, estadoDaBateria, estadoPro } from '../lib/format';
+import { caminhoDaFotoDoAtleta, dicaDeResultadosPublicados, formatarData, formatarDataHora, seloDoEvento, estadoDaBateria, estadoPro } from '../lib/format';
 import { PulsoAoVivo, Revelacao } from '../components/experiencia';
 import { useIdioma, TextoRico } from '../lib/idioma';
 
@@ -402,7 +402,7 @@ export function CampeonatoDetalhe({ slug, navegar }) {
                       >
                         <Avatar
                           name={atleta.fullName}
-                          mediaPath={atleta.hasPhoto ? `/media/athletes/${atleta.id}/photo` : null}
+                          mediaPath={caminhoDaFotoDoAtleta(atleta)}
                         />
                         <span className="info">
                           <strong>{atleta.stageName || atleta.fullName}</strong>
@@ -502,7 +502,7 @@ export function Atletas({ navegar }) {
                     style={{ display: 'flex', gap: 12, alignItems: 'center', textAlign: 'left', cursor: 'pointer' }}
                     onClick={() => navegar(`atletas/${atleta.id}`)}
                   >
-                    <Avatar name={atleta.fullName} size="avatar-lg" />
+                    <Avatar name={atleta.fullName} mediaPath={caminhoDaFotoDoAtleta(atleta)} size="avatar-lg" />
                     <span style={{ minWidth: 0 }}>
                       <strong style={{ display: 'block', fontSize: 14 }}>{atleta.stageName || atleta.fullName}</strong>
                       <small style={{ display: 'block', color: 'var(--cinza-fraco)', fontSize: 11.5, marginTop: 3 }}>
@@ -543,7 +543,7 @@ export function AtletaDetalhe({ id, navegar }) {
               <Revelacao as="section" indice={0} className="hero" style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
                 <Avatar
                   name={athlete.fullName}
-                  mediaPath={athlete.hasPhoto ? `/media/athletes/${athlete.id}/photo` : null}
+                  mediaPath={caminhoDaFotoDoAtleta(athlete)}
                   size="avatar-lg"
                 />
                 <div>

@@ -5,7 +5,7 @@ import { useAuth } from '../AuthContext';
 import { useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Field, Metric, Modal, ModalActions, PageHead } from '../components/ui';
 import { useIdioma } from '../lib/idioma';
-import { ESTADO_PRO, formatarData, formatarDataHora, pesoEmKg, seloDoEvento, estadoDaBateria, estadoDaInscricao, papel, estadoDoUsuario } from '../lib/format';
+import { ESTADO_PRO, caminhoDaFotoDoAtleta, formatarData, formatarDataHora, pesoEmKg, seloDoEvento, estadoDaBateria, estadoDaInscricao, papel, estadoDoUsuario } from '../lib/format';
 
 // Painel do atleta e conta do usuário.
 
@@ -52,7 +52,7 @@ export function MeuPainel({ navegar }) {
           return (
             <>
               <section className="hero" style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
-                <Avatar name={athlete.fullName} size="avatar-lg" />
+                <Avatar name={athlete.fullName} mediaPath={caminhoDaFotoDoAtleta(athlete)} size="avatar-lg" />
                 <div style={{ flex: 1, minWidth: 220 }}>
                   <span className="eyebrow">{athlete.affiliation?.name || t('painel.semFiliacao')}</span>
                   <h1 style={{ marginTop: 6 }}>{athlete.stageName || athlete.fullName}</h1>

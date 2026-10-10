@@ -3,7 +3,7 @@ import { AlertTriangle, Archive, Eye, Link2, Pause, Play, PencilLine, ShieldChec
 import api from '../services/api';
 import { useFetch } from '../lib/hooks';
 import { AsyncSection, Avatar, Badge, EmptyState, Field, Modal, ModalActions, PageHead } from '../components/ui';
-import { formatarData, formatarDataHora } from '../lib/format';
+import { caminhoDaFotoDoAtleta, formatarData, formatarDataHora } from '../lib/format';
 import { useIdioma } from '../lib/idioma';
 
 // ==========================================================================
@@ -85,7 +85,7 @@ export function AdminAtleta({ id, navegar, notificar }) {
               <section className="panel">
                 <div className="panel-head">
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <Avatar name={atleta.fullName} mediaPath={atleta.hasPhoto ? `/media/athletes/${atleta.id}/photo` : null} />
+                    <Avatar name={atleta.fullName} mediaPath={caminhoDaFotoDoAtleta(atleta)} />
                     <div>
                       {/* O NOME DOMINA, A FILIAÇÃO IDENTIFICA.
                           O nome é o que a pessoa reconhece, e ele muda: casamento,

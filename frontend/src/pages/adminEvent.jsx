@@ -14,7 +14,7 @@ export const POR_PAGINA = 100;
 import { ContadorVivo, PulsoAoVivo, Revelacao, useRecemAfetado } from '../components/experiencia';
 import { estiloDaSequencia } from '../lib/experiencia';
 import {
-  ESTADO_EVENTO, TRANSICOES_EVENTO, formatarData, formatarDataHora, mascararCpf, pesoEmKg, seloDoEvento, somenteDigitos, estadoDaBateria, estadoDaInscricao, tipoDeCredencial } from '../lib/format';
+  ESTADO_EVENTO, TRANSICOES_EVENTO, caminhoDaFotoDoAtleta, formatarData, formatarDataHora, mascararCpf, pesoEmKg, seloDoEvento, somenteDigitos, estadoDaBateria, estadoDaInscricao, tipoDeCredencial } from '../lib/format';
 
 // Área administrativa do evento. Cada tela opera contra a API real e reflete a
 // máquina de estados do servidor: o que a API recusaria, a interface não
@@ -659,7 +659,7 @@ export function AdminInscricoes({ notificar }) {
                         <tr key={inscricao.id} className={`revela ${recem.classeDeLinhaDeTabela(inscricao.id)}`.trim()} style={estiloDaSequencia(indice)}>
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                              <Avatar name={inscricao.athlete.fullName} size="avatar-sm" />
+                              <Avatar name={inscricao.athlete.fullName} mediaPath={caminhoDaFotoDoAtleta(inscricao.athlete)} size="avatar-sm" />
                               <div>
                                 <strong style={{ display: 'block' }}>{inscricao.athlete.fullName}</strong>
                                 <small style={{ color: 'var(--cinza-fraco)' }}>{inscricao.athlete.cpf || inscricao.athlete.cpfMasked || '—'}</small>
@@ -1006,7 +1006,7 @@ export function AdminCheckin({ notificar }) {
                       const ocupada = emOperacao === inscricao.id;
                       return (
                         <Revelacao as="div" indice={indice} key={inscricao.id} className={`list-row${recem.classeDe(inscricao.id)}`}>
-                          <Avatar name={inscricao.athlete.fullName} />
+                          <Avatar name={inscricao.athlete.fullName} mediaPath={caminhoDaFotoDoAtleta(inscricao.athlete)} />
                           <span className="info">
                             <strong>{inscricao.athlete.stageName || inscricao.athlete.fullName}</strong>
                             <small>
@@ -1078,7 +1078,7 @@ export function AdminPesagem({ notificar }) {
                 {dados.items.length
                   ? dados.items.map((inscricao, indice) => (
                     <Revelacao as="div" indice={indice} key={inscricao.id} className={`list-row${recem.classeDe(inscricao.id)}`}>
-                      <Avatar name={inscricao.athlete.fullName} />
+                      <Avatar name={inscricao.athlete.fullName} mediaPath={caminhoDaFotoDoAtleta(inscricao.athlete)} />
                       <span className="info">
                         <strong>{inscricao.athlete.stageName || inscricao.athlete.fullName}</strong>
                         <small>

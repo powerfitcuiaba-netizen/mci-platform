@@ -513,6 +513,19 @@ export const criterioDeMatch = codigo =>
 export const caminhoDoAvatar = perfil =>
   (perfil?.id && perfil?.hasAvatar ? `/media/profiles/${perfil.id}/avatar` : null);
 
+// A FOTO DO ATLETA, pela mesma regra — e ela existe porque a ausência dela
+// custou caro.
+//
+// O caminho era montado à mão em cada tela (`atleta.hasPhoto ? ... : null`), e
+// o diretório público simplesmente NÃO o montava: `<Avatar name={...} />`, sem
+// `mediaPath`. O resultado é que a vitrine de atletas mostrava monograma para
+// todo mundo, inclusive para quem tinha foto guardada — e o dado estava na
+// resposta o tempo todo, porque `athletePublic` já devolve `hasPhoto`.
+//
+// Com um helper, esquecer passa a ser mais trabalhoso do que acertar.
+export const caminhoDaFotoDoAtleta = atleta =>
+  (atleta?.id && atleta?.hasPhoto ? `/media/athletes/${atleta.id}/photo` : null);
+
 // A COMPOSIÇÃO DO CARTÃO "RESULTADOS PUBLICADOS", EM UMA LINHA.
 //
 // O número sozinho já mentiu uma vez: quando ele contava só a apuração

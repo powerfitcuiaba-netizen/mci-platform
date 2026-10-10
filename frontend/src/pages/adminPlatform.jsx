@@ -7,7 +7,7 @@ import { permissoesDe, podeCom } from '../lib/permissoes';
 import { AsyncSection, AtualizadoEm, Avatar, Badge, ConfirmDialog, EmptyState, Field, Metric, Modal, ModalActions, PageHead, Paginacao } from '../components/ui';
 // Só a classe de cartão clicável é usada aqui — é CSS, não precisa do motor
 // em JS. Importar o que não se usa é ruído que o lint acusa e o leitor não.
-import { criterioDeMatch, dicaDeResultadosPublicados, estadoDeMatch, formatarDataHora, ocultarCpf, papel, estadoDoUsuario, tipoDeFiliacao, estadoDaImportacao } from '../lib/format';
+import { caminhoDaFotoDoAtleta, criterioDeMatch, dicaDeResultadosPublicados, estadoDeMatch, formatarDataHora, ocultarCpf, papel, estadoDoUsuario, tipoDeFiliacao, estadoDaImportacao } from '../lib/format';
 import { useIdioma } from '../lib/idioma';
 import PatrocinadoresOficiais from './patrocinadoresOficiais';
 
@@ -1635,7 +1635,7 @@ function VincularAtleta({ item, organizationId, notificar, onClose, onSalvo }) {
                   iniciais sozinho — não há estado quebrado. */}
               <Avatar
                 name={atleta.fullName}
-                mediaPath={atleta.hasPhoto ? `/media/athletes/${atleta.id}/photo` : null}
+                mediaPath={caminhoDaFotoDoAtleta(atleta)}
                 size="avatar-sm"
               />
               <span className="info">
@@ -2338,7 +2338,7 @@ function VinculoDeEquipe({ notificar }) {
                       style={{ width: '100%', textAlign: 'left', background: atleta?.id === item.id ? 'var(--linha)' : 'transparent', border: 0, cursor: 'pointer' }}
                       onClick={() => setAtleta(item)}
                     >
-                      <Avatar name={item.fullName} size="avatar-sm" />
+                      <Avatar name={item.fullName} mediaPath={caminhoDaFotoDoAtleta(item)} size="avatar-sm" />
                       <span className="info">
                         <strong>{item.fullName}</strong>
                         <small>{item.team?.name || t('plataforma.semEquipe')}</small>

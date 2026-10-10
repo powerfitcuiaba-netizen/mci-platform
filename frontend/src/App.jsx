@@ -11,7 +11,7 @@ import { useDebounce, useFetch, useHashRoute, useToasts } from './lib/hooks';
 import { Avatar, BlocoDaMarca, Skeleton, Toasts } from './components/ui';
 import SeletorDeIdioma from './components/seletorDeIdioma';
 import { useIdioma } from './lib/idioma';
-import { caminhoDoAvatar, papel } from './lib/format';
+import { caminhoDaFotoDoAtleta, caminhoDoAvatar, papel } from './lib/format';
 import LimiteDeErro from './components/limiteDeErro';
 import AberturaMci, { aberturaJaFoiVista } from './components/aberturaMci';
 import { PalcoDaExperiencia } from './components/experiencia';
@@ -266,7 +266,7 @@ export function BuscaGlobal({ navegar }) {
 
           {(resultados.athletes || []).map(atleta => (
             <button key={atleta.id} type="button" className="list-row" style={{ width: '100%', background: 'transparent', border: 0, textAlign: 'left' }} onClick={() => navegar(`atletas/${atleta.id}`)}>
-              <Avatar name={atleta.fullName} size="avatar-sm" />
+              <Avatar name={atleta.fullName} mediaPath={caminhoDaFotoDoAtleta(atleta)} size="avatar-sm" />
               <span className="info"><strong>{atleta.stageName || atleta.fullName}</strong><small>{t('busca.atleta')}</small></span>
             </button>
           ))}

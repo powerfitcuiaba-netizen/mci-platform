@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Search } from 'lucide-react';
 import api from '../services/api';
 import { useDebounce, useFetch, useListaPaginada } from '../lib/hooks';
+import { caminhoDaFotoDoAtleta } from '../lib/format';
 import { AsyncSection, Avatar, Badge, Paginacao, PageHead } from '../components/ui';
 import { useIdioma } from '../lib/idioma';
 
@@ -119,7 +120,7 @@ export function AdminAtletas({ navegar }) {
                       <tr key={atleta.id}>
                         <td data-rotulo={t('atleta.nomeCompleto')}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <Avatar name={atleta.fullName} mediaPath={atleta.hasPhoto ? `/media/athletes/${atleta.id}/photo` : null} size="avatar-sm" />
+                            <Avatar name={atleta.fullName} mediaPath={caminhoDaFotoDoAtleta(atleta)} size="avatar-sm" />
                             <div>
                               <strong>{atleta.fullName}</strong>
                               {atleta.stageName && <div><small>{atleta.stageName}</small></div>}
