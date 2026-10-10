@@ -394,19 +394,28 @@ describe('IDOR nas rotas de mídia que a rodada abriu', () => {
     const linha = await comoAtor(admin, () => prisma.athleteProfileRequest.findUnique({
       where: { id: pedido.body.id }, select: { photoKey: true, athleteId: true }
     }));
-    expect(linha.photoKey, 'o cliente escolheu o caminho dentro do bucket').toBeNull();
+    // A MEDIDA MUDOU DE "É NULA" PARA "NÃO É A DELE", e o que se prova é o
+    // mesmo. A foto passou a ser obrigatória e a vir na mesma requisição, então
+    // o pedido nasce COM chave — só que montada pelo SERVIDOR, por
+    // `storage.buildKey`, que higieniza o escopo e sorteia o nome. Exigir nulo
+    // agora mediria a obrigatoriedade da foto, e não o plantio.
+    expect(linha.photoKey, 'o cliente escolheu o caminho dentro do bucket').not.toBe(plantada);
+    expect(linha.photoKey, 'a chave gravada não tem a forma que o servidor constrói')
+      .toMatch(/^athlete-requests\/[a-z0-9]+\/[0-9a-f-]{36}\.(webp|png|jpg|jpeg)$/);
 
-    // E não alcançou o atleta pela conclusão automática.
+    // E a plantada não alcançou o atleta pela conclusão automática.
     expect(linha.athleteId, 'a conclusão automática não criou o atleta e o caso mediria o nada').toBeTruthy();
     const noAtleta = await comoAtor(operadorA, () => prisma.athlete.findUnique({
       where: { id: linha.athleteId }, select: { photoKey: true }
     }));
-    expect(noAtleta.photoKey, 'a chave plantada chegou ao cadastro do atleta').toBeNull();
+    expect(noAtleta.photoKey, 'a chave plantada chegou ao cadastro do atleta').not.toBe(plantada);
 
-    // A rota pública, portanto, não serve o objeto plantado.
+    // A rota pública serve a foto REAL — a que o servidor gravou —, e nunca o
+    // objeto plantado. O 404 de antes media um atleta sem foto; agora ele tem
+    // uma, e o que importa é de quem é a chave que a serve.
     const r = await api().get(`/api/v1/media/athletes/${linha.athleteId}/photo`);
-    expect(r.status).toBe(404);
-    expect(r.body.error.code).toBe('PHOTO_NOT_FOUND');
+    expect(r.status).toBe(200);
+    expect(String(r.headers['content-type'])).toMatch(/^image\//);
   });
 
   it('12. a chave que o fluxo legítimo grava é montada pelo SERVIDOR', async () => {
