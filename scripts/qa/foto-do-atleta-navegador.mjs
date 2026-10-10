@@ -209,11 +209,29 @@ async function principal() {
     const token = (localStorage.getItem(CHAVE) || sessionStorage.getItem(CHAVE) || '').replace(/^"|"$/g, '');
     const cabecalho = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
 
+    // O ROTEIRO CRIA A FEDERAÇÃO QUE PRECISA, se não houver nenhuma.
+    //
+    // Depender de dado pré-semeado é o que fez este arreio falhar duas vezes
+    // contra um banco que só tinha o catálogo de patrocinadores — e falhar
+    // dizendo "nenhuma organização neste banco", que parece defeito do
+    // ambiente de quem lê. Autossuficiente, ele roda contra banco migrado e
+    // vazio, que é a condição mais barata de reproduzir.
     const respostaDasOrgs = await fetch(`${base}/organizations`, { headers: cabecalho });
     const orgs = await respostaDasOrgs.json();
-    const organizationId = orgs.items?.[0]?.id ?? orgs?.[0]?.id;
+    let organizationId = orgs.items?.[0]?.id ?? orgs?.[0]?.id;
+
     if (!organizationId) {
-      return { erro: `nenhuma organização (HTTP ${respostaDasOrgs.status}, token ${token ? 'presente' : 'AUSENTE'})` };
+      const sufixoDaOrg = String(Date.now()).slice(-6);
+      const criada = await fetch(`${base}/organizations`, {
+        method: 'POST',
+        headers: cabecalho,
+        body: JSON.stringify({ name: `Federacao QA Foto ${sufixoDaOrg}`, slug: `qa-foto-${sufixoDaOrg}` })
+      });
+      const corpoDaOrg = await criada.json();
+      organizationId = corpoDaOrg?.id;
+      if (!organizationId) {
+        return { erro: `não consegui criar a federação (HTTP ${criada.status}, token ${token ? 'presente' : 'AUSENTE'}): ${JSON.stringify(corpoDaOrg).slice(0, 200)}` };
+      }
     }
 
     const sufixo = String(Date.now()).slice(-9);
